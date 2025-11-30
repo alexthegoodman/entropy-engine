@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::animations::{
+use crate::kinematic_animations::{
     motion_path::SkeletonMotionPath,
     skeleton::{SkeletonAssemblyConfig, SkeletonPart},
 };

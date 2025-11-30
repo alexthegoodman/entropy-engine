@@ -7,12 +7,12 @@ use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
 
-use crate::animations::motion_path::AnimationPlayback;
-use crate::animations::render_skeleton::SkeletonRenderPart;
-use crate::animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
+use crate::kinematic_animations::motion_path::AnimationPlayback;
+use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
+use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
 use crate::handlers::get_camera;
-use crate::landscapes::QuadNode::QuadNode;
-use crate::landscapes::TerrainManager::TerrainManager;
+use crate::heightfield_landscapes::QuadNode::QuadNode;
+use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::lighting::LightState::LightState;
 use crate::{
     core::Texture::Texture,

@@ -2,7 +2,7 @@ use nalgebra::{Matrix4, Point3, Vector3};
 use std::f32::consts::PI;
 use wgpu::util::DeviceExt;
 
-use crate::core::Transform::{matrix4_to_raw_array, Transform};
+use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::handlers::Vertex;
 
 pub struct Sphere {

@@ -14,12 +14,12 @@ use wgpu::util::DeviceExt;
 use wgpu::*;
 
 use crate::core::Texture::Texture;
-use crate::core::Transform::{matrix4_to_raw_array, Transform};
+use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::handlers::{get_camera, Vertex};
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
-use crate::landscapes::LandscapeLOD::{calculate_normals, sample_height_world, MAX_LOD_LEVELS};
-use crate::landscapes::TerrainManager::calculate_lod_distances;
+use crate::heightfield_landscapes::LandscapeLOD::{calculate_normals, sample_height_world, MAX_LOD_LEVELS};
+use crate::heightfield_landscapes::TerrainManager::calculate_lod_distances;
 
 use super::LandscapeLOD::{
     create_debug_collision_mesh, distance_squared, get_camera_distance_from_bound_center_rel,

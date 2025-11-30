@@ -13,11 +13,11 @@ use wgpu::*;
 
 use crate::core::PlayerCharacter::PlayerCharacter;
 use crate::core::Texture::Texture;
-use crate::core::Transform::{matrix4_to_raw_array, Transform};
+use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::handlers::{get_camera, Vertex};
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
-use crate::landscapes::LandscapeLOD::{add_physics_components_mini, Rect};
+use crate::heightfield_landscapes::LandscapeLOD::{add_physics_components_mini, Rect};
 
 use super::LandscapeLOD::{
     ColliderMessage, BASE_LOD_DISTANCE, LOD_DISTANCE_MULTIPLIER, MAX_LOD_LEVELS,

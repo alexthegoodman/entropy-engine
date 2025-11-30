@@ -1,3 +1,3 @@
 fn main() {
-    println!("Hello, world!");
+    entropy_engine::startup::run();
 }

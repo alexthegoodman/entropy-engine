@@ -143,7 +143,7 @@ pub struct KinematicSolverSettings {
     pub default_k_blend: f32,
 }
 
-use crate::animations::render_skeleton::SkeletonRenderPart;
+use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use nalgebra::{Point3, Quaternion, UnitQuaternion, Vector3};
 use std::time::Instant;
 use uuid::Uuid;

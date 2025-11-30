@@ -3,21 +3,21 @@ use directories::UserDirs;
 use std::{fs, path::PathBuf, sync::MutexGuard};
 use uuid::Uuid;
 
-use crate::animations::AnimationData;
-use crate::animations::AnimationProperty;
-use crate::animations::BackgroundFill;
-use crate::animations::EasingType;
-use crate::animations::KeyType;
-use crate::animations::KeyframeValue;
-use crate::animations::ObjectType;
-use crate::animations::UIKeyframe;
+use crate::vector_animations::AnimationData;
+use crate::vector_animations::AnimationProperty;
+use crate::vector_animations::BackgroundFill;
+use crate::vector_animations::EasingType;
+use crate::vector_animations::KeyType;
+use crate::vector_animations::KeyframeValue;
+use crate::vector_animations::ObjectType;
+use crate::vector_animations::UIKeyframe;
 use crate::editor::wgpu_to_human;
 use crate::editor::PathType;
 use crate::polygon::SavedPoint;
 use crate::polygon::SavedStroke;
 use crate::editor::WindowSize;
 use crate::{
-    animations::Sequence, 
+    vector_animations::Sequence, 
     polygon::SavedPolygonConfig, 
     timelines::SavedTimelineStateConfig,
 };
