@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
 use wgpu::{util::DeviceExt, RenderPipeline};
+use winit::window::Window;
 
 use super::frame_buffer::FrameCaptureBuffer;
 
@@ -45,6 +46,7 @@ impl ExportPipeline {
 
     pub async fn initialize(
         &mut self,
+        window: Option<&Window>,
         window_size: WindowSize,
         sequences: Vec<Sequence>,
         video_current_sequence_timeline: SavedTimelineStateConfig,
@@ -87,14 +89,34 @@ impl ExportPipeline {
             ..Default::default()
         });
 
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::default(),
-                compatible_surface: None, // no surface desired for export
-                force_fallback_adapter: false,
-            })
-            .await
-            .expect("Couldn't get gpu adapter");
+        let mut surface: Option<Arc<wgpu::Surface<'static>>> = None;
+
+        let adapter = if let Some(window) = window {
+            // SAFETY: The surface must not outlive the window.
+            let s = unsafe { instance.create_surface(window).unwrap() };
+            // We can transmute the lifetime to static because the window lives for the duration
+            // of the application, which is effectively a static lifetime.
+            let s: wgpu::Surface<'static> = unsafe { std::mem::transmute(s) };
+            let s = Arc::new(s);
+            surface = Some(s.clone());
+            instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::default(),
+                    compatible_surface: Some(&s),
+                    force_fallback_adapter: false,
+                })
+                .await
+                .expect("Couldn't get gpu adapter")
+        } else {
+            instance
+                .request_adapter(&wgpu::RequestAdapterOptions {
+                    power_preference: wgpu::PowerPreference::default(),
+                    compatible_surface: None, // no surface desired for export
+                    force_fallback_adapter: false,
+                })
+                .await
+                .expect("Couldn't get gpu adapter")
+        };
 
         let (device, queue) = adapter
             .request_device(
@@ -347,7 +369,11 @@ impl ExportPipeline {
 
         // camera_binding.update_3d(&queue, &camera);
 
-        let gpu_resources = GpuResources::new(adapter, device, queue);
+        let gpu_resources = if let Some(surface) = surface {
+            GpuResources::with_surface(adapter, device, queue, surface)
+        } else {
+            GpuResources::new(adapter, device, queue)
+        };
 
         let gpu_resources = Arc::new(gpu_resources);
 
@@ -408,7 +434,7 @@ impl ExportPipeline {
         self.export_editor = Some(export_editor);
     }
 
-    pub fn render_frame(&mut self, current_time: f64) {
+    pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
         let gpu_resources = self
             .gpu_resources
@@ -418,7 +444,11 @@ impl ExportPipeline {
         let queue = &gpu_resources.queue;
         // let device = self.device.as_ref().expect("Couldn't get device");
         // let queue = self.queue.as_ref().expect("Couldn't get queue");
-        let view = self.view.as_ref().expect("Couldn't get texture view");
+        let view = if let Some(target_view) = target_view {
+            target_view
+        } else {
+            self.view.as_ref().expect("Couldn't get texture view")
+        };
         let depth_view = self
             .depth_view
             .as_ref()
@@ -592,7 +622,9 @@ impl ExportPipeline {
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
-            frame_buffer.capture_frame(device, queue, texture, &mut encoder);
+            if target_view.is_none() {
+                frame_buffer.capture_frame(device, queue, texture, &mut encoder);
+            }
 
             let command_buffer = encoder.finish();
             queue.submit(std::iter::once(command_buffer));

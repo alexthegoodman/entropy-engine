@@ -39,6 +39,7 @@ impl Exporter {
         let mut wgpu_pipeline = ExportPipeline::new();
         wgpu_pipeline
             .initialize(
+                None,
                 window_size,
                 sequences,
                 saved_timeline_state_config,
@@ -78,7 +79,7 @@ impl Exporter {
             let current_time = frame_index as f64 / FPS;
 
             // Render frame
-            wgpu_pipeline.render_frame(current_time);
+            wgpu_pipeline.render_frame(None, current_time);
 
             // Get frame buffer and extract data
             let frame_buffer = wgpu_pipeline

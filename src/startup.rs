@@ -55,6 +55,12 @@ use winit::window::{
 use tracing::info;
 use tracing::error;
 
+use crate::core::gpu_resources::GpuResources;
+use crate::video_export::pipeline::ExportPipeline;
+use crate::core::editor::WindowSize;
+use wgpu; // For wgpu::SurfaceConfiguration
+use pollster; // For pollster::block_on
+
 #[cfg(macos_platform)]
 use winit::platform::macos::{OptionAsAlt, WindowAttributesExtMacOS, WindowExtMacOS};
 #[cfg(any(x11_platform, wayland_platform))]
@@ -553,6 +559,9 @@ struct WindowState {
     // surface: Surface<DisplayHandle<'static>, Arc<Window>>,
     /// The actual winit Window.
     window: Arc<Window>,
+    pub gpu_resources: Arc<GpuResources>,
+    pub pipeline: ExportPipeline,
+    pub surface_config: wgpu::SurfaceConfiguration,
     /// The window theme we're drawing with.
     theme: Theme,
     /// Cursor position over the window.
@@ -583,10 +592,69 @@ impl WindowState {
     fn new(app: &Application, window: Window) -> Result<Self, Box<dyn Error>> {
         let window = Arc::new(window);
 
-        // SAFETY: the surface is dropped before the `window` which provided it with handle, thus
-        // it doesn't outlive it.
-        // #[cfg(not(any(android_platform, ios_platform)))]
-        // let surface = Surface::new(app.context.as_ref().unwrap(), Arc::clone(&window))?;
+        // WGPU Initialization
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        // SAFETY: The surface must not outlive the window.
+        let surface = unsafe { instance.create_surface(&window).unwrap() };
+        // We can transmute the lifetime to static because the window lives for the duration
+        // of the application, which is effectively a static lifetime.
+        let surface: wgpu::Surface<'static> = unsafe { std::mem::transmute(surface) };
+        let surface = Arc::new(surface);
+
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::default(),
+            compatible_surface: Some(&surface),
+            force_fallback_adapter: false,
+        })).expect("Couldn't get gpu adapter");
+
+        let (device, queue) = pollster::block_on(adapter.request_device(
+            &wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::default(),
+                required_limits: wgpu::Limits::default(),
+            },
+            None,
+        )).expect("Couldn't get gpu device");
+
+        let swapchain_capabilities = surface.get_capabilities(&adapter);
+        let swapchain_format = swapchain_capabilities.formats[0];
+
+        let size = window.inner_size();
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: swapchain_capabilities.alpha_modes[0],
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2
+        };
+        surface.configure(&device, &surface_config);
+
+        let gpu_resources = Arc::new(GpuResources::with_surface(adapter, device, queue, surface.clone()));
+        
+        let mut pipeline = ExportPipeline::new();
+        // Dummy data for now. Real sequences will be loaded later.
+        let sequences = Vec::new();
+        let video_current_sequence_timeline = crate::helpers::timelines::SavedTimelineStateConfig {
+            timeline_sequences: Vec::new()
+        };
+        let project_id = uuid::Uuid::new_v4().to_string(); // Generate a new UUID for project_id
+        
+        // Use window size for camera initialization
+        let window_size = WindowSize { width: size.width, height: size.height };
+
+        pollster::block_on(pipeline.initialize(
+            Some(&window),
+            window_size,
+            sequences,
+            video_current_sequence_timeline,
+            size.width, // video_width
+            size.height, // video_height
+            project_id,
+        ));
+        // End WGPU Initialization
 
         let theme = window.theme().unwrap_or(Theme::Dark);
         info!("Theme: {theme:?}");
@@ -607,6 +675,9 @@ impl WindowState {
             // #[cfg(not(any(android_platform, ios_platform)))]
             // surface,
             window,
+            gpu_resources,
+            pipeline,
+            surface_config,
             theme,
             ime,
             cursor_position: Default::default(),
@@ -787,7 +858,11 @@ impl WindowState {
                 (Some(width), Some(height)) => (width, height),
                 _ => return,
             };
-            // self.surface.resize(width, height).expect("failed to resize inner buffer");
+            self.surface_config.width = width.get();
+            self.surface_config.height = height.get();
+            if let Some(surface) = self.gpu_resources.surface.as_ref() {
+                surface.configure(&self.gpu_resources.device, &self.surface_config);
+            }
         }
         self.window.request_redraw();
     }
@@ -880,18 +955,16 @@ impl WindowState {
             return Ok(());
         }
 
-        const WHITE: u32 = 0xffffffff;
-        const DARK_GRAY: u32 = 0xff181818;
+        let output = self.gpu_resources.surface.as_ref().unwrap()
+            .get_current_texture()
+            .expect("Failed to get current swap chain texture");
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let color = match self.theme {
-            Theme::Light => WHITE,
-            Theme::Dark => DARK_GRAY,
-        };
+        // Call the render_frame from our pipeline
+        self.pipeline.render_frame(Some(&view), 0.0); // Pass a dummy current_time for now
 
-        // let mut buffer = self.surface.buffer_mut()?;
-        // buffer.fill(color);
-        // self.window.pre_present_notify();
-        // buffer.present()?;
+        output.present();
+
         Ok(())
     }
 
