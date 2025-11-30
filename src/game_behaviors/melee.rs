@@ -230,7 +230,7 @@ impl DefenseBehavior {
         }
 
         let mut rng = rand::thread_rng();
-        if rng.gen::<f32>() <= self.block_chance {
+        if rng.r#gen::<f32>() <= self.block_chance {
             self.last_block = Instant::now();
             (0.0, self.stamina_cost) // Successful block
         } else {

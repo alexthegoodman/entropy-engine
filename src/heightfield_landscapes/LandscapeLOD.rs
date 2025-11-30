@@ -12,9 +12,10 @@ use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{get_camera, Vertex};
+use crate::handlers::{Vertex};
 use crate::helpers::landscapes::get_landscape_pixels;
 use crate::helpers::saved_data::LandscapeTextureKinds;
 
@@ -138,8 +139,8 @@ pub fn sample_height(x: f32, z: f32, height_data: &[f32]) -> f32 {
 // Create type for the message we'll send through channel
 pub type ColliderMessage = (String, Collider); // (chunk_id, collider)
 
-pub fn get_camera_distance_from_bounds(bounds: Rect, transform_position: [f32; 3]) -> f32 {
-    let camera = get_camera();
+pub fn get_camera_distance_from_bounds(bounds: Rect, transform_position: [f32; 3], camera: &mut SimpleCamera) -> f32 {
+    // let camera = get_camera();
 
     // Get node corners in world space
     let corners = [
@@ -182,8 +183,8 @@ pub fn get_camera_distance_from_bounds(bounds: Rect, transform_position: [f32; 3
     closest_dist
 }
 
-pub fn get_camera_distance_from_bound_center(bounds: Rect, transform_position: [f32; 3]) -> f32 {
-    let camera = get_camera();
+pub fn get_camera_distance_from_bound_center(bounds: Rect, transform_position: [f32; 3], camera: &mut SimpleCamera) -> f32 {
+    // let camera = get_camera();
 
     // Get node corners in world space
     let center = [
@@ -204,8 +205,9 @@ pub fn get_camera_distance_from_bound_center(bounds: Rect, transform_position: [
 pub fn get_camera_distance_from_bound_center_rel(
     bounds: Rect,
     transform_position: [f32; 3],
+    camera: &mut SimpleCamera
 ) -> f32 {
-    let camera = get_camera();
+    // let camera = get_camera();
 
     // Get node corners in world space
     // let center = [
@@ -228,8 +230,8 @@ pub fn get_camera_distance_from_bound_center_rel(
     dist
 }
 
-pub fn get_camera_distance_from_bounds_rel(bounds: Rect, transform_position: [f32; 3]) -> f32 {
-    let camera = get_camera();
+pub fn get_camera_distance_from_bounds_rel(bounds: Rect, transform_position: [f32; 3], camera: &mut SimpleCamera) -> f32 {
+    // let camera = get_camera();
 
     // Get node corners in world space
     let corners = [

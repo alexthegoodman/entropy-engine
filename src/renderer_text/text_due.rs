@@ -18,17 +18,18 @@ use std::str::FromStr;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::{
-    camera::Camera3D as Camera,
+use crate::core::SimpleCamera::SimpleCamera as Camera;
+use crate::core::{
+    // camera::Camera3D as Camera,
     editor::{Point, WindowSize},
     transform::{matrix4_to_raw_array, Transform},
     vertex::Vertex,
 };
-use crate::{editor::rgb_to_wgpu, transform::create_empty_group_transform};
-use crate::editor::wgpu_to_human;
+use crate::core::{editor::rgb_to_wgpu, transform::create_empty_group_transform};
+use crate::core::editor::wgpu_to_human;
 use crate::{
-    editor::{CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET},
-    polygon::{Polygon, SavedPoint, Stroke},
+    core::editor::{CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET},
+    shape_primitives::polygon::{Polygon, SavedPoint, Stroke},
 };
 
 pub struct AtlasGlyph {

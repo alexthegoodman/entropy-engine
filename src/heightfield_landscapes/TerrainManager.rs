@@ -12,9 +12,10 @@ use wgpu::util::DeviceExt;
 use wgpu::*;
 
 use crate::core::PlayerCharacter::PlayerCharacter;
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{get_camera, Vertex};
+use crate::handlers::{Vertex};
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::heightfield_landscapes::LandscapeLOD::{add_physics_components_mini, Rect};
@@ -55,6 +56,7 @@ impl TerrainManager {
         device: &Device,
         bind_group_layout: &wgpu::BindGroupLayout,
         terrain_position: [f32; 3],
+        camera: &mut SimpleCamera
     ) -> Self {
         // Load height data from TIFF
         // let square_size = 1024.0 * 100.0;
@@ -93,6 +95,7 @@ impl TerrainManager {
             landscapeComponentId.clone(),
             sender.clone(),
             "none",
+            camera
         );
 
         // set uniform buffer for transforms
@@ -149,7 +152,7 @@ impl TerrainManager {
         camera_bind_group: &'a BindGroup,
         queue: &wgpu::Queue,
     ) {
-        if let Some(ref texture_bind_group) = &self.texture_bind_group {
+        if let Some(texture_bind_group) = &self.texture_bind_group {
             let render_time = Instant::now();
 
             // Update any per-terrain transform uniforms if needed
@@ -206,6 +209,7 @@ impl TerrainManager {
         delta_time: f32,
         // debug_character: PlayerCharacter,
         // query_pipeline: &mut QueryPipeline,
+        camera: &mut SimpleCamera
     ) {
         self.lod_update_timer += delta_time;
 
@@ -250,6 +254,7 @@ impl TerrainManager {
                 self.terrain_position,
                 self.id.clone(),
                 self.collider_sender.clone(),
+                camera
             );
 
             let update_duration = update_time.elapsed();
@@ -267,6 +272,7 @@ impl TerrainManager {
                 multibody_joint_set,
                 device,
                 self.terrain_position,
+                camera
             );
             // }
 

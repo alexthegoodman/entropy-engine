@@ -5,7 +5,7 @@ use wgpu::util::DeviceExt;
 
 use crate::handlers::Vertex;
 
-use super::{SimpleCamera::SimpleCamera, TranslationGizmo::TranslationGizmo};
+use super::SimpleCamera::SimpleCamera;
 
 // Create ray from camera and mouse position
 pub fn create_ray_from_mouse(

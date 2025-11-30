@@ -1,5 +1,7 @@
 use nalgebra::{Matrix4, Perspective3, Point3, Rotation3, Unit, Vector3};
 
+use crate::core::Viewport::Viewport;
+
 pub struct SimpleCamera {
     pub position: Point3<f32>,
     pub direction: Vector3<f32>,
@@ -9,6 +11,7 @@ pub struct SimpleCamera {
     pub znear: f32,
     pub zfar: f32,
     pub view_projection_matrix: Matrix4<f32>,
+    pub viewport: Viewport
 }
 
 impl SimpleCamera {
@@ -20,6 +23,7 @@ impl SimpleCamera {
         fovy: f32,
         znear: f32,
         zfar: f32,
+        windowWidth: f32, windowHeight: f32
     ) -> Self {
         Self {
             position,
@@ -31,6 +35,7 @@ impl SimpleCamera {
             znear,
             zfar,
             view_projection_matrix: Matrix4::identity(),
+            viewport: Viewport::new(windowWidth, windowHeight)
         }
     }
 

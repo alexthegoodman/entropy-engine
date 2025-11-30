@@ -13,9 +13,10 @@ use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{get_camera, Vertex};
+use crate::handlers::{Vertex};
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::heightfield_landscapes::LandscapeLOD::{calculate_normals, sample_height_world, MAX_LOD_LEVELS};
@@ -72,6 +73,7 @@ impl QuadNode {
         landscape_component_id: String,
         collider_sender: Sender<ColliderMessage>,
         corner: &str,
+        camera: &mut SimpleCamera
     ) -> Self {
         let depth = 0;
         Self {
@@ -90,6 +92,7 @@ impl QuadNode {
                 depth,
                 collider_sender,
                 corner,
+                camera
             )),
             debug_mesh: None,
             rigid_body_handle: None,
@@ -188,6 +191,7 @@ impl QuadNode {
         terrain_position: [f32; 3],
         landscape_component_id: String,
         collider_sender: Sender<ColliderMessage>,
+        camera: &mut SimpleCamera
     ) {
         if self.depth + 1 >= max_depth {
             // plus 1 to account for next depth
@@ -226,6 +230,7 @@ impl QuadNode {
                     self.depth + 1,
                     collider_sender.clone(),
                     "top_left",
+                    camera
                 )),
                 debug_mesh: None,
                 // terrain_position: self.terrain_position,
@@ -261,6 +266,7 @@ impl QuadNode {
                     self.depth + 1,
                     collider_sender.clone(),
                     "top_right",
+                    camera
                 )),
                 debug_mesh: None,
                 // terrain_position: self.terrain_position,
@@ -296,6 +302,7 @@ impl QuadNode {
                     self.depth + 1,
                     collider_sender.clone(),
                     "bottom_left",
+                    camera
                 )),
                 debug_mesh: None,
                 // terrain_position: self.terrain_position,
@@ -331,6 +338,7 @@ impl QuadNode {
                     self.depth + 1,
                     collider_sender.clone(),
                     "bottom_right",
+                    camera
                 )),
                 debug_mesh: None,
                 // terrain_position: self.terrain_position,
@@ -355,6 +363,7 @@ impl QuadNode {
         terrain_position: [f32; 3],
         landscape_component_id: String,
         collider_sender: Sender<ColliderMessage>,
+        camera: &mut SimpleCamera
     ) -> bool {
         if self.depth + 1 >= max_depth {
             return false;
@@ -366,6 +375,7 @@ impl QuadNode {
             terrain_position,
             self.bounds.clone(),
             self.depth,
+            camera
         );
 
         // println!("should_split {:?} {:?}", self.depth, should_split);
@@ -384,6 +394,7 @@ impl QuadNode {
                     terrain_position,
                     landscape_component_id.clone(),
                     collider_sender.clone(),
+                    camera
                 );
                 state_changed = true;
             }
@@ -441,6 +452,7 @@ impl QuadNode {
                         terrain_position,
                         landscape_component_id.clone(),
                         collider_sender.clone(),
+                        camera
                     ) {
                         state_changed = true;
                     }
@@ -465,6 +477,7 @@ impl QuadNode {
         multibody_joint_set: &mut MultibodyJointSet,
         device: &wgpu::Device,
         transform_position: [f32; 3],
+        camera: &mut SimpleCamera
     ) -> bool {
         let if_needed_time = Instant::now();
 
@@ -481,6 +494,7 @@ impl QuadNode {
                         multibody_joint_set,
                         device,
                         transform_position,
+                        camera
                     )
                 });
             }
@@ -488,7 +502,7 @@ impl QuadNode {
         }
 
         let closest_dist =
-            get_camera_distance_from_bound_center_rel(self.bounds.clone(), transform_position)
+            get_camera_distance_from_bound_center_rel(self.bounds.clone(), transform_position, camera)
                 .sqrt();
 
         // TODO: set to reasonable amount
@@ -523,6 +537,7 @@ impl QuadNode {
                     multibody_joint_set,
                     device,
                     transform_position,
+                    camera
                 );
             }
         }
@@ -638,6 +653,7 @@ impl QuadNode {
         depth: u32,
         collider_sender: Sender<ColliderMessage>,
         corner: &str,
+        camera: &mut SimpleCamera
     ) -> TerrainMesh {
         let height_data = &landscape_data.raw_heights;
         let mesh_time = Instant::now();
@@ -658,7 +674,7 @@ impl QuadNode {
 
         // println!("terrain_width {:?} {:?}", height_data.len(), terrain_width);
 
-        let camera = get_camera();
+        // let camera = get_camera();
         // println!("create mesh, cam pos: {:?}", camera.position);
 
         let mut rapier_vertices = Vec::new();
@@ -1251,10 +1267,11 @@ pub fn should_split(
     transform_position: [f32; 3],
     bounds: Rect,
     depth: u32,
+    camera: &mut SimpleCamera
 ) -> bool {
     // let closest_dist = get_camera_distance_from_bounds(self.bounds.clone(), transform_position);
     let closest_dist =
-        get_camera_distance_from_bound_center_rel(bounds.clone(), transform_position);
+        get_camera_distance_from_bound_center_rel(bounds.clone(), transform_position, camera);
 
     // // Calculate node size (diagonal)
     // let node_size = (bounds.width * bounds.width + bounds.height * bounds.height).sqrt();

@@ -3,9 +3,9 @@ use std::f32::consts::PI;
 use cgmath::SquareMatrix;
 use cgmath::{Matrix3, Matrix4, Rad, Vector2, Vector3};
 use wgpu::util::DeviceExt;
-use crate::vertex::get_z_layer;
+use crate::core::vertex::get_z_layer;
 
-use crate::editor::{Point, WindowSize};
+use crate::core::editor::{Point, WindowSize};
 
 pub struct Transform {
     pub position: Vector2<f32>,

@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::{
-    editor::{ControlPoint, CurveData, PathType},
-    polygon::SavedPolygonConfig,
-    st_image::SavedStImageConfig,
-    st_video::SavedStVideoConfig,
-    text_due::SavedTextRendererConfig,
+    core::editor::{ControlPoint, CurveData, PathType},
+    shape_primitives::polygon::SavedPolygonConfig,
+    renderer_images::st_image::SavedStImageConfig,
+    renderer_videos::st_video::SavedStVideoConfig,
+    renderer_text::text_due::SavedTextRendererConfig,
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]

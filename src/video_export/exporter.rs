@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc::{UnboundedSender};
 
 use super::{encode::VideoEncoder, frame_buffer::FrameCaptureBuffer, pipeline::ExportPipeline};
-use crate::{animations::Sequence, editor::WindowSize, timelines::SavedTimelineStateConfig};
+use crate::{vector_animations::animations::Sequence, core::editor::WindowSize, helpers::timelines::SavedTimelineStateConfig};
 
 // Progress message sent from export thread to UI
 #[derive(Debug, Clone)]

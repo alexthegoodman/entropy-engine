@@ -11,12 +11,11 @@ use rapier3d::{
 use uuid::Uuid;
 
 use crate::{
-    behaviors::{
+    game_behaviors::{
         melee::{AttackStats, MeleeCombatBehavior},
         wander::WanderBehavior,
     },
-    handlers::get_camera,
-    models::Model::Model,
+    art_assets::Model::Model,
 };
 
 use super::{RendererState::RendererState, SimpleCamera::SimpleCamera};
@@ -134,9 +133,9 @@ impl PlayerCharacter {
         }
     }
 
-    pub fn update_rotation(dx: f32, dy: f32) {
+    pub fn update_rotation(dx: f32, dy: f32, camera: &mut SimpleCamera) {
         // the movement_collider and thus characte controller needn't rotate, only the Model's hit collider
-        let camera = get_camera();
+        // let camera = get_camera();
         let sensitivity = 0.005;
 
         let dx = -dx * sensitivity;

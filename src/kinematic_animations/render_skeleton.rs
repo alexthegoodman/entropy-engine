@@ -6,10 +6,10 @@ use nalgebra::{
 use wgpu::util::DeviceExt;
 
 use crate::{
-    animations::motion_path::create_attachment_transform,
+    kinematic_animations::motion_path::create_attachment_transform,
     core::Transform_2::{matrix4_to_raw_array, Transform},
     handlers::Vertex,
-    shapes::Sphere::Sphere,
+    shape_primitives::Sphere::Sphere,
 };
 
 use super::{

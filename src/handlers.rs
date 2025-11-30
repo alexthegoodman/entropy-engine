@@ -2,12 +2,6 @@ use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
 use wgpu::util::DeviceExt;
-use winit::{
-    dpi::LogicalSize,
-    event::*,
-    event_loop::{self, ControlFlow, EventLoop},
-    window::{Window, WindowBuilder},
-};
 
 use bytemuck::{Pod, Zeroable};
 use std::rc::Rc;
@@ -16,9 +10,9 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{cell::RefCell, collections::HashMap};
 
-use super::shapes::Cube::Cube;
+use crate::shape_primitives::Cube::Cube;
 use crate::{
-    animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
+    kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
     core::SimpleCamera::SimpleCamera,
     helpers::landscapes::read_landscape_texture,
 };
@@ -33,12 +27,12 @@ use crate::{
     },
     helpers::saved_data::LandscapeTextureKinds,
 };
-use crate::{helpers::landscapes::get_landscape_pixels, landscapes::Landscape::Landscape};
+use crate::{helpers::landscapes::get_landscape_pixels, heightfield_landscapes::Landscape::Landscape};
 use crate::{
     helpers::landscapes::LandscapePixelData,
-    models::Model::{Mesh, Model},
+    art_assets::Model::{Mesh, Model},
 };
-use crate::{models::Model::read_model, shapes::Pyramid::Pyramid};
+use crate::{art_assets::Model::read_model, shape_primitives::Pyramid::Pyramid};
 
 #[derive(Serialize)]
 pub struct ReadModelParams {
@@ -101,28 +95,29 @@ thread_local! {
     static CAMERA_INIT: std::cell::Cell<bool> = std::cell::Cell::new(false);
 }
 
-pub fn get_camera() -> &'static mut SimpleCamera {
-    CAMERA_INIT.with(|init| {
-        if !init.get() {
-            unsafe {
-                CAMERA = Some(SimpleCamera::new(
-                    Point3::new(0.0, 1.0, 5.0),
-                    Vector3::new(0.0, 0.0, -1.0),
-                    Vector3::new(0.0, 1.0, 0.0),
-                    45.0f32.to_radians(),
-                    0.1,
-                    100000.0,
-                ));
-            }
-            init.set(true);
-        }
-    });
+// pub fn get_camera() -> &'static mut SimpleCamera {
+//     CAMERA_INIT.with(|init| {
+//         if !init.get() {
+//             unsafe {
+//                 CAMERA = Some(SimpleCamera::new(
+//                     Point3::new(0.0, 1.0, 5.0),
+//                     Vector3::new(0.0, 0.0, -1.0),
+//                     Vector3::new(0.0, 1.0, 0.0),
+//                     45.0f32.to_radians(),
+//                     0.1,
+//                     100000.0,
+//                     1024.0, 768.0
+//                 ));
+//             }
+//             init.set(true);
+//         }
+//     });
 
-    unsafe { CAMERA.as_mut().unwrap() }
-}
+//     unsafe { CAMERA.as_mut().unwrap() }
+// }
 
-pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {
-    let camera = get_camera();
+pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool, camera: &mut SimpleCamera) {
+    // let camera = get_camera();
     let mut state_guard = state.lock().unwrap();
     let speed_multiplier = state_guard.navigation_speed;
 
@@ -235,8 +230,8 @@ pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pre
 //     camera.update();
 // }
 
-pub fn handle_mouse_move(dx: f32, dy: f32) {
-    let camera = get_camera();
+pub fn handle_mouse_move(dx: f32, dy: f32, camera: &mut SimpleCamera) {
+    // let camera = get_camera();
     let sensitivity = 0.005;
 
     let dx = -dx * sensitivity;
@@ -318,6 +313,7 @@ pub fn handle_add_landscape(
     landscapeComponentId: String,
     landscapeFilename: String,
     position: [f32; 3],
+    camera: &mut SimpleCamera
 ) {
     pause_rendering();
 
@@ -335,6 +331,7 @@ pub fn handle_add_landscape(
         landscapeComponentId,
         landscapeFilename,
         position,
+        camera
     );
 
     drop(state_guard);

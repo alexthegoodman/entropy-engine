@@ -1,4 +1,3 @@
-use floem::keyboard::ModifiersState;
 use gltf::json::camera;
 use nalgebra::{Isometry3, Point3, Vector3};
 use rapier3d::math::Point as RapierPoint;
@@ -6,14 +5,14 @@ use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
+use winit::keyboard::ModifiersState;
 
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
-use crate::handlers::get_camera;
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
-use crate::lighting::LightState::LightState;
+use crate::renderer_lighting::LightState::LightState;
 use crate::{
     core::Texture::Texture,
     helpers::saved_data::{ComponentData, ComponentKind},
@@ -27,21 +26,17 @@ use std::time::Instant;
 
 use crate::{
     helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
-    landscapes::Landscape::Landscape,
-    models::Model::Model,
-    shapes::{Cube::Cube, Pyramid::Pyramid},
+    heightfield_landscapes::Landscape::Landscape,
+    art_assets::Model::Model,
+    shape_primitives::{Cube::Cube, Pyramid::Pyramid},
 };
 
 use super::Grid::GridConfig;
 use super::PlayerCharacter::{PlayerCharacter, NPC};
-use super::RotationGizmo::RotationGizmo;
-use super::ScaleGizmo::ScaleGizmo;
-use super::TranslationGizmo::AxisArrow;
 use super::{
     Grid::Grid,
     Rays::{cast_ray_at_components, create_ray_from_mouse},
     SimpleCamera::SimpleCamera,
-    TranslationGizmo::TranslationGizmo,
     Viewport::Viewport,
 };
 
@@ -120,10 +115,10 @@ pub struct RendererState {
     pub object_selected_kind: Option<ComponentKind>,
     pub object_selected_data: Option<ComponentData>,
 
-    pub translation_gizmo: TranslationGizmo,
-    pub rotation_gizmo: RotationGizmo,
-    pub scale_gizmo: ScaleGizmo,
-    pub active_gizmo: String,
+    // pub translation_gizmo: TranslationGizmo,
+    // pub rotation_gizmo: RotationGizmo,
+    // pub scale_gizmo: ScaleGizmo,
+    // pub active_gizmo: String,
 
     // physics
     pub gravity: Vector<f32>,
@@ -149,8 +144,8 @@ pub struct RendererState {
     pub ray_intersecting: bool,
     pub ray_intersection: Option<RapierPoint<f32>>,
     pub ray_component_id: Option<Uuid>,
-    pub dragging_translation_gizmo: bool,
-    pub gizmo_drag_axis: Option<u8>,
+    // pub dragging_translation_gizmo: bool,
+    // pub gizmo_drag_axis: Option<u8>,
 
     pub last_movement_time: Option<Instant>,
     pub last_frame_time: Option<Instant>,
@@ -236,41 +231,41 @@ impl RendererState {
         //     texture_bind_group_layout.clone(),
         // );
 
-        let translation_gizmo = TranslationGizmo::new(
-            &device,
-            camera,
-            WindowSize {
-                width: window_width,
-                height: window_height,
-            },
-            camera_bind_group_layout.clone(), // TODO: check if right layout
-            color_render_mode_buffer.clone(),
-            texture_bind_group_layout.clone(),
-        );
+        // let translation_gizmo = TranslationGizmo::new(
+        //     &device,
+        //     camera,
+        //     WindowSize {
+        //         width: window_width,
+        //         height: window_height,
+        //     },
+        //     camera_bind_group_layout.clone(), // TODO: check if right layout
+        //     color_render_mode_buffer.clone(),
+        //     texture_bind_group_layout.clone(),
+        // );
 
-        let rotation_gizmo = RotationGizmo::new(
-            &device,
-            camera,
-            WindowSize {
-                width: window_width,
-                height: window_height,
-            },
-            camera_bind_group_layout.clone(), // TODO: check if right layout
-            color_render_mode_buffer.clone(),
-            texture_bind_group_layout.clone(),
-        );
+        // let rotation_gizmo = RotationGizmo::new(
+        //     &device,
+        //     camera,
+        //     WindowSize {
+        //         width: window_width,
+        //         height: window_height,
+        //     },
+        //     camera_bind_group_layout.clone(), // TODO: check if right layout
+        //     color_render_mode_buffer.clone(),
+        //     texture_bind_group_layout.clone(),
+        // );
 
-        let scale_gizmo = ScaleGizmo::new(
-            &device,
-            camera,
-            WindowSize {
-                width: window_width,
-                height: window_height,
-            },
-            camera_bind_group_layout.clone(), // TODO: check if right layout
-            color_render_mode_buffer.clone(),
-            texture_bind_group_layout.clone(),
-        );
+        // let scale_gizmo = ScaleGizmo::new(
+        //     &device,
+        //     camera,
+        //     WindowSize {
+        //         width: window_width,
+        //         height: window_height,
+        //     },
+        //     camera_bind_group_layout.clone(), // TODO: check if right layout
+        //     color_render_mode_buffer.clone(),
+        //     texture_bind_group_layout.clone(),
+        // );
 
         let integration_parameters = IntegrationParameters::default();
         let physics_pipeline = PhysicsPipeline::new();
@@ -326,10 +321,10 @@ impl RendererState {
             object_selected_kind: None,
             object_selected_data: None,
 
-            translation_gizmo,
-            rotation_gizmo,
-            scale_gizmo,
-            active_gizmo: "translate".to_string(),
+            // translation_gizmo,
+            // rotation_gizmo,
+            // scale_gizmo,
+            // active_gizmo: "translate".to_string(),
 
             gravity: vector![0.0, -9.81, 0.0],
             integration_parameters,
@@ -358,11 +353,11 @@ impl RendererState {
             ray_intersecting: false,
             ray_component_id: None,
             ray_intersection: None,
-            dragging_translation_gizmo: false,
+            // dragging_translation_gizmo: false,
             last_movement_time: None,
             last_frame_time: None,
             npcs: Vec::new(),
-            gizmo_drag_axis: None,
+            // gizmo_drag_axis: None,
             navigation_speed: 5.0,
         }
     }
@@ -420,7 +415,7 @@ impl RendererState {
         }
     }
 
-    pub fn step_physics_pipeline(&mut self, device: &wgpu::Device) {
+    pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, camera: &mut SimpleCamera) {
         // Calculate delta time
         let now = std::time::Instant::now();
         let dt = if let Some(last_time) = self.last_frame_time {
@@ -430,7 +425,7 @@ impl RendererState {
         };
         self.last_frame_time = Some(now);
 
-        self.update_terrain_managers(device, dt);
+        self.update_terrain_managers(device, dt, camera);
 
         // println!("Before step:");
         // println!("  Bodies: {}", self.rigid_body_set.len());
@@ -496,7 +491,7 @@ impl RendererState {
         if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
             if let Some(rb) = self.rigid_body_set.get(rb_handle) {
                 let pos = rb.translation();
-                let mut camera = get_camera();
+                // let mut camera = get_camera();
                 camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
             }
         }
@@ -614,11 +609,11 @@ impl RendererState {
     }
 
     pub fn add_arrow_colliders(&mut self) {
-        self.translation_gizmo.arrows.iter_mut().for_each(|arrow| {
-            println!("adding arrow collider");
-            let collider_handle = self.collider_set.insert(arrow.rapier_collider.clone());
-            arrow.collider_handle = Some(collider_handle);
-        });
+        // self.translation_gizmo.arrows.iter_mut().for_each(|arrow| {
+        //     println!("adding arrow collider");
+        //     let collider_handle = self.collider_set.insert(arrow.rapier_collider.clone());
+        //     arrow.collider_handle = Some(collider_handle);
+        // });
     }
 
     pub fn update_arrow_collider_position(
@@ -626,32 +621,32 @@ impl RendererState {
         //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
-        self.translation_gizmo.arrows.iter().for_each(|arrow| {
-            // Create translation vector based on the arrow's axis
-            let translation = match arrow.axis {
-                0 => vector![position[0], position[1], position[2]], // X axis
-                1 => vector![position[0], position[1], position[2]], // Y axis
-                _ => vector![position[0], position[1], position[2]], // Z axis
-            };
+        // self.translation_gizmo.arrows.iter().for_each(|arrow| {
+        //     // Create translation vector based on the arrow's axis
+        //     let translation = match arrow.axis {
+        //         0 => vector![position[0], position[1], position[2]], // X axis
+        //         1 => vector![position[0], position[1], position[2]], // Y axis
+        //         _ => vector![position[0], position[1], position[2]], // Z axis
+        //     };
 
-            let isometry =
-                nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
+        //     let isometry =
+        //         nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
 
-            if let Some(collider) = self
-                .collider_set
-                .get_mut(arrow.collider_handle.expect("Couldn't get collider handle"))
-            {
-                collider.set_position(isometry);
-                // println!(
-                //     "Updated collider for axis {}: pos={:?}",
-                //     arrow.axis, translation
-                // );
-            }
-        });
+        //     if let Some(collider) = self
+        //         .collider_set
+        //         .get_mut(arrow.collider_handle.expect("Couldn't get collider handle"))
+        //     {
+        //         collider.set_position(isometry);
+        //         // println!(
+        //         //     "Updated collider for axis {}: pos={:?}",
+        //         //     arrow.axis, translation
+        //         // );
+        //     }
+        // });
     }
 
-    pub fn update_player_character_position(&mut self, translation: Vector3<f32>, delta_time: f32) {
-        let mut camera = get_camera();
+    pub fn update_player_character_position(&mut self, translation: Vector3<f32>, delta_time: f32, camera: &mut SimpleCamera) {
+        // let mut camera = get_camera();
         // Collision filter (typically you want to collide with everything except other characters)
         let filter = QueryFilter::default()
             .exclude_rigid_body(
@@ -904,9 +899,9 @@ impl RendererState {
     //     self.landscapes.push(landscape);
     // }
 
-    pub fn update_terrain_managers(&mut self, device: &wgpu::Device, dt: f32) {
+    pub fn update_terrain_managers(&mut self, device: &wgpu::Device, dt: f32, camera: &mut SimpleCamera) {
         if self.terrain_managers.len() > 0 {
-            let camera = get_camera();
+            // let camera = get_camera();
             let terrain_manager = self
                 .terrain_managers
                 .get_mut(0)
@@ -967,6 +962,7 @@ impl RendererState {
                 // terrain_manager.id.clone(),
                 dt,
                 // &mut self.query_pipeline,
+                camera
             );
         }
     }
@@ -980,6 +976,7 @@ impl RendererState {
         landscapeComponentId: String,
         landscapeFilename: String,
         position: [f32; 3],
+        camera: &mut SimpleCamera
     ) {
         let terrain_manager = TerrainManager::new(
             projectId,
@@ -989,6 +986,7 @@ impl RendererState {
             device,
             &self.model_bind_group_layout,
             position,
+            camera
         );
 
         self.terrain_managers.push(terrain_manager);

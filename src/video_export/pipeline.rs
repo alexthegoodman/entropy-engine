@@ -1,14 +1,11 @@
 use crate::{
-    animations::Sequence,
-    camera::{Camera3D as Camera, CameraBinding},
-    editor::{
+   core::{SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    },
-    timelines::SavedTimelineStateConfig,
-    vertex::Vertex,
+    }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence
 };
-use crate::gpu_resources::GpuResources;
 use std::sync::{Arc, Mutex};
+// use cgmath::{Point3, Vector3};
+use nalgebra::{Point3, Vector3};
 use wgpu::{util::DeviceExt, RenderPipeline};
 
 use super::frame_buffer::FrameCaptureBuffer;
@@ -56,11 +53,14 @@ impl ExportPipeline {
         project_id: String,
     ) {
         let mut camera = Camera::new(
-            //window_size
-            WindowSize {
-                width: video_width,
-                height: video_height,
-            },
+            Point3::new(0.0, 1.0, 5.0),
+            Vector3::new(0.0, 0.0, -1.0),
+            Vector3::new(0.0, 1.0, 0.0),
+            45.0f32.to_radians(),
+            0.1,
+            100000.0,
+            window_size.width as f32,
+            window_size.height as f32
         );
 
         // Center camera on viewport center with appropriate zoom
@@ -68,7 +68,7 @@ impl ExportPipeline {
         let center_y = video_height as f32 / 2.0;
         let zoom_level = 0.05; // Adjust as needed
         
-        camera.birds_eye_zoom_on_point(-0.48, -0.40, 1.25); 
+        // camera.birds_eye_zoom_on_point(-0.48, -0.40, 1.25); 
         // camera.position = Vector3::new(-0.5, -0.5, 1.4);
 
         let viewport = Arc::new(Mutex::new(Viewport::new(
@@ -345,7 +345,7 @@ impl ExportPipeline {
 
         let view = Arc::new(view);
 
-        camera_binding.update_3d(&queue, &camera);
+        // camera_binding.update_3d(&queue, &camera);
 
         let gpu_resources = GpuResources::new(adapter, device, queue);
 
@@ -365,21 +365,21 @@ impl ExportPipeline {
         export_editor.camera = Some(camera);
 
         // restore objects to the editor
-        sequences.iter().enumerate().for_each(|(i, s)| {
-            export_editor.restore_sequence_objects(
-                &s,
-                // WindowSize {
-                //     // width: window_size.width as u32,
-                //     // height: window_size.height as u32,
-                //     width: video_width.clone(),
-                //     height: video_height.clone(),
-                // },
-                // &camera,
-                if i == 0 { false } else { true },
-                // &gpu_resources.device,
-                // &gpu_resources.queue,
-            );
-        });
+        // sequences.iter().enumerate().for_each(|(i, s)| {
+        //     export_editor.restore_sequence_objects(
+        //         &s,
+        //         // WindowSize {
+        //         //     // width: window_size.width as u32,
+        //         //     // height: window_size.height as u32,
+        //         //     width: video_width.clone(),
+        //         //     height: video_height.clone(),
+        //         // },
+        //         // &camera,
+        //         if i == 0 { false } else { true },
+        //         // &gpu_resources.device,
+        //         // &gpu_resources.queue,
+        //     );
+        // });
         
         let now = std::time::Instant::now();
         export_editor.video_start_playing_time = Some(now.clone());
@@ -398,7 +398,7 @@ impl ExportPipeline {
         // self.device = Some(device);
         // self.queue = Some(queue);
         self.gpu_resources = export_editor.gpu_resources.clone();
-        self.camera = Some(camera);
+        // self.camera = Some(camera);
         self.camera_binding = Some(camera_binding);
         self.render_pipeline = Some(render_pipeline);
         self.texture = Some(texture);
@@ -435,7 +435,7 @@ impl ExportPipeline {
             .window_size_bind_group
             .as_ref()
             .expect("Couldn't get window size bind group");
-        let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
+        // let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
         let texture = self.texture.as_ref().expect("Couldn't get texture");
         let frame_buffer = self
             .frame_buffer
@@ -471,123 +471,123 @@ impl ExportPipeline {
             render_pass.set_pipeline(&render_pipeline);
 
             // actual rendering commands
-            editor.step_video_animations(&camera, Some(current_time));
-            editor.step_motion_path_animations(&camera, Some(current_time));
+            // editor.step_video_animations(&camera, Some(current_time));
+            // editor.step_motion_path_animations(&camera, Some(current_time));
 
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
-            // draw static (internal) polygons
-            for (poly_index, polygon) in editor.static_polygons.iter().enumerate() {
-                polygon
-                    .transform
-                    .update_uniform_buffer(&queue, &camera.window_size);
-                render_pass.set_bind_group(1, &polygon.bind_group, &[]);
-                render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-                render_pass
-                    .set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
-            }
+            // // draw static (internal) polygons
+            // for (poly_index, polygon) in editor.static_polygons.iter().enumerate() {
+            //     polygon
+            //         .transform
+            //         .update_uniform_buffer(&queue, &camera.viewport.window_size);
+            //     render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+            //     render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
+            //     render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+            //     render_pass
+            //         .set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            //     render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+            // }
 
-            // draw polygons
-            for (poly_index, polygon) in editor.polygons.iter().enumerate() {
-                if !polygon.hidden {
-                    polygon
-                        .transform
-                        .update_uniform_buffer(&queue, &camera.window_size);
-                    render_pass.set_bind_group(1, &polygon.bind_group, &[]);
-                    render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        polygon.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
-                }
-            }
+            // // draw polygons
+            // for (poly_index, polygon) in editor.polygons.iter().enumerate() {
+            //     if !polygon.hidden {
+            //         polygon
+            //             .transform
+            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
+            //         render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             polygon.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+            //     }
+            // }
 
-            // draw text items
-            for (text_index, text_item) in editor.text_items.iter().enumerate() {
-                if !text_item.hidden {
-                    if !text_item.background_polygon.hidden {
-                        text_item
-                            .background_polygon
-                            .transform
-                            .update_uniform_buffer(&gpu_resources.queue, &camera.window_size);
+            // // draw text items
+            // for (text_index, text_item) in editor.text_items.iter().enumerate() {
+            //     if !text_item.hidden {
+            //         if !text_item.background_polygon.hidden {
+            //             text_item
+            //                 .background_polygon
+            //                 .transform
+            //                 .update_uniform_buffer(&gpu_resources.queue, &camera.viewport.window_size);
 
-                        render_pass.set_bind_group(
-                            1,
-                            &text_item.background_polygon.bind_group,
-                            &[],
-                        );
-                        render_pass.set_bind_group(
-                            3,
-                            &text_item.background_polygon.group_bind_group,
-                            &[],
-                        );
-                        render_pass.set_vertex_buffer(
-                            0,
-                            text_item.background_polygon.vertex_buffer.slice(..),
-                        );
-                        render_pass.set_index_buffer(
-                            text_item.background_polygon.index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.draw_indexed(
-                            0..text_item.background_polygon.indices.len() as u32,
-                            0,
-                            0..1,
-                        );
-                    }
+            //             render_pass.set_bind_group(
+            //                 1,
+            //                 &text_item.background_polygon.bind_group,
+            //                 &[],
+            //             );
+            //             render_pass.set_bind_group(
+            //                 3,
+            //                 &text_item.background_polygon.group_bind_group,
+            //                 &[],
+            //             );
+            //             render_pass.set_vertex_buffer(
+            //                 0,
+            //                 text_item.background_polygon.vertex_buffer.slice(..),
+            //             );
+            //             render_pass.set_index_buffer(
+            //                 text_item.background_polygon.index_buffer.slice(..),
+            //                 wgpu::IndexFormat::Uint32,
+            //             );
+            //             render_pass.draw_indexed(
+            //                 0..text_item.background_polygon.indices.len() as u32,
+            //                 0,
+            //                 0..1,
+            //             );
+            //         }
 
-                    text_item
-                        .transform
-                        .update_uniform_buffer(&queue, &camera.window_size);
-                    render_pass.set_bind_group(1, &text_item.bind_group, &[]);
-                    render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        text_item.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
-                }
-            }
+            //         text_item
+            //             .transform
+            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
+            //         render_pass.set_bind_group(1, &text_item.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             text_item.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
+            //     }
+            // }
 
-            // draw image items
-            for (image_index, st_image) in editor.image_items.iter().enumerate() {
-                if !st_image.hidden {
-                    st_image
-                        .transform
-                        .update_uniform_buffer(&queue, &camera.window_size);
-                    render_pass.set_bind_group(1, &st_image.bind_group, &[]);
-                    render_pass.set_bind_group(3, &st_image.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, st_image.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        st_image.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..st_image.indices.len() as u32, 0, 0..1);
-                }
-            }
+            // // draw image items
+            // for (image_index, st_image) in editor.image_items.iter().enumerate() {
+            //     if !st_image.hidden {
+            //         st_image
+            //             .transform
+            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
+            //         render_pass.set_bind_group(1, &st_image.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &st_image.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, st_image.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             st_image.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..st_image.indices.len() as u32, 0, 0..1);
+            //     }
+            // }
 
-            // draw video items
-            for (video_index, st_video) in editor.video_items.iter().enumerate() {
-                if !st_video.hidden {
-                    st_video
-                        .transform
-                        .update_uniform_buffer(&queue, &camera.window_size);
-                    render_pass.set_bind_group(1, &st_video.bind_group, &[]);
-                    render_pass.set_bind_group(3, &st_video.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, st_video.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        st_video.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..st_video.indices.len() as u32, 0, 0..1);
-                }
-            }
+            // // draw video items
+            // for (video_index, st_video) in editor.video_items.iter().enumerate() {
+            //     if !st_video.hidden {
+            //         st_video
+            //             .transform
+            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
+            //         render_pass.set_bind_group(1, &st_video.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &st_video.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, st_video.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             st_video.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..st_video.indices.len() as u32, 0, 0..1);
+            //     }
+            // }
 
             // Drop the render pass before doing texture copies
             drop(render_pass);
