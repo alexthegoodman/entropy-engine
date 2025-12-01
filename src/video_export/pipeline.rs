@@ -281,8 +281,8 @@ impl ExportPipeline {
         //     .surface
         //     .get_capabilities(&gpu_resources.adapter);
         // let swapchain_format = swapchain_capabilities.formats[0]; // Choosing the first available format
-        // let swapchain_format = wgpu::TextureFormat::Bgra8UnormSrgb; // hardcode for now - may be able to change from the floem requirement
-        let swapchain_format = wgpu::TextureFormat::Bgra8Unorm;
+        // let swapchain_format = wgpu::TextureFormat::Rgba8UnormSrgb; // hardcode for now - may be able to change from the floem requirement
+        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
         // let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
 
         // Configure the render pipeline
@@ -419,7 +419,7 @@ impl ExportPipeline {
         export_editor.start_playing_time = Some(now);
         export_editor.is_playing = true;
 
-        println!("Video exporting!");
+        println!("Pipeline initialized!");
 
         // self.device = Some(device);
         // self.queue = Some(queue);
@@ -467,10 +467,7 @@ impl ExportPipeline {
             .expect("Couldn't get window size bind group");
         // let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
         let texture = self.texture.as_ref().expect("Couldn't get texture");
-        let frame_buffer = self
-            .frame_buffer
-            .as_ref()
-            .expect("Couldn't get frame buffer");
+        
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
@@ -622,7 +619,11 @@ impl ExportPipeline {
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
-            if target_view.is_none() {
+            if self.frame_buffer.is_some() {
+                let frame_buffer = self
+                    .frame_buffer
+                    .as_ref()
+                    .expect("Couldn't get frame buffer");
                 frame_buffer.capture_frame(device, queue, texture, &mut encoder);
             }
 
@@ -634,10 +635,10 @@ impl ExportPipeline {
     pub fn render_display_frame(&mut self, gui: &mut Gui) {
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
 
-        let output = gpu_resources.surface.as_ref().unwrap()
-            .get_current_texture()
-            .expect("Failed to get current swap chain texture");
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // let output = gpu_resources.surface.as_ref().unwrap()
+        //     .get_current_texture()
+        //     .expect("Failed to get current swap chain texture");
+        // let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Update last_frame for delta_time calculation
         gui.ctx.io_mut().update_delta_time(Instant::now() - gui.last_frame);
@@ -650,15 +651,20 @@ impl ExportPipeline {
         }
 
         // Call the render_frame from our pipeline
-        self.render_frame(Some(&view), 0.0); // Pass a dummy current_time for now
+        self.render_frame(// Some(&view), 
+            None,
+            0.0); // Pass a dummy current_time for now
 
         let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("imgui encoder"),
         });
 
+        let view = self.view.as_ref().expect("Couldn't get wgpu view").clone();
+
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("imgui"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                // view: &view,
                 view: &view,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -680,6 +686,9 @@ impl ExportPipeline {
 
         gpu_resources.queue.submit(Some(encoder.finish()));
 
+        let output = gpu_resources.surface.as_ref().unwrap()
+            .get_current_texture()
+            .expect("Failed to get current swap chain texture");
         output.present();
     }
 }

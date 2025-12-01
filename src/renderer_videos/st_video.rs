@@ -117,11 +117,11 @@ impl StVideo {
             // format: wgpu::TextureFormat::NV12,
             // use rgb for now
             // format: wgpu::TextureFormat::Rgba8Unorm,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             // view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb], // backwards
-            // view_formats: &[wgpu::TextureFormat::Bgra8UnormSrgb], // washed out
-            view_formats: &[wgpu::TextureFormat::Bgra8Unorm],
+            // view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb], // washed out
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
         });
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 

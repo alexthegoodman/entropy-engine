@@ -577,7 +577,7 @@ struct WindowState {
     window: Arc<Window>,
     // pub gpu_resources: Option<Arc<GpuResources>>, // get off pipeline!
     pub pipeline: ExportPipeline,
-    // pub surface_config: wgpu::SurfaceConfiguration,
+    pub surface_config: wgpu::SurfaceConfiguration,
     /// The window theme we're drawing with.
     theme: Theme,
     /// Cursor position over the window.
@@ -610,13 +610,13 @@ impl WindowState {
         let window = Arc::new(window);
 
         // WGPU Initialization
-        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        // SAFETY: The surface must not outlive the window.
-        let surface = unsafe { instance.create_surface(&window).unwrap() };
-        // We can transmute the lifetime to static because the window lives for the duration
-        // of the application, which is effectively a static lifetime.
-        let surface: wgpu::Surface<'static> = unsafe { std::mem::transmute(surface) };
-        let surface = Arc::new(surface);
+        // let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
+        // // SAFETY: The surface must not outlive the window.
+        // let surface = unsafe { instance.create_surface(&window).unwrap() };
+        // // We can transmute the lifetime to static because the window lives for the duration
+        // // of the application, which is effectively a static lifetime.
+        // let surface: wgpu::Surface<'static> = unsafe { std::mem::transmute(surface) };
+        // let surface = Arc::new(surface);
 
         // this is all done in pipeline.rs initialize
         // let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -636,22 +636,6 @@ impl WindowState {
         //     // None,
         // )).expect("Couldn't get gpu device");
 
-        // let swapchain_capabilities = surface.get_capabilities(&adapter);
-        // let swapchain_format = swapchain_capabilities.formats[0];
-
-        // let size = window.inner_size();
-        // let surface_config = wgpu::SurfaceConfiguration {
-        //     usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        //     format: swapchain_format,
-        //     width: size.width,
-        //     height: size.height,
-        //     present_mode: wgpu::PresentMode::Fifo,
-        //     alpha_mode: swapchain_capabilities.alpha_modes[0],
-        //     view_formats: vec![],
-        //     desired_maximum_frame_latency: 2
-        // };
-        // surface.configure(&device, &surface_config);
-
         // let gpu_resources = Arc::new(GpuResources::with_surface(adapter, device, queue, surface.clone()));
         
         let mut pipeline = ExportPipeline::new();
@@ -664,6 +648,8 @@ impl WindowState {
         
         // Use window size for camera initialization
         let window_size = WindowSize { width: 1024, height: 768 };
+
+        
 
         pollster::block_on(pipeline.initialize(
             Some(&window),
@@ -717,7 +703,26 @@ impl WindowState {
             last_frame,
         };
 
+        let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();
+
+        // let swapchain_capabilities = surface.get_capabilities(&adapter);
+        // let swapchain_format = swapchain_capabilities.formats[0];
+
+        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
+
         let size = window.inner_size();
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Inherit,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2
+        };
+        surface.configure(&gpu_resources.device, &surface_config);
+
         let mut state = Self {
             #[cfg(macos_platform)]
             option_as_alt: window.option_as_alt(),
@@ -728,7 +733,7 @@ impl WindowState {
             // surface,
             window,
             pipeline,
-            // surface_config,
+            surface_config,
             theme,
             ime,
             cursor_position: Default::default(),
@@ -902,20 +907,21 @@ impl WindowState {
 
     /// Resize the window to the new size.
     fn resize(&mut self, size: PhysicalSize<u32>) {
-        // info!("Resized to {size:?}");
-        // #[cfg(not(any(android_platform, ios_platform)))]
-        // {
-        //     let (width, height) = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
-        //     {
-        //         (Some(width), Some(height)) => (width, height),
-        //         _ => return,
-        //     };
-        //     self.surface_config.width = width.get();
-        //     self.surface_config.height = height.get();
-        //     if let Some(surface) = self.gpu_resources.surface.as_ref() {
-        //         surface.configure(&self.gpu_resources.device, &self.surface_config);
-        //     }
-        // }
+        info!("Resized to {size:?}");
+        #[cfg(not(any(android_platform, ios_platform)))]
+        {
+            let (width, height) = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+            {
+                (Some(width), Some(height)) => (width, height),
+                _ => return,
+            };
+            self.surface_config.width = width.get();
+            self.surface_config.height = height.get();
+            let gpu_resources = self.pipeline.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+            if let Some(surface) = gpu_resources.surface.as_ref() {
+                surface.configure(&gpu_resources.device, &self.surface_config);
+            }
+        }
         self.window.request_redraw();
     }
 

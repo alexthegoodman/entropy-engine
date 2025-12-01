@@ -20,7 +20,7 @@ impl FrameCaptureBuffer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             // format: wgpu::TextureFormat::Rgba8Unorm,
-            format: wgpu::TextureFormat::Bgra8Unorm,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::COPY_SRC
                 | wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::COPY_DST,
