@@ -176,8 +176,8 @@ impl Application {
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes()
             .with_title("Winit window")
-            .with_transparent(true)
-            .with_inner_size(LogicalSize::new(1024.0, 768.0));
+            .with_transparent(false)
+            .with_inner_size(PhysicalSize::new(1024.0, 768.0));
             // .with_window_icon(Some(self.icon.clone()));
 
         #[cfg(any(x11_platform, wayland_platform))]
@@ -679,20 +679,31 @@ impl WindowState {
             imgui_winit_support::HiDpiMode::Default,
         );
 
+        let size = window.inner_size();
+        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: swapchain_format,
+            width: size.width,
+            height: size.height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Inherit,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2
+        };
+
         let renderer_config = RendererConfig {
-            // texture_format: surface_config.format,
+            texture_format: surface_config.format,
             ..Default::default()
         };
 
         let gpu_resources = pipeline.gpu_resources.as_ref().expect("Couldn't get gpu resources");
-        // let gpu_resources  = gpu_resources.as_ref();
 
         let renderer = imgui_wgpu::Renderer::new(
             &mut ctx,
             &gpu_resources.device,
             &gpu_resources.queue,
             renderer_config,
-            // None,
         );
         let last_frame = Instant::now();
 
@@ -704,23 +715,6 @@ impl WindowState {
         };
 
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();
-
-        // let swapchain_capabilities = surface.get_capabilities(&adapter);
-        // let swapchain_format = swapchain_capabilities.formats[0];
-
-        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
-
-        let size = window.inner_size();
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: swapchain_format,
-            width: size.width,
-            height: size.height,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Inherit,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2
-        };
         surface.configure(&gpu_resources.device, &surface_config);
 
         let mut state = Self {
@@ -1013,7 +1007,7 @@ impl WindowState {
             return Ok(());
         }
 
-        self.pipeline.render_display_frame(&mut self.gui);
+        self.pipeline.render_display_frame(&mut self.gui, &self.window);
 
         Ok(())
     }

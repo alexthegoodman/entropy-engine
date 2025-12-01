@@ -4,6 +4,7 @@ use crate::{
     }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{sync::{Arc, Mutex}, time::Instant};
+use imgui::Condition;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
 use wgpu::{util::DeviceExt, RenderPipeline};
@@ -632,34 +633,28 @@ impl ExportPipeline {
         }
     }
 
-    pub fn render_display_frame(&mut self, gui: &mut Gui) {
+    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window) {
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
 
-        // let output = gpu_resources.surface.as_ref().unwrap()
-        //     .get_current_texture()
-        //     .expect("Failed to get current swap chain texture");
-        // let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output = gpu_resources.surface.as_ref().unwrap()
+            .get_current_texture()
+            .expect("Failed to get current swap chain texture");
 
-        // Update last_frame for delta_time calculation
-        gui.ctx.io_mut().update_delta_time(Instant::now() - gui.last_frame);
-        gui.last_frame = gui.last_frame.max(Instant::now());
+        // println!("texture dimensiosn {:?} {:?}", output.texture.width(), output.texture.height());
 
-        let ui = gui.ctx.frame();
-        {
-            let fps = ui.io().framerate;
-            ui.text(format!("FPS: {:.1}", fps));
-        }
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // println!("display size {:?}", gui.ctx.io().display_size);
 
         // Call the render_frame from our pipeline
-        self.render_frame(// Some(&view), 
-            None,
+        self.render_frame(
+            Some(&view), 
+            // None,
             0.0); // Pass a dummy current_time for now
 
         let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("imgui encoder"),
         });
-
-        let view = self.view.as_ref().expect("Couldn't get wgpu view").clone();
 
         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("imgui"),
@@ -677,18 +672,71 @@ impl ExportPipeline {
             occlusion_query_set: None,
         });
 
+        gui.platform.prepare_frame(gui.ctx.io_mut(), &window).expect("Couldn't prepare frame");
+        
+        // Update last_frame for delta_time calculation
+        gui.ctx.io_mut().update_delta_time(Instant::now() - gui.last_frame);
+        gui.last_frame = gui.last_frame.max(Instant::now());
+
+        // let ui = gui.ctx.frame();
+        // {
+        //     let fps = ui.io().framerate;
+        //     ui.text(format!("FPS: {:.1}", fps));
+        // }
+
+        let ui = gui.ctx.frame();
+        // imgui::Window::new(ui, "Debug Overlay")
+        //         .title_bar(true) // No title bar
+        //         .resizable(true) // Not resizable
+        //         .movable(true) // Not movable
+        //         .always_auto_resize(true) // Fits content
+        //         .save_settings(true) // Don't save position
+        //         .build(|| {
+        //             let fps = ui.io().framerate;
+        //             ui.text(format!("FPS: {:.1}", fps));
+        //         });
+
+        {
+            let window = ui.window("Hello world");
+            window
+                .size([300.0, 100.0], Condition::FirstUseEver)
+                .build(|| {
+                    ui.text("Hello world!");
+                    ui.text("This...is...imgui-rs on WGPU!");
+                    ui.separator();
+                    let mouse_pos = ui.io().mouse_pos;
+                    ui.text(format!(
+                        "Mouse Position: ({:.1},{:.1})",
+                        mouse_pos[0], mouse_pos[1]
+                    ));
+                });
+
+            let window = ui.window("Hello too");
+            window
+                .size([400.0, 200.0], Condition::FirstUseEver)
+                .position([400.0, 200.0], Condition::FirstUseEver)
+                .build(|| {
+                    ui.text(format!("Frametime:"));
+                });
+
+            // ui.show_demo_window(&mut imgui.demo_open);
+        }
+
+        gui.platform.prepare_render(ui, &window);
+
+        let draw_data = gui.ctx.render();
+        // println!("ImGui vertices     = {}", draw_data.total_vtx_count);
+        // println!("ImGui indices      = {}", draw_data.total_idx_count);
+
         gui
             .renderer
-            .render(gui.ctx.render(), &gpu_resources.queue, &gpu_resources.device, &mut rpass)
+            .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
             .expect("Imgui render failed");
 
         drop(rpass);
 
         gpu_resources.queue.submit(Some(encoder.finish()));
 
-        let output = gpu_resources.surface.as_ref().unwrap()
-            .get_current_texture()
-            .expect("Failed to get current swap chain texture");
         output.present();
     }
 }
