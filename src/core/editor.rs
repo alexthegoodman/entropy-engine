@@ -12,6 +12,7 @@ use crate::core::gpu_resources::GpuResources;
 use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_text::fonts::FontManager;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
+use crate::shape_primitives::Cube::Cube;
 
 use cgmath::SquareMatrix;
 
@@ -280,6 +281,7 @@ pub struct Editor {
     // pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
     // pub saved_state: Option<SavedState>,
+    pub cubes: Vec<Cube>,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -462,6 +464,7 @@ impl Editor {
             // video_items: Vec::new(),
             // dragging_video: None,
             // saved_state: None,
+            cubes: Vec::new(),
             
             // resize handles system  
             selected_object: None,

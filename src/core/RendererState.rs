@@ -162,6 +162,7 @@ impl RendererState {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
         texture_render_mode_buffer: Arc<wgpu::Buffer>,
@@ -205,7 +206,7 @@ impl RendererState {
         ));
 
         let mut cubes = Vec::new();
-        cubes.push(Cube::new(&device, &model_bind_group_layout));
+        cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, camera));
 
         let mut pyramids = Vec::new();
         // pyramids.push(Pyramid::new(device, bind_group_layout, color_render_mode_buffer));

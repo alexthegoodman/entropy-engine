@@ -9,6 +9,7 @@ use imgui::Condition;
 use nalgebra::{Point3, Vector3};
 use wgpu::{util::DeviceExt, RenderPipeline};
 use winit::window::Window;
+use crate::shape_primitives::Cube::Cube;
 
 use super::frame_buffer::FrameCaptureBuffer;
 
@@ -288,7 +289,7 @@ impl ExportPipeline {
 
         // Configure the render pipeline
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Stunts Engine Export Render Pipeline"),
+            label: Some("Entropy Engine Render Pipeline"),
             layout: Some(&pipeline_layout),
             multiview: None,
             cache: None,
@@ -518,22 +519,22 @@ impl ExportPipeline {
             //     render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
             // }
 
-            // // draw polygons
-            // for (poly_index, polygon) in editor.polygons.iter().enumerate() {
-            //     if !polygon.hidden {
-            //         polygon
-            //             .transform
-            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
-            //         render_pass.set_bind_group(1, &polygon.bind_group, &[]);
-            //         render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-            //         render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-            //         render_pass.set_index_buffer(
-            //             polygon.index_buffer.slice(..),
-            //             wgpu::IndexFormat::Uint32,
-            //         );
-            //         render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
-            //     }
-            // }
+            // // draw cubes
+            for (poly_index, cube) in editor.cubes.iter().enumerate() {
+                // if !polygon.hidden {
+                    cube
+                        .transform
+                        .update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        cube.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+                // }
+            }
 
             // // draw text items
             // for (text_index, text_item) in editor.text_items.iter().enumerate() {
@@ -709,6 +710,19 @@ impl ExportPipeline {
                         "Mouse Position: ({:.1},{:.1})",
                         mouse_pos[0], mouse_pos[1]
                     ));
+
+                    if ui.button("Add Cube") {
+                        let editor = self.export_editor.as_mut().unwrap();
+                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                        let device = &gpu_resources.device;
+                        let queue = &gpu_resources.queue;
+                        let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+                        let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
+                        let camera = editor.camera.as_ref().expect("Couldn't get camera");
+                        let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
+                        editor.cubes.push(new_cube);
+                        println!("Cube added {:?}", editor.cubes.len());
+                    }
                 });
 
             let window = ui.window("Hello too");
