@@ -554,6 +554,13 @@ impl ApplicationHandler<UserEvent> for Application {
         if self.windows.is_empty() {
             info!("No windows left, exiting...");
             event_loop.exit();
+        } else {                                                                                                                        
+            // Request a redraw for all windows on the next iteration.                                                                  
+            for window_state in self.windows.values() {                                                                                 
+                if !window_state.occluded {                                                                                             
+                    window_state.window.request_redraw();                                                                               
+                }                                                                                                                      
+            }
         }
     }
 

@@ -684,7 +684,7 @@ impl ExportPipeline {
         //     ui.text(format!("FPS: {:.1}", fps));
         // }
 
-        let ui = gui.ctx.frame();
+        let ui = gui.ctx.new_frame();
         // imgui::Window::new(ui, "Debug Overlay")
         //         .title_bar(true) // No title bar
         //         .resizable(true) // Not resizable
@@ -716,7 +716,8 @@ impl ExportPipeline {
                 .size([400.0, 200.0], Condition::FirstUseEver)
                 .position([400.0, 200.0], Condition::FirstUseEver)
                 .build(|| {
-                    ui.text(format!("Frametime:"));
+                    let fps = ui.io().framerate;
+                    ui.text(format!("Frametime: {:?}", fps));
                 });
 
             // ui.show_demo_window(&mut imgui.demo_open);
@@ -728,10 +729,18 @@ impl ExportPipeline {
         // println!("ImGui vertices     = {}", draw_data.total_vtx_count);
         // println!("ImGui indices      = {}", draw_data.total_idx_count);
 
-        gui
-            .renderer
-            .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
-            .expect("Imgui render failed");
+        // gui
+        //     .renderer
+        //     .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
+        //     .expect("Imgui render failed");
+
+        if draw_data.total_vtx_count > 0 {
+            // Only render if there are vertices to draw
+            gui
+                .renderer
+                .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
+                .expect("Imgui render failed");
+        }
 
         drop(rpass);
 
