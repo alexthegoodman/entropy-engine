@@ -98,7 +98,7 @@ impl FrameCaptureBuffer {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::PollType::Wait);
 
         rx.await.unwrap().unwrap();
 

@@ -1,9 +1,9 @@
 use crate::{
    core::{SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
 };
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, time::Instant};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
 use wgpu::{util::DeviceExt, RenderPipeline};
@@ -85,7 +85,7 @@ impl ExportPipeline {
         let mut export_editor = Editor::new(viewport, project_id.clone());
 
         // continue on with wgpu items
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
             ..Default::default()
         });
 
@@ -124,7 +124,7 @@ impl ExportPipeline {
                     label: None,
                     ..Default::default()
                 },
-                None,
+                // None,
             )
             .await
             .expect("Couldn't get gpu device");
@@ -290,16 +290,16 @@ impl ExportPipeline {
             label: Some("Stunts Engine Export Render Pipeline"),
             layout: Some(&pipeline_layout),
             multiview: None,
-            // cache: None,
+            cache: None,
             vertex: wgpu::VertexState {
                 module: &shader_module_vert_primary,
-                entry_point: "vs_main", // name of the entry point in your vertex shader
+                entry_point: Some("vs_main"), // name of the entry point in your vertex shader
                 buffers: &[Vertex::desc()], // Make sure your Vertex::desc() matches your vertex structure
-                // compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_module_frag_primary,
-                entry_point: "fs_main", // name of the entry point in your fragment shader
+                entry_point: Some("fs_main"), // name of the entry point in your fragment shader
                 targets: &[Some(wgpu::ColorTargetState {
                     format: swapchain_format,
                     // blend: Some(wgpu::BlendState::REPLACE),
@@ -317,7 +317,7 @@ impl ExportPipeline {
                     }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
-                // compilation_options: wgpu::PipelineCompilationOptions::default(),
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
             // primitive: wgpu::PrimitiveState::default(),
             // depth_stencil: None,
@@ -629,5 +629,57 @@ impl ExportPipeline {
             let command_buffer = encoder.finish();
             queue.submit(std::iter::once(command_buffer));
         }
+    }
+
+    pub fn render_display_frame(&mut self, gui: &mut Gui) {
+        let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+
+        let output = gpu_resources.surface.as_ref().unwrap()
+            .get_current_texture()
+            .expect("Failed to get current swap chain texture");
+        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Update last_frame for delta_time calculation
+        gui.ctx.io_mut().update_delta_time(Instant::now() - gui.last_frame);
+        gui.last_frame = gui.last_frame.max(Instant::now());
+
+        let ui = gui.ctx.frame();
+        {
+            let fps = ui.io().framerate;
+            ui.text(format!("FPS: {:.1}", fps));
+        }
+
+        // Call the render_frame from our pipeline
+        self.render_frame(Some(&view), 0.0); // Pass a dummy current_time for now
+
+        let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("imgui encoder"),
+        });
+
+        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("imgui"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+
+        gui
+            .renderer
+            .render(gui.ctx.render(), &gpu_resources.queue, &gpu_resources.device, &mut rpass)
+            .expect("Imgui render failed");
+
+        drop(rpass);
+
+        gpu_resources.queue.submit(Some(encoder.finish()));
+
+        output.present();
     }
 }
