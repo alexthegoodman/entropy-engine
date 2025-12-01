@@ -2,7 +2,7 @@ use nalgebra::{Matrix4, Point3, Vector3};
 use wgpu::util::DeviceExt;
 
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 // Vertices for a pyramid
 const VERTICES: &[Vertex] = &[
@@ -10,31 +10,31 @@ const VERTICES: &[Vertex] = &[
         position: [0.0, 1.0, 0.0],
         normal: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        color: [1.0, 0.0, 0.0],
+        color: [1.0, 0.0, 0.0, 1.0],
     }, // Apex
     Vertex {
         position: [-1.0, -1.0, -1.0],
         normal: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        color: [0.0, 1.0, 0.0],
+        color: [0.0, 1.0, 0.0, 1.0],
     }, // Base vertices
     Vertex {
         position: [1.0, -1.0, -1.0],
         normal: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        color: [0.0, 0.0, 1.0],
+        color: [0.0, 0.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, -1.0, 1.0],
         normal: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        color: [1.0, 1.0, 0.0],
+        color: [1.0, 1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-1.0, -1.0, 1.0],
         normal: [0.0, 0.0, 0.0],
         tex_coords: [0.0, 0.0],
-        color: [0.0, 1.0, 1.0],
+        color: [0.0, 1.0, 1.0, 1.0],
     },
 ];
 

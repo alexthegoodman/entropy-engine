@@ -12,7 +12,7 @@ use wgpu::util::{DeviceExt, TextureDataOrder};
 
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::LandscapePixelData;
 use crate::helpers::saved_data::LandscapeTextureKinds;
 
@@ -372,7 +372,7 @@ impl Landscape {
                     position: data.pixel_data[y][x].position,
                     normal: [0.0, 0.0, 0.0],
                     tex_coords: data.pixel_data[y][x].tex_coords,
-                    color: [1.0, 1.0, 1.0],
+                    color: [1.0, 1.0, 1.0, 1.0],
                 });
                 // rapier_vertices.push(Point::new(
                 //     data.pixel_data[y][x].position[0],

@@ -6,10 +6,7 @@ use nalgebra::{
 use wgpu::util::DeviceExt;
 
 use crate::{
-    kinematic_animations::motion_path::create_attachment_transform,
-    core::Transform_2::{matrix4_to_raw_array, Transform},
-    handlers::Vertex,
-    shape_primitives::Sphere::Sphere,
+    core::{Transform_2::{Transform, matrix4_to_raw_array}, vertex::Vertex}, kinematic_animations::motion_path::create_attachment_transform, shape_primitives::Sphere::Sphere
 };
 
 use super::{
@@ -25,32 +22,32 @@ const VERTICES: &[Vertex] = &[
         position: [-0.5, 0.0, -0.5],
         normal: [-0.5, 0.5, -0.5],
         tex_coords: [0.0, 0.0],
-        color: [1.0, 0.0, 1.0],
+        color: [1.0, 0.0, 1.0, 1.0],
     },
     Vertex {
         position: [0.5, 0.0, -0.5],
         normal: [0.5, 0.5, -0.5],
         tex_coords: [1.0, 0.0],
-        color: [1.0, 0.0, 0.0],
+        color: [1.0, 0.0, 0.0, 1.0],
     },
     Vertex {
         position: [0.5, 0.0, 0.5],
         normal: [0.5, 0.5, 0.5],
         tex_coords: [1.0, 1.0],
-        color: [1.0, 1.0, 0.0],
+        color: [1.0, 1.0, 0.0, 1.0],
     },
     Vertex {
         position: [-0.5, 0.0, 0.5],
         normal: [-0.5, 0.5, 0.5],
         tex_coords: [0.0, 1.0],
-        color: [1.0, 0.0, 0.0],
+        color: [1.0, 0.0, 0.0, 1.0],
     },
     // Tip vertex (at y=-1 instead of y=1)
     Vertex {
         position: [0.0, -1.0, 0.0],
         normal: [0.0, -1.0, 0.0],
         tex_coords: [0.5, 0.5],
-        color: [1.0, 1.0, 0.0],
+        color: [1.0, 1.0, 0.0, 1.0],
     },
 ];
 

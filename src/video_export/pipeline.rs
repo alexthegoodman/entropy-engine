@@ -369,7 +369,7 @@ impl ExportPipeline {
 
         let view = Arc::new(view);
 
-        // camera_binding.update_3d(&queue, &camera);
+        camera_binding.update_3d(&queue, &camera);
 
         let gpu_resources = if let Some(surface) = surface {
             GpuResources::with_surface(adapter, device, queue, surface)
@@ -480,7 +480,7 @@ impl ExportPipeline {
                     // resolve_target: Some(&resolve_view), // not sure how to add without surface
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],

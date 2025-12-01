@@ -15,7 +15,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 use crate::helpers::utilities::get_common_os_dir;
 
 pub struct Mesh {
@@ -209,7 +209,7 @@ impl Model {
                         position: p,
                         normal: *n,
                         tex_coords: *t,
-                        color: *c,
+                        color: [c[0], c[1], c[2], 1.0],
                     })
                     .collect();
 

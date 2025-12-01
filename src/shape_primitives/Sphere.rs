@@ -3,7 +3,7 @@ use std::f32::consts::PI;
 use wgpu::util::DeviceExt;
 
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 pub struct Sphere {
     pub vertex_buffer: wgpu::Buffer,
@@ -95,7 +95,7 @@ impl Sphere {
                     position: [x, y, z],
                     normal: [normal.x, normal.y, normal.z],
                     tex_coords: [s, t],
-                    color: [0.7, 0.7, 0.7], // Default to gray, can be modified as needed
+                    color: [0.7, 0.7, 0.7, 1.0], // Default to gray, can be modified as needed
                 });
             }
         }

@@ -1,7 +1,7 @@
 use nalgebra::{Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
 use wgpu::util::DeviceExt;
 
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 pub struct Transform {
     pub position: Vector3<f32>,

@@ -3,7 +3,7 @@ use rapier3d::prelude::*;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 use super::SimpleCamera::SimpleCamera;
 
@@ -83,48 +83,48 @@ pub fn create_ray_debug_mesh(
         transform_vertex(
             ray.origin,
             -right * half_thickness - new_up * half_thickness,
-            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 1.0],
         ),
         transform_vertex(
             ray.origin,
             right * half_thickness - new_up * half_thickness,
-            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 1.0],
         ),
         transform_vertex(
             ray.origin,
             right * half_thickness + new_up * half_thickness,
-            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 1.0],
         ),
         transform_vertex(
             ray.origin,
             -right * half_thickness + new_up * half_thickness,
-            [1.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0, 1.0],
         ),
         // Far face
         transform_vertex(
             end_point,
             -right * half_thickness - new_up * half_thickness,
-            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0, 1.0],
         ),
         transform_vertex(
             end_point,
             right * half_thickness - new_up * half_thickness,
-            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0, 1.0],
         ),
         transform_vertex(
             end_point,
             right * half_thickness + new_up * half_thickness,
-            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0, 1.0],
         ),
         transform_vertex(
             end_point,
             -right * half_thickness + new_up * half_thickness,
-            [1.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0, 1.0],
         ),
     ];
 
     // Helper function to create transformed vertices
-    fn transform_vertex(origin: Point3<f32>, offset: Vector3<f32>, color: [f32; 3]) -> Vertex {
+    fn transform_vertex(origin: Point3<f32>, offset: Vector3<f32>, color: [f32; 4]) -> Vertex {
         Vertex {
             position: [
                 origin.x + offset.x,

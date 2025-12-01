@@ -2,7 +2,7 @@ use nalgebra::{Matrix4, Point3, Vector3};
 use wgpu::util::DeviceExt;
 
 use crate::core::Transform_2::matrix4_to_raw_array;
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 pub struct Grid {
     pub vertex_buffer: wgpu::Buffer,
@@ -191,7 +191,7 @@ impl Grid {
         let half_width = width / 2.0;
         let half_depth = depth / 2.0;
         let half_line_width = line_width / 2.0;
-        let color = [1.0, 1.0, 0.0];
+        let color = [1.0, 1.0, 0.0, 1.0];
 
         // Generate vertices and indices for vertical lines (along Z axis)
         for i in 0..=((width / spacing) as u16) {

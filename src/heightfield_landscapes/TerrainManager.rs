@@ -15,7 +15,6 @@ use crate::core::PlayerCharacter::PlayerCharacter;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{Vertex};
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::heightfield_landscapes::LandscapeLOD::{add_physics_components_mini, Rect};

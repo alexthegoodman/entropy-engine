@@ -470,21 +470,25 @@ impl TextRenderer {
             vertices.extend_from_slice(&[
                 Vertex {
                     position: [x0, y0, z],
+                    normal: [0.0, 0.0, 0.0],
                     tex_coords: [u0, v0],
                     color: active_color,
                 },
                 Vertex {
                     position: [x1, y0, z],
+                    normal: [0.0, 0.0, 0.0],
                     tex_coords: [u1, v0],
                     color: active_color,
                 },
                 Vertex {
                     position: [x1, y1, z],
+                    normal: [0.0, 0.0, 0.0],
                     tex_coords: [u1, v1],
                     color: active_color,
                 },
                 Vertex {
                     position: [x0, y1, z],
+                    normal: [0.0, 0.0, 0.0],
                     tex_coords: [u0, v1],
                     color: active_color,
                 },

@@ -63,31 +63,7 @@ pub struct GetMaskParams {
     pub maskKind: String,
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct Vertex {
-    pub position: [f32; 3],
-    pub normal: [f32; 3],
-    pub tex_coords: [f32; 2],
-    pub color: [f32; 3],
-}
 
-// Ensure Vertex is Pod and Zeroable
-unsafe impl Pod for Vertex {}
-unsafe impl Zeroable for Vertex {}
-
-impl Vertex {
-    const ATTRIBS: [wgpu::VertexAttribute; 4] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x3];
-
-    pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
-        wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &Self::ATTRIBS,
-        }
-    }
-}
 
 static mut CAMERA: Option<SimpleCamera> = None;
 

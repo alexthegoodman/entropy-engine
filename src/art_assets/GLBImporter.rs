@@ -6,7 +6,7 @@ use std::io::{BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::mem::size_of;
 use std::path::Path;
 
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 // Define file header and chunk identifiers
 const FILE_MAGIC: u32 = 0x444F4C4D; // "MLOD" in ASCII, reversed for endianness
@@ -123,7 +123,7 @@ impl GLBImporter {
                         position: p,
                         normal: *n,
                         tex_coords: *t,
-                        color: *c,
+                        color: [c[0], c[1], c[2], 1.0],
                     })
                     .collect();
 
@@ -387,7 +387,7 @@ impl GLBImporter {
                 // Write color
                 writer.write_all(unsafe {
                     std::slice::from_raw_parts(
-                        &vertex.color as *const [f32; 3] as *const u8,
+                        &vertex.color as *const [f32; 4] as *const u8,
                         std::mem::size_of::<[f32; 3]>(),
                     )
                 })?;
@@ -543,7 +543,7 @@ impl GLBImporter {
                 let mut position = [0f32; 3];
                 let mut normal = [0f32; 3];
                 let mut tex_coords = [0f32; 2];
-                let mut color = [0f32; 3];
+                let mut color = [0f32; 4];
 
                 // Read position
                 let mut position_bytes = [0u8; std::mem::size_of::<[f32; 3]>()];
@@ -565,10 +565,10 @@ impl GLBImporter {
                 };
 
                 // Read color
-                let mut color_bytes = [0u8; std::mem::size_of::<[f32; 3]>()];
+                let mut color_bytes = [0u8; std::mem::size_of::<[f32; 4]>()];
                 reader.read_exact(&mut color_bytes)?;
                 color =
-                    unsafe { std::ptr::read_unaligned(color_bytes.as_ptr() as *const [f32; 3]) };
+                    unsafe { std::ptr::read_unaligned(color_bytes.as_ptr() as *const [f32; 4]) };
 
                 vertices.push(Vertex {
                     position,

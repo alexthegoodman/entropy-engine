@@ -15,7 +15,7 @@ use wgpu::*;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{Vertex};
+use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::get_landscape_pixels;
 use crate::helpers::saved_data::LandscapeTextureKinds;
 
@@ -451,19 +451,19 @@ pub fn create_debug_collision_mesh(
                 position: [tri_a.x, tri_a.y + 352.0, tri_a.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv, // Use the same random UV for all vertices
-                color: [1.0, 1.0, 1.0], // Default white color since we're using UVs for color
+                color: [1.0, 1.0, 1.0, 1.0], // Default white color since we're using UVs for color
             });
             vertices.push(Vertex {
                 position: [tri_b.x, tri_b.y + 352.0, tri_b.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv,
-                color: [1.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             });
             vertices.push(Vertex {
                 position: [tri_c.x, tri_c.y + 352.0, tri_c.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv,
-                color: [1.0, 1.0, 1.0],
+                color: [1.0, 1.0, 1.0, 1.0],
             });
 
             // Add indices for this triangle

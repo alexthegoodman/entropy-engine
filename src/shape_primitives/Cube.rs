@@ -5,7 +5,7 @@ use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::core::editor::WindowSize;
 use crate::core::transform::create_empty_group_transform;
-use crate::handlers::Vertex;
+use crate::core::vertex::Vertex;
 
 // Vertices for a cube
 const VERTICES: &[Vertex] = &[
@@ -14,50 +14,50 @@ const VERTICES: &[Vertex] = &[
         position: [0.0, 0.0, 1.0],
         normal: [0.0, 0.0, 1.0],
         tex_coords: [0.0, 0.0],
-        color: [1.0, 0.0, 0.0],
+        color: [1.0, 0.0, 0.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 1.0],
         normal: [0.0, 0.0, 1.0],
         tex_coords: [1.0, 0.0],
-        color: [0.0, 1.0, 0.0],
+        color: [0.0, 1.0, 0.0, 1.0],
     },
     Vertex {
         position: [1.0, 1.0, 1.0],
         normal: [0.0, 0.0, 1.0],
         tex_coords: [1.0, 1.0],
-        color: [0.0, 0.0, 1.0],
+        color: [0.0, 0.0, 1.0, 1.0],
     },
     Vertex {
         position: [0.0, 1.0, 1.0],
         normal: [0.0, 0.0, 1.0],
         tex_coords: [0.0, 1.0],
-        color: [1.0, 1.0, 0.0],
+        color: [1.0, 1.0, 0.0, 1.0],
     },
     // Back face
     Vertex {
         position: [0.0, 0.0, 0.0],
         normal: [0.0, 0.0, -1.0],
         tex_coords: [1.0, 0.0],
-        color: [1.0, 0.0, 1.0],
+        color: [1.0, 0.0, 1.0, 1.0],
     },
     Vertex {
         position: [0.0, 1.0, 0.0],
         normal: [0.0, 0.0, -1.0],
         tex_coords: [1.0, 1.0],
-        color: [0.0, 1.0, 1.0],
+        color: [0.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, 1.0, 0.0],
         normal: [0.0, 0.0, -1.0],
         tex_coords: [0.0, 1.0],
-        color: [1.0, 1.0, 1.0],
+        color: [1.0, 1.0, 1.0, 1.0],
     },
     Vertex {
         position: [1.0, 0.0, 0.0],
         normal: [0.0, 0.0, -1.0],
         tex_coords: [0.0, 0.0],
-        color: [0.5, 0.5, 0.5],
+        color: [0.5, 0.5, 0.5, 1.0],
     },
 ];
 

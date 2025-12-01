@@ -228,6 +228,7 @@ impl StVideo {
 
                 vertices.push(Vertex {
                     position: [pos_x, pos_y, 0.0],
+                    normal: [0.0, 0.0, 0.0],
                     tex_coords: [tex_x, tex_y],
                     color: [1.0, 1.0, 1.0, 1.0],
                 });

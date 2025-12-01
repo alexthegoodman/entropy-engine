@@ -16,7 +16,7 @@ use wgpu::*;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
-use crate::handlers::{Vertex};
+use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::heightfield_landscapes::LandscapeLOD::{calculate_normals, sample_height_world, MAX_LOD_LEVELS};
@@ -709,7 +709,7 @@ impl QuadNode {
                         (left_x + terrain_width / 2.0) / terrain_width,
                         (z + terrain_width / 2.0) / terrain_width,
                     ],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: None,
@@ -727,7 +727,7 @@ impl QuadNode {
                         (right_x + terrain_width / 2.0) / terrain_width,
                         (z + terrain_width / 2.0) / terrain_width,
                     ],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: None,
@@ -751,7 +751,7 @@ impl QuadNode {
                         (x + terrain_width / 2.0) / terrain_width,
                         (bottom_z + terrain_width / 2.0) / terrain_width,
                     ],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: None,
@@ -769,7 +769,7 @@ impl QuadNode {
                         (x + terrain_width / 2.0) / terrain_width,
                         (top_z + terrain_width / 2.0) / terrain_width,
                     ],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: None,
@@ -802,7 +802,7 @@ impl QuadNode {
                     position: world_pos,
                     normal: [0.0, 1.0, 0.0],
                     tex_coords: [tex_x, tex_z],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: Some(i as usize),
@@ -839,7 +839,7 @@ impl QuadNode {
                     position: world_pos,
                     normal: [0.0, 1.0, 0.0],
                     tex_coords: [tex_x, tex_z],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: Some(i as usize),
@@ -872,7 +872,7 @@ impl QuadNode {
                     position: world_pos,
                     normal: [0.0, 1.0, 0.0],
                     tex_coords: [tex_x, tex_z],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: Some(i as usize),
@@ -905,7 +905,7 @@ impl QuadNode {
                     position: world_pos,
                     normal: [0.0, 1.0, 0.0],
                     tex_coords: [tex_x, tex_z],
-                    color: [1.0, 0.0, 0.0],
+                    color: [1.0, 0.0, 0.0, 1.0],
                 },
                 is_edge: true,
                 edge_index: Some(i as usize),
@@ -948,7 +948,7 @@ impl QuadNode {
                         position: world_pos,
                         normal: [0.0, 1.0, 0.0],
                         tex_coords: [tex_x, tex_z],
-                        color: [1.0, 0.0, 0.0],
+                        color: [1.0, 0.0, 0.0, 1.0],
                     },
                     is_edge: false,
                     edge_index: None,

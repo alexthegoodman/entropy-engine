@@ -1,6 +1,6 @@
 use cgmath::{Matrix4, Point3, Vector2, Vector3, Rad, perspective, InnerSpace};
 
-use crate::core::editor::{size_to_normal, Point, WindowSize};
+use crate::core::{SimpleCamera::SimpleCamera, editor::{Point, WindowSize, size_to_normal}};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
@@ -336,8 +336,12 @@ impl CameraUniform {
         self.view_proj = camera.get_view_projection_matrix().into();
     }
 
-    pub fn update_view_proj_3d(&mut self, camera: &Camera3D) {
-        self.view_proj = camera.get_view_projection_matrix().into();
+    // pub fn update_view_proj_3d(&mut self, camera: &Camera3D) {
+    //     self.view_proj = camera.get_view_projection_matrix().into();
+    // }
+
+    pub fn update_view_proj_3d(&mut self, camera: &SimpleCamera) {
+        self.view_proj = camera.view_projection_matrix.into();
     }
 }
 
@@ -405,7 +409,8 @@ impl CameraBinding {
         );
     }
 
-    pub fn update_3d(&mut self, queue: &wgpu::Queue, camera: &Camera3D) {
+    // pub fn update_3d(&mut self, queue: &wgpu::Queue, camera: &Camera3D) {
+    pub fn update_3d(&mut self, queue: &wgpu::Queue, camera: &SimpleCamera) {
         self.uniform.update_view_proj_3d(camera);
         queue.write_buffer(
             &self.buffer,
