@@ -1,5 +1,5 @@
 use crate::{
-   core::{SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
+   core::{Grid::{Grid, GridConfig}, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
     }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
 };
@@ -57,7 +57,7 @@ impl ExportPipeline {
         project_id: String,
     ) {
         let mut camera = Camera::new(
-            Point3::new(0.0, 1.0, 5.0),
+            Point3::new(0.0, 0.5, -5.0),
             Vector3::new(0.0, 0.0, -1.0),
             Vector3::new(0.0, 1.0, 0.0),
             45.0f32.to_radians(),
@@ -371,6 +371,38 @@ impl ExportPipeline {
 
         camera_binding.update_3d(&queue, &camera);
 
+        let mut grids = Vec::new();
+        grids.push(Grid::new(
+            &device,
+            &queue,
+            &model_bind_group_layout,
+            &group_bind_group_layout.clone(),
+            &camera,
+            GridConfig {
+                width: 200.0,
+                depth: 200.0,
+                spacing: 4.0,
+                line_thickness: 0.1,
+            },
+        ));
+        grids.push(Grid::new(
+            &device,
+            &queue,
+            &model_bind_group_layout,
+            &group_bind_group_layout,
+             &camera,
+            GridConfig {
+                width: 200.0,
+                depth: 200.0,
+                spacing: 1.0,
+                line_thickness: 0.025,
+            },
+        ));
+
+        export_editor.grids = grids;
+
+        println!("Grid Restored!");
+
         let gpu_resources = if let Some(surface) = surface {
             GpuResources::with_surface(adapter, device, queue, surface)
         } else {
@@ -380,8 +412,8 @@ impl ExportPipeline {
         let gpu_resources = Arc::new(gpu_resources);
 
         // set needed editor properties
-        export_editor.model_bind_group_layout = Some(model_bind_group_layout);
-        export_editor.group_bind_group_layout = Some(group_bind_group_layout);
+        export_editor.model_bind_group_layout = Some(model_bind_group_layout.clone());
+        export_editor.group_bind_group_layout = Some(group_bind_group_layout.clone());
         export_editor.gpu_resources = Some(gpu_resources.clone());
 
         // let gpu_resources = export_editor
@@ -389,6 +421,8 @@ impl ExportPipeline {
         //     .as_ref()
         //     .expect("Couldn't get gpu resources");
 
+        println!("Pipeline initialized!");
+        
         // begin playback
         export_editor.camera = Some(camera);
 
@@ -420,8 +454,6 @@ impl ExportPipeline {
         // also set motion path playing
         export_editor.start_playing_time = Some(now);
         export_editor.is_playing = true;
-
-        println!("Pipeline initialized!");
 
         // self.device = Some(device);
         // self.queue = Some(queue);
@@ -533,6 +565,22 @@ impl ExportPipeline {
                         wgpu::IndexFormat::Uint16,
                     );
                     render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+                // }
+            }
+
+            for (poly_index, grid) in editor.grids.iter().enumerate() {
+                // if !polygon.hidden {
+                    grid
+                        .transform
+                        .update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &grid.bind_group, &[]);
+                    render_pass.set_bind_group(3, &grid.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, grid.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        grid.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+                    render_pass.draw_indexed(0..grid.index_count as u32, 0, 0..1);
                 // }
             }
 

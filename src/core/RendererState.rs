@@ -180,30 +180,30 @@ impl RendererState {
 
         // create the utility grid(s)
         let mut grids = Vec::new();
-        grids.push(Grid::new(
-            &device,
-            &model_bind_group_layout,
-            &texture_bind_group_layout,
-            &color_render_mode_buffer,
-            GridConfig {
-                width: 200.0,
-                depth: 200.0,
-                spacing: 4.0,
-                line_thickness: 0.1,
-            },
-        ));
-        grids.push(Grid::new(
-            &device,
-            &model_bind_group_layout,
-            &texture_bind_group_layout,
-            &color_render_mode_buffer,
-            GridConfig {
-                width: 200.0,
-                depth: 200.0,
-                spacing: 1.0,
-                line_thickness: 0.025,
-            },
-        ));
+        // grids.push(Grid::new(
+        //     &device,
+        //     &model_bind_group_layout,
+        //     &texture_bind_group_layout,
+        //     &color_render_mode_buffer,
+        //     GridConfig {
+        //         width: 200.0,
+        //         depth: 200.0,
+        //         spacing: 4.0,
+        //         line_thickness: 0.1,
+        //     },
+        // ));
+        // grids.push(Grid::new(
+        //     &device,
+        //     &model_bind_group_layout,
+        //     &texture_bind_group_layout,
+        //     &color_render_mode_buffer,
+        //     GridConfig {
+        //         width: 200.0,
+        //         depth: 200.0,
+        //         spacing: 1.0,
+        //         line_thickness: 0.025,
+        //     },
+        // ));
 
         let mut cubes = Vec::new();
         cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, camera));

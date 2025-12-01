@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cgmath::{Point3, Vector3, Vector4};
+use crate::core::Grid::Grid;
 // use nalgebra::{Point3, Vector3, Vector4};
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::camera::CameraBinding;
@@ -282,6 +283,7 @@ pub struct Editor {
     // pub dragging_video: Option<Uuid>,
     // pub saved_state: Option<SavedState>,
     pub cubes: Vec<Cube>,
+    pub grids: Vec<Grid>,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -412,6 +414,7 @@ impl Editor {
             // polygons: Vec::new(),
             // dragging_polygon: None,
             // dragging_path_assoc_path: None,
+            grids: Vec::new(),
             drag_start: None,
             viewport: viewport.clone(),
             // handle_polygon_click: None,
