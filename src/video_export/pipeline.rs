@@ -270,13 +270,15 @@ impl ExportPipeline {
         let shader_module_vert_primary =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Stunts Engine Export Vert Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/vert_primary.wgsl").into()),
+                // source: wgpu::ShaderSource::Wgsl(include_str!("shaders/vert_primary.wgsl").into()), // stunts
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/primary_vertex.wgsl").into()), // midpoint
             });
 
         let shader_module_frag_primary =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("Stunts Engine Export Frag Shader"),
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/frag_primary.wgsl").into()),
+                // source: wgpu::ShaderSource::Wgsl(include_str!("shaders/frag_primary.wgsl").into()), // stunts
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/primary_fragment.wgsl").into()), // midpoint
             });
 
         // let swapchain_capabilities = gpu_resources
@@ -562,7 +564,7 @@ impl ExportPipeline {
                     render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         cube.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint16,
+                        wgpu::IndexFormat::Uint32,
                     );
                     render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
                 // }
@@ -578,7 +580,7 @@ impl ExportPipeline {
                     render_pass.set_vertex_buffer(0, grid.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         grid.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint16,
+                        wgpu::IndexFormat::Uint32,
                     );
                     render_pass.draw_indexed(0..grid.index_count as u32, 0, 0..1);
                 // }

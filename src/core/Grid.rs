@@ -271,9 +271,9 @@ impl Grid {
         depth: f32,
         spacing: f32,
         line_width: f32,
-    ) -> (Vec<Vertex>, Vec<u16>) {
+    ) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::new();
-        let mut indices = Vec::new();
+        let mut indices: Vec<u32> = Vec::new();
 
         let half_width = width / 2.0;
         let half_depth = depth / 2.0;
@@ -281,7 +281,7 @@ impl Grid {
         let color = [1.0, 1.0, 0.0, 1.0];
 
         // Generate vertices and indices for vertical lines (along Z axis)
-        for i in 0..=((width / spacing) as u16) {
+        for i in 0..=((width / spacing) as u32) {
             let x = -half_width + i as f32 * spacing;
 
             // Create four vertices for each line (rectangle)
@@ -317,7 +317,7 @@ impl Grid {
             ]);
 
             // Add indices for two triangles
-            let base_idx = (i * 4) as u16;
+            let base_idx = (i * 4) as u32;
             indices.extend_from_slice(&[
                 base_idx,
                 base_idx + 1,
@@ -328,10 +328,10 @@ impl Grid {
             ]);
         }
 
-        let vertical_vertex_count = vertices.len() as u16;
+        let vertical_vertex_count = vertices.len() as u32;
 
         // Generate vertices and indices for horizontal lines (along X axis)
-        for i in 0..=((depth / spacing) as u16) {
+        for i in 0..=((depth / spacing) as u32) {
             let z = -half_depth + i as f32 * spacing;
 
             // Create four vertices for each line (rectangle)

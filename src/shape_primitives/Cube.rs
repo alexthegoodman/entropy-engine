@@ -62,7 +62,7 @@ const VERTICES: &[Vertex] = &[
 ];
 
 // Indices for a cube
-const INDICES: &[u16] = &[
+const INDICES: &[u32] = &[
     0, 1, 2, 2, 3, 0, // Front face
     4, 5, 6, 6, 7, 4, // Back face
     3, 2, 6, 6, 5, 3, // Top face
