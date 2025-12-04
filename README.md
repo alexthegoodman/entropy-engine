@@ -11,4 +11,5 @@ Powering a unified OS inspired by MCP.
 - Screen capture
 - Vector animations
 - Video export
+- GLB Import
 - and more!

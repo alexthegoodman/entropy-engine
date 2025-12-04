@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::kinematic_animations::{
+use crate::{helpers::timelines::SavedTimelineStateConfig, kinematic_animations::{
     motion_path::SkeletonMotionPath,
     skeleton::{SkeletonAssemblyConfig, SkeletonPart},
-};
+}, vector_animations::animations::Sequence};
 
 #[derive(Hash, Eq, Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct File {
@@ -73,8 +73,20 @@ pub struct LevelData {
     pub components: Option<Vec<ComponentData>>,
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+pub struct ProjectData {
+    pub project_id: String,
+    pub project_name: String,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+pub struct ProjectsDataFile {
+    pub projects: Vec<ProjectData>,
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct SavedState {
+    // games
     pub concepts: Vec<File>,
     pub models: Vec<File>,
     pub landscapes: Option<Vec<LandscapeData>>,
@@ -83,4 +95,8 @@ pub struct SavedState {
     pub skeleton_parts: Vec<SkeletonPart>,
     pub skeletons: Vec<SkeletonAssemblyConfig>,
     pub motion_paths: Vec<SkeletonMotionPath>,
+    // videos
+    pub id: Option<String>,
+    pub sequences: Option<Vec<Sequence>>,
+    pub timeline_state: Option<SavedTimelineStateConfig>,
 }

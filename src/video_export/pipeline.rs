@@ -1,12 +1,13 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::handle_add_landscape, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{sync::{Arc, Mutex}, time::Instant};
 use imgui::Condition;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
+use uuid::Uuid;
 use wgpu::{util::DeviceExt, RenderPipeline};
 use winit::window::Window;
 use crate::shape_primitives::Cube::Cube;
@@ -376,6 +377,18 @@ impl ExportPipeline {
 
         camera_binding.update_3d(&queue, &camera);
 
+        
+
+        println!("Grid Restored!");
+
+        let mut renderer_state = RendererState::new(
+            &device, 
+            &queue, 
+            model_bind_group_layout.clone(), 
+            group_bind_group_layout.clone(), 
+            &camera
+        );
+
         let mut grids = Vec::new();
         grids.push(Grid::new(
             &device,
@@ -404,17 +417,7 @@ impl ExportPipeline {
             },
         ));
 
-        export_editor.grids = grids;
-
-        println!("Grid Restored!");
-
-        let renderer_state = RendererState::new(
-            &device, 
-            &queue, 
-            model_bind_group_layout.clone(), 
-            group_bind_group_layout.clone(), 
-            &camera
-        );
+        renderer_state.grids = grids;
 
         export_editor.renderer_state = Some(renderer_state);
 
@@ -485,6 +488,7 @@ impl ExportPipeline {
 
     pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+        let renderer_state = editor.renderer_state.as_ref().expect("Couldn't get RendererState");
         let gpu_resources = self
             .gpu_resources
             .as_ref()
@@ -527,7 +531,7 @@ impl ExportPipeline {
                     // resolve_target: Some(&resolve_view), // not sure how to add without surface
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -567,7 +571,7 @@ impl ExportPipeline {
             // }
 
             // // draw cubes
-            for (poly_index, cube) in editor.cubes.iter().enumerate() {
+            for (poly_index, cube) in renderer_state.cubes.iter().enumerate() {
                 // if !polygon.hidden {
                     cube
                         .transform
@@ -583,7 +587,7 @@ impl ExportPipeline {
                 // }
             }
 
-            for (poly_index, grid) in editor.grids.iter().enumerate() {
+            for (poly_index, grid) in renderer_state.grids.iter().enumerate() {
                 // if !polygon.hidden {
                     grid
                         .transform
@@ -763,7 +767,9 @@ impl ExportPipeline {
         // ChatGPT style chat interface
         self.chat.render(&ui);
 
-        // for testing
+        // TODO: select project window
+
+        // scene controls
         {
             let window = ui.window("Controls");
             window
@@ -786,11 +792,39 @@ impl ExportPipeline {
                         let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
                         let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
                         let camera = editor.camera.as_ref().expect("Couldn't get camera");
-                        
-                        let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
-                        editor.cubes.push(new_cube);
+                        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-                        println!("Cube added {:?}", editor.cubes.len());
+                        let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
+                        renderer_state.cubes.push(new_cube);
+
+                        println!("Cube added {:?}", renderer_state.cubes.len());
+                    }
+
+                    if ui.button("Add Landscape") {
+                        let editor = self.export_editor.as_mut().unwrap();
+                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                        let device = &gpu_resources.device;
+                        let queue = &gpu_resources.queue;
+                        let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+                        let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
+                        let camera = editor.camera.as_mut().expect("Couldn't get camera");
+                        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+
+                        let mock_project_id = Uuid::new_v4().to_string();
+                        
+                        // handle_add_landscape(
+                        //     renderer_state, 
+                        //     device, 
+                        //     queue, 
+                        //     mock_project_id, 
+                        //     landscapeAssetId, 
+                        //     landscapeComponentId, 
+                        //     landscapeFilename, 
+                        //     [0.0, 0.0, 0.0], 
+                        //     camera
+                        // );
+
+                        // println!("Landscape added {:?}", editor.cubes.len());
                     }
                 });
 

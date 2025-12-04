@@ -89,7 +89,7 @@ pub struct RendererState {
     // pub viewport: Arc<Mutex<Viewport>>,
     pub cubes: Vec<Cube>,
     pub pyramids: Vec<Pyramid>,
-    // pub grids: Vec<Grid>,
+    pub grids: Vec<Grid>,
     pub models: Vec<Model>,
     pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
@@ -180,7 +180,7 @@ impl RendererState {
         // let light_state = LightState::new(device, &light_bind_group_layout);
 
         // create the utility grid(s)
-        // let mut grids = Vec::new();
+        let mut grids = Vec::new();
         // grids.push(Grid::new(
         //     &device,
         //     &model_bind_group_layout,
@@ -297,7 +297,7 @@ impl RendererState {
         Self {
             cubes,
             pyramids,
-            // grids,
+            grids,
             models,
             // landscapes,
             skeleton_parts,

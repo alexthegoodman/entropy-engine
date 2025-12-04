@@ -11,8 +11,13 @@ use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::camera::CameraBinding;
 use crate::core::gpu_resources::{self, GpuResources};
+use crate::helpers::saved_data::SavedState;
 use crate::helpers::timelines::SavedTimelineStateConfig;
+use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
+use crate::renderer_text::text_due::TextRenderer;
+use crate::renderer_videos::st_video::StVideo;
+use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 
@@ -268,13 +273,13 @@ pub struct Editor {
     // pub st_capture: StCapture,
     // pub exporter: Option<Exporter>,
     // pub selected_polygon_id: Uuid,
-    // pub polygons: Vec<Polygon>,
+    pub polygons: Vec<Polygon>,
     // pub dragging_polygon: Option<Uuid>,
-    // pub static_polygons: Vec<Polygon>,
+    pub static_polygons: Vec<Polygon>,
     // pub project_selected: Option<Uuid>,
-    // pub text_items: Vec<TextRenderer>,
+    pub text_items: Vec<TextRenderer>,
     // pub dragging_text: Option<Uuid>,
-    // pub image_items: Vec<StImage>,
+    pub image_items: Vec<StImage>,
     // pub dragging_image: Option<Uuid>,
     // pub font_manager: FontManager,
     // pub dragging_path: Option<Uuid>,
@@ -283,11 +288,9 @@ pub struct Editor {
     // pub dragging_path_keyframe: Option<Uuid>,
     // pub dragging_path_assoc_path: Option<Uuid>,
     // pub cursor_dot: Option<RingDot>,
-    // pub video_items: Vec<StVideo>,
+    pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
-    // pub saved_state: Option<SavedState>,
-    pub cubes: Vec<Cube>,
-    pub grids: Vec<Grid>,
+    pub saved_state: Option<SavedState>,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -412,6 +415,7 @@ impl Editor {
 
         Editor {
             renderer_state: None,
+            saved_state: None,
             // st_capture,
             // exporter: None,
             // font_manager,
@@ -419,10 +423,9 @@ impl Editor {
             // selected_polygon_id: Uuid::nil(),
             // last_motion_arrow_object_id: Uuid::nil(),
             // last_motion_arrow_object_type: ObjectType::Polygon,
-            // polygons: Vec::new(),
+            polygons: Vec::new(),
             // dragging_polygon: None,
             // dragging_path_assoc_path: None,
-            grids: Vec::new(),
             drag_start: None,
             viewport: viewport.clone(),
             // handle_polygon_click: None,
@@ -450,13 +453,13 @@ impl Editor {
             window_size_bind_group: None,
             window_size_buffer: None,
             render_pipeline: None,
-            // static_polygons: Vec::new(),
+            static_polygons: Vec::new(),
             // on_mouse_up: None,
             current_view: "manage_projects".to_string(),
             // project_selected: None,
-            // text_items: Vec::new(),
+            text_items: Vec::new(),
             // dragging_text: None,
-            // image_items: Vec::new(),
+            image_items: Vec::new(),
             // dragging_image: None,
             video_is_playing: false,
             video_start_playing_time: None,
@@ -472,10 +475,9 @@ impl Editor {
             control_mode: ControlMode::Select,
             is_panning: false,
             motion_mode: false,
-            // video_items: Vec::new(),
+            video_items: Vec::new(),
             // dragging_video: None,
             // saved_state: None,
-            cubes: Vec::new(),
             
             // resize handles system  
             selected_object: None,

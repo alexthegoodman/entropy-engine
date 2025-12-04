@@ -139,6 +139,9 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
         skeleton_parts: Vec::new(),
         skeletons: Vec::new(),
         motion_paths: Vec::new(),
+        id: None,
+        sequences: None,
+        timeline_state: None
     };
 
     let json = serde_json::to_string_pretty(&empty_saved_state)?;

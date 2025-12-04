@@ -282,7 +282,7 @@ pub struct PixelData {
 }
 
 pub fn handle_add_landscape(
-    state: Arc<Mutex<RendererState>>,
+    state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     projectId: String,
@@ -292,15 +292,15 @@ pub fn handle_add_landscape(
     position: [f32; 3],
     camera: &mut SimpleCamera
 ) {
-    pause_rendering();
+    // pause_rendering();
 
-    let mut state_guard = state.lock().unwrap();
+    // let mut state_guard = state.lock().unwrap();
 
     // let data = get_landscape_pixels(projectId, landscapeAssetId, landscapeFilename);
 
     // state_guard.add_landscape(device, queue, &landscapeComponentId, &data, position);
 
-    state_guard.add_terrain_manager(
+    state.add_terrain_manager(
         device,
         queue,
         projectId,
@@ -311,9 +311,9 @@ pub fn handle_add_landscape(
         camera
     );
 
-    drop(state_guard);
+    // drop(state_guard);
 
-    resume_rendering();
+    // resume_rendering();
 }
 
 pub fn handle_add_skeleton_part(
