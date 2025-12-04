@@ -1,9 +1,9 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::handle_add_landscape, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::handle_add_landscape, helpers::{saved_data::{ComponentKind, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
-use std::{sync::{Arc, Mutex}, time::Instant};
+use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use imgui::Condition;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
@@ -29,6 +29,8 @@ pub struct ExportPipeline {
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
     pub chat: Chat,
+    new_project_name: String,
+    projects: Vec<String>,
 }
 
 impl ExportPipeline {
@@ -47,6 +49,8 @@ impl ExportPipeline {
             export_editor: None,
             frame_buffer: None,
             chat: Chat::new(),
+            new_project_name: String::new(),
+            projects: Vec::new(),
         }
     }
 
@@ -685,6 +689,15 @@ impl ExportPipeline {
             //     }
             // }
 
+            // Render all terrain managers
+            for terrain_manager in &renderer_state.terrain_managers {
+                terrain_manager.render(
+                    &mut render_pass,
+                    // &camera_binding.bind_group,
+                    &gpu_resources.queue,
+                );
+            }
+
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
@@ -767,7 +780,93 @@ impl ExportPipeline {
         // ChatGPT style chat interface
         self.chat.render(&ui);
 
-        // TODO: select project window
+        // select project window
+        let editor = self.export_editor.as_mut().unwrap();
+        if editor.saved_state.is_none() {
+            let window = ui.window("Projects");
+            window
+                .size([300.0, 400.0], Condition::FirstUseEver)
+                .build(|| {
+                    ui.text("Create New Project");
+                    ui.input_text("Project Name", &mut self.new_project_name)
+                        .build();
+                    if ui.button("Create New Project") {
+                        if !self.new_project_name.is_empty() {
+                            match utilities::create_project_state(&self.new_project_name) {
+                                Ok(new_state) => {
+                                    editor.saved_state = Some(new_state);
+                                }
+                                Err(e) => {
+                                    println!("Failed to create project: {}", e);
+                                }
+                            }
+                        }
+                    }
+
+                    ui.separator();
+                    ui.text("Existing Projects");
+
+                    let projects_dir = utilities::get_projects_dir().unwrap();
+                    self.projects.clear();
+                    for entry in fs::read_dir(projects_dir).unwrap() {
+                        let entry = entry.unwrap();
+                        let path = entry.path();
+                        if path.is_dir() {
+                            self.projects
+                                .push(path.file_name().unwrap().to_str().unwrap().to_string());
+                        }
+                    }
+
+                    for project_id in &self.projects {
+                        if ui.button(project_id) {
+                            match utilities::load_project_state(project_id) {
+                                Ok(loaded_state) => {
+                                    editor.saved_state = Some(loaded_state);
+                                    
+                                    // now load landscapes
+                                    if let Some(saved_state) = &editor.saved_state {
+                                        if let Some(landscapes) = &saved_state.landscapes {
+                                            if let Some(levels) = &saved_state.levels {
+                                                let level = &levels[0]; // assume one level for now
+                                                for landscape_data in landscapes {
+                                                    if let Some(components) = &level.components {
+                                                        for component in components {
+                                                            if let Some(ComponentKind::Landscape) = component.kind {
+                                                                if component.asset_id == landscape_data.id {
+                                                                    if let Some(heightmap) = &landscape_data.heightmap {
+                                                                        let renderer_state = editor.renderer_state.as_mut().unwrap();
+                                                                        let camera = editor.camera.as_mut().unwrap();
+                                                                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                                                                        
+                                                                        handle_add_landscape(
+                                                                            renderer_state,
+                                                                            &gpu_resources.device,
+                                                                            &gpu_resources.queue,
+                                                                            project_id.clone(),
+                                                                            landscape_data.id.clone(),
+                                                                            component.id.clone(),
+                                                                            heightmap.fileName.clone(),
+                                                                            component.generic_properties.position,
+                                                                            camera,
+                                                                        );
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("Failed to load project: {}", e);
+                                }
+                            }
+                        }
+                    }
+                });
+        }
 
         // scene controls
         {

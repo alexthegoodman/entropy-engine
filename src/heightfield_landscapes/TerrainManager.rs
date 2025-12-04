@@ -15,6 +15,8 @@ use crate::core::PlayerCharacter::PlayerCharacter;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
+use crate::core::editor::WindowSize;
+use crate::core::transform::create_empty_group_transform;
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::heightfield_landscapes::LandscapeLOD::{add_physics_components_mini, Rect};
@@ -34,6 +36,7 @@ pub struct TerrainManager {
     pub transform: Transform,
 
     pub bind_group: wgpu::BindGroup,
+    pub group_bind_group: wgpu::BindGroup,
     pub texture_array: Option<wgpu::Texture>,
     pub texture_array_view: Option<wgpu::TextureView>,
     pub texture_bind_group: Option<wgpu::BindGroup>,
@@ -54,6 +57,7 @@ impl TerrainManager {
         landscapeFilename: String,
         device: &Device,
         bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
         terrain_position: [f32; 3],
         camera: &mut SimpleCamera
     ) -> Self {
@@ -116,6 +120,12 @@ impl TerrainManager {
             label: None,
         });
 
+        let (tmp_group_bind_group, tmp_group_transform) =
+            create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
+                width: camera.viewport.window_size.width,
+                height: camera.viewport.window_size.height
+            });
+
         println!("lod_distances {:?}", calculate_lod_distances());
 
         Self {
@@ -135,6 +145,7 @@ impl TerrainManager {
                 uniform_buffer,
             ),
             bind_group,
+            group_bind_group: tmp_group_bind_group,
             texture_array: None,
             texture_array_view: None,
             texture_bind_group: None,
@@ -148,11 +159,11 @@ impl TerrainManager {
     pub fn render<'a>(
         &'a self,
         render_pass: &mut RenderPass<'a>,
-        camera_bind_group: &'a BindGroup,
+        // camera_bind_group: &'a BindGroup,
         queue: &wgpu::Queue,
     ) {
-        if let Some(texture_bind_group) = &self.texture_bind_group {
-            let render_time = Instant::now();
+        // if let Some(texture_bind_group) = &self.texture_bind_group {
+            // let render_time = Instant::now();
 
             // Update any per-terrain transform uniforms if needed
             self.transform.update_uniform_buffer(&queue);
@@ -160,14 +171,16 @@ impl TerrainManager {
             // Render the entire quadtree
             self.root.render(
                 render_pass,
-                camera_bind_group,
                 &self.bind_group,
-                texture_bind_group,
+                &self.group_bind_group,
+                // camera_bind_group,
+                // &self.bind_group,
+                // texture_bind_group,
             );
 
-            let render_duration = render_time.elapsed();
-            // println!("  render_duration: {:?}", render_duration);
-        }
+        //     let render_duration = render_time.elapsed();
+        //     // println!("  render_duration: {:?}", render_duration);
+        // }
     }
 
     pub fn find_chunk_by_id(&mut self, chunk_id: &String) -> Option<&mut QuadNode> {

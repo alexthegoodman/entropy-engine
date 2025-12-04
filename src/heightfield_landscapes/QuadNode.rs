@@ -552,9 +552,10 @@ impl QuadNode {
     pub fn render<'a>(
         &'a self,
         render_pass: &mut RenderPass<'a>,
-        camera_bind_group: &'a BindGroup,
-        landscape_bind_group: &'a BindGroup,
-        texture_bind_group: &'a BindGroup,
+        model_bind_group: &'a BindGroup,
+        group_bind_group: &'a BindGroup,
+        // landscape_bind_group: &'a BindGroup,
+        // texture_bind_group: &'a BindGroup,
     ) {
         // Skip depth 0 (root node)
         // if self.depth == 0 || self.depth == 1 || self.depth == 2 || self.depth ==  {
@@ -577,18 +578,19 @@ impl QuadNode {
             for child in children.iter() {
                 child.render(
                     render_pass,
-                    camera_bind_group,
-                    landscape_bind_group,
-                    texture_bind_group,
+                    model_bind_group,
+                    group_bind_group
+                    // camera_bind_group,
+                    // landscape_bind_group,
+                    // texture_bind_group,
                 );
             }
             return;
         }
 
         if let Some(ref mesh) = self.mesh {
-            render_pass.set_bind_group(0, camera_bind_group, &[]);
-            render_pass.set_bind_group(1, landscape_bind_group, &[]);
-            render_pass.set_bind_group(2, texture_bind_group, &[]);
+            render_pass.set_bind_group(1, model_bind_group, &[]);
+            render_pass.set_bind_group(3, group_bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -597,9 +599,8 @@ impl QuadNode {
         }
 
         if let Some(ref debug_mesh) = self.debug_mesh {
-            render_pass.set_bind_group(0, camera_bind_group, &[]);
-            render_pass.set_bind_group(1, landscape_bind_group, &[]);
-            render_pass.set_bind_group(2, texture_bind_group, &[]);
+            render_pass.set_bind_group(1, model_bind_group, &[]);
+            render_pass.set_bind_group(3, group_bind_group, &[]);
 
             render_pass.set_vertex_buffer(0, debug_mesh.vertex_buffer.slice(..));
             render_pass

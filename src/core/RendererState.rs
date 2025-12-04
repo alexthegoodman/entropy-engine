@@ -100,6 +100,7 @@ pub struct RendererState {
 
     // wgpu
     pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+    pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     // pub texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     // pub reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     // pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
@@ -309,6 +310,7 @@ impl RendererState {
             // queue,
             // viewport,
             model_bind_group_layout,
+            group_bind_group_layout,
             // texture_bind_group_layout,
             // reg_texture_render_mode_buffer,
             // texture_render_mode_buffer,
@@ -987,6 +989,7 @@ impl RendererState {
             landscapeFilename,
             device,
             &self.model_bind_group_layout,
+            &self.group_bind_group_layout,
             position,
             camera
         );
