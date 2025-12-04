@@ -1,5 +1,5 @@
 use crate::{
-   core::{Grid::{Grid, GridConfig}, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
+   core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
     }, gpu_resources::GpuResources, vertex::Vertex}, helpers::timelines::SavedTimelineStateConfig, startup::Gui, vector_animations::animations::Sequence
 };
@@ -407,6 +407,16 @@ impl ExportPipeline {
         export_editor.grids = grids;
 
         println!("Grid Restored!");
+
+        let renderer_state = RendererState::new(
+            &device, 
+            &queue, 
+            model_bind_group_layout.clone(), 
+            group_bind_group_layout.clone(), 
+            &camera
+        );
+
+        export_editor.renderer_state = Some(renderer_state);
 
         let gpu_resources = if let Some(surface) = surface {
             GpuResources::with_surface(adapter, device, queue, surface)

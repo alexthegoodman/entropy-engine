@@ -6,10 +6,11 @@ use std::time::{Duration, Instant};
 
 use cgmath::{Point3, Vector3, Vector4};
 use crate::core::Grid::Grid;
+use crate::core::RendererState::RendererState;
 // use nalgebra::{Point3, Vector3, Vector4};
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::camera::CameraBinding;
-use crate::core::gpu_resources::GpuResources;
+use crate::core::gpu_resources::{self, GpuResources};
 use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_text::fonts::FontManager;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
@@ -260,6 +261,9 @@ pub struct SelectedObject {
 // }
 
 pub struct Editor {
+    // games
+    pub renderer_state: Option<RendererState>,
+
     // visual
     // pub st_capture: StCapture,
     // pub exporter: Option<Exporter>,
@@ -405,7 +409,9 @@ impl Editor {
         // Initialize StCapture - this handles the non-Send+Sync Windows capture types
         // let st_capture = StCapture::new(project_path);
 
+
         Editor {
+            renderer_state: None,
             // st_capture,
             // exporter: None,
             // font_manager,
