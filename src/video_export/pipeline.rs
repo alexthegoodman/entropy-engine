@@ -754,45 +754,45 @@ impl ExportPipeline {
         self.chat.render(&ui);
 
         // for testing
-        // {
-        //     let window = ui.window("Hello world");
-        //     window
-        //         .size([300.0, 100.0], Condition::FirstUseEver)
-        //         .build(|| {
-        //             ui.text("Hello world!");
-        //             ui.text("This...is...imgui-rs on WGPU!");
-        //             ui.separator();
-        //             let mouse_pos = ui.io().mouse_pos;
-        //             ui.text(format!(
-        //                 "Mouse Position: ({:.1},{:.1})",
-        //                 mouse_pos[0], mouse_pos[1]
-        //             ));
+        {
+            let window = ui.window("Controls");
+            window
+                .size([300.0, 100.0], Condition::FirstUseEver)
+                .build(|| {
+                    ui.text("Manage Scene");
+                    // ui.text("This...is...imgui-rs on WGPU!");
+                    // ui.separator();
+                    // let mouse_pos = ui.io().mouse_pos;
+                    // ui.text(format!(
+                    //     "Mouse Position: ({:.1},{:.1})",
+                    //     mouse_pos[0], mouse_pos[1]
+                    // ));
 
-        //             if ui.button("Add Cube") {
-        //                 let editor = self.export_editor.as_mut().unwrap();
-        //                 let gpu_resources = self.gpu_resources.as_ref().unwrap();
-        //                 let device = &gpu_resources.device;
-        //                 let queue = &gpu_resources.queue;
-        //                 let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
-        //                 let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
-        //                 let camera = editor.camera.as_ref().expect("Couldn't get camera");
-        //                 let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
-        //                 editor.cubes.push(new_cube);
-        //                 println!("Cube added {:?}", editor.cubes.len());
-        //             }
-        //         });
+                    if ui.button("Add Cube") {
+                        let editor = self.export_editor.as_mut().unwrap();
+                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                        let device = &gpu_resources.device;
+                        let queue = &gpu_resources.queue;
+                        let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+                        let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
+                        let camera = editor.camera.as_ref().expect("Couldn't get camera");
+                        
+                        let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
+                        editor.cubes.push(new_cube);
 
-        //     let window = ui.window("Hello too");
-        //     window
-        //         .size([400.0, 200.0], Condition::FirstUseEver)
-        //         .position([400.0, 200.0], Condition::FirstUseEver)
-        //         .build(|| {
-        //             let fps = ui.io().framerate;
-        //             ui.text(format!("Frametime: {:?}", fps));
-        //         });
+                        println!("Cube added {:?}", editor.cubes.len());
+                    }
+                });
 
-        //     // ui.show_demo_window(&mut imgui.demo_open);
-        // }
+            let window = ui.window("Hello too");
+            window
+                .size([400.0, 200.0], Condition::FirstUseEver)
+                .position([400.0, 200.0], Condition::FirstUseEver)
+                .build(|| {
+                    let fps = ui.io().framerate;
+                    ui.text(format!("Frametime: {:?}", fps));
+                });
+        }
 
         gui.platform.prepare_render(ui, &window);
 

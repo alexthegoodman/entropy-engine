@@ -43,7 +43,7 @@ use cursor_icon::CursorIcon;
 use raw_window_handle::{DisplayHandle, HasDisplayHandle};
 
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize};
+use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Position};
 use winit::event::{DeviceEvent, DeviceId, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, ModifiersState};
@@ -60,6 +60,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
+use crate::handlers::{handle_key_press, handle_mouse_move};
 use crate::video_export::pipeline::ExportPipeline;
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
@@ -128,6 +129,9 @@ struct Application {
     // With OpenGL it could be EGLDisplay.
     // #[cfg(not(any(android_platform, ios_platform)))]
     // context: Option<Context<DisplayHandle<'static>>>,
+
+    shift_active: bool,
+    last_mouse_position: Option<PhysicalPosition<f64>>
 }
 
 impl Application {
@@ -163,6 +167,8 @@ impl Application {
             // custom_cursors,
             // icon,
             windows: Default::default(),
+            shift_active: false,
+            last_mouse_position: None
         }
     }
 
@@ -443,10 +449,23 @@ impl ApplicationHandler<UserEvent> for Application {
             },
             WindowEvent::KeyboardInput { event, is_synthetic: false, .. } => {
                 let mods = window.modifiers;
+                
+                if (mods.shift_key()) {
+                    self.shift_active = true;
+                } else {
+                    self.shift_active = false;
+                }
 
                 // Dispatch actions only on press.
                 if event.state.is_pressed() {
                     let action = if let Key::Character(ch) = event.logical_key.as_ref() {
+                        handle_key_press(
+                            window.pipeline.export_editor.as_ref().expect("Couldn't fetch editor"), 
+                            ch, 
+                            event.state.is_pressed(), 
+                            window.pipeline.camera.as_mut().expect("Couldn't get camera")
+                        );
+
                         Self::process_key_binding(&ch.to_uppercase(), &mods)
                     } else {
                         None
@@ -456,9 +475,14 @@ impl ApplicationHandler<UserEvent> for Application {
                         self.handle_action(event_loop, window_id, action);
                     }
                 }
+
+                
             },
             WindowEvent::MouseInput { button, state, .. } => {
                 let mods = window.modifiers;
+
+                
+
                 if let Some(action) =
                     state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
                 {
@@ -472,6 +496,24 @@ impl ApplicationHandler<UserEvent> for Application {
             WindowEvent::CursorMoved { position, .. } => {
                 info!("Moved cursor to {position:?}");
                 window.cursor_moved(position);
+
+                if (self.shift_active) {
+                    let mut last_x = 0.0;
+                    let mut last_y = 0.0;
+
+                    if let Some(last_pos) = self.last_mouse_position {
+                        last_x = last_pos.x;
+                        last_y = last_pos.y;
+                    }
+
+                    handle_mouse_move(
+                    (position.x - last_x) as f32, 
+                    (position.y - last_y) as f32, 
+                window.pipeline.camera.as_mut().expect("Couldn't get camera")
+                    );
+                }
+
+                self.last_mouse_position = Some(position);
             },
             WindowEvent::ActivationTokenDone { token: _token, .. } => {
                 #[cfg(any(x11_platform, wayland_platform))]
@@ -1216,48 +1258,48 @@ const CURSORS: &[CursorIcon] = &[
 ];
 
 const KEY_BINDINGS: &[Binding<&'static str>] = &[
-    Binding::new("Q", ModifiersState::CONTROL, Action::CloseWindow),
-    Binding::new("H", ModifiersState::CONTROL, Action::PrintHelp),
-    Binding::new("F", ModifiersState::CONTROL, Action::ToggleFullscreen),
-    Binding::new("D", ModifiersState::CONTROL, Action::ToggleDecorations),
-    Binding::new("I", ModifiersState::CONTROL, Action::ToggleImeInput),
-    Binding::new("L", ModifiersState::CONTROL, Action::CycleCursorGrab),
-    Binding::new("P", ModifiersState::CONTROL, Action::ToggleResizeIncrements),
-    Binding::new("R", ModifiersState::CONTROL, Action::ToggleResizable),
-    Binding::new("R", ModifiersState::ALT, Action::RequestResize),
-    // M.
-    Binding::new("M", ModifiersState::CONTROL, Action::ToggleMaximize),
-    Binding::new("M", ModifiersState::ALT, Action::Minimize),
-    // N.
-    Binding::new("N", ModifiersState::CONTROL, Action::CreateNewWindow),
-    // C.
-    Binding::new("C", ModifiersState::CONTROL, Action::NextCursor),
-    Binding::new("C", ModifiersState::ALT, Action::NextCustomCursor),
-    #[cfg(web_platform)]
-    Binding::new(
-        "C",
-        ModifiersState::CONTROL.union(ModifiersState::SHIFT),
-        Action::UrlCustomCursor,
-    ),
-    #[cfg(web_platform)]
-    Binding::new(
-        "C",
-        ModifiersState::ALT.union(ModifiersState::SHIFT),
-        Action::AnimationCustomCursor,
-    ),
-    Binding::new("Z", ModifiersState::CONTROL, Action::ToggleCursorVisibility),
-    // K.
-    Binding::new("K", ModifiersState::empty(), Action::SetTheme(None)),
-    Binding::new("K", ModifiersState::SUPER, Action::SetTheme(Some(Theme::Light))),
-    Binding::new("K", ModifiersState::CONTROL, Action::SetTheme(Some(Theme::Dark))),
-    #[cfg(macos_platform)]
-    Binding::new("T", ModifiersState::SUPER, Action::CreateNewTab),
-    #[cfg(macos_platform)]
-    Binding::new("O", ModifiersState::CONTROL, Action::CycleOptionAsAlt),
+    // Binding::new("Q", ModifiersState::CONTROL, Action::CloseWindow),
+    // Binding::new("H", ModifiersState::CONTROL, Action::PrintHelp),
+    // Binding::new("F", ModifiersState::CONTROL, Action::ToggleFullscreen),
+    // Binding::new("D", ModifiersState::CONTROL, Action::ToggleDecorations),
+    // Binding::new("I", ModifiersState::CONTROL, Action::ToggleImeInput),
+    // Binding::new("L", ModifiersState::CONTROL, Action::CycleCursorGrab),
+    // Binding::new("P", ModifiersState::CONTROL, Action::ToggleResizeIncrements),
+    // Binding::new("R", ModifiersState::CONTROL, Action::ToggleResizable),
+    // Binding::new("R", ModifiersState::ALT, Action::RequestResize),
+    // // M.
+    // Binding::new("M", ModifiersState::CONTROL, Action::ToggleMaximize),
+    // Binding::new("M", ModifiersState::ALT, Action::Minimize),
+    // // N.
+    // Binding::new("N", ModifiersState::CONTROL, Action::CreateNewWindow),
+    // // C.
+    // Binding::new("C", ModifiersState::CONTROL, Action::NextCursor),
+    // Binding::new("C", ModifiersState::ALT, Action::NextCustomCursor),
+    // #[cfg(web_platform)]
+    // Binding::new(
+    //     "C",
+    //     ModifiersState::CONTROL.union(ModifiersState::SHIFT),
+    //     Action::UrlCustomCursor,
+    // ),
+    // #[cfg(web_platform)]
+    // Binding::new(
+    //     "C",
+    //     ModifiersState::ALT.union(ModifiersState::SHIFT),
+    //     Action::AnimationCustomCursor,
+    // ),
+    // Binding::new("Z", ModifiersState::CONTROL, Action::ToggleCursorVisibility),
+    // // K.
+    // Binding::new("K", ModifiersState::empty(), Action::SetTheme(None)),
+    // Binding::new("K", ModifiersState::SUPER, Action::SetTheme(Some(Theme::Light))),
+    // Binding::new("K", ModifiersState::CONTROL, Action::SetTheme(Some(Theme::Dark))),
+    // #[cfg(macos_platform)]
+    // Binding::new("T", ModifiersState::SUPER, Action::CreateNewTab),
+    // #[cfg(macos_platform)]
+    // Binding::new("O", ModifiersState::CONTROL, Action::CycleOptionAsAlt),
 ];
 
 const MOUSE_BINDINGS: &[Binding<MouseButton>] = &[
-    Binding::new(MouseButton::Left, ModifiersState::ALT, Action::DragResizeWindow),
-    Binding::new(MouseButton::Left, ModifiersState::CONTROL, Action::DragWindow),
-    Binding::new(MouseButton::Right, ModifiersState::CONTROL, Action::ShowWindowMenu),
+    // Binding::new(MouseButton::Left, ModifiersState::ALT, Action::DragResizeWindow),
+    // Binding::new(MouseButton::Left, ModifiersState::CONTROL, Action::DragWindow),
+    // Binding::new(MouseButton::Right, ModifiersState::CONTROL, Action::ShowWindowMenu),
 ];

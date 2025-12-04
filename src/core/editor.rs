@@ -351,6 +351,8 @@ pub struct Editor {
     pub generation_curved: bool,
     pub generation_choreographed: bool,
     pub generation_fade: bool,
+
+    pub navigation_speed: f32,
 }
 
 
@@ -494,6 +496,7 @@ impl Editor {
                     y: 750.0, // allow for 50.0 padding below and above the canvas
                 },
             },
+            navigation_speed: 5.0
         }
     }
 }

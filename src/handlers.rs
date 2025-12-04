@@ -10,6 +10,7 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{cell::RefCell, collections::HashMap};
 
+use crate::core::editor::Editor;
 use crate::shape_primitives::Cube::Cube;
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -92,10 +93,10 @@ thread_local! {
 //     unsafe { CAMERA.as_mut().unwrap() }
 // }
 
-pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool, camera: &mut SimpleCamera) {
+pub fn handle_key_press(state: &Editor, key_code: &str, is_pressed: bool, camera: &mut SimpleCamera) {
     // let camera = get_camera();
-    let mut state_guard = state.lock().unwrap();
-    let speed_multiplier = state_guard.navigation_speed;
+    // let mut state_guard = state.lock().unwrap();
+    let speed_multiplier = state.navigation_speed;
 
     let mut diff = Vector3::identity();
 
@@ -152,7 +153,7 @@ pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pre
     // ]);
     // state_guard.update_player_character_position(diff, 0.1);
 
-    drop(state_guard);
+    // drop(state_guard);
 
     camera.update();
 }
