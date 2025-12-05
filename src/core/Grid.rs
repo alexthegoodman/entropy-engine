@@ -30,6 +30,7 @@ impl Grid {
         queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
         group_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
         camera: &SimpleCamera,
         config: GridConfig,
     ) -> Self {
@@ -164,7 +165,10 @@ impl Grid {
             texture_size,
         );
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
 
         // Create default sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -190,7 +194,15 @@ impl Grid {
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
-            },],
+            },
+            wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
             label: None,
         });
 

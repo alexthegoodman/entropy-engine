@@ -59,6 +59,7 @@ impl TerrainManager {
         queue: &Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
         group_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
         terrain_position: [f32; 3],
         camera: &mut SimpleCamera
     ) -> Self {
@@ -140,7 +141,10 @@ impl TerrainManager {
             texture_size,
         );
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
 
         // Create default sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -176,7 +180,14 @@ impl TerrainManager {
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
-            },],
+            },wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
             label: None,
         });
 
@@ -508,19 +519,32 @@ impl TerrainManager {
         if let Some(texture_array_view) = &self.texture_array_view {
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
+            let empty_buffer = Matrix4::<f32>::identity();
+            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+
+            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Terrain Uniform Buffer"),
+                contents: bytemuck::cast_slice(&raw_matrix),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
             self.texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(texture_array_view),
+                        resource: uniform_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                        resource: wgpu::BindingResource::TextureView(&texture_array_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: texture_render_mode_buffer,
                             offset: 0,

@@ -204,6 +204,8 @@ pub fn read_landscape_texture(
         projectId, textureFilename, ".png"
     ));
 
+    println!("texture path {:?}", texture_path);
+
     // Read the image file
     let img = image::open(&texture_path)
         .map_err(|e| format!("Failed to open landscape texture: {}", e))?;

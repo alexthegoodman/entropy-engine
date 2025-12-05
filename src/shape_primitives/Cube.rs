@@ -81,7 +81,14 @@ pub struct Cube {
 }
 
 impl Cube {
-    pub fn new(device: &wgpu::Device, queue: &wgpu::Queue, bind_group_layout: &wgpu::BindGroupLayout, group_bind_group_layout: &wgpu::BindGroupLayout, camera: &SimpleCamera) -> Self {
+    pub fn new(
+        device: &wgpu::Device, 
+        queue: &wgpu::Queue, 
+        bind_group_layout: &wgpu::BindGroupLayout, 
+        group_bind_group_layout: &wgpu::BindGroupLayout, 
+        texture_render_mode_buffer: &wgpu::Buffer,
+        camera: &SimpleCamera
+    ) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Cube Vertex Buffer"),
             contents: bytemuck::cast_slice(VERTICES),
@@ -141,7 +148,10 @@ impl Cube {
             texture_size,
         );
 
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
 
         // Create default sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -167,7 +177,14 @@ impl Cube {
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
-            },],
+            },wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
             label: None,
         });
 

@@ -188,7 +188,8 @@ impl ExportPipeline {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            // view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             multisampled: false,
                         },
                         count: None,
@@ -198,6 +199,17 @@ impl ExportPipeline {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    // Render mode
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
                         count: None,
                     },
                 ],
@@ -261,6 +273,26 @@ impl ExportPipeline {
             }],
             label: None,
         });
+
+        let color_render_mode_buffer =
+            device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Color Render Mode Buffer"),
+                    contents: bytemuck::cast_slice(&[0i32]), // Default to normal mode
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let color_render_mode_buffer = Arc::new(color_render_mode_buffer);
+
+        let texture_render_mode_buffer =
+            device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Texture Render Mode Buffer"),
+                    contents: bytemuck::cast_slice(&[1i32]), // Default to text mode
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let texture_render_mode_buffer = Arc::new(texture_render_mode_buffer);
 
         // Define the layouts
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -381,8 +413,6 @@ impl ExportPipeline {
 
         camera_binding.update_3d(&queue, &camera);
 
-        
-
         println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
@@ -390,7 +420,9 @@ impl ExportPipeline {
             &queue, 
             model_bind_group_layout.clone(), 
             group_bind_group_layout.clone(), 
-            &camera
+            &camera,
+            texture_render_mode_buffer.clone(),
+            color_render_mode_buffer,
         );
 
         let mut grids = Vec::new();
@@ -399,6 +431,7 @@ impl ExportPipeline {
             &queue,
             &model_bind_group_layout,
             &group_bind_group_layout.clone(),
+            &texture_render_mode_buffer.clone(),
             &camera,
             GridConfig {
                 width: 200.0,
@@ -412,6 +445,7 @@ impl ExportPipeline {
             &queue,
             &model_bind_group_layout,
             &group_bind_group_layout,
+            &texture_render_mode_buffer,
              &camera,
             GridConfig {
                 width: 200.0,
@@ -953,8 +987,9 @@ impl ExportPipeline {
                 let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
                 let camera = editor.camera.as_ref().expect("Couldn't get camera");
                 let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+                let texture_render_mode_buffer = renderer_state.texture_render_mode_buffer.clone();
     
-                let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
+                let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, &texture_render_mode_buffer, camera);
                 renderer_state.cubes.push(new_cube);
     
                 println!("Cube added {:?}", renderer_state.cubes.len());

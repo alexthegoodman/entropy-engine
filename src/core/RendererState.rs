@@ -103,8 +103,8 @@ pub struct RendererState {
     pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     // pub texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     // pub reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
-    // pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
-    // pub color_render_mode_buffer: Arc<wgpu::Buffer>,
+    pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
+    pub color_render_mode_buffer: Arc<wgpu::Buffer>,
     // pub camera_uniform_buffer: Arc<wgpu::Buffer>,
     // pub camera_bind_group: Arc<wgpu::BindGroup>,
     // pub light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
@@ -164,11 +164,11 @@ impl RendererState {
         queue: &wgpu::Queue,
         model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        camera: &SimpleCamera
+        camera: &SimpleCamera,
         // texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         // reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
-        // texture_render_mode_buffer: Arc<wgpu::Buffer>,
-        // color_render_mode_buffer: Arc<wgpu::Buffer>,
+        texture_render_mode_buffer: Arc<wgpu::Buffer>,
+        color_render_mode_buffer: Arc<wgpu::Buffer>,
         // camera_uniform_buffer: Arc<wgpu::Buffer>,
         // camera_bind_group: Arc<wgpu::BindGroup>,
         // camera: &SimpleCamera,
@@ -208,7 +208,7 @@ impl RendererState {
         // ));
 
         let mut cubes = Vec::new();
-        cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, camera));
+        cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
 
         let mut pyramids = Vec::new();
         // pyramids.push(Pyramid::new(device, bind_group_layout, color_render_mode_buffer));
@@ -313,8 +313,8 @@ impl RendererState {
             group_bind_group_layout,
             // texture_bind_group_layout,
             // reg_texture_render_mode_buffer,
-            // texture_render_mode_buffer,
-            // color_render_mode_buffer,
+            texture_render_mode_buffer,
+            color_render_mode_buffer,
             // camera_uniform_buffer,
             // camera_bind_group,
             // light_bind_group_layout,
@@ -991,6 +991,7 @@ impl RendererState {
             queue,
             &self.model_bind_group_layout,
             &self.group_bind_group_layout,
+            &self.texture_render_mode_buffer,
             position,
             camera
         );
@@ -1013,24 +1014,24 @@ impl RendererState {
             .iter_mut()
             .find(|l| l.id == landscape_id)
         {
-            // terrain_manager.update_texture(
-            //     device,
-            //     queue,
-            //     &self.texture_bind_group_layout,
-            //     &self.texture_render_mode_buffer,
-            //     &self.color_render_mode_buffer,
-            //     kind,
-            //     &texture,
-            // );
-            // terrain_manager.update_texture(
-            //     device,
-            //     queue,
-            //     &self.texture_bind_group_layout,
-            //     &self.texture_render_mode_buffer,
-            //     &self.color_render_mode_buffer,
-            //     maskKind,
-            //     &mask,
-            // );
+            terrain_manager.update_texture(
+                device,
+                queue,
+                &self.model_bind_group_layout,
+                &self.texture_render_mode_buffer,
+                &self.color_render_mode_buffer,
+                kind,
+                &texture,
+            );
+            terrain_manager.update_texture(
+                device,
+                queue,
+                &self.model_bind_group_layout,
+                &self.texture_render_mode_buffer,
+                &self.color_render_mode_buffer,
+                maskKind,
+                &mask,
+            );
         }
     }
 
