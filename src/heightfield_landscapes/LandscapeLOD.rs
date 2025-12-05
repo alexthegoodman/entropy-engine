@@ -373,8 +373,8 @@ pub fn create_debug_collision_mesh(
     // println!("Is sensor: {:?}", collider.is_sensor());
     // println!("Collider parent handle: {:?}", collider.parent());
 
-    // if let Some(shape) = collider.shape().as_heightfield() {
-    if let Some(shape) = collider.shape().as_trimesh() {
+    if let Some(shape) = collider.shape().as_heightfield() {
+    // if let Some(shape) = collider.shape().as_trimesh() {
         // Cast a ray from above the heightfield straight down
         // let start = Point3::new(0.0, 100.0, 0.0);
         // let direction = Vector3::new(0.0, 1.0, 0.0);
