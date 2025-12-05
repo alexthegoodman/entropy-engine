@@ -97,6 +97,7 @@ thread_local! {
 pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     // let camera = get_camera();
     let camera = state.camera.as_mut().expect("Couldn't get camera");
+    let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
     // let mut state_guard = state.lock().unwrap();
@@ -162,6 +163,8 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
     camera.update();
     camera_binding.update_3d(&gpu_resources.queue, &camera);
+
+    renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
 }
 
 // pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {
@@ -373,7 +376,7 @@ pub fn handle_add_landscape_texture(
     texture_kind: LandscapeTextureKinds,
     mask_filename: String,
 ) {
-    pause_rendering();
+    // pause_rendering();
 
     println!(
         "Adding texture and mask {:?} {:?}",

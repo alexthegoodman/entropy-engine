@@ -519,21 +519,21 @@ impl TerrainManager {
         if let Some(texture_array_view) = &self.texture_array_view {
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-            let empty_buffer = Matrix4::<f32>::identity();
-            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+            // let empty_buffer = Matrix4::<f32>::identity();
+            // let raw_matrix = matrix4_to_raw_array(&empty_buffer);
 
-            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Terrain Uniform Buffer"),
-                contents: bytemuck::cast_slice(&raw_matrix),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
+            // let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //     label: Some("Terrain Uniform Buffer"),
+            //     contents: bytemuck::cast_slice(&raw_matrix),
+            //     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            // });
 
-            self.texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: uniform_buffer.as_entire_binding(),
+                        resource: self.transform.uniform_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
@@ -553,7 +553,7 @@ impl TerrainManager {
                     },
                 ],
                 label: Some("landscape_texture_bind_group"),
-            }));
+            });
         }
     }
 }

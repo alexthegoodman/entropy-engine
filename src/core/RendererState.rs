@@ -1014,6 +1014,7 @@ impl RendererState {
             .iter_mut()
             .find(|l| l.id == landscape_id)
         {
+            println!("Updating landscape texture...");
             terrain_manager.update_texture(
                 device,
                 queue,
