@@ -889,89 +889,7 @@ impl ExportPipeline {
     
                 for project_id in &self.projects {
                     if ui.button(project_id).clicked() {
-                        match utilities::load_project_state(project_id) {
-                            Ok(loaded_state) => {
-                                editor.saved_state = Some(loaded_state);
-                                
-                                // now load landscapes
-                                if let Some(saved_state) = &editor.saved_state {
-                                    if let Some(landscapes) = &saved_state.landscapes {
-                                        if let Some(levels) = &saved_state.levels {
-                                            let level = &levels[0]; // assume one level for now
-                                            for landscape_data in landscapes {
-                                                if let Some(components) = &level.components {
-                                                    for component in components {
-                                                        if let Some(ComponentKind::Landscape) = component.kind {
-                                                            if component.asset_id == landscape_data.id {
-                                                                if let Some(heightmap) = &landscape_data.heightmap {
-                                                                    let renderer_state = editor.renderer_state.as_mut().unwrap();
-                                                                    let camera = editor.camera.as_mut().unwrap();
-                                                                    let gpu_resources = self.gpu_resources.as_ref().unwrap();
-                                                                    
-                                                                    handle_add_landscape(
-                                                                        renderer_state,
-                                                                        &gpu_resources.device,
-                                                                        &gpu_resources.queue,
-                                                                        project_id.clone(),
-                                                                        landscape_data.id.clone(),
-                                                                        component.id.clone(),
-                                                                        heightmap.fileName.clone(),
-                                                                        component.generic_properties.position,
-                                                                        camera,
-                                                                    );
-
-                                                                    if let Some(textures) = &saved_state.textures {
-                                                                        let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
-
-                                                                        if let Some(texture_id) = &landscape_properties.rockmap_texture_id {
-                                                                            let rockmap_texture = textures.iter().find(|t| {
-                                                                                if &t.id == texture_id {
-                                                                                    true
-                                                                                } else {
-                                                                                    false
-                                                                                }
-                                                                            });
-                                                                            
-                                                                            if let Some(rock_texture) = rockmap_texture {
-                                                                                if let Some(rock_mask) = &landscape_data.rockmap {
-                                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
-                                                                                    &gpu_resources.queue, project_id.clone(), component.id.clone(), 
-                                                                                    landscape_data.id.clone(), rock_texture.fileName.clone(), LandscapeTextureKinds::Rockmap, rock_mask.fileName.clone());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                        if let Some(texture_id) = &landscape_properties.soil_texture_id {
-                                                                            let soil_texture = textures.iter().find(|t| {
-                                                                                if &t.id == texture_id {
-                                                                                    true
-                                                                                } else {
-                                                                                    false
-                                                                                }
-                                                                            });
-                                                                            
-                                                                            if let Some(soil_texture) = soil_texture {
-                                                                                if let Some(soil_mask) = &landscape_data.soil {
-                                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
-                                                                                    &gpu_resources.queue, project_id.clone(), component.id.clone(), 
-                                                                                    landscape_data.id.clone(), soil_texture.fileName.clone(), LandscapeTextureKinds::Soil, soil_mask.fileName.clone());
-                                                                                }
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                println!("Failed to load project: {}", e);
-                            }
-                        }
+                        load_project(editor, project_id);
                     }
                 }
             });
@@ -1034,3 +952,90 @@ impl ExportPipeline {
         // self.chat.render(ctx);
     }
 }
+
+pub fn load_project(editor: &mut Editor, project_id: &str) {
+        // let editor = self.export_editor.as_mut().unwrap();
+        match utilities::load_project_state(project_id) {
+            Ok(loaded_state) => {
+                editor.saved_state = Some(loaded_state);
+                
+                // now load landscapes
+                if let Some(saved_state) = &editor.saved_state {
+                    if let Some(landscapes) = &saved_state.landscapes {
+                        if let Some(levels) = &saved_state.levels {
+                            let level = &levels[0]; // assume one level for now
+                            for landscape_data in landscapes {
+                                if let Some(components) = &level.components {
+                                    for component in components {
+                                        if let Some(ComponentKind::Landscape) = component.kind {
+                                            if component.asset_id == landscape_data.id {
+                                                if let Some(heightmap) = &landscape_data.heightmap {
+                                                    let renderer_state = editor.renderer_state.as_mut().unwrap();
+                                                    let camera = editor.camera.as_mut().unwrap();
+                                                    let gpu_resources = editor.gpu_resources.as_ref().unwrap();
+                                                    
+                                                    handle_add_landscape(
+                                                        renderer_state,
+                                                        &gpu_resources.device,
+                                                        &gpu_resources.queue,
+                                                        project_id.to_string(),
+                                                        landscape_data.id.clone(),
+                                                        component.id.clone(),
+                                                        heightmap.fileName.clone(),
+                                                        component.generic_properties.position,
+                                                        camera,
+                                                    );
+
+                                                    if let Some(textures) = &saved_state.textures {
+                                                        let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
+
+                                                        if let Some(texture_id) = &landscape_properties.rockmap_texture_id {
+                                                            let rockmap_texture = textures.iter().find(|t| {
+                                                                if &t.id == texture_id {
+                                                                    true
+                                                                } else {
+                                                                    false
+                                                                }
+                                                            });
+                                                            
+                                                            if let Some(rock_texture) = rockmap_texture {
+                                                                if let Some(rock_mask) = &landscape_data.rockmap {
+                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                                    &gpu_resources.queue, project_id.to_string(), component.id.clone(), 
+                                                                    landscape_data.id.clone(), rock_texture.fileName.clone(), LandscapeTextureKinds::Rockmap, rock_mask.fileName.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                        if let Some(texture_id) = &landscape_properties.soil_texture_id {
+                                                            let soil_texture = textures.iter().find(|t| {
+                                                                if &t.id == texture_id {
+                                                                    true
+                                                                } else {
+                                                                    false
+                                                                }
+                                                            });
+                                                            
+                                                            if let Some(soil_texture) = soil_texture {
+                                                                if let Some(soil_mask) = &landscape_data.soil {
+                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                                    &gpu_resources.queue, project_id.to_string(), component.id.clone(), 
+                                                                    landscape_data.id.clone(), soil_texture.fileName.clone(), LandscapeTextureKinds::Soil, soil_mask.fileName.clone());
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Failed to load project: {}", e);
+            }
+        }
+    }

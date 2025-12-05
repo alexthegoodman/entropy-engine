@@ -62,7 +62,7 @@ use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
 use crate::handlers::{handle_key_press, handle_mouse_move};
-use crate::video_export::pipeline::ExportPipeline;
+use crate::video_export::pipeline::{ExportPipeline, load_project};
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
 use pollster; // For pollster::block_on
@@ -79,7 +79,7 @@ use winit::platform::x11::WindowAttributesExtX11;
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
 
-pub fn run_game() -> Result<(), Box<dyn Error>> {
+pub fn run_game(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
     #[cfg(web_platform)]
     console_error_panic_hook::set_once();
 
@@ -100,12 +100,12 @@ pub fn run_game() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut state = Application::new(&event_loop, true);
+    let mut state = Application::new(&event_loop, true, project_id);
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
 
-pub fn run() -> Result<(), Box<dyn Error>> {
+pub fn run(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
     #[cfg(web_platform)]
     console_error_panic_hook::set_once();
 
@@ -126,7 +126,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut state = Application::new(&event_loop, false);
+    let mut state = Application::new(&event_loop, false, project_id);
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
@@ -159,10 +159,12 @@ struct Application {
     shift_active: bool,
     last_mouse_position: Option<PhysicalPosition<f64>>,
     game_mode: bool,
+    project_id: Option<String>,
+    project_loaded: bool,
 }
 
 impl Application {
-    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool) -> Self {
+    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool, project_id: Option<String>) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
         // let context = Some(
@@ -197,6 +199,8 @@ impl Application {
             shift_active: false,
             last_mouse_position: None,
             game_mode,
+            project_id,
+            project_loaded: false,
         }
     }
 
@@ -209,7 +213,7 @@ impl Application {
 
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes()
-            .with_title("Winit window")
+            .with_title("Entropy Engine")
             .with_transparent(false)
             .with_inner_size(PhysicalSize::new(1024.0, 768.0));
             // .with_window_icon(Some(self.icon.clone()));
@@ -622,6 +626,17 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if !self.project_loaded {
+            if let Some(project_id) = &self.project_id {
+                if let Some(window) = self.windows.values_mut().next() {
+                    if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                        load_project(editor, project_id);
+                        self.project_loaded = true;
+                    }
+                }
+            }
+        }
+
         if self.windows.is_empty() {
             info!("No windows left, exiting...");
             event_loop.exit();
