@@ -562,9 +562,9 @@ impl ExportPipeline {
         }
     }
 
-    pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
+    pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-        let renderer_state = editor.renderer_state.as_ref().expect("Couldn't get RendererState");
+        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
         let gpu_resources = self
             .gpu_resources
             .as_ref()
@@ -604,6 +604,14 @@ impl ExportPipeline {
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
+            if game_mode && editor.camera.is_some() {
+                // update rapier collisions
+                renderer_state.update_rapier();
+
+                // step through physics each frame
+                renderer_state.step_physics_pipeline(&gpu_resources.device, editor.camera.as_mut().expect("Couldn't get camera"));
+            }
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -800,7 +808,7 @@ impl ExportPipeline {
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
     
-        self.render_frame(Some(&view), 0.0);
+        self.render_frame(Some(&view), 0.0, game_mode);
     
         if !game_mode {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
