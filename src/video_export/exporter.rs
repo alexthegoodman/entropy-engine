@@ -79,7 +79,7 @@ impl Exporter {
             let current_time = frame_index as f64 / FPS;
 
             // Render frame
-            wgpu_pipeline.render_frame(None, current_time);
+            wgpu_pipeline.render_frame(None, current_time, false);
 
             // Get frame buffer and extract data
             let frame_buffer = wgpu_pipeline
