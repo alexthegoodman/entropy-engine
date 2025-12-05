@@ -492,6 +492,42 @@ impl ExportPipeline {
         self.export_editor = Some(export_editor);
     }
 
+    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        if new_size.width > 0 && new_size.height > 0 {
+            let gpu_resources = self.gpu_resources.as_ref().unwrap();
+            let device = &gpu_resources.device;
+    
+            let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Depth24Plus,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                label: Some("Stunts Engine Export Depth Texture"),
+                view_formats: &[],
+            });
+    
+            let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            self.depth_view = Some(depth_view);
+    
+            if let Some(editor) = self.export_editor.as_mut() {
+                if let Some(camera) = editor.camera.as_mut() {
+                    // camera.aspect = new_size.width as f32 / new_size.height as f32;
+                    camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
+                    camera.viewport.width = new_size.width as f32;
+                    camera.viewport.height = new_size.height as f32;
+                    camera.viewport.window_size.width = new_size.width;
+                    camera.viewport.window_size.height = new_size.height;
+                }
+            }
+        }
+    }
+
     pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_ref().expect("Couldn't get RendererState");

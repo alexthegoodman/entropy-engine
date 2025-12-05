@@ -503,10 +503,12 @@ impl ApplicationHandler<UserEvent> for Application {
                         last_y = last_pos.y;
                     }
 
+                    let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
+
                     handle_mouse_move(
                     (position.x - last_x) as f32, 
                     (position.y - last_y) as f32, 
-                window.pipeline.camera.as_mut().expect("Couldn't get camera")
+                editor.camera.as_mut().expect("Couldn't get camera")
                     );
                 }
 
@@ -910,19 +912,17 @@ impl WindowState {
     /// Resize the window to the new size.
     fn resize(&mut self, size: PhysicalSize<u32>) {
         info!("Resized to {size:?}");
-        #[cfg(not(any(android_platform, ios_platform)))]
-        {
-            let (width, height) = match (NonZeroU32::new(size.width), NonZeroU32::new(size.height))
+        if size.width > 0 && size.height > 0 {
+            #[cfg(not(any(android_platform, ios_platform)))]
             {
-                (Some(width), Some(height)) => (width, height),
-                _ => return,
-            };
-            self.surface_config.width = width.get();
-            self.surface_config.height = height.get();
-            let gpu_resources = self.pipeline.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
-            if let Some(surface) = gpu_resources.surface.as_ref() {
-                surface.configure(&gpu_resources.device, &self.surface_config);
+                self.surface_config.width = size.width;
+                self.surface_config.height = size.height;
+                let gpu_resources = self.pipeline.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+                if let Some(surface) = gpu_resources.surface.as_ref() {
+                    surface.configure(&gpu_resources.device, &self.surface_config);
+                }
             }
+            self.pipeline.resize(size);
         }
         self.window.request_redraw();
     }
