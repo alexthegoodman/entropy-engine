@@ -969,9 +969,7 @@ impl WindowState {
                     surface.configure(&gpu_resources.device, &self.surface_config);
                 }
             }
-            if !self.game_mode {
-                self.pipeline.resize(size);
-            }
+            self.pipeline.resize(size);
         }
         self.window.request_redraw();
     }
