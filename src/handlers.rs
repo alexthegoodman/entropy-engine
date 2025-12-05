@@ -363,14 +363,14 @@ pub fn handle_add_skeleton_part(
 }
 
 pub fn handle_add_landscape_texture(
-    state: Arc<Mutex<RendererState>>,
+    state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     project_id: String,
     landscape_component_id: String,
     landscape_asset_id: String,
     texture_filename: String,
-    texture_kind: String,
+    texture_kind: LandscapeTextureKinds,
     mask_filename: String,
 ) {
     pause_rendering();
@@ -387,13 +387,13 @@ pub fn handle_add_landscape_texture(
     let texture_kind_clone = texture_kind.clone();
 
     // spawn(async move {
-    let mut state_guard = state.lock().unwrap();
+    // let mut state_guard = state.lock().unwrap();
 
     let texture = fetch_texture_data(
         project_id.clone(),
         landscape_asset_id.clone(),
         texture_filename,
-        texture_kind.clone(),
+        // texture_kind.clone(),
     );
     let mask = fetch_mask_data(
         project_id.clone(),
@@ -403,10 +403,22 @@ pub fn handle_add_landscape_texture(
     );
 
     // if let Some(texture) = texture {
-    let kind = match texture_kind_clone.as_str() {
-        "Primary" => LandscapeTextureKinds::Primary,
-        "Rockmap" => LandscapeTextureKinds::Rockmap,
-        "Soil" => LandscapeTextureKinds::Soil,
+    // let kind = match texture_kind_clone {
+    //     "Primary" => LandscapeTextureKinds::Primary,
+    //     "Rockmap" => LandscapeTextureKinds::Rockmap,
+    //     "Soil" => LandscapeTextureKinds::Soil,
+    //     _ => {
+    //         // web_sys::console::error_1(
+    //         //     &format!("Invalid texture kind: {}", texture_kind_clone).into(),
+    //         // );
+    //         return;
+    //     }
+    // };
+
+    let maskKind = match texture_kind_clone {
+        LandscapeTextureKinds::Primary => LandscapeTextureKinds::PrimaryMask,
+        LandscapeTextureKinds::Rockmap => LandscapeTextureKinds::RockmapMask,
+        LandscapeTextureKinds::Soil => LandscapeTextureKinds::SoilMask,
         _ => {
             // web_sys::console::error_1(
             //     &format!("Invalid texture kind: {}", texture_kind_clone).into(),
@@ -415,23 +427,11 @@ pub fn handle_add_landscape_texture(
         }
     };
 
-    let maskKind = match texture_kind_clone.as_str() {
-        "Primary" => LandscapeTextureKinds::PrimaryMask,
-        "Rockmap" => LandscapeTextureKinds::RockmapMask,
-        "Soil" => LandscapeTextureKinds::SoilMask,
-        _ => {
-            // web_sys::console::error_1(
-            //     &format!("Invalid texture kind: {}", texture_kind_clone).into(),
-            // );
-            return;
-        }
-    };
-
-    state_guard.update_landscape_texture(
+    state.update_landscape_texture(
         device,
         queue,
         landscape_component_id_clone,
-        kind,
+        texture_kind_clone,
         texture,
         maskKind,
         mask,
@@ -454,7 +454,7 @@ pub fn fetch_texture_data(
     project_id: String,
     landscape_id: String,
     texture_filename: String,
-    texture_kind: String,
+    // texture_kind: String,
 ) -> Texture {
     // let params = to_value(&GetTextureParams {
     //     projectId: project_id,
@@ -470,7 +470,7 @@ pub fn fetch_texture_data(
     //     .expect("Couldn't transform texture data serde");
 
     let texture_data =
-        read_landscape_texture(project_id, landscape_id, texture_filename, texture_kind)
+        read_landscape_texture(project_id, landscape_id, texture_filename)
             .expect("Couldn't get texture data");
 
     // Some((texture_data.data, texture_data.width, texture_data.height))
@@ -481,7 +481,7 @@ pub fn fetch_mask_data(
     project_id: String,
     landscape_id: String,
     mask_filename: String,
-    mask_kind: String,
+    mask_kind: LandscapeTextureKinds,
 ) -> Texture {
     // let params = to_value(&GetMaskParams {
     //     projectId: project_id,

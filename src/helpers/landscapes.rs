@@ -4,6 +4,8 @@ use image::GenericImageView;
 use serde::Serialize;
 use tiff::decoder::{Decoder, DecodingResult};
 
+use crate::helpers::saved_data::LandscapeTextureKinds;
+
 use super::utilities::get_common_os_dir;
 
 pub struct LandscapePixelData {
@@ -189,7 +191,7 @@ pub fn read_landscape_texture(
     projectId: String,
     landscapeId: String,
     textureFilename: String,
-    textureKind: String,
+    // textureKind: String,
 ) -> Result<TextureData, String> {
     // let handle = &state.handle;
     // let config = handle.config();
@@ -225,17 +227,17 @@ pub fn read_landscape_mask(
     projectId: String,
     landscapeId: String,
     maskFilename: String,
-    maskKind: String,
+    maskKind: LandscapeTextureKinds,
 ) -> Result<TextureData, String> {
     // let handle = &state.handle;
     // let config = handle.config();
     // let package_info = handle.package_info();
     // let env = handle.env();
 
-    let kind_slug = match maskKind.as_str() {
-        "Primary" => "heightmaps",
-        "Rockmap" => "rockmaps",
-        "Soil" => "soils",
+    let kind_slug = match maskKind {
+        LandscapeTextureKinds::Primary => "heightmaps",
+        LandscapeTextureKinds::Rockmap => "rockmaps",
+        LandscapeTextureKinds::Soil => "soils",
         _ => "",
     };
 

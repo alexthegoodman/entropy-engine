@@ -1,7 +1,7 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::handle_add_landscape, helpers::{saved_data::{ComponentKind, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_landscape, handle_add_landscape_texture}, helpers::{saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
@@ -882,6 +882,45 @@ impl ExportPipeline {
                                                                         component.generic_properties.position,
                                                                         camera,
                                                                     );
+
+                                                                    if let Some(textures) = &saved_state.textures {
+                                                                        let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
+
+                                                                        if let Some(texture_id) = &landscape_properties.rockmap_texture_id {
+                                                                            let rockmap_texture = textures.iter().find(|t| {
+                                                                                if &t.id == texture_id {
+                                                                                    true
+                                                                                } else {
+                                                                                    false
+                                                                                }
+                                                                            });
+                                                                            
+                                                                            if let Some(rock_texture) = rockmap_texture {
+                                                                                if let Some(rock_mask) = &landscape_data.rockmap {
+                                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                                                    &gpu_resources.queue, project_id.clone(), component.id.clone(), 
+                                                                                    landscape_data.id.clone(), rock_texture.fileName.clone(), LandscapeTextureKinds::Rockmap, rock_mask.fileName.clone());
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                        if let Some(texture_id) = &landscape_properties.soil_texture_id {
+                                                                            let soil_texture = textures.iter().find(|t| {
+                                                                                if &t.id == texture_id {
+                                                                                    true
+                                                                                } else {
+                                                                                    false
+                                                                                }
+                                                                            });
+                                                                            
+                                                                            if let Some(soil_texture) = soil_texture {
+                                                                                if let Some(soil_mask) = &landscape_data.soil {
+                                                                                    handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                                                    &gpu_resources.queue, project_id.clone(), component.id.clone(), 
+                                                                                    landscape_data.id.clone(), soil_texture.fileName.clone(), LandscapeTextureKinds::Soil, soil_mask.fileName.clone());
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
                                                                 }
                                                             }
                                                         }
