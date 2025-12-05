@@ -1,5 +1,5 @@
 use image::DynamicImage;
-use nalgebra::{Isometry3, Matrix4, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Translation3, UnitQuaternion, Vector3};
 use nalgebra_glm::Vec3;
 use rapier3d::prelude::*;
 use rapier3d::prelude::{Collider, ColliderBuilder, RigidBody, RigidBodyBuilder};
@@ -1171,33 +1171,66 @@ impl QuadNode {
             bounds.height as f32 + scaling_adjustment
         ];
 
-        // for heightfield
+        // // for heightfield
+        // let isometry = match corner {
+        //     // already accounts for bounds.width and height
+        //     "top_left" => Isometry3::translation(bounds.x, 0.0, bounds.z),
+        //     "top_right" => Isometry3::translation(bounds.x, 0.0, bounds.z),
+        //     "bottom_left" => Isometry3::translation(bounds.x, 0.0, bounds.z),
+        //     "bottom_right" => Isometry3::translation(bounds.x, 0.0, bounds.z),
+        //     _ => Isometry3::translation(
+        //         terrain_position[0],
+        //         0.0,
+        //         terrain_position[2],
+        //     ),
+        // };
+
+        // let isometry = Isometry3::translation(bounds.x, 0.0, bounds.z);
+
+        // Create a rotation (e.g., 90 degrees around Y-axis)
+        let rot = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        // Create a translation
+        let trans = Translation3::new(bounds.x + (bounds.width / 2.0), 0.0, bounds.z + (bounds.height / 2.0));
+        // Combine into an Isometry
+        let isometry = Isometry3::from_parts(trans, rot);
+
+        // // Suggested corrected code:
+        // let max_x = bounds.x + bounds.width;
+        // let max_z = bounds.z + bounds.height;
+
+        // let isometry = match corner {
+        //     // (min_x, 0.0, min_z)
+        //     "top_left" => Isometry3::translation(bounds.x, 0.0, bounds.z),
+
+        //     // (max_x, 0.0, min_z)  -> Assumes Z increases downwards on the screen (common in 3D-Z-up systems)
+        //     "top_right" => Isometry3::translation(max_x, 0.0, bounds.z),
+
+        //     // (min_x, 0.0, max_z)
+        //     "bottom_left" => Isometry3::translation(bounds.x, 0.0, max_z),
+
+        //     // (max_x, 0.0, max_z)
+        //     "bottom_right" => Isometry3::translation(max_x, 0.0, max_z),
+
+        //     _ => Isometry3::translation(
+        //         terrain_position[0],
+        //         0.0,
+        //         terrain_position[2],
+        //     ),
+        // };
+
+        // for trimesh
         // let isometry = match corner {
         //     // bounds.x and bounds.z already adjusted for width and height when creating QuadNode
-        //     "top_left" => Isometry3::translation(bounds.x, -450.0, bounds.z), // why ~500? map specific? max_height is about 600
-        //     "top_right" => Isometry3::translation(bounds.x, -450.0, bounds.z),
-        //     "bottom_left" => Isometry3::translation(bounds.x, -450.0, bounds.z),
-        //     "bottom_right" => Isometry3::translation(bounds.x, -450.0, bounds.z),
+        //     "top_left" => Isometry3::translation(0.0, -450.0, 0.0), // why ~500? map specific? max_height is about 600
+        //     "top_right" => Isometry3::translation(0.0, -450.0, 0.0),
+        //     "bottom_left" => Isometry3::translation(0.0, -450.0, 0.0),
+        //     "bottom_right" => Isometry3::translation(0.0, -450.0, 0.0),
         //     _ => Isometry3::translation(
         //         terrain_position[0],
         //         terrain_position[1],
         //         terrain_position[2],
         //     ),
         // };
-
-        // for trimesh
-        let isometry = match corner {
-            // bounds.x and bounds.z already adjusted for width and height when creating QuadNode
-            "top_left" => Isometry3::translation(0.0, -450.0, 0.0), // why ~500? map specific? max_height is about 600
-            "top_right" => Isometry3::translation(0.0, -450.0, 0.0),
-            "bottom_left" => Isometry3::translation(0.0, -450.0, 0.0),
-            "bottom_right" => Isometry3::translation(0.0, -450.0, 0.0),
-            _ => Isometry3::translation(
-                terrain_position[0],
-                terrain_position[1],
-                terrain_position[2],
-            ),
-        };
 
         // only create colliders for nearest children to prevent overlap
         if (depth == (MAX_LOD_LEVELS as u32) - 1) {
@@ -1221,7 +1254,8 @@ impl QuadNode {
                     .friction(0.9)
                     .restitution(0.1)
                     .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
-                    .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
+                    .active_collision_types(ActiveCollisionTypes::all())
+                    // .position(isometry) // Enable all collision types
                     .user_data(
                         Uuid::from_str(&chunk_id)
                             .expect("Couldn't extract uuid")

@@ -448,19 +448,19 @@ pub fn create_debug_collision_mesh(
             // Add vertices with random UV coordinates
             // ideally, make + 452.0 dynamic with terrain position
             vertices.push(Vertex {
-                position: [tri_a.x, tri_a.y + 352.0, tri_a.z],
+                position: [tri_a.x, tri_a.y, tri_a.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv, // Use the same random UV for all vertices
                 color: [1.0, 1.0, 1.0, 1.0], // Default white color since we're using UVs for color
             });
             vertices.push(Vertex {
-                position: [tri_b.x, tri_b.y + 352.0, tri_b.z],
+                position: [tri_b.x, tri_b.y, tri_b.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv,
                 color: [1.0, 1.0, 1.0, 1.0],
             });
             vertices.push(Vertex {
-                position: [tri_c.x, tri_c.y + 352.0, tri_c.z],
+                position: [tri_c.x, tri_c.y, tri_c.z],
                 normal: [0.0, 1.0, 0.0],
                 tex_coords: random_uv,
                 color: [1.0, 1.0, 1.0, 1.0],
