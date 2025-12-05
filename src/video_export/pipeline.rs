@@ -477,11 +477,13 @@ impl ExportPipeline {
         export_editor.start_playing_time = Some(now);
         export_editor.is_playing = true;
 
+        export_editor.camera_binding = Some(camera_binding);
+
         // self.device = Some(device);
         // self.queue = Some(queue);
         self.gpu_resources = export_editor.gpu_resources.clone();
         // self.camera = Some(camera);
-        self.camera_binding = Some(camera_binding);
+        // self.camera_binding = Some(camera_binding);
         self.render_pipeline = Some(render_pipeline);
         self.texture = Some(texture);
         self.view = Some(view);
@@ -514,7 +516,11 @@ impl ExportPipeline {
             .render_pipeline
             .as_ref()
             .expect("Couldn't get render pipeline");
-        let camera_binding = self
+        // let camera_binding = self
+        //     .camera_binding
+        //     .as_ref()
+        //     .expect("Couldn't get camera binding");
+        let camera_binding = editor
             .camera_binding
             .as_ref()
             .expect("Couldn't get camera binding");

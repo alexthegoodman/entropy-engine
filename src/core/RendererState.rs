@@ -988,6 +988,7 @@ impl RendererState {
             landscapeAssetId,
             landscapeFilename,
             device,
+            queue,
             &self.model_bind_group_layout,
             &self.group_bind_group_layout,
             position,

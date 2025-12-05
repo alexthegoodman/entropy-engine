@@ -11,6 +11,7 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::core::editor::Editor;
+use crate::core::gpu_resources;
 use crate::shape_primitives::Cube::Cube;
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -93,8 +94,11 @@ thread_local! {
 //     unsafe { CAMERA.as_mut().unwrap() }
 // }
 
-pub fn handle_key_press(state: &Editor, key_code: &str, is_pressed: bool, camera: &mut SimpleCamera) {
+pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     // let camera = get_camera();
+    let camera = state.camera.as_mut().expect("Couldn't get camera");
+    let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
+    let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
     // let mut state_guard = state.lock().unwrap();
     let speed_multiplier = state.navigation_speed;
 
@@ -103,6 +107,7 @@ pub fn handle_key_press(state: &Editor, key_code: &str, is_pressed: bool, camera
     match key_code {
         "w" => {
             if is_pressed {
+                // println!("w pressed");
                 diff = camera.direction * 0.1;
                 diff = diff * speed_multiplier;
                 camera.position += diff;
@@ -156,6 +161,7 @@ pub fn handle_key_press(state: &Editor, key_code: &str, is_pressed: bool, camera
     // drop(state_guard);
 
     camera.update();
+    camera_binding.update_3d(&gpu_resources.queue, &camera);
 }
 
 // pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {

@@ -457,10 +457,10 @@ impl ApplicationHandler<UserEvent> for Application {
                 if event.state.is_pressed() {
                     let action = if let Key::Character(ch) = event.logical_key.as_ref() {
                         handle_key_press(
-                            window.pipeline.export_editor.as_ref().expect("Couldn't fetch editor"), 
+                            window.pipeline.export_editor.as_mut().expect("Couldn't fetch editor"), 
                             ch, 
                             event.state.is_pressed(), 
-                            window.pipeline.camera.as_mut().expect("Couldn't get camera")
+                            // window.pipeline.camera.as_mut().expect("Couldn't get camera")
                         );
 
                         Self::process_key_binding(&ch.to_uppercase(), &mods)
