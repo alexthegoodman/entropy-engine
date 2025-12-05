@@ -791,7 +791,7 @@ impl ExportPipeline {
         }
     }
 
-    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window) {
+    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
     
         let output = gpu_resources.surface.as_ref().unwrap()
@@ -802,52 +802,55 @@ impl ExportPipeline {
     
         self.render_frame(Some(&view), 0.0);
     
-        let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("egui encoder"),
-        });
-        
-        let raw_input = gui.state.take_egui_input(&window);
-        let full_output = gui.ctx.run(raw_input, |ctx| {
-            self.ui(ctx);
-        });
-    
-        gui.state.handle_platform_output(&window, full_output.platform_output);
-    
-        let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
-        let screen_descriptor = egui_wgpu::ScreenDescriptor {
-            size_in_pixels: [output.texture.width(), output.texture.height()],
-            pixels_per_point: window.scale_factor() as f32,
-        };
-    
-        for (id, image_delta) in &full_output.textures_delta.set {
-            gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
-        }
-        
-        gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
-    
-        {
-            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("egui"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
+        if !game_mode {
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("egui encoder"),
             });
+            
+            let raw_input = gui.state.take_egui_input(&window);
+            let full_output = gui.ctx.run(raw_input, |ctx| {
+                self.ui(ctx);
+            });
+        
+            gui.state.handle_platform_output(&window, full_output.platform_output);
+        
+            let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+            let screen_descriptor = egui_wgpu::ScreenDescriptor {
+                size_in_pixels: [output.texture.width(), output.texture.height()],
+                pixels_per_point: window.scale_factor() as f32,
+            };
+        
+            for (id, image_delta) in &full_output.textures_delta.set {
+                gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
+            }
+            
+            gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
+        
+            {
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("egui"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
 
-            gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+                gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+            }
+        
+            // drop(rpass);
+        
+            gpu_resources.queue.submit(Some(encoder.finish()));
         }
-    
-        // drop(rpass);
-    
-        gpu_resources.queue.submit(Some(encoder.finish()));
+
         output.present();
     }
     

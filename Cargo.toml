@@ -3,6 +3,10 @@ name = "entropy-engine"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "game"
+path = "src/bin/game.rs"
+
 [dependencies]
 env_logger = "0.11"
 pollster = "0.3"

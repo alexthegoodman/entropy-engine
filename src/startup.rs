@@ -79,6 +79,32 @@ use winit::platform::x11::WindowAttributesExtX11;
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
 
+pub fn run_game() -> Result<(), Box<dyn Error>> {
+    #[cfg(web_platform)]
+    console_error_panic_hook::set_once();
+
+    // tracing::init();
+
+    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let _event_loop_proxy = event_loop.create_proxy();
+
+    // Wire the user event from another thread.
+    #[cfg(not(web_platform))]
+    std::thread::spawn(move || {
+        // Wake up the `event_loop` once every second and dispatch a custom event
+        // from a different thread.
+        info!("Starting to send user event every second");
+        loop {
+            let _ = _event_loop_proxy.send_event(UserEvent::WakeUp);
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    });
+
+    let mut state = Application::new(&event_loop, true);
+
+    event_loop.run_app(&mut state).map_err(Into::into)
+}
+
 pub fn run() -> Result<(), Box<dyn Error>> {
     #[cfg(web_platform)]
     console_error_panic_hook::set_once();
@@ -100,7 +126,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut state = Application::new(&event_loop);
+    let mut state = Application::new(&event_loop, false);
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
@@ -131,11 +157,12 @@ struct Application {
     // context: Option<Context<DisplayHandle<'static>>>,
 
     shift_active: bool,
-    last_mouse_position: Option<PhysicalPosition<f64>>
+    last_mouse_position: Option<PhysicalPosition<f64>>,
+    game_mode: bool,
 }
 
 impl Application {
-    fn new<T>(event_loop: &EventLoop<T>) -> Self {
+    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
         // let context = Some(
@@ -168,7 +195,8 @@ impl Application {
             // icon,
             windows: Default::default(),
             shift_active: false,
-            last_mouse_position: None
+            last_mouse_position: None,
+            game_mode,
         }
     }
 
@@ -237,7 +265,7 @@ impl Application {
             window.recognize_pan_gesture(true, 2, 2);
         }
 
-        let window_state = WindowState::new(self, window)?;
+        let window_state = WindowState::new(self, window, self.game_mode)?;
         let window_id = window_state.window.id();
         info!("Created new window with id={window_id:?}");
         self.windows.insert(window_id, window_state);
@@ -400,7 +428,9 @@ impl ApplicationHandler<UserEvent> for Application {
             None => return,
         };
 
-        let _ = window.gui.state.on_window_event(&window.window, &event);
+        if !window.game_mode {
+            let _ = window.gui.state.on_window_event(&window.window, &event);
+        }
 
         match event {
             WindowEvent::Resized(size) => {
@@ -651,10 +681,11 @@ struct WindowState {
     // custom_idx: usize,
     cursor_hidden: bool,
     gui: Gui,
+    game_mode: bool,
 }
 
 impl WindowState {
-    fn new(app: &Application, window: Window) -> Result<Self, Box<dyn Error>> {
+    fn new(app: &Application, window: Window, game_mode: bool) -> Result<Self, Box<dyn Error>> {
         let window = Arc::new(window);
 
         let mut pipeline = ExportPipeline::new();
@@ -748,6 +779,7 @@ impl WindowState {
             panned: Default::default(),
             zoom: Default::default(),
             gui,
+            game_mode,
         };
 
         state.resize(size);
@@ -922,7 +954,9 @@ impl WindowState {
                     surface.configure(&gpu_resources.device, &self.surface_config);
                 }
             }
-            self.pipeline.resize(size);
+            if !self.game_mode {
+                self.pipeline.resize(size);
+            }
         }
         self.window.request_redraw();
     }
@@ -1015,7 +1049,7 @@ impl WindowState {
             return Ok(());
         }
 
-        self.pipeline.render_display_frame(&mut self.gui, &self.window);
+        self.pipeline.render_display_frame(&mut self.gui, &self.window, self.game_mode);
 
         Ok(())
     }
