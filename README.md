@@ -13,3 +13,11 @@ Powering a unified OS inspired by MCP.
 - Video export
 - GLB Import
 - and more!
+
+## Run
+
+Example Game:
+- `cargo run --bin game --release`
+
+Level Editor: 
+- `cargo run --bin entropy-engine --release`
