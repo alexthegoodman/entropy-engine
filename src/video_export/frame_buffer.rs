@@ -74,9 +74,11 @@ impl FrameCaptureBuffer {
 
         encoder.copy_texture_to_buffer(
             self.capture_texture.as_image_copy(),
-            wgpu::ImageCopyBuffer {
+            // wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &self.staging_buffer,
-                layout: wgpu::ImageDataLayout {
+                // layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(buffer_dimensions.padded_bytes_per_row),
                     rows_per_image: Some(buffer_dimensions.height),
@@ -98,7 +100,7 @@ impl FrameCaptureBuffer {
         buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
             tx.send(result).unwrap();
         });
-        device.poll(wgpu::PollType::Wait);
+        device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
 
         rx.await.unwrap().unwrap();
 

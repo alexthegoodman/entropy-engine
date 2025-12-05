@@ -4,7 +4,7 @@ use crate::{
     }, gpu_resources::GpuResources, vertex::Vertex}, handlers::handle_add_landscape, helpers::{saved_data::{ComponentKind, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
-use imgui::Condition;
+use egui;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Point3, Vector3};
 use uuid::Uuid;
@@ -13,7 +13,7 @@ use winit::window::Window;
 use crate::shape_primitives::Cube::Cube;
 
 use super::frame_buffer::FrameCaptureBuffer;
-use super::chat::Chat;
+// use super::chat::Chat;
 
 pub struct ExportPipeline {
     // pub device: Option<wgpu::Device>,
@@ -28,7 +28,7 @@ pub struct ExportPipeline {
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
-    pub chat: Chat,
+    // pub chat: Chat,
     new_project_name: String,
     projects: Vec<String>,
 }
@@ -48,7 +48,7 @@ impl ExportPipeline {
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
-            chat: Chat::new(),
+            // chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
         }
@@ -538,6 +538,7 @@ impl ExportPipeline {
                         load: wgpu::LoadOp::Clear(wgpu::Color::BLUE),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None
                 })],
                 // depth_stencil_attachment: None,
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -716,140 +717,129 @@ impl ExportPipeline {
 
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window) {
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
-
+    
         let output = gpu_resources.surface.as_ref().unwrap()
             .get_current_texture()
             .expect("Failed to get current swap chain texture");
-
-        // println!("texture dimensiosn {:?} {:?}", output.texture.width(), output.texture.height());
-
+    
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // println!("display size {:?}", gui.ctx.io().display_size);
-
-        // Call the render_frame from our pipeline
-        self.render_frame(
-            Some(&view), 
-            // None,
-            0.0); // Pass a dummy current_time for now
-
+    
+        self.render_frame(Some(&view), 0.0);
+    
         let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("imgui encoder"),
+            label: Some("egui encoder"),
         });
-
-        let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("imgui"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                // view: &view,
-                view: &view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            timestamp_writes: None,
-            occlusion_query_set: None,
-        });
-
-        gui.platform.prepare_frame(gui.ctx.io_mut(), &window).expect("Couldn't prepare frame");
         
-        // Update last_frame for delta_time calculation
-        gui.ctx.io_mut().update_delta_time(Instant::now() - gui.last_frame);
-        gui.last_frame = gui.last_frame.max(Instant::now());
+        let raw_input = gui.state.take_egui_input(&window);
+        let full_output = gui.ctx.run(raw_input, |ctx| {
+            self.ui(ctx);
+        });
+    
+        gui.state.handle_platform_output(&window, full_output.platform_output);
+    
+        let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        let screen_descriptor = egui_wgpu::ScreenDescriptor {
+            size_in_pixels: [output.texture.width(), output.texture.height()],
+            pixels_per_point: window.scale_factor() as f32,
+        };
+    
+        for (id, image_delta) in &full_output.textures_delta.set {
+            gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
+        }
+        
+        gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
+    
+        {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("egui"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
 
-        // let ui = gui.ctx.frame();
-        // {
-        //     let fps = ui.io().framerate;
-        //     ui.text(format!("FPS: {:.1}", fps));
-        // }
-
-        let ui = gui.ctx.new_frame();
-        // imgui::Window::new(ui, "Debug Overlay")
-        //         .title_bar(true) // No title bar
-        //         .resizable(true) // Not resizable
-        //         .movable(true) // Not movable
-        //         .always_auto_resize(true) // Fits content
-        //         .save_settings(true) // Don't save position
-        //         .build(|| {
-        //             let fps = ui.io().framerate;
-        //             ui.text(format!("FPS: {:.1}", fps));
-        //         });
-
-        // ChatGPT style chat interface
-        self.chat.render(&ui);
-
-        // select project window
+            gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+        }
+    
+        // drop(rpass);
+    
+        gpu_resources.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+    
+    fn ui(&mut self, ctx: &egui::Context) {
         let editor = self.export_editor.as_mut().unwrap();
         if editor.saved_state.is_none() {
-            let window = ui.window("Projects");
-            window
-                .size([300.0, 400.0], Condition::FirstUseEver)
-                .build(|| {
-                    ui.text("Create New Project");
-                    ui.input_text("Project Name", &mut self.new_project_name)
-                        .build();
-                    if ui.button("Create New Project") {
-                        if !self.new_project_name.is_empty() {
-                            match utilities::create_project_state(&self.new_project_name) {
-                                Ok(new_state) => {
-                                    editor.saved_state = Some(new_state);
-                                }
-                                Err(e) => {
-                                    println!("Failed to create project: {}", e);
-                                }
+            egui::Window::new("Projects").show(ctx, |ui| {
+                ui.label("Create New Project");
+                ui.text_edit_singleline(&mut self.new_project_name);
+                if ui.button("Create New Project").clicked() {
+                    if !self.new_project_name.is_empty() {
+                        match utilities::create_project_state(&self.new_project_name) {
+                            Ok(new_state) => {
+                                editor.saved_state = Some(new_state);
+                            }
+                            Err(e) => {
+                                println!("Failed to create project: {}", e);
                             }
                         }
                     }
-
-                    ui.separator();
-                    ui.text("Existing Projects");
-
-                    let projects_dir = utilities::get_projects_dir().unwrap();
-                    self.projects.clear();
-                    for entry in fs::read_dir(projects_dir).unwrap() {
-                        let entry = entry.unwrap();
-                        let path = entry.path();
-                        if path.is_dir() {
-                            self.projects
-                                .push(path.file_name().unwrap().to_str().unwrap().to_string());
-                        }
+                }
+    
+                ui.separator();
+                ui.label("Existing Projects");
+    
+                let projects_dir = utilities::get_projects_dir().unwrap();
+                self.projects.clear();
+                for entry in fs::read_dir(projects_dir).unwrap() {
+                    let entry = entry.unwrap();
+                    let path = entry.path();
+                    if path.is_dir() {
+                        self.projects
+                            .push(path.file_name().unwrap().to_str().unwrap().to_string());
                     }
-
-                    for project_id in &self.projects {
-                        if ui.button(project_id) {
-                            match utilities::load_project_state(project_id) {
-                                Ok(loaded_state) => {
-                                    editor.saved_state = Some(loaded_state);
-                                    
-                                    // now load landscapes
-                                    if let Some(saved_state) = &editor.saved_state {
-                                        if let Some(landscapes) = &saved_state.landscapes {
-                                            if let Some(levels) = &saved_state.levels {
-                                                let level = &levels[0]; // assume one level for now
-                                                for landscape_data in landscapes {
-                                                    if let Some(components) = &level.components {
-                                                        for component in components {
-                                                            if let Some(ComponentKind::Landscape) = component.kind {
-                                                                if component.asset_id == landscape_data.id {
-                                                                    if let Some(heightmap) = &landscape_data.heightmap {
-                                                                        let renderer_state = editor.renderer_state.as_mut().unwrap();
-                                                                        let camera = editor.camera.as_mut().unwrap();
-                                                                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
-                                                                        
-                                                                        handle_add_landscape(
-                                                                            renderer_state,
-                                                                            &gpu_resources.device,
-                                                                            &gpu_resources.queue,
-                                                                            project_id.clone(),
-                                                                            landscape_data.id.clone(),
-                                                                            component.id.clone(),
-                                                                            heightmap.fileName.clone(),
-                                                                            component.generic_properties.position,
-                                                                            camera,
-                                                                        );
-                                                                    }
+                }
+    
+                for project_id in &self.projects {
+                    if ui.button(project_id).clicked() {
+                        match utilities::load_project_state(project_id) {
+                            Ok(loaded_state) => {
+                                editor.saved_state = Some(loaded_state);
+                                
+                                // now load landscapes
+                                if let Some(saved_state) = &editor.saved_state {
+                                    if let Some(landscapes) = &saved_state.landscapes {
+                                        if let Some(levels) = &saved_state.levels {
+                                            let level = &levels[0]; // assume one level for now
+                                            for landscape_data in landscapes {
+                                                if let Some(components) = &level.components {
+                                                    for component in components {
+                                                        if let Some(ComponentKind::Landscape) = component.kind {
+                                                            if component.asset_id == landscape_data.id {
+                                                                if let Some(heightmap) = &landscape_data.heightmap {
+                                                                    let renderer_state = editor.renderer_state.as_mut().unwrap();
+                                                                    let camera = editor.camera.as_mut().unwrap();
+                                                                    let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                                                                    
+                                                                    handle_add_landscape(
+                                                                        renderer_state,
+                                                                        &gpu_resources.device,
+                                                                        &gpu_resources.queue,
+                                                                        project_id.clone(),
+                                                                        landscape_data.id.clone(),
+                                                                        component.id.clone(),
+                                                                        heightmap.fileName.clone(),
+                                                                        component.generic_properties.position,
+                                                                        camera,
+                                                                    );
                                                                 }
                                                             }
                                                         }
@@ -859,107 +849,69 @@ impl ExportPipeline {
                                         }
                                     }
                                 }
-                                Err(e) => {
-                                    println!("Failed to load project: {}", e);
-                                }
+                            }
+                            Err(e) => {
+                                println!("Failed to load project: {}", e);
                             }
                         }
                     }
-                });
+                }
+            });
         }
-
+    
         // scene controls
-        {
-            let window = ui.window("Controls");
-            window
-                .size([300.0, 100.0], Condition::FirstUseEver)
-                .build(|| {
-                    ui.text("Manage Scene");
-                    // ui.text("This...is...imgui-rs on WGPU!");
-                    // ui.separator();
-                    // let mouse_pos = ui.io().mouse_pos;
-                    // ui.text(format!(
-                    //     "Mouse Position: ({:.1},{:.1})",
-                    //     mouse_pos[0], mouse_pos[1]
-                    // ));
-
-                    if ui.button("Add Cube") {
-                        let editor = self.export_editor.as_mut().unwrap();
-                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
-                        let device = &gpu_resources.device;
-                        let queue = &gpu_resources.queue;
-                        let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
-                        let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
-                        let camera = editor.camera.as_ref().expect("Couldn't get camera");
-                        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
-
-                        let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
-                        renderer_state.cubes.push(new_cube);
-
-                        println!("Cube added {:?}", renderer_state.cubes.len());
-                    }
-
-                    if ui.button("Add Landscape") {
-                        let editor = self.export_editor.as_mut().unwrap();
-                        let gpu_resources = self.gpu_resources.as_ref().unwrap();
-                        let device = &gpu_resources.device;
-                        let queue = &gpu_resources.queue;
-                        let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
-                        let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
-                        let camera = editor.camera.as_mut().expect("Couldn't get camera");
-                        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
-
-                        let mock_project_id = Uuid::new_v4().to_string();
-                        
-                        // handle_add_landscape(
-                        //     renderer_state, 
-                        //     device, 
-                        //     queue, 
-                        //     mock_project_id, 
-                        //     landscapeAssetId, 
-                        //     landscapeComponentId, 
-                        //     landscapeFilename, 
-                        //     [0.0, 0.0, 0.0], 
-                        //     camera
-                        // );
-
-                        // println!("Landscape added {:?}", editor.cubes.len());
-                    }
-                });
-
-            let window = ui.window("Hello too");
-            window
-                .size([400.0, 200.0], Condition::FirstUseEver)
-                .position([400.0, 200.0], Condition::FirstUseEver)
-                .build(|| {
-                    let fps = ui.io().framerate;
-                    ui.text(format!("Frametime: {:?}", fps));
-                });
-        }
-
-        gui.platform.prepare_render(ui, &window);
-
-        let draw_data = gui.ctx.render();
-        // println!("ImGui vertices     = {}", draw_data.total_vtx_count);
-        // println!("ImGui indices      = {}", draw_data.total_idx_count);
-
-        // gui
-        //     .renderer
-        //     .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
-        //     .expect("Imgui render failed");
-
-        if draw_data.total_vtx_count > 0 {
-            // Only render if there are vertices to draw
-            gui
-                .renderer
-                .render(draw_data, &gpu_resources.queue, &gpu_resources.device, &mut rpass)
-                .expect("Imgui render failed");
-        }
-
-        drop(rpass);
-
-        gpu_resources.queue.submit(Some(encoder.finish()));
-
-        output.present();
+        egui::Window::new("Controls").show(ctx, |ui| {
+            ui.label("Manage Scene");
+    
+            if ui.button("Add Cube").clicked() {
+                let editor = self.export_editor.as_mut().unwrap();
+                let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                let device = &gpu_resources.device;
+                let queue = &gpu_resources.queue;
+                let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+                let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
+                let camera = editor.camera.as_ref().expect("Couldn't get camera");
+                let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+    
+                let new_cube = Cube::new(device, queue, model_bind_group_layout, group_bind_group_layout, camera);
+                renderer_state.cubes.push(new_cube);
+    
+                println!("Cube added {:?}", renderer_state.cubes.len());
+            }
+    
+            if ui.button("Add Landscape").clicked() {
+                let editor = self.export_editor.as_mut().unwrap();
+                let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                let device = &gpu_resources.device;
+                let queue = &gpu_resources.queue;
+                let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+                let group_bind_group_layout = editor.group_bind_group_layout.as_ref().unwrap();
+                let camera = editor.camera.as_mut().expect("Couldn't get camera");
+                let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+    
+                let mock_project_id = Uuid::new_v4().to_string();
+                
+                // handle_add_landscape(
+                //     renderer_state, 
+                //     device, 
+                //     queue, 
+                //     mock_project_id, 
+                //     landscapeAssetId, 
+                //     landscapeComponentId, 
+                //     landscapeFilename, 
+                //     [0.0, 0.0, 0.0], 
+                //     camera
+                // );
+    
+                // println!("Landscape added {:?}", editor.cubes.len());
+            }
+        });
+    
+        egui::Window::new("Hello too").show(ctx, |ui| {
+            // let fps = ui.io().framerate;
+            // ui.label(format!("Frametime: {:?}", fps));
+        });
+    
+        // self.chat.render(ctx);
     }
 }

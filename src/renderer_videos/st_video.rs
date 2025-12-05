@@ -461,14 +461,14 @@ impl StVideo {
             // Write texture data
             // need to write nv12 / YUV data to texture with proper bytes per row
             queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: &self.texture,
                     mip_level: 0,
                     origin: wgpu::Origin3d::ZERO,
                     aspect: wgpu::TextureAspect::All,
                 },
                 &frame_data,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * self.source_dimensions.0),
                     rows_per_image: Some(self.source_dimensions.1),

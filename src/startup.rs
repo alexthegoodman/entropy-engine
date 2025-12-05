@@ -54,8 +54,9 @@ use winit::window::{
 
 use std::time::Instant;
 
-use imgui_wgpu::{Renderer, RendererConfig};
-use imgui_winit_support::WinitPlatform;
+use egui_wgpu::{Renderer as EguiRenderer, RendererOptions};
+use egui_winit::State as EguiState;
+use egui::Context as EguiContext;
 use tracing::info;
 use tracing::error;
 
@@ -111,10 +112,9 @@ enum UserEvent {
 }
 
 pub struct Gui {
-    pub ctx: imgui::Context,
-    pub platform: WinitPlatform,
-    pub renderer: Renderer,
-    pub last_frame: Instant,
+    pub ctx: EguiContext,
+    pub state: EguiState,
+    pub renderer: EguiRenderer,
 }
 
 /// Application state and event handling.
@@ -400,10 +400,7 @@ impl ApplicationHandler<UserEvent> for Application {
             None => return,
         };
 
-        window
-            .gui
-            .platform
-            .handle_event::<WindowEvent>(window.gui.ctx.io_mut(), &window.window, &winit::event::Event::WindowEvent { window_id, event: event.clone() });
+        let _ = window.gui.state.on_window_event(&window.window, &event);
 
         match event {
             WindowEvent::Resized(size) => {
@@ -658,35 +655,6 @@ impl WindowState {
     fn new(app: &Application, window: Window) -> Result<Self, Box<dyn Error>> {
         let window = Arc::new(window);
 
-        // WGPU Initialization
-        // let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        // // SAFETY: The surface must not outlive the window.
-        // let surface = unsafe { instance.create_surface(&window).unwrap() };
-        // // We can transmute the lifetime to static because the window lives for the duration
-        // // of the application, which is effectively a static lifetime.
-        // let surface: wgpu::Surface<'static> = unsafe { std::mem::transmute(surface) };
-        // let surface = Arc::new(surface);
-
-        // this is all done in pipeline.rs initialize
-        // let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        //     power_preference: wgpu::PowerPreference::default(),
-        //     compatible_surface: Some(&surface),
-        //     force_fallback_adapter: false,
-        // })).expect("Couldn't get gpu adapter");
-
-        // let (device, queue) = pollster::block_on(adapter.request_device(
-        //     &wgpu::DeviceDescriptor {
-        //         label: None,
-        //         required_features: wgpu::Features::default(),
-        //         required_limits: wgpu::Limits::default(),
-        //         memory_hints: wgpu::MemoryHints::default(),
-        //         trace: wgpu::Trace::default()
-        //     },
-        //     // None,
-        // )).expect("Couldn't get gpu device");
-
-        // let gpu_resources = Arc::new(GpuResources::with_surface(adapter, device, queue, surface.clone()));
-        
         let mut pipeline = ExportPipeline::new();
         // Dummy data for now. Real sequences will be loaded later.
         let sequences = Vec::new();
@@ -720,14 +688,9 @@ impl WindowState {
         let ime = true;
         window.set_ime_allowed(ime);
 
-        let mut ctx = imgui::Context::create();
-        let mut platform = WinitPlatform::new(&mut ctx);
-        platform.attach_window(
-            ctx.io_mut(),
-            &window,
-            imgui_winit_support::HiDpiMode::Default,
-        );
-
+        let ctx = EguiContext::default();
+        let mut state = EguiState::new(ctx.clone(), ctx.viewport_id(), &window, None, None, None);
+        
         let size = window.inner_size();
         let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
         let surface_config = wgpu::SurfaceConfiguration {
@@ -741,26 +704,22 @@ impl WindowState {
             desired_maximum_frame_latency: 2
         };
 
-        let renderer_config = RendererConfig {
-            texture_format: surface_config.format,
-            ..Default::default()
-        };
-
         let gpu_resources = pipeline.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
-        let renderer = imgui_wgpu::Renderer::new(
-            &mut ctx,
+        let renderer = EguiRenderer::new(
             &gpu_resources.device,
-            &gpu_resources.queue,
-            renderer_config,
+            surface_config.format,
+            RendererOptions {
+                ..Default::default()
+            },
+            // 1,
+            // false
         );
-        let last_frame = Instant::now();
 
         let gui = Gui {
             ctx,
-            platform,
+            state,
             renderer,
-            last_frame,
         };
 
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();

@@ -332,7 +332,7 @@ impl TextRenderer {
 
         // Write glyph bitmap to atlas
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.atlas_texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d {
@@ -344,7 +344,7 @@ impl TextRenderer {
             },
             // &bitmap,
             &rgba_data,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(metrics.width as u32 * 4), // *4 for rgba
                 rows_per_image: Some(metrics.height as u32),

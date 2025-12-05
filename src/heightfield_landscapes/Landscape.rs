@@ -272,7 +272,7 @@ impl Landscape {
 
         if let Some(texture_array) = &self.texture_array {
             queue.write_texture(
-                wgpu::ImageCopyTexture {
+                wgpu::TexelCopyTextureInfo {
                     texture: texture_array,
                     mip_level: 0,
                     origin: wgpu::Origin3d {
@@ -283,7 +283,7 @@ impl Landscape {
                     aspect: wgpu::TextureAspect::All,
                 },
                 &new_texture.data,
-                wgpu::ImageDataLayout {
+                wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(4 * new_texture.size().width),
                     rows_per_image: Some(new_texture.size().height),
