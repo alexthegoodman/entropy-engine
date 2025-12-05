@@ -7,6 +7,7 @@ use uuid::Uuid;
 use wgpu::BindGroupLayout;
 use winit::keyboard::ModifiersState;
 
+use crate::core::camera::CameraBinding;
 use crate::core::editor::Viewport;
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
@@ -419,7 +420,7 @@ impl RendererState {
         }
     }
 
-    pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, camera: &mut SimpleCamera) {
+    pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, camera_binding: &mut CameraBinding, camera: &mut SimpleCamera) {
         // Calculate delta time
         let now = std::time::Instant::now();
         let dt = if let Some(last_time) = self.last_frame_time {
@@ -497,6 +498,9 @@ impl RendererState {
                 let pos = rb.translation();
                 // let mut camera = get_camera();
                 camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
+
+                camera.update();
+                camera_binding.update_3d(&queue, &camera);
             }
         }
 

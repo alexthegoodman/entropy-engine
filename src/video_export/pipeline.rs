@@ -590,9 +590,13 @@ impl ExportPipeline {
         //     .camera_binding
         //     .as_ref()
         //     .expect("Couldn't get camera binding");
+        let camera = editor
+            .camera
+            .as_mut()
+            .expect("Couldn't get camera");
         let camera_binding = editor
             .camera_binding
-            .as_ref()
+            .as_mut()
             .expect("Couldn't get camera binding");
         let window_size_bind_group = self
             .window_size_bind_group
@@ -604,12 +608,17 @@ impl ExportPipeline {
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
-            if game_mode && editor.camera.is_some() {
+            if game_mode {
                 // update rapier collisions
                 renderer_state.update_rapier();
 
                 // step through physics each frame
-                renderer_state.step_physics_pipeline(&gpu_resources.device, editor.camera.as_mut().expect("Couldn't get camera"));
+                renderer_state.step_physics_pipeline(
+                    &gpu_resources.device, 
+                    &gpu_resources.queue, 
+                    camera_binding,
+                    camera
+                );
             }
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

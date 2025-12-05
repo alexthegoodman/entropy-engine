@@ -1141,10 +1141,10 @@ impl QuadNode {
         let sender = collider_sender.clone();
         let rapier_vertices = rapier_vertices.clone();
 
-        let new_rapier_vertices = cloned_vertices
-            .iter()
-            .map(|v| Point3::new(v.position[0], v.position[1], v.position[2]))
-            .collect();
+        // let new_rapier_vertices = cloned_vertices
+        //     .iter()
+        //     .map(|v| Point3::new(v.position[0], v.position[1], v.position[2]))
+        //     .collect();
 
         let indices_clone = indices.clone();
         let chunk_id = mesh_id.clone();
@@ -1203,31 +1203,31 @@ impl QuadNode {
         if (depth == (MAX_LOD_LEVELS as u32) - 1) {
             // Spawn the heavy computation in a separate thread
             std::thread::spawn(move || {
-                let collider = ColliderBuilder::trimesh(
-                    new_rapier_vertices,
-                    indices_clone
-                        .chunks(3)
-                        .map(|chunk| [chunk[0], chunk[1], chunk[2]])
-                        .collect::<Vec<[u32; 3]>>(),
-                )
-                .friction(0.9)
-                .restitution(0.1)
-                .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
-                .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
-                .user_data(Uuid::from_str(&chunk_id).unwrap().as_u128())
-                .build();
+                // let collider = ColliderBuilder::trimesh(
+                //     new_rapier_vertices,
+                //     indices_clone
+                //         .chunks(3)
+                //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
+                //         .collect::<Vec<[u32; 3]>>(),
+                // )
+                // .friction(0.9)
+                // .restitution(0.1)
+                // .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
+                // .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
+                // .user_data(Uuid::from_str(&chunk_id).unwrap().as_u128())
+                // .build();
 
-                // let collider = ColliderBuilder::heightfield(heights.clone(), scaling)
-                //     .friction(0.9)
-                //     .restitution(0.1)
-                //     .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
-                //     .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
-                //     .user_data(
-                //         Uuid::from_str(&chunk_id)
-                //             .expect("Couldn't extract uuid")
-                //             .as_u128(),
-                //     )
-                //     .build();
+                let collider = ColliderBuilder::heightfield(heights.clone(), scaling)
+                    .friction(0.9)
+                    .restitution(0.1)
+                    .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
+                    .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
+                    .user_data(
+                        Uuid::from_str(&chunk_id)
+                            .expect("Couldn't extract uuid")
+                            .as_u128(),
+                    )
+                    .build();
 
                 // Send the completed collider back
                 sender.send((chunk_id, collider)).unwrap();
