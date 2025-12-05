@@ -213,7 +213,11 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 //     camera.update();
 // }
 
-pub fn handle_mouse_move(dx: f32, dy: f32, camera: &mut SimpleCamera) {
+pub fn handle_mouse_move(dx: f32, dy: f32, state: &mut Editor) {
+    let camera = state.camera.as_mut().expect("Couldn't get camera");
+    let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
+    let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
+
     // let camera = get_camera();
     let sensitivity = 0.005;
 
@@ -225,6 +229,7 @@ pub fn handle_mouse_move(dx: f32, dy: f32, camera: &mut SimpleCamera) {
     camera.rotate(dx, dy);
 
     camera.update();
+    camera_binding.update_3d(&gpu_resources.queue, &camera);
 }
 
 pub fn handle_add_model(

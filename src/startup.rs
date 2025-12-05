@@ -508,7 +508,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     handle_mouse_move(
                     (position.x - last_x) as f32, 
                     (position.y - last_y) as f32, 
-                editor.camera.as_mut().expect("Couldn't get camera")
+                editor
                     );
                 }
 
