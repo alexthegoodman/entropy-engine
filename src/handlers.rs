@@ -15,6 +15,8 @@ use crate::core::editor::Editor;
 use crate::core::gpu_resources;
 use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
+use crate::procedural_grass::grass::{Grass, InstanceRaw};
+use rand::Rng;
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
     core::SimpleCamera::SimpleCamera,
@@ -487,4 +489,48 @@ pub fn fetch_mask_data(
 
     // Some((texture_data.data, texture_data.width, texture_data.height))
     Texture::new(mask_data.bytes, mask_data.width, mask_data.height)
+}
+
+pub fn handle_add_grass(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+    landscape_id: &str,
+) {
+    if let Some(landscape) = state.landscapes.iter().find(|l| l.id == landscape_id) {
+        println!("Adding grass to landscape: {}", landscape.id);
+
+        let grass_count = 50000;
+        let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
+
+        let mut rng = rand::thread_rng();
+        let square_size = 1024.0 * 4.0; // Should be consistent with landscape creation
+
+        let instances = (0..grass_count).filter_map(|_| {
+            let world_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
+            let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
+
+            if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+                let position = Vector3::new(world_x, world_y, world_z);
+                let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+                let model_matrix = Matrix4::new_translation(&position) * rotation;
+
+                Some(InstanceRaw {
+                    model: model_matrix.into()
+                })
+            } else {
+                None
+            }
+        }).collect::<Vec<_>>();
+        
+        grass.instance_count = instances.len() as u32;
+        queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
+
+        state.grasses.push(grass);
+        println!("Added {} blades of grass.", instances.len());
+
+    } else {
+        println!("Could not find landscape with id: {}", landscape_id);
+    }
 }

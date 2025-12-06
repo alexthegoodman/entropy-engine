@@ -31,6 +31,7 @@ use crate::{
     heightfield_landscapes::Landscape::Landscape,
     art_assets::Model::Model,
     shape_primitives::{Cube::Cube, Pyramid::Pyramid},
+    procedural_grass::grass::Grass,
 };
 
 use super::Grid::GridConfig;
@@ -95,6 +96,7 @@ pub struct RendererState {
     pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
+    pub grasses: Vec<Grass>,
     // pub light_state: LightState,
 
     // animations
@@ -221,6 +223,7 @@ impl RendererState {
         let mut models = Vec::new();
 
         let mut landscapes = Vec::new();
+        let mut grasses = Vec::new();
 
         let mut terrain_managers = Vec::new();
 
@@ -314,6 +317,7 @@ impl RendererState {
             grids,
             models,
             landscapes,
+            grasses,
             skeleton_parts,
             terrain_managers,
             active_animations: Vec::new(),

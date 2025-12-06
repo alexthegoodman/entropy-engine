@@ -1,7 +1,7 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_landscape, handle_add_landscape_texture}, helpers::{saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_landscape, handle_add_landscape_texture, handle_add_grass}, helpers::{saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
@@ -31,6 +31,7 @@ pub struct ExportPipeline {
     // pub chat: Chat,
     new_project_name: String,
     projects: Vec<String>,
+    start_time: Instant,
 }
 
 impl ExportPipeline {
@@ -51,6 +52,7 @@ impl ExportPipeline {
             // chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
+            start_time: Instant::now(),
         }
     }
 
@@ -736,6 +738,20 @@ impl ExportPipeline {
                 // }
             }
 
+            // draw grass
+            let time = self.start_time.elapsed().as_secs_f32();
+            for grass in &renderer_state.grasses {
+                grass.update_uniforms(&queue, time, camera.position);
+                render_pass.set_pipeline(&grass.render_pipeline);
+                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                // We set the vertex buffer for the grass blade model at slot 0
+                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                // We set the instance buffer at slot 1
+                render_pass.set_vertex_buffer(1, grass.instance_buffer.slice(..));
+                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..grass.instance_count);
+            }
+
             // // draw text items
             // for (text_index, text_item) in editor.text_items.iter().enumerate() {
             //     if !text_item.hidden {
@@ -993,6 +1009,26 @@ impl ExportPipeline {
                 // );
     
                 // println!("Landscape added {:?}", editor.cubes.len());
+            }
+
+            if ui.button("Add Grass").clicked() {
+                let editor = self.export_editor.as_mut().unwrap();
+                let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+
+                if let Some(landscape) = renderer_state.landscapes.first() {
+                    let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+                    let landscape_id = landscape.id.clone();
+                    handle_add_grass(
+                        renderer_state,
+                        &gpu_resources.device,
+                        &gpu_resources.queue,
+                        &camera_binding.bind_group_layout,
+                        &landscape_id,
+                    );
+                } else {
+                    println!("No landscape found to add grass to!");
+                }
             }
         });
     

@@ -15,6 +15,7 @@ pub mod shape_primitives;
 pub mod vector_animations;
 pub mod video_export;
 pub mod physics;
+pub mod procedural_grass;
 
 // I noticed that `pipeline.rs` has some dependencies that are not in the file system.
 // I'm adding them here so the compiler can find them.

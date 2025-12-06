@@ -608,6 +608,60 @@ impl Landscape {
         
     }
     
-    (vertices, indices)
+            (vertices, indices)
+        }
+    
+        pub fn get_height_at(&self, world_x: f32, world_z: f32) -> Option<f32> {
+            // These should match the values used when creating the collider
+            let square_size = 1024.0 * 4.0;
+            let num_cols = self.heights.ncols();
+            let num_rows = self.heights.nrows();
+    
+            // Landscape's origin in world space
+            let land_origin_x = self.transform.position.x - (square_size / 2.0);
+            let land_origin_z = self.transform.position.z - (square_size / 2.0);
+    
+            // 1. Convert world coordinates to landscape-local coordinates
+            let local_x = world_x - land_origin_x;
+            let local_z = world_z - land_origin_z;
+    
+            // 2. Normalize coordinates to [0, 1] range
+            let norm_x = local_x / square_size;
+            let norm_z = local_z / square_size;
+    
+            // Check if the coordinates are within the landscape bounds
+            if norm_x < 0.0 || norm_x >= 1.0 || norm_z < 0.0 || norm_z >= 1.0 {
+                return None;
+            }
+    
+            // 3. Scale normalized coordinates to heightmap grid indices
+            let grid_x = norm_x * (num_cols as f32 - 1.0);
+            let grid_z = norm_z * (num_rows as f32 - 1.0);
+    
+            // 4. Perform bilinear interpolation
+            let x0 = grid_x.floor() as usize;
+            let z0 = grid_z.floor() as usize;
+            let x1 = (x0 + 1).min(num_cols - 1);
+            let z1 = (z0 + 1).min(num_rows - 1);
+    
+            // Get the heights of the four corner points
+            let h00 = self.heights[(z0, x0)];
+            let h10 = self.heights[(z0, x1)];
+            let h01 = self.heights[(z1, x0)];
+            let h11 = self.heights[(z1, x1)];
+    
+            // Calculate interpolation weights (fract parts)
+            let tx = grid_x - x0 as f32;
+            let tz = grid_z - z0 as f32;
+    
+            // Interpolate along x-axis
+            let h_top = h00 * (1.0 - tx) + h10 * tx;
+            let h_bottom = h01 * (1.0 - tx) + h11 * tx;
+    
+            // Interpolate along z-axis
+            let final_height = h_top * (1.0 - tz) + h_bottom * tz;
+            
+            // Add the landscape's base Y position
+            Some(final_height + self.transform.position.y)
+        }
     }
-}
