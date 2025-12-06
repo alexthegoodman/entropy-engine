@@ -1280,7 +1280,7 @@ impl QuadNode {
             let bounds = bounds.clone();
 
             std::thread::spawn(move || {
-                let terrain_heightfield = Heightfield::from_heights(bounds.width as usize / 4, bounds.height as usize / 4, heights.data.as_vec().clone(), 1.0, 1.0)
+                let terrain_heightfield = Heightfield::from_heights(calc_res as usize, calc_res as usize, heights.data.as_vec().clone(), bounds.width / calc_res as f32, bounds.height / calc_res as f32)
                     .with_offset(PhysVec3::new(bounds.x, 0.0, bounds.z));
 
                 // Send the completed collider back
