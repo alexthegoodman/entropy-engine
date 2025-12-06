@@ -52,6 +52,7 @@ impl NPC {
     }
 }
 
+use crate::shape_primitives::Sphere::Sphere;
 pub struct PlayerCharacter {
     pub id: Uuid,
     // Transform components
@@ -60,6 +61,7 @@ pub struct PlayerCharacter {
     // camera_height: f32,
     // camera: SimpleCamera, // always the one camera
     pub model: Option<Model>,
+    pub sphere: Option<Sphere>,
 
     // Physics components
     pub character_controller: KinematicCharacterController,
@@ -76,7 +78,16 @@ pub struct PlayerCharacter {
 }
 
 impl PlayerCharacter {
-    pub fn new(rigid_body_set: &mut RigidBodySet, collider_set: &mut ColliderSet) -> Self {
+    pub fn new(
+        rigid_body_set: &mut RigidBodySet,
+        collider_set: &mut ColliderSet,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
+        camera: &SimpleCamera,
+    ) -> Self {
         let id = Uuid::new_v4();
 
         // let movement_collider = ColliderBuilder::capsule_y(0.5, 1.0)
@@ -124,9 +135,22 @@ impl PlayerCharacter {
         );
         // player_character.collider_handle = Some(collider_handle);
 
+        let sphere = Sphere::new(
+            device,
+            queue,
+            model_bind_group_layout,
+            group_bind_group_layout,
+            texture_render_mode_buffer,
+            camera,
+            1.0,
+            32,
+            16,
+        );
+
         Self {
             id,
             model: None,
+            sphere: Some(sphere),
             character_controller: KinematicCharacterController {
                 autostep: Some(CharacterAutostep {
                     max_height: rapier3d::control::CharacterLength::Relative((40.0)), // helps with jagged terrain?

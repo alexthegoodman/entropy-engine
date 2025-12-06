@@ -286,7 +286,16 @@ impl RendererState {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-        let mut player_character = PlayerCharacter::new(&mut rigid_body_set, &mut collider_set);
+                let mut player_character = PlayerCharacter::new(
+            &mut rigid_body_set,
+            &mut collider_set,
+            device,
+            queue,
+            &model_bind_group_layout,
+            &group_bind_group_layout,
+            &texture_render_mode_buffer,
+            camera,
+        );
 
         // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
         // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
@@ -497,14 +506,38 @@ impl RendererState {
         let physics_update_time = Instant::now();
 
         // Update camera position if needed
-        if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
-            if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                let pos = rb.translation();
-                // let mut camera = get_camera();
-                camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
+        if self.game_mode {
+            if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
+                if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+                    let pos = rb.translation();
 
-                camera.update();
-                camera_binding.update_3d(&queue, &camera);
+                    // third-person camera
+                    let distance = 10.0;
+                    let height = 5.0;
+                    let camera_pos = Point3::new(pos.x, pos.y + height, pos.z - distance);
+                    camera.position = camera_pos;
+                    
+                    // Set direction to look at the player
+                    let direction = Vector3::new(
+                        pos.x - camera_pos.x,
+                        pos.y - camera_pos.y,
+                        pos.z - camera_pos.z
+                    ).normalize();
+                    camera.direction = direction;
+
+                    camera.update();
+                    camera_binding.update_3d(&queue, &camera);
+                }
+            }
+        } else {
+            if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
+                if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+                    let pos = rb.translation();
+                    camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
+
+                    camera.update();
+                    camera_binding.update_3d(&queue, &camera);
+                }
             }
         }
 

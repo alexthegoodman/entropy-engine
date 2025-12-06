@@ -670,6 +670,23 @@ impl ExportPipeline {
             //     render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
             // }
 
+            // draw player character sphere
+            if let Some(sphere) = &mut renderer_state.player_character.sphere {
+                if let Some(rb_handle) = renderer_state.player_character.movement_rigid_body_handle {
+                    if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let pos = rb.translation();
+                        sphere.transform.update_position([pos.x, pos.y, pos.z]);
+                    }
+                }
+
+                sphere.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &sphere.bind_group, &[]);
+                render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
+            }
+
             // // draw cubes
             for (poly_index, cube) in renderer_state.cubes.iter().enumerate() {
                 // if !polygon.hidden {
