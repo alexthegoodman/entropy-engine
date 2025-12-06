@@ -153,6 +153,7 @@ pub struct RendererState {
     pub last_frame_time: Option<Instant>,
 
     pub navigation_speed: f32,
+    pub game_mode: bool,
 }
 
 // impl<'a> RendererState<'a> {
@@ -177,6 +178,7 @@ impl RendererState {
         // window_height: u32,
         // camera_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+        game_mode: bool
     ) -> Self {
         // let there be light!
         // let light_state = LightState::new(device, &light_bind_group_layout);
@@ -283,18 +285,18 @@ impl RendererState {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-        let mut player_character = PlayerCharacter::new();
+        let mut player_character = PlayerCharacter::new(&mut rigid_body_set, &mut collider_set);
 
-        let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body.clone());
-        player_character.movement_rigid_body_handle = Some(rigid_body_handle);
+        // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
+        // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
 
-        // now associate rigidbody with collider
-        let collider_handle = collider_set.insert_with_parent(
-            player_character.movement_collider.clone(),
-            rigid_body_handle,
-            &mut rigid_body_set,
-        );
-        player_character.collider_handle = Some(collider_handle);
+        // // now associate rigidbody with collider
+        // let collider_handle = collider_set.insert_with_parent(
+        //     player_character.movement_collider,
+        //     rigid_body_handle,
+        //     &mut rigid_body_set,
+        // );
+        // player_character.collider_handle = Some(collider_handle);
 
         Self {
             cubes,
@@ -364,6 +366,7 @@ impl RendererState {
             npcs: Vec::new(),
             // gizmo_drag_axis: None,
             navigation_speed: 5.0,
+            game_mode
         }
     }
 
@@ -547,18 +550,19 @@ impl RendererState {
 
             // Update landscapes
             // just helps knowing terrain is where the physics are
-            if let Some(terrain_manager) = self
-                .terrain_managers
-                .iter_mut()
-                .find(|m| m.id == component_id.to_string())
-            {
-                terrain_manager
-                    .transform
-                    .update_position([position.x, position.y, position.z]);
-                terrain_manager
-                    .transform
-                    .update_rotation([euler.0, euler.1, euler.2]);
-            }
+            // this may break setting physics up where terrain is when we try to do the reverse
+            // if let Some(terrain_manager) = self
+            //     .terrain_managers
+            //     .iter_mut()
+            //     .find(|m| m.id == component_id.to_string())
+            // {
+            //     terrain_manager
+            //         .transform
+            //         .update_position([position.x, position.y, position.z]);
+            //     terrain_manager
+            //         .transform
+            //         .update_rotation([euler.0, euler.1, euler.2]);
+            // }
         }
 
         let physics_update_duration = physics_update_time.elapsed();
@@ -681,11 +685,13 @@ impl RendererState {
             &self.rigid_body_set,
             &self.collider_set,
             &self.query_pipeline,
-            self.player_character.movement_collider.shape(),
+            self.player_character.movement_shape.shape(),
             &character_pos,
             translation,
             filter,
-            |collision| { /* Handle or collect the collision in this closure. */ },
+            |collision| { 
+                println!("Collision detected (a) {:?}", collision.character_pos)
+            },
         );
 
         camera.position = Point3::new(
@@ -970,7 +976,8 @@ impl RendererState {
                 // terrain_manager.id.clone(),
                 dt,
                 // &mut self.query_pipeline,
-                camera
+                camera,
+                self.game_mode
             );
         }
     }

@@ -714,8 +714,6 @@ impl WindowState {
         // Use window size for camera initialization
         let window_size = WindowSize { width: 1024, height: 768 };
 
-        
-
         pollster::block_on(pipeline.initialize(
             Some(&window),
             window_size,
@@ -724,6 +722,7 @@ impl WindowState {
             window_size.width, // video_width
             window_size.height, // video_height
             project_id,
+            game_mode
         ));
         // End WGPU Initialization
 

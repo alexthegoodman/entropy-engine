@@ -2,13 +2,12 @@ use std::sync::MutexGuard;
 
 use nalgebra::{Isometry3, Point3, Vector3};
 use rapier3d::{
-    control::{CharacterAutostep, KinematicCharacterController},
-    prelude::{
-        ActiveCollisionTypes, Collider, ColliderBuilder, ColliderHandle, QueryFilter, RigidBody,
-        RigidBodyBuilder, RigidBodyHandle,
-    },
+    control::{CharacterAutostep, KinematicCharacterController}, parry::shape::Capsule, prelude::{
+        ActiveCollisionTypes, Collider, ColliderBuilder, ColliderHandle, ColliderSet, QueryFilter, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet, TypedShape
+    }
 };
 use uuid::Uuid;
+use rapier3d::prelude::Shape;
 
 use crate::{
     game_behaviors::{
@@ -64,11 +63,12 @@ pub struct PlayerCharacter {
 
     // Physics components
     pub character_controller: KinematicCharacterController,
-    pub movement_collider: Collider,
+    // pub movement_collider: Collider,
     pub collider_handle: Option<ColliderHandle>,
-    pub movement_rigid_body: RigidBody,
+    // pub movement_rigid_body: RigidBody,
     pub movement_rigid_body_handle: Option<RigidBodyHandle>,
     // hit_collider: Collider,
+    pub movement_shape: Collider,
 
     // Movement properties
     pub movement_speed: f32,
@@ -76,7 +76,7 @@ pub struct PlayerCharacter {
 }
 
 impl PlayerCharacter {
-    pub fn new() -> Self {
+    pub fn new(rigid_body_set: &mut RigidBodySet, collider_set: &mut ColliderSet) -> Self {
         let id = Uuid::new_v4();
 
         // let movement_collider = ColliderBuilder::capsule_y(0.5, 1.0)
@@ -102,6 +102,8 @@ impl PlayerCharacter {
             .active_collision_types(ActiveCollisionTypes::all())
             .build();
 
+        let movement_shape = movement_collider.clone();
+
         let dynamic_body = RigidBodyBuilder::dynamic()
             .additional_mass(70.0)
             .linear_damping(0.4) // Increase damping (was 0.1)
@@ -110,6 +112,17 @@ impl PlayerCharacter {
             .lock_rotations() // Prevent character from tipping over
             .user_data(id.as_u128())
             .build();
+
+        let rigid_body_handle = rigid_body_set.insert(dynamic_body);
+        // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
+
+        // now associate rigidbody with collider
+        let collider_handle = collider_set.insert_with_parent(
+            movement_collider,
+            rigid_body_handle,
+            rigid_body_set,
+        );
+        // player_character.collider_handle = Some(collider_handle);
 
         Self {
             id,
@@ -123,10 +136,13 @@ impl PlayerCharacter {
                 slide: true,
                 ..KinematicCharacterController::default()
             },
-            movement_collider,
-            collider_handle: None,
-            movement_rigid_body: dynamic_body,
-            movement_rigid_body_handle: None,
+            // movement_collider,
+            // collider_handle: None,
+            collider_handle: Some(collider_handle),
+            // movement_rigid_body: dynamic_body,
+            // movement_rigid_body_handle: None,
+            movement_rigid_body_handle: Some(rigid_body_handle),
+            movement_shape,
             // hit_collider: Collider::convex_hull(&player_model_verts).unwrap(), // this is on the optional Model
             movement_speed: 50.0,
             mouse_sensitivity: 0.003,

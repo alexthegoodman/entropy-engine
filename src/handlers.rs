@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use std::time::Instant;
 use std::{cell::RefCell, collections::HashMap};
 
 use crate::core::editor::Editor;
@@ -142,22 +143,23 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
         }
     }
 
-    // // Calculate delta time
-    // let now = std::time::Instant::now();
-    // let dt = (now - state_guard.last_movement_time).as_secs_f32();
-    // state_guard.last_movement_time = now;
+    // Calculate delta time
+    let now = std::time::Instant::now();
+    let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
+    let dt = (now - last_movement_time).as_secs_f32();
+    renderer_state.last_movement_time = Some(now);
 
-    // // // Use dt to scale movement
-    // let base_speed = 5.0; // units per second
-    // let movement_delta = base_speed * dt; // This gives frame-rate independent movement
-    // let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
+    // // Use dt to scale movement
+    let base_speed = 5.0; // units per second
+    let movement_delta = base_speed * dt; // This gives frame-rate independent movement
+    let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
 
-    // state_guard.update_player_collider_position([
-    //     camera.position.x,
-    //     camera.position.y,
-    //     camera.position.z,
-    // ]);
-    // state_guard.update_player_character_position(diff, 0.1);
+    renderer_state.update_player_collider_position([
+        camera.position.x,
+        camera.position.y,
+        camera.position.z,
+    ]);
+    renderer_state.update_player_character_position(diff, 0.1, camera);
 
     // drop(state_guard);
 

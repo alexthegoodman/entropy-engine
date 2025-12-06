@@ -46,6 +46,7 @@ impl Exporter {
                 video_width,
                 video_height,
                 project_id,
+                false
             )
             .await;
 

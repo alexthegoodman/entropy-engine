@@ -63,6 +63,7 @@ impl ExportPipeline {
         video_width: u32,
         video_height: u32,
         project_id: String,
+        game_mode: bool
     ) {
         let mut camera = Camera::new(
             Point3::new(0.0, 0.5, -5.0),
@@ -423,6 +424,7 @@ impl ExportPipeline {
             &camera,
             texture_render_mode_buffer.clone(),
             color_render_mode_buffer,
+            game_mode
         );
 
         let mut grids = Vec::new();

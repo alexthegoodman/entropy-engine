@@ -292,7 +292,8 @@ impl TerrainManager {
         delta_time: f32,
         // debug_character: PlayerCharacter,
         // query_pipeline: &mut QueryPipeline,
-        camera: &mut SimpleCamera
+        camera: &mut SimpleCamera,
+        game_mode: bool
     ) {
         self.lod_update_timer += delta_time;
 
@@ -312,6 +313,7 @@ impl TerrainManager {
                             device,
                             chunk,
                             collider,
+                            !game_mode
                         );
                     }
                 }

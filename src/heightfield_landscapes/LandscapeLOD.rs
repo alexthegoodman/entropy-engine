@@ -317,6 +317,7 @@ pub fn add_physics_components_mini(
     device: &wgpu::Device,
     quad: &mut QuadNode,
     collider: Collider,
+    create_debug_mesh: bool
 ) {
     if let Some(ref mut mesh) = quad.mesh {
         // Take ownership of the rigid body instead of cloning
@@ -336,14 +337,16 @@ pub fn add_physics_components_mini(
                 collider_set.insert_with_parent(collider, rigid_body_handle, rigid_body_set);
             quad.collider_handle = Some(collider_handle);
 
-            if let Some(collider) = collider_set.get(collider_handle) {
-                // Access the collider here
-                let position = collider.position();
-                // println!("Collider position: {:?}", position);
-                if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device, position) {
-                    quad.debug_mesh = Some(debug_mesh);
+            // if create_debug_mesh {
+                if let Some(collider) = collider_set.get(collider_handle) {
+                    // Access the collider here
+                    let position = collider.position();
+                    // println!("Collider position: {:?}", position);
+                    if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device, position) {
+                        quad.debug_mesh = Some(debug_mesh);
+                    }
                 }
-            }
+            // }
         }
     }
 }
@@ -372,6 +375,8 @@ pub fn create_debug_collision_mesh(
     // println!("Heightfield solver groups: {:?}", collider.solver_groups());
     // println!("Is sensor: {:?}", collider.is_sensor());
     // println!("Collider parent handle: {:?}", collider.parent());
+
+    println!("Heightfield Position {:?}:", position);
 
     if let Some(shape) = collider.shape().as_heightfield() {
     // if let Some(shape) = collider.shape().as_trimesh() {
@@ -430,16 +435,23 @@ pub fn create_debug_collision_mesh(
             min_y = min_y.min(triangle.a.y).min(triangle.b.y).min(triangle.c.y);
             max_y = max_y.max(triangle.a.y).max(triangle.b.y).max(triangle.c.y);
 
-            // if vertex_index < 3 {
-            //     println!("Triangle {}:", vertex_index / 3);
-            //     println!("  A: {:?}", triangle.a);
-            //     println!("  B: {:?}", triangle.b);
-            //     println!("  C: {:?}", triangle.c);
-            // }
+            if vertex_index < 3 {
+                println!("Triangle {}:", vertex_index / 3);
+                println!("  A: {:?}", triangle.a);
+                println!("  B: {:?}", triangle.b);
+                println!("  C: {:?}", triangle.c);
+            }
 
             let tri_a = position * triangle.a;
             let tri_b = position * triangle.b;
             let tri_c = position * triangle.c;
+
+            if vertex_index < 3 {
+                println!("Triangle adjusted {}:", vertex_index / 3);
+                println!("  A: {:?}", tri_a);
+                println!("  B: {:?}", tri_b);
+                println!("  C: {:?}", tri_c);
+            }
 
             // let tri_a = triangle.a;
             // let tri_b = triangle.b;

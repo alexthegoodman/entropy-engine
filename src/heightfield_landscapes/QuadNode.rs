@@ -154,7 +154,7 @@ impl QuadNode {
             // Get rigid body
             // if let Some(rigid_body) = mesh.rigid_body.take() {
             if let Some(ref rigid_body) = mesh.rigid_body {
-                let rigid_body_handle = rigid_body_set.insert(rigid_body.clone());
+                let rigid_body_handle = rigid_body_set.insert(rigid_body.clone()); // TODO: CANNOT have clones!!
                 self.rigid_body_handle = Some(rigid_body_handle);
                 // Create and attach collider if we have one
                 // if let Some(collider) = mesh.collider.take() {
@@ -588,15 +588,15 @@ impl QuadNode {
             return;
         }
 
-        if let Some(ref mesh) = self.mesh {
-            render_pass.set_bind_group(1, model_bind_group, &[]);
-            render_pass.set_bind_group(3, group_bind_group, &[]);
+        // if let Some(ref mesh) = self.mesh {
+        //     render_pass.set_bind_group(1, model_bind_group, &[]);
+        //     render_pass.set_bind_group(3, group_bind_group, &[]);
 
-            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+        //     render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-        }
+        //     render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        // }
 
         if let Some(ref debug_mesh) = self.debug_mesh {
             render_pass.set_bind_group(1, model_bind_group, &[]);
@@ -1166,7 +1166,7 @@ impl QuadNode {
             nalgebra::ArrayStorage<f32, 3, 1>,
         > = vector![
             bounds.width as f32 + scaling_adjustment,
-            // height_proportion, // Height scale // values are 1-to-1
+            // height_proportion, // Height scale // values are 1-to-1, although i wonder if using the shared max height is helpful
             1.0,
             bounds.height as f32 + scaling_adjustment
         ];
@@ -1191,8 +1191,13 @@ impl QuadNode {
         let rot = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         // Create a translation
         let trans = Translation3::new(bounds.x + (bounds.width / 2.0), 0.0, bounds.z + (bounds.height / 2.0));
+        // let trans = Translation3::new(bounds.x, 0.0, bounds.z);
+        // let trans = Translation3::new(-bounds.x, 0.0, -bounds.z);
         // Combine into an Isometry
+        // isometry can be nothing when using trimesh as that already accounts for world pos
         let isometry = Isometry3::from_parts(trans, rot);
+
+        println!("bounds dimensions {:?} {:?}", bounds.width, bounds.height);
 
         // // Suggested corrected code:
         // let max_x = bounds.x + bounds.width;
@@ -1234,6 +1239,9 @@ impl QuadNode {
 
         // only create colliders for nearest children to prevent overlap
         if (depth == (MAX_LOD_LEVELS as u32) - 1) {
+
+            // println!("Max depth position {:?}", isometry);
+
             // Spawn the heavy computation in a separate thread
             std::thread::spawn(move || {
                 // let collider = ColliderBuilder::trimesh(
@@ -1255,9 +1263,9 @@ impl QuadNode {
                     .restitution(0.1)
                     .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
                     .active_collision_types(ActiveCollisionTypes::all())
-                    // .position(isometry) // Enable all collision types
+                    // .position(Isometry3::translation(0.0, 0.0, 0.0)) // Enable all collision types
                     .user_data(
-                        Uuid::from_str(&chunk_id)
+                        Uuid::from_str(&chunk_id) // chunk_id is mesh_id
                             .expect("Couldn't extract uuid")
                             .as_u128(),
                     )
@@ -1274,6 +1282,7 @@ impl QuadNode {
 
         let ground_rigid_body = RigidBodyBuilder::fixed()
             .position(isometry)
+            // .position(Isometry3::translation(0.0, 0.0, 0.0)) // world_pos used for rapier_vertices, so trimesh needs no isometry
             .user_data(
                 Uuid::from_str(&mesh_id)
                     .expect("Couldn't extract uuid")
