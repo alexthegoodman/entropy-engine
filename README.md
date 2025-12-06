@@ -1,8 +1,10 @@
 # Entropy Engine
 
+Is it a game engine? A video engine? Entropy can do many things.
+
 Powering a unified OS inspired by MCP.
 
-- Quadtree landscapes
+- Quadtree landscapes with texture maps
 - Point lighting
 - Game behaviors
 - Kinematic animations
@@ -14,10 +16,16 @@ Powering a unified OS inspired by MCP.
 - GLB Import
 - and more!
 
+TBD:
+
+- Paralax Mapping?
+- Tessellation?
+- Displacement Mapping?
+
 ## Run
 
 Example Game:
-- `cargo run --bin game --release`
+- `cargo run --bin game --release` (need the game files to run)
 
 Level Editor: 
 - `cargo run --bin entropy-engine --release`
