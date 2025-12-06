@@ -75,159 +75,134 @@ thread_local! {
     static CAMERA_INIT: std::cell::Cell<bool> = std::cell::Cell::new(false);
 }
 
-// pub fn get_camera() -> &'static mut SimpleCamera {
-//     CAMERA_INIT.with(|init| {
-//         if !init.get() {
-//             unsafe {
-//                 CAMERA = Some(SimpleCamera::new(
-//                     Point3::new(0.0, 1.0, 5.0),
-//                     Vector3::new(0.0, 0.0, -1.0),
-//                     Vector3::new(0.0, 1.0, 0.0),
-//                     45.0f32.to_radians(),
-//                     0.1,
-//                     100000.0,
-//                     1024.0, 768.0
-//                 ));
-//             }
-//             init.set(true);
-//         }
-//     });
 
-//     unsafe { CAMERA.as_mut().unwrap() }
+// pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
+//     let camera = state.camera.as_mut().expect("Couldn't get camera");
+//     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+//     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
+//     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
+//     let speed_multiplier = state.navigation_speed;
+
+//     let mut diff = Vector3::identity();
+
+//     let mut new_position = None;
+
+//     match key_code {
+//         "w" => {
+//             if is_pressed {
+//                 // println!("w pressed");
+//                 diff = camera.direction * 0.1;
+//                 diff = diff * speed_multiplier;
+//                 new_position = Some(camera.position + diff);
+//             }
+//         }
+//         "s" => {
+//             if is_pressed {
+//                 diff = camera.direction * 0.1;
+//                 diff = diff * speed_multiplier;
+//                 new_position = Some(camera.position - diff);
+//             }
+//         }
+//         "a" => {
+//             if is_pressed {
+//                 let right = camera.direction.cross(&camera.up).normalize();
+//                 diff = right * 0.1;
+//                 diff = diff * speed_multiplier;
+//                 new_position = Some(camera.position - diff);
+//             }
+//         }
+//         "d" => {
+//             if is_pressed {
+//                 let right = camera.direction.cross(&camera.up).normalize();
+//                 diff = right * 0.1;
+//                 diff = diff * speed_multiplier;
+//                 new_position = Some(camera.position + diff);
+//             }
+//         }
+//         _ => {
+//             // Handle any other keys if necessary
+//         }
+//     }
+
+//     if let Some(position) = new_position {
+//         if (renderer_state.game_mode) {
+//             // Calculate delta time
+//             let now = std::time::Instant::now();
+//             let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
+//             let dt = (now - last_movement_time).as_secs_f32();
+//             renderer_state.last_movement_time = Some(now);
+
+//             renderer_state.update_player_rigidbody_position([
+//                     position.x,
+//                     position.y,
+//                     position.z,
+//                 ]);
+//             renderer_state.update_player_character_position(diff, 0.1, camera);
+//         } else {
+//             camera.position = position;
+//             camera.update();
+//             camera_binding.update_3d(&gpu_resources.queue, &camera);
+//         }
+//     }
 // }
 
 pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
-    // let camera = get_camera();
     let camera = state.camera.as_mut().expect("Couldn't get camera");
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
-    // let mut state_guard = state.lock().unwrap();
     let speed_multiplier = state.navigation_speed;
 
-    let mut diff = Vector3::identity();
-
-    let mut new_position = None;
+    let mut movement_direction = Vector3::zeros();
 
     match key_code {
         "w" => {
             if is_pressed {
-                // println!("w pressed");
-                diff = camera.direction * 0.1;
-                diff = diff * speed_multiplier;
-                new_position = Some(camera.position + diff);
+                // Get horizontal direction (ignore Y component for ground movement)
+                let forward = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                movement_direction += forward * speed_multiplier;
             }
         }
         "s" => {
             if is_pressed {
-                diff = camera.direction * 0.1;
-                diff = diff * speed_multiplier;
-                new_position = Some(camera.position - diff);
+                let forward = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                movement_direction -= forward * speed_multiplier;
             }
         }
         "a" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                diff = right * 0.1;
-                diff = diff * speed_multiplier;
-                new_position = Some(camera.position - diff);
+                let right_horizontal = Vector3::new(right.x, 0.0, right.z).normalize();
+                movement_direction -= right_horizontal * speed_multiplier;
             }
         }
         "d" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                diff = right * 0.1;
-                diff = diff * speed_multiplier;
-                new_position = Some(camera.position + diff);
+                let right_horizontal = Vector3::new(right.x, 0.0, right.z).normalize();
+                movement_direction += right_horizontal * speed_multiplier;
             }
         }
-        _ => {
-            // Handle any other keys if necessary
+        " " => { // Space bar for jumping
+            if is_pressed && renderer_state.game_mode {
+                renderer_state.apply_jump_impulse();
+            }
         }
+        _ => {}
     }
 
-    if let Some(position) = new_position {
-        if (renderer_state.game_mode) {
-            // Calculate delta time
-            let now = std::time::Instant::now();
-            let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
-            let dt = (now - last_movement_time).as_secs_f32();
-            renderer_state.last_movement_time = Some(now);
-
-            // // Use dt to scale movement
-            // let base_speed = 5.0; // units per second
-            // let movement_delta = base_speed * dt; // This gives frame-rate independent movement
-            // let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
-
-            // renderer_state.update_player_collider_position([
-            //     camera.position.x,
-            //     camera.position.y,
-            //     camera.position.z,
-            // ]);
-            renderer_state.update_player_rigidbody_position([
-                    position.x,
-                    position.y,
-                    position.z,
-                ]);
-            renderer_state.update_player_character_position(diff, 0.1, camera);
+    if movement_direction.magnitude() > 0.0 {
+        if renderer_state.game_mode {
+            renderer_state.apply_player_movement(movement_direction);
         } else {
-            camera.position = position;
+            // Free camera mode - directly update position
+            let diff = movement_direction * 0.1;
+            camera.position += diff;
             camera.update();
             camera_binding.update_3d(&gpu_resources.queue, &camera);
         }
-
-        // renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
     }
 }
-
-// pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {
-//     println!("key press");
-//     let mut camera = get_camera();
-//     let mut state_guard = state.lock().unwrap();
-
-//     // Calculate direction based on key
-//     let movement_direction = if is_pressed {
-//         match key_code {
-//             "w" => Some(camera.direction),
-//             "s" => Some(-camera.direction),
-//             "a" => Some(-camera.direction.cross(&camera.up).normalize()),
-//             "d" => Some(camera.direction.cross(&camera.up).normalize()),
-//             _ => None,
-//         }
-//     } else {
-//         None
-//     };
-
-//     // Calculate delta time
-//     let now = std::time::Instant::now();
-//     let dt = if state_guard.last_movement_time.is_some() {
-//         (now - state_guard.last_movement_time.expect("Couldn't get time")).as_secs_f32()
-//     } else {
-//         0.0
-//     };
-//     state_guard.last_movement_time = Some(now);
-
-//     // Apply movement if a key was pressed
-//     if let Some(direction) = movement_direction {
-//         let base_speed = 5.0; // units per second
-//         let movement_delta = direction * base_speed * dt;
-//         println!("continuing {:?}", movement_delta);
-//         println!("Position before: {:?}", camera.position); // Debug log
-//                                                             // Update camera position
-//         camera.position = camera.position + movement_delta;
-
-//         // Update physics
-//         println!("physics {:?}", camera.position);
-//         state_guard.update_player_rigidbody_position([
-//             camera.position.x,
-//             camera.position.y,
-//             camera.position.z,
-//         ]);
-//         state_guard.update_player_character_position(movement_delta, dt);
-//     }
-
-//     camera.update();
-// }
 
 pub fn handle_mouse_move(dx: f32, dy: f32, state: &mut Editor) {
     let camera = state.camera.as_mut().expect("Couldn't get camera");

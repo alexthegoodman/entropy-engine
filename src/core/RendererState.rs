@@ -513,7 +513,7 @@ impl RendererState {
 
                     // third-person camera
                     let distance = 10.0;
-                    let height = 5.0;
+                    let height = 10.0;
                     let camera_pos = Point3::new(pos.x, pos.y + height, pos.z - distance);
                     camera.position = camera_pos;
                     
@@ -778,6 +778,42 @@ impl RendererState {
                 }
             });
         });
+    }
+
+    pub fn apply_player_movement(&mut self, direction: Vector3<f32>) {
+        if let Some(rigidbody) = self.rigid_body_set.get_mut(
+            self.player_character
+                .movement_rigid_body_handle
+                .expect("Couldn't get mesh rigidbody handle"),
+        ) {
+            // Get current velocity to preserve Y component (gravity)
+            let current_velocity = rigidbody.linvel();
+            
+            // Set horizontal velocity while keeping vertical velocity
+            let movement_speed = 5.0; // Adjust this to your desired speed
+            let new_velocity = vector![
+                direction.x * movement_speed,
+                current_velocity.y, // Preserve gravity/jumping
+                direction.z * movement_speed
+            ];
+            
+            rigidbody.set_linvel(new_velocity, true);
+        }
+    }
+
+    pub fn apply_jump_impulse(&mut self) {
+        if let Some(rigidbody) = self.rigid_body_set.get_mut(
+            self.player_character
+                .movement_rigid_body_handle
+                .expect("Couldn't get mesh rigidbody handle"),
+        ) {
+            // Only jump if on ground (check if vertical velocity is near zero)
+            let velocity = rigidbody.linvel();
+            if velocity.y.abs() < 0.1 {
+                let jump_force = 8.0; // Adjust for desired jump height
+                rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+            }
+        }
     }
 
     pub fn update_player_rigidbody_position(
