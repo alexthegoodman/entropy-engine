@@ -14,6 +14,7 @@ Powering a unified OS inspired by MCP.
 - Vector animations
 - Video export
 - GLB Import
+- Interactive, windy, procedural grass blades
 - and more!
 
 TBD:
