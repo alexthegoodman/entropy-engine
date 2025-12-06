@@ -9,12 +9,17 @@ use rapier3d::prelude::{
 use std::str::FromStr;
 use uuid::Uuid;
 use wgpu::util::{DeviceExt, TextureDataOrder};
+use rand::prelude::*;
+use rand::Rng;
 
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
+use crate::core::transform::create_empty_group_transform;
 use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::LandscapePixelData;
 use crate::helpers::saved_data::LandscapeTextureKinds;
+use crate::core::editor::WindowSize;
 
 pub struct Landscape {
     pub id: String,
@@ -23,6 +28,7 @@ pub struct Landscape {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub bind_group: wgpu::BindGroup,
+    pub group_bind_group: wgpu::BindGroup,
     // pub texture_bind_group: wgpu::BindGroup,
     pub texture_array: Option<wgpu::Texture>,
     pub texture_array_view: Option<wgpu::TextureView>,
@@ -41,9 +47,12 @@ impl Landscape {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
+        // texture_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
         color_render_mode_buffer: &wgpu::Buffer,
         position: [f32; 3],
+        camera: &SimpleCamera
     ) -> Self {
         // load actual vertices and indices (most important for now)
         let scale = 1.0;
@@ -105,11 +114,11 @@ impl Landscape {
 
         // let isometry = Isometry3::translation(-500.0, -500.0, -500.0);
 
-        println!(
-            "vertices length: {:?} heights length: {:?}",
-            vertices.len(),
-            data.rapier_heights.clone().len()
-        );
+        // println!(
+        //     "vertices length: {:?} heights length: {:?}",
+        //     vertices.len(),
+        //     data.rapier_heights.clone().len()
+        // );
 
         let terrain_collider =
             ColliderBuilder::heightfield(data.rapier_heights.clone(), terrain_size)
@@ -137,6 +146,8 @@ impl Landscape {
             .sleeping(false)
             .build();
 
+        // let (vertices, indices) = Self::generate_debug_terrain(&terrain_collider, &device, &isometry);
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Landscape Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
@@ -150,12 +161,66 @@ impl Landscape {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
+        // Create a 1x1 white texture as a default
+        let texture_size = wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default White Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // Create white pixel data
+        let white_pixel: [u8; 4] = [255, 255, 255, 255];
+
+        // Copy white pixel data to texture
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &white_pixel,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            texture_size,
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        // Create default sampler
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
         // set uniform buffer for transforms
         let empty_buffer = Matrix4::<f32>::identity();
         let raw_matrix = matrix4_to_raw_array(&empty_buffer);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Model GLB Uniform Buffer"),
+            label: Some("Landscape Uniform Buffer"),
             contents: bytemuck::cast_slice(&raw_matrix),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
@@ -165,63 +230,30 @@ impl Landscape {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
-            }],
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
             label: None,
         });
 
-        // creating default texture view and sampler just like in Model, for use when model has no textures, but uses same shader
-        // Create a default empty texture and sampler
-        // let default_texture = device.create_texture(&wgpu::TextureDescriptor {
-        //     label: Some("Default Empty Texture"),
-        //     size: wgpu::Extent3d {
-        //         width: 1,
-        //         height: 1,
-        //         depth_or_array_layers: 1,
-        //     },
-        //     mip_level_count: 1,
-        //     sample_count: 1,
-        //     dimension: wgpu::TextureDimension::D2,
-        //     format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        //     usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        //     view_formats: &[],
-        // });
-
-        // let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        //     address_mode_u: wgpu::AddressMode::ClampToEdge,
-        //     address_mode_v: wgpu::AddressMode::ClampToEdge,
-        //     address_mode_w: wgpu::AddressMode::ClampToEdge,
-        //     mag_filter: wgpu::FilterMode::Linear,
-        //     min_filter: wgpu::FilterMode::Linear,
-        //     mipmap_filter: wgpu::FilterMode::Nearest,
-        //     ..Default::default()
-        // });
-
-        // let default_texture_view =
-        //     default_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        // // potential texture bind group
-        // let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //     layout: &texture_bind_group_layout,
-        //     entries: &[
-        //         wgpu::BindGroupEntry {
-        //             binding: 0,
-        //             resource: wgpu::BindingResource::TextureView(&default_texture_view),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 1,
-        //             resource: wgpu::BindingResource::Sampler(&default_sampler),
-        //         },
-        //         wgpu::BindGroupEntry {
-        //             binding: 2,
-        //             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-        //                 buffer: color_render_mode_buffer,
-        //                 offset: 0,
-        //                 size: None,
-        //             }),
-        //         },
-        //     ],
-        //     label: None,
-        // });
+        let (tmp_group_bind_group, tmp_group_transform) =
+            create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
+                width: camera.viewport.window_size.width,
+                height: camera.viewport.window_size.height
+            });
 
         Self {
             id: landscapeComponentId.to_owned(),
@@ -229,9 +261,10 @@ impl Landscape {
             vertex_buffer,
             index_buffer,
             bind_group,
+            group_bind_group: tmp_group_bind_group,
             // texture_bind_group,
             transform: Transform::new(
-                Vector3::new(0.0, -100.0, 0.0),
+                Vector3::new(position[0], position[1], position[2]),
                 Vector3::new(0.0, 0.0, 0.0),
                 Vector3::new(1.0, 1.0, 1.0),
                 uniform_buffer,
@@ -325,6 +358,41 @@ impl Landscape {
         self.texture_array_view = Some(texture_array_view);
     }
 
+    // fn update_bind_group(
+    //     &mut self,
+    //     device: &wgpu::Device,
+    //     texture_bind_group_layout: &wgpu::BindGroupLayout,
+    //     texture_render_mode_buffer: &wgpu::Buffer,
+    //     color_render_mode_buffer: &wgpu::Buffer,
+    // ) {
+    //     if let Some(texture_array_view) = &self.texture_array_view {
+    //         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+    //         self.texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+    //             layout: texture_bind_group_layout,
+    //             entries: &[
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 0,
+    //                     resource: wgpu::BindingResource::TextureView(texture_array_view),
+    //                 },
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 1,
+    //                     resource: wgpu::BindingResource::Sampler(&sampler),
+    //                 },
+    //                 wgpu::BindGroupEntry {
+    //                     binding: 2,
+    //                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+    //                         buffer: texture_render_mode_buffer,
+    //                         offset: 0,
+    //                         size: None,
+    //                     }),
+    //                 },
+    //             ],
+    //             label: Some("landscape_texture_bind_group"),
+    //         }));
+    //     }
+    // }
+
     fn update_bind_group(
         &mut self,
         device: &wgpu::Device,
@@ -335,19 +403,32 @@ impl Landscape {
         if let Some(texture_array_view) = &self.texture_array_view {
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-            self.texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+            // let empty_buffer = Matrix4::<f32>::identity();
+            // let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+
+            // let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //     label: Some("Terrain Uniform Buffer"),
+            //     contents: bytemuck::cast_slice(&raw_matrix),
+            //     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            // });
+
+            self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: texture_bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: wgpu::BindingResource::TextureView(texture_array_view),
+                        resource: self.transform.uniform_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
+                        resource: wgpu::BindingResource::TextureView(&texture_array_view),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
                         resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
                             buffer: texture_render_mode_buffer,
                             offset: 0,
@@ -356,7 +437,7 @@ impl Landscape {
                     },
                 ],
                 label: Some("landscape_texture_bind_group"),
-            }));
+            });
         }
     }
 
@@ -370,7 +451,7 @@ impl Landscape {
             for x in 0..data.width {
                 vertices.push(Vertex {
                     position: data.pixel_data[y][x].position,
-                    normal: [0.0, 0.0, 0.0],
+                    normal: [0.0, 1.0, 0.0],
                     tex_coords: data.pixel_data[y][x].tex_coords,
                     color: [1.0, 1.0, 1.0, 1.0],
                 });
@@ -437,5 +518,94 @@ impl Landscape {
         println!("Terrain ready!");
 
         (vertices, indices)
+    }
+
+    pub fn generate_debug_terrain(
+        collider: &Collider,
+        device: &wgpu::Device,
+        position: &Isometry3<f32>
+    ) -> (Vec<Vertex>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+         if let Some(shape) = collider.shape().as_heightfield() {
+    // if let Some(shape) = collider.shape().as_trimesh() {
+
+        
+        let mut vertex_index = 0;
+
+        // Generate random UV coordinates for color
+        let mut rng = rand::thread_rng();
+        let random_uv = [
+            rng.gen_range(0.0..1.0), // U
+            rng.gen_range(0.0..1.0), // V
+        ];
+
+        // Get triangles and build vertex/index buffers
+        let triangles = shape.triangles();
+
+        // println!("Debug Mesh Triangle count {:?}", &triangles.count());
+
+        // Track min/max Y values to verify variation
+        let mut min_y = f32::MAX;
+        let mut max_y = f32::MIN;
+
+        for triangle in triangles {
+            if vertex_index > 100_000 {
+                return (vertices, indices)
+            }
+
+            // Check Y variation in triangles
+            min_y = min_y.min(triangle.a.y).min(triangle.b.y).min(triangle.c.y);
+            max_y = max_y.max(triangle.a.y).max(triangle.b.y).max(triangle.c.y);
+
+            if vertex_index < 3 {
+                println!("Triangle {}:", vertex_index / 3);
+                println!("  A: {:?}", triangle.a);
+                println!("  B: {:?}", triangle.b);
+                println!("  C: {:?}", triangle.c);
+            }
+
+            let tri_a = position * triangle.a;
+            let tri_b = position * triangle.b;
+            let tri_c = position * triangle.c;
+
+            if vertex_index < 3 {
+                println!("Triangle adjusted {}:", vertex_index / 3);
+                println!("  A: {:?}", tri_a);
+                println!("  B: {:?}", tri_b);
+                println!("  C: {:?}", tri_c);
+            }
+
+            vertices.push(Vertex {
+                position: [tri_a.x, tri_a.y, tri_a.z],
+                normal: [0.0, 1.0, 0.0],
+                tex_coords: random_uv, // Use the same random UV for all vertices
+                color: [1.0, 1.0, 1.0, 1.0], // Default white color since we're using UVs for color
+            });
+            vertices.push(Vertex {
+                position: [tri_b.x, tri_b.y, tri_b.z],
+                normal: [0.0, 1.0, 0.0],
+                tex_coords: random_uv,
+                color: [1.0, 1.0, 1.0, 1.0],
+            });
+            vertices.push(Vertex {
+                position: [tri_c.x, tri_c.y, tri_c.z],
+                normal: [0.0, 1.0, 0.0],
+                tex_coords: random_uv,
+                color: [1.0, 1.0, 1.0, 1.0],
+            });
+
+            // Add indices for this triangle
+            indices.push(vertex_index);
+            indices.push(vertex_index + 1);
+            indices.push(vertex_index + 2);
+
+            vertex_index += 3;
+        }
+        
+    }
+    
+    (vertices, indices)
     }
 }

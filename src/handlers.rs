@@ -13,6 +13,7 @@ use std::{cell::RefCell, collections::HashMap};
 
 use crate::core::editor::Editor;
 use crate::core::gpu_resources;
+use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -154,11 +155,16 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     let movement_delta = base_speed * dt; // This gives frame-rate independent movement
     let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
 
-    renderer_state.update_player_collider_position([
-        camera.position.x,
-        camera.position.y,
-        camera.position.z,
-    ]);
+    // renderer_state.update_player_collider_position([
+    //     camera.position.x,
+    //     camera.position.y,
+    //     camera.position.z,
+    // ]);
+    renderer_state.update_player_rigidbody_position([
+            camera.position.x,
+            camera.position.y,
+            camera.position.z,
+        ]);
     renderer_state.update_player_character_position(diff, 0.1, camera);
 
     // drop(state_guard);
@@ -308,28 +314,22 @@ pub fn handle_add_landscape(
     position: [f32; 3],
     camera: &mut SimpleCamera
 ) {
-    // pause_rendering();
+    // w/o quadtree
+    let data = get_landscape_pixels(projectId, landscapeAssetId, landscapeFilename);
+    state.add_landscape(device, queue, &landscapeComponentId, &data, position, camera);
+    state.add_collider(landscapeComponentId, ComponentKind::Landscape);
 
-    // let mut state_guard = state.lock().unwrap();
-
-    // let data = get_landscape_pixels(projectId, landscapeAssetId, landscapeFilename);
-
-    // state_guard.add_landscape(device, queue, &landscapeComponentId, &data, position);
-
-    state.add_terrain_manager(
-        device,
-        queue,
-        projectId,
-        landscapeAssetId,
-        landscapeComponentId,
-        landscapeFilename,
-        position,
-        camera
-    );
-
-    // drop(state_guard);
-
-    // resume_rendering();
+    // with quadtree
+    // state.add_terrain_manager(
+    //     device,
+    //     queue,
+    //     projectId,
+    //     landscapeAssetId,
+    //     landscapeComponentId,
+    //     landscapeFilename,
+    //     position,
+    //     camera
+    // );
 }
 
 pub fn handle_add_skeleton_part(
