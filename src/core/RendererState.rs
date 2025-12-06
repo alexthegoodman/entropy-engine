@@ -1091,11 +1091,16 @@ impl RendererState {
         joint_positions: &HashMap<String, Point3<f32>>,
         // joint_rotations: &HashMap<String, Vector3<f32>>,
         connection: Option<PartConnection>,
+        camera: &SimpleCamera
     ) {
         let mut skeleton_part = SkeletonRenderPart::new(partComponentId.to_string());
         skeleton_part.create_bone_segments(
             device,
+            queue,
             &self.model_bind_group_layout,
+            &self.group_bind_group_layout,
+            &self.texture_render_mode_buffer,
+            camera,
             joints,
             k_chains,
             attach_points,

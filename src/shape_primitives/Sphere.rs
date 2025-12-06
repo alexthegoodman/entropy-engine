@@ -2,13 +2,17 @@ use nalgebra::{Matrix4, Point3, Vector3};
 use std::f32::consts::PI;
 use wgpu::util::DeviceExt;
 
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
+use crate::core::transform::create_empty_group_transform;
 use crate::core::vertex::Vertex;
+use crate::core::editor::WindowSize;
 
 pub struct Sphere {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
+    pub group_bind_group: wgpu::BindGroup,
     pub transform: Transform,
     pub index_count: u32,
 }
@@ -16,7 +20,11 @@ pub struct Sphere {
 impl Sphere {
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout, 
+        texture_render_mode_buffer: &wgpu::Buffer,
+        camera: &SimpleCamera,
         radius: f32,
         sectors: u32, // longitude
         stacks: u32,  // latitude
@@ -39,9 +47,63 @@ impl Sphere {
         let raw_matrix = matrix4_to_raw_array(&empty_buffer);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Sphere Uniform Buffer"),
+            label: Some("Cube Uniform Buffer"),
             contents: bytemuck::cast_slice(&raw_matrix),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        // Create a 1x1 white texture as a default
+        let texture_size = wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default White Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // Create white pixel data
+        let white_pixel: [u8; 4] = [255, 255, 255, 255];
+
+        // Copy white pixel data to texture
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &white_pixel,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            texture_size,
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        // Create default sampler
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
         });
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -49,14 +111,36 @@ impl Sphere {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buffer.as_entire_binding(),
-            }],
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    }],
             label: None,
         });
+
+        let (tmp_group_bind_group, tmp_group_transform) =
+            create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
+                width: camera.viewport.window_size.width,
+                height: camera.viewport.window_size.height
+            });
 
         Self {
             vertex_buffer,
             index_buffer,
             bind_group,
+            group_bind_group: tmp_group_bind_group,
             transform: Transform::new(
                 Vector3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, 0.0, 0.0),

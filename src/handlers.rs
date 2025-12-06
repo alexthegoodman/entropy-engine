@@ -107,20 +107,22 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
     let mut diff = Vector3::identity();
 
+    let mut new_position = None;
+
     match key_code {
         "w" => {
             if is_pressed {
                 // println!("w pressed");
                 diff = camera.direction * 0.1;
                 diff = diff * speed_multiplier;
-                camera.position += diff;
+                new_position = Some(camera.position + diff);
             }
         }
         "s" => {
             if is_pressed {
                 diff = camera.direction * 0.1;
                 diff = diff * speed_multiplier;
-                camera.position -= diff;
+                new_position = Some(camera.position - diff);
             }
         }
         "a" => {
@@ -128,7 +130,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 let right = camera.direction.cross(&camera.up).normalize();
                 diff = right * 0.1;
                 diff = diff * speed_multiplier;
-                camera.position -= diff;
+                new_position = Some(camera.position - diff);
             }
         }
         "d" => {
@@ -136,7 +138,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 let right = camera.direction.cross(&camera.up).normalize();
                 diff = right * 0.1;
                 diff = diff * speed_multiplier;
-                camera.position += diff;
+                new_position = Some(camera.position + diff);
             }
         }
         _ => {
@@ -144,35 +146,38 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
         }
     }
 
-    // Calculate delta time
-    let now = std::time::Instant::now();
-    let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
-    let dt = (now - last_movement_time).as_secs_f32();
-    renderer_state.last_movement_time = Some(now);
+    if let Some(position) = new_position {
+        if (renderer_state.game_mode) {
+            // Calculate delta time
+            let now = std::time::Instant::now();
+            let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
+            let dt = (now - last_movement_time).as_secs_f32();
+            renderer_state.last_movement_time = Some(now);
 
-    // // Use dt to scale movement
-    let base_speed = 5.0; // units per second
-    let movement_delta = base_speed * dt; // This gives frame-rate independent movement
-    let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
+            // // Use dt to scale movement
+            // let base_speed = 5.0; // units per second
+            // let movement_delta = base_speed * dt; // This gives frame-rate independent movement
+            // let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
 
-    // renderer_state.update_player_collider_position([
-    //     camera.position.x,
-    //     camera.position.y,
-    //     camera.position.z,
-    // ]);
-    renderer_state.update_player_rigidbody_position([
-            camera.position.x,
-            camera.position.y,
-            camera.position.z,
-        ]);
-    renderer_state.update_player_character_position(diff, 0.1, camera);
+            // renderer_state.update_player_collider_position([
+            //     camera.position.x,
+            //     camera.position.y,
+            //     camera.position.z,
+            // ]);
+            renderer_state.update_player_rigidbody_position([
+                    position.x,
+                    position.y,
+                    position.z,
+                ]);
+            renderer_state.update_player_character_position(diff, 0.1, camera);
+        } else {
+            camera.position = position;
+            camera.update();
+            camera_binding.update_3d(&gpu_resources.queue, &camera);
+        }
 
-    // drop(state_guard);
-
-    camera.update();
-    camera_binding.update_3d(&gpu_resources.queue, &camera);
-
-    renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
+        // renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
+    }
 }
 
 // pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {
@@ -344,6 +349,7 @@ pub fn handle_add_skeleton_part(
     joint_positions: &HashMap<String, Point3<f32>>,
     // joint_rotations: &HashMap<String, Vector3<f32>>,
     connection: Option<PartConnection>,
+    camera: &mut SimpleCamera
 ) {
     pause_rendering();
 
@@ -360,6 +366,7 @@ pub fn handle_add_skeleton_part(
         joint_positions,
         // joint_rotations,
         connection,
+        camera
     );
 
     drop(state_guard);

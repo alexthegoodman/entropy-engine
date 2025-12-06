@@ -6,7 +6,7 @@ use nalgebra::{
 use wgpu::util::DeviceExt;
 
 use crate::{
-    core::{Transform_2::{Transform, matrix4_to_raw_array}, vertex::Vertex}, kinematic_animations::motion_path::create_attachment_transform, shape_primitives::Sphere::Sphere
+    core::{SimpleCamera::SimpleCamera, Transform_2::{Transform, matrix4_to_raw_array}, vertex::Vertex}, kinematic_animations::motion_path::create_attachment_transform, shape_primitives::Sphere::Sphere
 };
 
 use super::{
@@ -91,7 +91,11 @@ impl BoneSegment {
     /// Creates a new bone segment between two joint positions
     pub fn new(
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_bufer: &wgpu::Buffer,
+        camera: &SimpleCamera,
         start_joint_id: String,
         end_joint_id: String,
         start_pos: Point3<f32>,
@@ -151,7 +155,7 @@ impl BoneSegment {
 
         transform.rotation = rotation; // set with quat for accuracy
 
-        let mut joint_sphere = Sphere::new(device, bind_group_layout, 0.05, 16, 16);
+        let mut joint_sphere = Sphere::new(device, queue, bind_group_layout, group_bind_group_layout, texture_render_mode_bufer, camera, 0.05, 16, 16);
         joint_sphere.transform.position = start_pos.coords;
 
         Self {
@@ -296,7 +300,11 @@ impl SkeletonRenderPart {
     pub fn create_bone_segments(
         &mut self,
         device: &wgpu::Device,
+        queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
+        camera: &SimpleCamera,
         joints: Vec<Joint>,
         k_chains: Vec<KinematicChain>,
         attach_points: Vec<AttachPoint>,
@@ -402,7 +410,11 @@ impl SkeletonRenderPart {
 
                             let bone = BoneSegment::new(
                                 device,
+                                queue,
                                 bind_group_layout,
+                                group_bind_group_layout,
+                                texture_render_mode_buffer,
+                                camera,
                                 parent_id.clone(),
                                 joint.id.clone(),
                                 adjusted_start,
