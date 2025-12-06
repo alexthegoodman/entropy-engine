@@ -1040,6 +1040,15 @@ impl RendererState {
                 kind,
                 &texture,
             );
+            landscape.update_texture(
+                device,
+                queue,
+                &self.model_bind_group_layout,
+                &self.texture_render_mode_buffer,
+                &self.color_render_mode_buffer,
+                maskKind,
+                &mask,
+            );
         }
 
         // for quadtree

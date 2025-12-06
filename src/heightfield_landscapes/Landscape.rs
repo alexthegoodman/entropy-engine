@@ -412,6 +412,8 @@ impl Landscape {
             //     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             // });
 
+            println!("New landscape bind group!");
+
             self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: texture_bind_group_layout,
                 entries: &[
