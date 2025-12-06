@@ -19,10 +19,11 @@ use crate::core::editor::WindowSize;
 use crate::core::transform::create_empty_group_transform;
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
-use crate::heightfield_landscapes::LandscapeLOD::{add_physics_components_mini, Rect};
+use crate::heightfield_landscapes::LandscapeLOD::{MAX_LOD_LEVELS, Rect, add_physics_components_mini, calculate_lod_distances};
+use crate::physics::core::PhysicsWorld;
 
 use super::LandscapeLOD::{
-    ColliderMessage, BASE_LOD_DISTANCE, LOD_DISTANCE_MULTIPLIER, MAX_LOD_LEVELS,
+    ColliderMessage,
 };
 use super::QuadNode::QuadNode;
 
@@ -293,7 +294,8 @@ impl TerrainManager {
         // debug_character: PlayerCharacter,
         // query_pipeline: &mut QueryPipeline,
         camera: &mut SimpleCamera,
-        game_mode: bool
+        game_mode: bool,
+        physics_world: &mut PhysicsWorld
     ) {
         self.lod_update_timer += delta_time;
 
@@ -313,7 +315,8 @@ impl TerrainManager {
                             device,
                             chunk,
                             collider,
-                            !game_mode
+                            !game_mode,
+                            physics_world
                         );
                     }
                 }
@@ -333,7 +336,7 @@ impl TerrainManager {
                 camera_pos,
                 // &self.height_data,
                 &self.landscape_data,
-                &lod_distances,
+                &lod_distances.into(),
                 MAX_LOD_LEVELS as u32,
                 device,
                 self.terrain_position,
@@ -560,14 +563,3 @@ impl TerrainManager {
     }
 }
 
-pub fn calculate_lod_distances() -> Vec<f32> {
-    let mut distances = Vec::with_capacity(MAX_LOD_LEVELS);
-    let mut current_distance = BASE_LOD_DISTANCE;
-
-    for _ in 0..MAX_LOD_LEVELS {
-        distances.push(current_distance);
-        current_distance *= LOD_DISTANCE_MULTIPLIER;
-    }
-
-    distances
-}

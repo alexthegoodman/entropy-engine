@@ -14,6 +14,7 @@ use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
+use crate::physics::core::PhysicsWorld;
 use crate::renderer_lighting::LightState::LightState;
 use crate::{
     core::Texture::Texture,
@@ -87,6 +88,8 @@ pub struct ObjectConfig {
 
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
+    pub physics_world: PhysicsWorld,
+
     // pub viewport: Arc<Mutex<Viewport>>,
     pub cubes: Vec<Cube>,
     pub pyramids: Vec<Pyramid>,
@@ -137,7 +140,7 @@ pub struct RendererState {
     pub collider_set: ColliderSet,
 
     // characters
-    pub player_character: PlayerCharacter,
+    // pub player_character: PlayerCharacter,
     pub npcs: Vec<NPC>,
 
     pub current_modifiers: ModifiersState,
@@ -285,7 +288,9 @@ impl RendererState {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-        let mut player_character = PlayerCharacter::new(&mut rigid_body_set, &mut collider_set);
+        // let mut player_character = PlayerCharacter::new(&mut rigid_body_set, &mut collider_set);
+
+        let physics_world = PhysicsWorld::new();
 
         // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
         // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
@@ -299,6 +304,8 @@ impl RendererState {
         // player_character.collider_handle = Some(collider_handle);
 
         Self {
+            physics_world,
+
             cubes,
             pyramids,
             grids,
@@ -345,7 +352,7 @@ impl RendererState {
             query_pipeline,
             rigid_body_set,
             collider_set,
-            player_character,
+            // player_character,
 
             current_modifiers: ModifiersState::empty(),
             mouse_state: MouseState {
@@ -435,138 +442,151 @@ impl RendererState {
 
         self.update_terrain_managers(device, dt, camera);
 
-        // println!("Before step:");
-        // println!("  Bodies: {}", self.rigid_body_set.len());
-        // println!("  Colliders: {}", self.collider_set.len());
-        // println!("  Impulse Joints: {}", self.impulse_joint_set.len());
-        // // println!("  Multibody Joints: {}", self.multibody_joint_set.len());
-        // println!(
-        //     "  Islands: {} {}",
-        //     self.island_manager.active_dynamic_bodies().len(),
-        //     self.island_manager.active_kinematic_bodies().len()
+        self.physics_world.update(dt);
+
+        let player_position = self.physics_world.player.position;
+        camera.position = Point3::new(player_position.x, player_position.y, player_position.z);
+
+        camera.update();
+        camera_binding.update_3d(&queue, &camera);
+
+        // // println!("Before step:");
+        // // println!("  Bodies: {}", self.rigid_body_set.len());
+        // // println!("  Colliders: {}", self.collider_set.len());
+        // // println!("  Impulse Joints: {}", self.impulse_joint_set.len());
+        // // // println!("  Multibody Joints: {}", self.multibody_joint_set.len());
+        // // println!(
+        // //     "  Islands: {} {}",
+        // //     self.island_manager.active_dynamic_bodies().len(),
+        // //     self.island_manager.active_kinematic_bodies().len()
+        // // );
+
+        // let step_time = Instant::now();
+
+        // // Step the physics pipeline
+        // let physics_hooks = ();
+        // let event_handler = ();
+
+        // self.physics_pipeline.step(
+        //     &self.gravity,
+        //     &self.integration_parameters,
+        //     &mut self.island_manager,
+        //     &mut self.broad_phase,
+        //     &mut self.narrow_phase,
+        //     &mut self.rigid_body_set,
+        //     &mut self.collider_set,
+        //     &mut self.impulse_joint_set,
+        //     &mut self.multibody_joint_set,
+        //     &mut self.ccd_solver,
+        //     Some(&mut self.query_pipeline),
+        //     &physics_hooks,
+        //     &event_handler,
         // );
 
-        let step_time = Instant::now();
+        // let step_duration = step_time.elapsed();
+        // // println!("  step_duration: {:?}", step_duration);
 
-        // Step the physics pipeline
-        let physics_hooks = ();
-        let event_handler = ();
+        // let physics_update_time = Instant::now();
 
-        self.physics_pipeline.step(
-            &self.gravity,
-            &self.integration_parameters,
-            &mut self.island_manager,
-            &mut self.broad_phase,
-            &mut self.narrow_phase,
-            &mut self.rigid_body_set,
-            &mut self.collider_set,
-            &mut self.impulse_joint_set,
-            &mut self.multibody_joint_set,
-            &mut self.ccd_solver,
-            Some(&mut self.query_pipeline),
-            &physics_hooks,
-            &event_handler,
-        );
+        // // Collect all the necessary data first
+        // let physics_updates: Vec<(Uuid, nalgebra::Vector3<f32>, (f32, f32, f32))> = self
+        //     .rigid_body_set
+        //     .iter()
+        //     .map(|(_, rigid_body)| {
+        //         let physics_position = rigid_body.position();
+        //         let position = physics_position.translation.vector;
+        //         let rotation = physics_position.rotation;
+        //         let euler = rotation.euler_angles();
+        //         let component_id = Uuid::from_u128(rigid_body.user_data);
+        //         (component_id, position, euler)
+        //     })
+        //     .collect();
 
-        let step_duration = step_time.elapsed();
-        // println!("  step_duration: {:?}", step_duration);
+        // let physics_update_duration = physics_update_time.elapsed();
+        // // println!(
+        // //     "  physics_update collect _duration: {:?}",
+        // //     physics_update_duration
+        // // );
 
-        let physics_update_time = Instant::now();
+        // let physics_update_time = Instant::now();
 
-        // Collect all the necessary data first
-        let physics_updates: Vec<(Uuid, nalgebra::Vector3<f32>, (f32, f32, f32))> = self
-            .rigid_body_set
-            .iter()
-            .map(|(_, rigid_body)| {
-                let physics_position = rigid_body.position();
-                let position = physics_position.translation.vector;
-                let rotation = physics_position.rotation;
-                let euler = rotation.euler_angles();
-                let component_id = Uuid::from_u128(rigid_body.user_data);
-                (component_id, position, euler)
-            })
-            .collect();
+        // // Update camera position if needed
+        // // if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
+        // //     if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+        // //         let pos = rb.translation();
+        // //         // let mut camera = get_camera();
+        // //         camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
 
-        let physics_update_duration = physics_update_time.elapsed();
-        // println!(
-        //     "  physics_update collect _duration: {:?}",
-        //     physics_update_duration
-        // );
+        // //         camera.update();
+        // //         camera_binding.update_3d(&queue, &camera);
+        // //     }
+        // // }
 
-        let physics_update_time = Instant::now();
+        // let player_pos = self.physics_world.player.position;
+        // camera.position = Point3::new(player_pos.x, player_pos.y + 0.9, player_pos.z);
+        // camera.update();
+        // camera_binding.update_3d(&queue, &camera);
 
-        // Update camera position if needed
-        if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
-            if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                let pos = rb.translation();
-                // let mut camera = get_camera();
-                camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
+        // // Now process all updates without borrowing rigid_body_set
+        // for (component_id, position, euler) in physics_updates {
+        //     // Update models
+        //     if let Some(instance_model_data) = self
+        //         .models
+        //         .iter_mut()
+        //         .find(|m| m.id == component_id.to_string())
+        //     {
+        //         instance_model_data.meshes.iter_mut().for_each(|mesh| {
+        //             mesh.transform
+        //                 .update_position([position.x, position.y, position.z]);
+        //             mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
+        //         });
 
-                camera.update();
-                camera_binding.update_3d(&queue, &camera);
-            }
-        }
+        //         // Handle NPC updates
+        //         if let Some(instance_npc_data) = self
+        //             .npcs
+        //             .iter_mut()
+        //             .find(|m| m.model_id == component_id.to_string())
+        //         {
+        //             // if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
+        //             //     let current_stamina = 100.0;
+        //             //     instance_npc_data.test_behavior.update(
+        //             //         &mut self.rigid_body_set,
+        //             //         &self.collider_set,
+        //             //         &self.query_pipeline,
+        //             //         first_mesh
+        //             //             .rigid_body_handle
+        //             //             .expect("Couldn't get rigid body handle"),
+        //             //         self.player_character
+        //             //             .movement_rigid_body_handle
+        //             //             .expect("Couldn't get rigid body handle"),
+        //             //         &first_mesh.rapier_collider,
+        //             //         &mut first_mesh.transform,
+        //             //         current_stamina,
+        //             //         dt,
+        //             //     );
+        //             // }
+        //         }
+        //     }
 
-        // Now process all updates without borrowing rigid_body_set
-        for (component_id, position, euler) in physics_updates {
-            // Update models
-            if let Some(instance_model_data) = self
-                .models
-                .iter_mut()
-                .find(|m| m.id == component_id.to_string())
-            {
-                instance_model_data.meshes.iter_mut().for_each(|mesh| {
-                    mesh.transform
-                        .update_position([position.x, position.y, position.z]);
-                    mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
-                });
+        //     // Update landscapes
+        //     // just helps knowing terrain is where the physics are
+        //     // this may break setting physics up where terrain is when we try to do the reverse
+        //     // if let Some(terrain_manager) = self
+        //     //     .terrain_managers
+        //     //     .iter_mut()
+        //     //     .find(|m| m.id == component_id.to_string())
+        //     // {
+        //     //     terrain_manager
+        //     //         .transform
+        //     //         .update_position([position.x, position.y, position.z]);
+        //     //     terrain_manager
+        //     //         .transform
+        //     //         .update_rotation([euler.0, euler.1, euler.2]);
+        //     // }
+        // }
 
-                // Handle NPC updates
-                if let Some(instance_npc_data) = self
-                    .npcs
-                    .iter_mut()
-                    .find(|m| m.model_id == component_id.to_string())
-                {
-                    if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                        let current_stamina = 100.0;
-                        instance_npc_data.test_behavior.update(
-                            &mut self.rigid_body_set,
-                            &self.collider_set,
-                            &self.query_pipeline,
-                            first_mesh
-                                .rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            self.player_character
-                                .movement_rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            &first_mesh.rapier_collider,
-                            &mut first_mesh.transform,
-                            current_stamina,
-                            dt,
-                        );
-                    }
-                }
-            }
-
-            // Update landscapes
-            // just helps knowing terrain is where the physics are
-            // this may break setting physics up where terrain is when we try to do the reverse
-            // if let Some(terrain_manager) = self
-            //     .terrain_managers
-            //     .iter_mut()
-            //     .find(|m| m.id == component_id.to_string())
-            // {
-            //     terrain_manager
-            //         .transform
-            //         .update_position([position.x, position.y, position.z]);
-            //     terrain_manager
-            //         .transform
-            //         .update_rotation([euler.0, euler.1, euler.2]);
-            // }
-        }
-
-        let physics_update_duration = physics_update_time.elapsed();
-        // println!("  physics_update_duration: {:?}", physics_update_duration);
+        // let physics_update_duration = physics_update_time.elapsed();
+        // // println!("  physics_update_duration: {:?}", physics_update_duration);
     }
 
     // Usage in your main update/render loop:
@@ -658,47 +678,47 @@ impl RendererState {
     }
 
     pub fn update_player_character_position(&mut self, translation: Vector3<f32>, delta_time: f32, camera: &mut SimpleCamera) {
-        // let mut camera = get_camera();
-        // Collision filter (typically you want to collide with everything except other characters)
-        let filter = QueryFilter::default()
-            .exclude_rigid_body(
-                self.player_character
-                    .movement_rigid_body_handle
-                    .expect("Couldn't get rigid body handle"),
-            )
-            .exclude_collider(
-                self.player_character
-                    .collider_handle
-                    .expect("Couldn't get collider handle"),
-            )
-            .exclude_sensors(); // Typically don't collide with trigger volumes
+        // // let mut camera = get_camera();
+        // // Collision filter (typically you want to collide with everything except other characters)
+        // let filter = QueryFilter::default()
+        //     .exclude_rigid_body(
+        //         self.player_character
+        //             .movement_rigid_body_handle
+        //             .expect("Couldn't get rigid body handle"),
+        //     )
+        //     .exclude_collider(
+        //         self.player_character
+        //             .collider_handle
+        //             .expect("Couldn't get collider handle"),
+        //     )
+        //     .exclude_sensors(); // Typically don't collide with trigger volumes
 
-        // Current character position
-        let character_pos = Isometry3::translation(
-            camera.position.x,
-            camera.position.y - 0.9, // Offset by half height to put camera at top
-            camera.position.z,
-        );
+        // // Current character position
+        // let character_pos = Isometry3::translation(
+        //     camera.position.x,
+        //     camera.position.y - 0.9, // Offset by half height to put camera at top
+        //     camera.position.z,
+        // );
 
-        self.player_character.character_controller.move_shape(
-            delta_time,
-            &self.rigid_body_set,
-            &self.collider_set,
-            &self.query_pipeline,
-            self.player_character.movement_shape.shape(),
-            &character_pos,
-            translation,
-            filter,
-            |collision| { 
-                println!("Collision detected (a) {:?}", collision.character_pos)
-            },
-        );
+        // self.player_character.character_controller.move_shape(
+        //     delta_time,
+        //     &self.rigid_body_set,
+        //     &self.collider_set,
+        //     &self.query_pipeline,
+        //     self.player_character.movement_shape.shape(),
+        //     &character_pos,
+        //     translation,
+        //     filter,
+        //     |collision| { 
+        //         println!("Collision detected (a) {:?}", collision.character_pos)
+        //     },
+        // );
 
-        camera.position = Point3::new(
-            camera.position.x + translation.x,
-            camera.position.y - 0.9 + translation.y,
-            camera.position.z + translation.z,
-        );
+        // camera.position = Point3::new(
+        //     camera.position.x + translation.x,
+        //     camera.position.y - 0.9 + translation.y,
+        //     camera.position.z + translation.z,
+        // );
 
         // TODO: update collider with handle?
     }
@@ -714,13 +734,13 @@ impl RendererState {
         let isometry =
             nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
 
-        if let Some(collider) = self.collider_set.get_mut(
-            self.player_character
-                .collider_handle
-                .expect("Couldn't get mesh collider handle"),
-        ) {
-            collider.set_position(isometry);
-        }
+        // if let Some(collider) = self.collider_set.get_mut(
+        //     self.player_character
+        //         .collider_handle
+        //         .expect("Couldn't get mesh collider handle"),
+        // ) {
+        //     collider.set_position(isometry);
+        // }
     }
 
     pub fn update_model_collider_position(
@@ -757,13 +777,13 @@ impl RendererState {
         let isometry =
             nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
 
-        if let Some(rigidbody) = self.rigid_body_set.get_mut(
-            self.player_character
-                .movement_rigid_body_handle
-                .expect("Couldn't get mesh rigidbody handle"),
-        ) {
-            rigidbody.set_position(isometry, true);
-        }
+        // if let Some(rigidbody) = self.rigid_body_set.get_mut(
+        //     self.player_character
+        //         .movement_rigid_body_handle
+        //         .expect("Couldn't get mesh rigidbody handle"),
+        // ) {
+        //     rigidbody.set_position(isometry, true);
+        // }
     }
 
     pub fn update_model_rigidbody_position(
@@ -977,7 +997,8 @@ impl RendererState {
                 dt,
                 // &mut self.query_pipeline,
                 camera,
-                self.game_mode
+                self.game_mode,
+                &mut self.physics_world
             );
         }
     }

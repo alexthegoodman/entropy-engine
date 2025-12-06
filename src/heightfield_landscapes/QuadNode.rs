@@ -19,12 +19,12 @@ use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::{get_landscape_pixels, LandscapePixelData};
 use crate::helpers::saved_data::LandscapeTextureKinds;
-use crate::heightfield_landscapes::LandscapeLOD::{calculate_normals, sample_height_world, MAX_LOD_LEVELS};
-use crate::heightfield_landscapes::TerrainManager::calculate_lod_distances;
+use crate::heightfield_landscapes::LandscapeLOD::{MAX_LOD_LEVELS, calculate_normals, sample_height_world};
+use crate::physics::core::{Heightfield, Vec3 as PhysVec3};
 
 use super::LandscapeLOD::{
     create_debug_collision_mesh, distance_squared, get_camera_distance_from_bound_center_rel,
-    ColliderMessage, Rect, PHYSICS_DISTANCE,
+    ColliderMessage, Rect,
 };
 
 #[derive(Debug)]
@@ -34,7 +34,8 @@ pub struct TerrainMesh {
     pub index_buffer: Buffer,
     pub index_count: u32,
     pub collider: Option<Collider>,
-    pub rigid_body: Option<RigidBody>,
+    // pub rigid_body: Option<RigidBody>,
+    // pub terrain_heightfield: Option<Heightfield>,
     pub depth: u32,
 }
 
@@ -153,24 +154,24 @@ impl QuadNode {
         if let Some(ref mut mesh) = self.mesh {
             // Get rigid body
             // if let Some(rigid_body) = mesh.rigid_body.take() {
-            if let Some(ref rigid_body) = mesh.rigid_body {
-                let rigid_body_handle = rigid_body_set.insert(rigid_body.clone()); // TODO: CANNOT have clones!!
-                self.rigid_body_handle = Some(rigid_body_handle);
-                // Create and attach collider if we have one
-                // if let Some(collider) = mesh.collider.take() {
-                if let Some(ref collider) = mesh.collider {
-                    // if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device) {
-                    //     self.debug_mesh = Some(debug_mesh);
-                    // }
+            // if let Some(ref rigid_body) = mesh.rigid_body {
+            //     let rigid_body_handle = rigid_body_set.insert(rigid_body.clone()); // TODO: CANNOT have clones!!
+            //     self.rigid_body_handle = Some(rigid_body_handle);
+            //     // Create and attach collider if we have one
+            //     // if let Some(collider) = mesh.collider.take() {
+            //     if let Some(ref collider) = mesh.collider {
+            //         // if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device) {
+            //         //     self.debug_mesh = Some(debug_mesh);
+            //         // }
 
-                    let collider_handle = collider_set.insert_with_parent(
-                        collider.clone(),
-                        rigid_body_handle,
-                        rigid_body_set,
-                    );
-                    self.collider_handle = Some(collider_handle);
-                }
-            }
+            //         let collider_handle = collider_set.insert_with_parent(
+            //             collider.clone(),
+            //             rigid_body_handle,
+            //             rigid_body_set,
+            //         );
+            //         self.collider_handle = Some(collider_handle);
+            //     }
+            // }
         }
         // }
 
@@ -588,15 +589,15 @@ impl QuadNode {
             return;
         }
 
-        // if let Some(ref mesh) = self.mesh {
-        //     render_pass.set_bind_group(1, model_bind_group, &[]);
-        //     render_pass.set_bind_group(3, group_bind_group, &[]);
+        if let Some(ref mesh) = self.mesh {
+            render_pass.set_bind_group(1, model_bind_group, &[]);
+            render_pass.set_bind_group(3, group_bind_group, &[]);
 
-        //     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        //     render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-        //     render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
-        // }
+            render_pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+        }
 
         if let Some(ref debug_mesh) = self.debug_mesh {
             render_pass.set_bind_group(1, model_bind_group, &[]);
@@ -1238,60 +1239,72 @@ impl QuadNode {
         // };
 
         // only create colliders for nearest children to prevent overlap
+        // let mut terrain_heightfield = None;
         if (depth == (MAX_LOD_LEVELS as u32) - 1) {
 
             // println!("Max depth position {:?}", isometry);
 
             // Spawn the heavy computation in a separate thread
-            std::thread::spawn(move || {
-                // let collider = ColliderBuilder::trimesh(
-                //     new_rapier_vertices,
-                //     indices_clone
-                //         .chunks(3)
-                //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
-                //         .collect::<Vec<[u32; 3]>>(),
-                // )
-                // .friction(0.9)
-                // .restitution(0.1)
-                // .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
-                // .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
-                // .user_data(Uuid::from_str(&chunk_id).unwrap().as_u128())
-                // .build();
+            // std::thread::spawn(move || {
+            //     // let collider = ColliderBuilder::trimesh(
+            //     //     new_rapier_vertices,
+            //     //     indices_clone
+            //     //         .chunks(3)
+            //     //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
+            //     //         .collect::<Vec<[u32; 3]>>(),
+            //     // )
+            //     // .friction(0.9)
+            //     // .restitution(0.1)
+            //     // .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
+            //     // .active_collision_types(ActiveCollisionTypes::all()) // Enable all collision types
+            //     // .user_data(Uuid::from_str(&chunk_id).unwrap().as_u128())
+            //     // .build();
 
-                let collider = ColliderBuilder::heightfield(heights.clone(), scaling)
-                    .friction(0.9)
-                    .restitution(0.1)
-                    .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
-                    .active_collision_types(ActiveCollisionTypes::all())
-                    // .position(Isometry3::translation(0.0, 0.0, 0.0)) // Enable all collision types
-                    .user_data(
-                        Uuid::from_str(&chunk_id) // chunk_id is mesh_id
-                            .expect("Couldn't extract uuid")
-                            .as_u128(),
-                    )
-                    .build();
+            //     let collider = ColliderBuilder::heightfield(heights.clone(), scaling)
+            //         .friction(0.9)
+            //         .restitution(0.1)
+            //         .solver_groups(InteractionGroups::all()) // Make sure collision groups are set
+            //         .active_collision_types(ActiveCollisionTypes::all())
+            //         // .position(Isometry3::translation(0.0, 0.0, 0.0)) // Enable all collision types
+            //         .user_data(
+            //             Uuid::from_str(&chunk_id) // chunk_id is mesh_id
+            //                 .expect("Couldn't extract uuid")
+            //                 .as_u128(),
+            //         )
+            //         .build();
+
+            //     // Send the completed collider back
+            //     sender.send((chunk_id, collider)).unwrap();
+            // });
+
+            let bounds = bounds.clone();
+
+            std::thread::spawn(move || {
+                let terrain_heightfield = Heightfield::from_heights(bounds.width as usize / 4, bounds.height as usize / 4, heights.data.as_vec().clone(), 1.0, 1.0)
+                    .with_offset(PhysVec3::new(bounds.x, 0.0, bounds.z));
 
                 // Send the completed collider back
-                sender.send((chunk_id, collider)).unwrap();
+                sender.send((chunk_id, terrain_heightfield)).unwrap();
             });
+            
         } else {
             // println!("no collider {:?}", depth);
         }
 
-        let rigid_time = Instant::now();
+        // let rigid_time = Instant::now();
 
-        let ground_rigid_body = RigidBodyBuilder::fixed()
-            .position(isometry)
-            // .position(Isometry3::translation(0.0, 0.0, 0.0)) // world_pos used for rapier_vertices, so trimesh needs no isometry
-            .user_data(
-                Uuid::from_str(&mesh_id)
-                    .expect("Couldn't extract uuid")
-                    .as_u128(),
-            )
-            .sleeping(false)
-            .build();
+        // let ground_rigid_body = RigidBodyBuilder::fixed()
+        //     .position(isometry)
+        //     // .position(Isometry3::translation(0.0, 0.0, 0.0)) // world_pos used for rapier_vertices, so trimesh needs no isometry
+        //     .user_data(
+        //         Uuid::from_str(&mesh_id)
+        //             .expect("Couldn't extract uuid")
+        //             .as_u128(),
+        //     )
+        //     .sleeping(false)
+        //     .build();
 
-        let rigid_duration = rigid_time.elapsed();
+        // let rigid_duration = rigid_time.elapsed();
 
         TerrainMesh {
             mesh_id,
@@ -1299,7 +1312,8 @@ impl QuadNode {
             index_buffer,
             index_count: indices.clone().len() as u32,
             collider: None,
-            rigid_body: Some(ground_rigid_body),
+            // rigid_body: Some(ground_rigid_body),
+            // terrain_heightfield,
             depth,
         }
     }

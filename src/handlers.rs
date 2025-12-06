@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix3, Matrix4, OPoint, Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
 use wgpu::util::DeviceExt;
@@ -104,69 +104,66 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     // let mut state_guard = state.lock().unwrap();
     let speed_multiplier = state.navigation_speed;
 
-    let mut diff = Vector3::identity();
+    // let mut diff: nalgebra::Matrix<f32, nalgebra::Const<3>, nalgebra::Const<1>, nalgebra::ArrayStorage<f32, 3, 1>> = Vector3::identity();
 
     match key_code {
         "w" => {
             if is_pressed {
-                // println!("w pressed");
-                diff = camera.direction * 0.1;
-                diff = diff * speed_multiplier;
-                camera.position += diff;
+                // Extract forward/right from camera direction (ignoring Y)
+                let forward_xz = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                renderer_state.physics_world.move_player(forward_xz.z, forward_xz.x, 5.0 * speed_multiplier);
             }
         }
         "s" => {
             if is_pressed {
-                diff = camera.direction * 0.1;
-                diff = diff * speed_multiplier;
-                camera.position -= diff;
+                let forward_xz = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                renderer_state.physics_world.move_player(-forward_xz.z, -forward_xz.x, 5.0 * speed_multiplier);
             }
         }
         "a" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                diff = right * 0.1;
-                diff = diff * speed_multiplier;
-                camera.position -= diff;
+                let right_xz = Vector3::new(right.x, 0.0, right.z).normalize();
+                renderer_state.physics_world.move_player(-right_xz.z, -right_xz.x, 5.0 * speed_multiplier);
             }
         }
         "d" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                diff = right * 0.1;
-                diff = diff * speed_multiplier;
-                camera.position += diff;
+                let right_xz = Vector3::new(right.x, 0.0, right.z).normalize();
+                renderer_state.physics_world.move_player(right_xz.z, right_xz.x, 5.0 * speed_multiplier);
             }
         }
-        _ => {
-            // Handle any other keys if necessary
-        }
+        _ => {}
     }
 
-    // Calculate delta time
-    let now = std::time::Instant::now();
-    let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
-    let dt = (now - last_movement_time).as_secs_f32();
-    renderer_state.last_movement_time = Some(now);
+    // let player_position = renderer_state.physics_world.player.position;
+    // camera.position = Point3::new(player_position.x, player_position.y, player_position.z);
 
-    // // Use dt to scale movement
-    let base_speed = 5.0; // units per second
-    let movement_delta = base_speed * dt; // This gives frame-rate independent movement
-    let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
+    // // Calculate delta time
+    // // let now = std::time::Instant::now();
+    // // let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
+    // // let dt = (now - last_movement_time).as_secs_f32();
+    // // renderer_state.last_movement_time = Some(now);
 
-    renderer_state.update_player_collider_position([
-        camera.position.x,
-        camera.position.y,
-        camera.position.z,
-    ]);
-    renderer_state.update_player_character_position(diff, 0.1, camera);
+    // // // // Use dt to scale movement
+    // // let base_speed = 5.0; // units per second
+    // // let movement_delta = base_speed * dt; // This gives frame-rate independent movement
+    // // let desired_movement = camera.direction * movement_delta; // or use diff? I don't think this accounts for which key is pressed
 
-    // drop(state_guard);
+    // // renderer_state.update_player_collider_position([
+    // //     camera.position.x,
+    // //     camera.position.y,
+    // //     camera.position.z,
+    // // ]);
+    // // renderer_state.update_player_character_position(diff, 0.1, camera);
 
-    camera.update();
-    camera_binding.update_3d(&gpu_resources.queue, &camera);
+    // // drop(state_guard);
 
-    renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
+    // camera.update();
+    // camera_binding.update_3d(&gpu_resources.queue, &camera);
+
+    // renderer_state.update_terrain_managers(&gpu_resources.device, 1.0 / 60.0, camera);
 }
 
 // pub fn handle_key_press(state: Arc<Mutex<RendererState>>, key_code: &str, is_pressed: bool) {

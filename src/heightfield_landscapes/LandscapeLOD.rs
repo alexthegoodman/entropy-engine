@@ -18,6 +18,7 @@ use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::core::vertex::Vertex;
 use crate::helpers::landscapes::get_landscape_pixels;
 use crate::helpers::saved_data::LandscapeTextureKinds;
+use crate::physics::core::{Heightfield, PhysicsWorld};
 
 use super::QuadNode::{QuadNode, TerrainMesh};
 
@@ -48,6 +49,35 @@ pub const LOD_DISTANCE_MULTIPLIER: f32 = 0.25; // Each level shows more detail a
 // pub const MAX_LOD_LEVELS: usize = 6;
 // pub const BASE_LOD_DISTANCE: f32 = 65_536.0; // Distance for first LOD transition
 // pub const LOD_DISTANCE_MULTIPLIER: f32 = 0.5; // Each level shows more detail at half the distance
+
+pub fn calculate_lod_distances() -> Vec<f32> {
+    let mut distances = Vec::with_capacity(MAX_LOD_LEVELS);
+    let mut current_distance = BASE_LOD_DISTANCE;
+
+    for _ in 0..MAX_LOD_LEVELS {
+        distances.push(current_distance);
+        current_distance *= LOD_DISTANCE_MULTIPLIER;
+    }
+
+    distances
+}
+
+
+// pub const MAX_LOD_LEVELS: usize = 6;
+// pub const MAX_LOD_DISTANCE: f32 = 16384.0; // Farthest distance we render
+// // pub const MAX_LOD_DISTANCE: f32 = 4096.0;
+
+// pub fn calculate_lod_distances() -> [f32; MAX_LOD_LEVELS] {
+//     let mut distances = [0.0; MAX_LOD_LEVELS];
+//     let mut current_distance = MAX_LOD_DISTANCE;
+    
+//     for i in 0..MAX_LOD_LEVELS {
+//         distances[i] = current_distance;
+//         current_distance /= 2.0;
+//     }
+    
+//     distances
+// }
 
 // Helper function to calculate vertex normals
 pub fn calculate_normals(vertices: &mut Vec<Vertex>, indices: &Vec<u32>) {
@@ -137,7 +167,8 @@ pub fn sample_height(x: f32, z: f32, height_data: &[f32]) -> f32 {
 }
 
 // Create type for the message we'll send through channel
-pub type ColliderMessage = (String, Collider); // (chunk_id, collider)
+// pub type ColliderMessage = (String, Collider); // (chunk_id, collider)
+pub type ColliderMessage = (String, Heightfield); // (chunk_id, collider)
 
 pub fn get_camera_distance_from_bounds(bounds: Rect, transform_position: [f32; 3], camera: &mut SimpleCamera) -> f32 {
     // let camera = get_camera();
@@ -316,38 +347,42 @@ pub fn add_physics_components_mini(
     collider_set: &mut ColliderSet,
     device: &wgpu::Device,
     quad: &mut QuadNode,
-    collider: Collider,
-    create_debug_mesh: bool
+    // collider: Collider,
+    heighfield: Heightfield,
+    create_debug_mesh: bool,
+    physics_world: &mut PhysicsWorld
 ) {
     if let Some(ref mut mesh) = quad.mesh {
         // Take ownership of the rigid body instead of cloning
-        if let Some(rigid_body) = mesh.rigid_body.take() {
-            // Use take() to move ownership
-            let rigid_body_handle = rigid_body_set.insert(rigid_body); // No clone needed
-            quad.rigid_body_handle = Some(rigid_body_handle);
+        // if let Some(rigid_body) = mesh.rigid_body.take() {
+        //     // Use take() to move ownership
+        //     let rigid_body_handle = rigid_body_set.insert(rigid_body); // No clone needed
+        //     quad.rigid_body_handle = Some(rigid_body_handle);
 
-            // println!(
-            //     "Actual rigid_body world position: {:?}",
-            //     rigid_body_set.get(rigid_body_handle).unwrap().position()
-            // );
+        //     // println!(
+        //     //     "Actual rigid_body world position: {:?}",
+        //     //     rigid_body_set.get(rigid_body_handle).unwrap().position()
+        //     // );
 
-            // println!("landscape collider insert_with_parent");
+        //     // println!("landscape collider insert_with_parent");
 
-            let collider_handle =
-                collider_set.insert_with_parent(collider, rigid_body_handle, rigid_body_set);
-            quad.collider_handle = Some(collider_handle);
+        //     let collider_handle =
+        //         collider_set.insert_with_parent(collider, rigid_body_handle, rigid_body_set);
+        //     quad.collider_handle = Some(collider_handle);
 
-            // if create_debug_mesh {
-                if let Some(collider) = collider_set.get(collider_handle) {
-                    // Access the collider here
-                    let position = collider.position();
-                    // println!("Collider position: {:?}", position);
-                    if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device, position) {
-                        quad.debug_mesh = Some(debug_mesh);
-                    }
-                }
-            // }
-        }
+        //     // if create_debug_mesh {
+        //         if let Some(collider) = collider_set.get(collider_handle) {
+        //             // Access the collider here
+        //             let position = collider.position();
+        //             // println!("Collider position: {:?}", position);
+        //             if let Some(debug_mesh) = create_debug_collision_mesh(&collider, device, position) {
+        //                 quad.debug_mesh = Some(debug_mesh);
+        //             }
+        //         }
+        //     // }
+        // }
+
+        physics_world.add_terrain(heighfield);
     }
 }
 
@@ -515,7 +550,8 @@ pub fn create_debug_collision_mesh(
             index_buffer,
             index_count: indices.len() as u32,
             collider: None,
-            rigid_body: Some(RigidBodyBuilder::fixed().build()),
+            // rigid_body: Some(RigidBodyBuilder::fixed().build()),
+            // terrain_heightfield: None,
             depth: 1,
         })
     } else {

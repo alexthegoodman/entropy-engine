@@ -57,6 +57,7 @@ impl std::ops::Mul<f32> for Vec3 {
 }
 
 /// Heightfield terrain representation
+#[derive(Debug)]
 pub struct Heightfield {
     pub width: usize,
     pub height: usize,
