@@ -501,7 +501,7 @@ pub fn handle_add_grass(
     if let Some(landscape) = state.landscapes.iter().find(|l| l.id == landscape_id) {
         println!("Adding grass to landscape: {}", landscape.id);
 
-        let grass_count = 50000;
+        let grass_count = 500_000;
         let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
 
         let mut rng = rand::thread_rng();
@@ -512,7 +512,7 @@ pub fn handle_add_grass(
             let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
 
             if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-                let position = Vector3::new(world_x, world_y, world_z);
+                let position = Vector3::new(world_x, world_y + 0.9, world_z);
                 let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
                 let model_matrix = Matrix4::new_translation(&position) * rotation;
 

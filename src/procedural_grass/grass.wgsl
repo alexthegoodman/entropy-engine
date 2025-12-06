@@ -81,7 +81,8 @@ fn vs_main(
 
     // -- Wind Sway --
     let wind_strength = 0.1;
-    let wind_speed = 2.0;
+    // let wind_speed = 2.0;
+    let wind_speed = 0.2;
     let wind_scale = 0.5;
     let noise_coord = world_pos.xz * wind_scale + uniforms.time * wind_speed;
     let wind_noise = snoise(noise_coord);
