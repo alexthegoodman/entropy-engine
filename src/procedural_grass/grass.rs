@@ -357,7 +357,8 @@ impl Grass {
         let blade = GrassBlade::new(device);
         let grid_size = 2.0; // Each grid cell is 2x2 units
         let render_distance = 50.0;
-        let blade_density = 25; // 25 blades per grid cell
+        // let blade_density = 25; // 25 blades per grid cell
+        let blade_density = 50; // 25 blades per grid cell
 
         // -- Uniforms --
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -466,7 +467,7 @@ impl Grass {
             time,
             grid_size: self.grid_size,
             render_distance: self.render_distance,
-            wind_strength: 0.3,
+            wind_strength: 0.1,
             player_pos: [player_pos.x, player_pos.y, player_pos.z, 0.0],
             wind_speed: 0.02, // slow
             blade_height: 2.5,
