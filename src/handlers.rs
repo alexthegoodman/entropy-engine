@@ -18,7 +18,7 @@ use crate::core::gpu_resources;
 use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass, InstanceRaw};
-use rand::Rng;
+use rand::{Rng, random};
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
     core::SimpleCamera::SimpleCamera,
@@ -493,6 +493,76 @@ pub fn fetch_mask_data(
     Texture::new(mask_data.bytes, mask_data.width, mask_data.height)
 }
 
+// pub fn handle_add_grass(
+//     state: &mut RendererState,
+//     device: &wgpu::Device,
+//     queue: &wgpu::Queue,
+//     camera_bind_group_layout: &wgpu::BindGroupLayout,
+//     landscape_id: &str,
+// ) {
+//     if let Some(landscape) = state.landscapes.iter().find(|l| l.id == landscape_id) {
+//         println!("Adding grass to landscape: {}", landscape.id);
+
+//         let target_grass_count = 1_000_000;
+//         let mut grass = Grass::new(device, camera_bind_group_layout, landscape, target_grass_count);
+
+//         // let noise = Fbm::<Perlin>::new(12345)
+//         //     .set_octaves(4)           // More octaves = more detail layers
+//         //     .set_frequency(0.5)       // Lower = bigger patches
+//         //     .set_lacunarity(2.0)      // How much each octave changes frequency
+//         //     .set_persistence(0.5);    // How much each octave affects amplitude
+//         let noise = Worley::new(12345)
+//                         .set_frequency(0.75);
+//         let mut rng = rand::thread_rng();
+//         let square_size = 1024.0 * 4.0; // Should be consistent with landscape creation
+
+//         let instances = (0..target_grass_count).filter_map(|_| {
+//             let world_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
+//             let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
+
+//             // if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+//             //     let position = Vector3::new(world_x, world_y, world_z);
+//             //     let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+//             //     let model_matrix = Matrix4::new_translation(&position) * rotation;
+
+//             //     Some(InstanceRaw {
+//             //         model: model_matrix.into()
+//             //     })
+//             // } else {
+//             //     None
+//             // }
+
+//             if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+//                 // Then just use the noise value directly or with minimal adjustment:
+//                 let noise_value = noise.get([world_x as f64, world_z as f64]);
+
+//                 if noise_value < 0.0 {  // Simple: positive = grass, negative = no grass
+//                     return None;
+//                 }
+
+//                 let position = Vector3::new(world_x, world_y, world_z);
+//                 let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+//                 let model_matrix = Matrix4::new_translation(&position) * rotation;
+
+//                 Some(InstanceRaw {
+//                     model: model_matrix.into()
+//                 })
+//             } else {
+//                 None
+//             }
+//         }).collect::<Vec<_>>();
+        
+//         grass.instance_count = instances.len() as u32;
+//         queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
+
+//         state.grasses.push(grass);
+//         println!("Added {} blades of grass.", instances.len());
+
+//     } else {
+//         println!("Could not find landscape with id: {}", landscape_id);
+//     }
+// }
+
 pub fn handle_add_grass(
     state: &mut RendererState,
     device: &wgpu::Device,
@@ -506,57 +576,54 @@ pub fn handle_add_grass(
         let grass_count = 500_000;
         let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
 
-        // let noise = Fbm::<Perlin>::new(12345)
-        //     .set_octaves(4)           // More octaves = more detail layers
-        //     .set_frequency(0.5)       // Lower = bigger patches
-        //     .set_lacunarity(2.0)      // How much each octave changes frequency
-        //     .set_persistence(0.5);    // How much each octave affects amplitude
-        let noise = Worley::new(12345)
-                        .set_frequency(0.05);
         let mut rng = rand::thread_rng();
-        let square_size = 1024.0 * 4.0; // Should be consistent with landscape creation
+        let square_size = 1024.0 * 4.0;
 
-        let instances = (0..grass_count).filter_map(|_| {
-            let world_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
-            let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
+        // Generate splotch centers
+        let num_splotches = 30;
+        let min_radius = 50.0;
+        let max_radius = 150.0;
+        
+        let splotches: Vec<(f32, f32, f32)> = (0..num_splotches)
+            .map(|_| {
+                let center_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
+                let center_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
+                let radius = rng.gen_range(min_radius..max_radius);
+                (center_x, center_z, radius)
+            })
+            .collect();
 
-            // if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-            //     let position = Vector3::new(world_x, world_y, world_z);
-            //     let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-            //     let model_matrix = Matrix4::new_translation(&position) * rotation;
+        // Distribute grass count across splotches
+        let blades_per_splotch = grass_count / num_splotches as u32;
 
-            //     Some(InstanceRaw {
-            //         model: model_matrix.into()
-            //     })
-            // } else {
-            //     None
-            // }
+        let instances: Vec<InstanceRaw> = splotches.iter().flat_map(|(cx, cz, radius)| {
+            (0..blades_per_splotch).filter_map(|_| {
+                // Generate random point within circle
+                let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+                let r = radius * random::<f32>().sqrt(); // sqrt for uniform distribution
+                
+                let world_x = cx + r * angle.cos();
+                let world_z = cz + r * angle.sin();
 
-            if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-                // Then just use the noise value directly or with minimal adjustment:
-                let noise_value = noise.get([world_x as f64, world_z as f64]);
+                if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+                    let position = Vector3::new(world_x, world_y, world_z);
+                    let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+                    let model_matrix = Matrix4::new_translation(&position) * rotation;
 
-                if noise_value < 0.0 {  // Simple: positive = grass, negative = no grass
-                    return None;
+                    Some(InstanceRaw {
+                        model: model_matrix.into()
+                    })
+                } else {
+                    None
                 }
-
-                let position = Vector3::new(world_x, world_y, world_z);
-                let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-                let model_matrix = Matrix4::new_translation(&position) * rotation;
-
-                Some(InstanceRaw {
-                    model: model_matrix.into()
-                })
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+            }).collect::<Vec<_>>()
+        }).collect();
         
         grass.instance_count = instances.len() as u32;
         queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
         state.grasses.push(grass);
-        println!("Added {} blades of grass.", instances.len());
+        println!("Added {} blades of grass in {} splotches.", instances.len(), num_splotches);
 
     } else {
         println!("Could not find landscape with id: {}", landscape_id);

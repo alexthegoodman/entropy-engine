@@ -794,7 +794,8 @@ impl RendererState {
             let current_velocity = rigidbody.linvel();
             
             // Set horizontal velocity while keeping vertical velocity
-            let movement_speed = 5.0; // Adjust this to your desired speed
+            // let movement_speed = 5.0; // Adjust this to your desired speed
+            let movement_speed = 2.5;
             let new_velocity = vector![
                 direction.x * movement_speed,
                 current_velocity.y, // Preserve gravity/jumping
