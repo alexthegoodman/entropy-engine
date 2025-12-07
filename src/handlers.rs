@@ -17,7 +17,7 @@ use crate::core::editor::Editor;
 use crate::core::gpu_resources;
 use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
-use crate::procedural_grass::grass::{Grass, InstanceRaw};
+use crate::procedural_grass::grass::{Grass};
 use rand::{Rng, random};
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -570,61 +570,62 @@ pub fn handle_add_grass(
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     landscape_id: &str,
 ) {
-    if let Some(landscape) = state.landscapes.iter().find(|l| l.id == landscape_id) {
+    if let Some(landscape) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
         println!("Adding grass to landscape: {}", landscape.id);
 
-        let grass_count = 500_000;
-        let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
+        // let grass_count = 500_000;
+        // let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
+        let grass = Grass::new(&device, &camera_bind_group_layout, landscape);
 
-        let mut rng = rand::thread_rng();
-        let square_size = 1024.0 * 4.0;
+        // let mut rng = rand::thread_rng();
+        // let square_size = 1024.0 * 4.0;
 
-        // Generate splotch centers
-        let num_splotches = 30;
-        let min_radius = 50.0;
-        let max_radius = 150.0;
+        // // Generate splotch centers
+        // let num_splotches = 30;
+        // let min_radius = 50.0;
+        // let max_radius = 150.0;
         
-        let splotches: Vec<(f32, f32, f32)> = (0..num_splotches)
-            .map(|_| {
-                let center_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
-                let center_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
-                let radius = rng.gen_range(min_radius..max_radius);
-                (center_x, center_z, radius)
-            })
-            .collect();
+        // let splotches: Vec<(f32, f32, f32)> = (0..num_splotches)
+        //     .map(|_| {
+        //         let center_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
+        //         let center_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
+        //         let radius = rng.gen_range(min_radius..max_radius);
+        //         (center_x, center_z, radius)
+        //     })
+        //     .collect();
 
-        // Distribute grass count across splotches
-        let blades_per_splotch = grass_count / num_splotches as u32;
+        // // Distribute grass count across splotches
+        // let blades_per_splotch = grass_count / num_splotches as u32;
 
-        let instances: Vec<InstanceRaw> = splotches.iter().flat_map(|(cx, cz, radius)| {
-            (0..blades_per_splotch).filter_map(|_| {
-                // Generate random point within circle
-                let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-                let r = radius * random::<f32>().sqrt(); // sqrt for uniform distribution
+        // let instances: Vec<InstanceRaw> = splotches.iter().flat_map(|(cx, cz, radius)| {
+        //     (0..blades_per_splotch).filter_map(|_| {
+        //         // Generate random point within circle
+        //         let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
+        //         let r = radius * random::<f32>().sqrt(); // sqrt for uniform distribution
                 
-                let world_x = cx + r * angle.cos();
-                let world_z = cz + r * angle.sin();
+        //         let world_x = cx + r * angle.cos();
+        //         let world_z = cz + r * angle.sin();
 
-                if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-                    let position = Vector3::new(world_x, world_y, world_z);
-                    let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-                    let model_matrix = Matrix4::new_translation(&position) * rotation;
+        //         if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+        //             let position = Vector3::new(world_x, world_y, world_z);
+        //             let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+        //             let model_matrix = Matrix4::new_translation(&position) * rotation;
 
-                    Some(InstanceRaw {
-                        model: model_matrix.into()
-                    })
-                } else {
-                    None
-                }
-            }).collect::<Vec<_>>()
-        }).collect();
+        //             Some(InstanceRaw {
+        //                 model: model_matrix.into()
+        //             })
+        //         } else {
+        //             None
+        //         }
+        //     }).collect::<Vec<_>>()
+        // }).collect();
         
-        grass.instance_count = instances.len() as u32;
-        queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
+        // grass.instance_count = instances.len() as u32;
+        // queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
 
         state.grasses.push(grass);
-        println!("Added {} blades of grass in {} splotches.", instances.len(), num_splotches);
-
+        // println!("Added {} blades of grass in {} splotches.", instances.len(), num_splotches);
+        println!("Added grass");
     } else {
         println!("Could not find landscape with id: {}", landscape_id);
     }

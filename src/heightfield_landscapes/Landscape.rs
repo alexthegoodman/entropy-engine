@@ -38,6 +38,7 @@ pub struct Landscape {
     pub collider_handle: Option<ColliderHandle>,
     pub rigid_body_handle: Option<RigidBodyHandle>,
     pub heights: nalgebra::DMatrix<f32>,
+    pub particle_bind_group_layout: Option<wgpu::BindGroupLayout>
 }
 
 impl Landscape {
@@ -277,6 +278,7 @@ impl Landscape {
             collider_handle: None,
             rigid_body_handle: None,
             heights: data.rapier_heights.clone(),
+            particle_bind_group_layout: None
         }
     }
 
@@ -393,6 +395,54 @@ impl Landscape {
     //     }
     // }
 
+    pub fn create_particle_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.particle_bind_group_layout.as_ref().unwrap(),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.texture_array_view.as_ref().expect("Couldn't get landscape texture array")), // Your texture array view
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler), // Your existing sampler
+                },
+            ],
+            label: Some("Landscape Particle Bind Group"),
+        })
+    }
+
+    pub fn create_layout_for_particles(&mut self, device: &wgpu::Device) {
+        let landscape_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // Texture array binding
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX, // Vertex shader needs to sample height
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array, // Texture array
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Sampler binding
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::VERTEX, // Vertex shader needs the sampler too
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), // Filtering sampler
+                        count: None,
+                    },
+                ],
+                label: Some("Landscape Particle Bind Group Layout"),
+            });
+
+        self.particle_bind_group_layout = Some(landscape_bind_group_layout);
+    }
+
     fn update_bind_group(
         &mut self,
         device: &wgpu::Device,
@@ -444,28 +494,101 @@ impl Landscape {
     }
 
     // Generate vertex buffer from heightmap data
+    // pub fn generate_terrain(data: &LandscapePixelData, scale: f32) -> (Vec<Vertex>, Vec<u32>) {
+    //     let mut vertices = Vec::with_capacity(data.width * data.height);
+    //     // let mut rapier_vertices = Vec::with_capacity(data.width * data.height);
+    //     let mut indices = Vec::new();
+
+    //     for y in 0..data.height {
+    //         for x in 0..data.width {
+    //             vertices.push(Vertex {
+    //                 position: data.pixel_data[y][x].position,
+    //                 normal: [0.0, 1.0, 0.0],
+    //                 tex_coords: data.pixel_data[y][x].tex_coords,
+    //                 color: [1.0, 1.0, 1.0, 1.0],
+    //             });
+    //             // rapier_vertices.push(Point::new(
+    //             //     data.pixel_data[y][x].position[0],
+    //             //     data.pixel_data[y][x].position[1],
+    //             //     data.pixel_data[y][x].position[2],
+    //             // ));
+    //         }
+    //     }
+
+    //     // Generate indices with additional connections
+    //     for y in 0..(data.height - 1) {
+    //         for x in 0..(data.width - 1) {
+    //             let top_left = (y * data.width + x) as u32;
+    //             let top_right = top_left + 1;
+    //             let bottom_left = ((y + 1) * data.width + x) as u32;
+    //             let bottom_right = bottom_left + 1;
+
+    //             // Main triangle
+    //             indices.extend_from_slice(&[top_left, bottom_left, top_right]);
+    //             indices.extend_from_slice(&[top_right, bottom_left, bottom_right]);
+
+    //             // Additional connections
+    //             if x < data.width - 2 {
+    //                 // Connect to the next column
+    //                 indices.extend_from_slice(&[top_right, bottom_right, top_right + 1]);
+    //                 indices.extend_from_slice(&[bottom_right, bottom_right + 1, top_right + 1]);
+    //             }
+
+    //             if y < data.height - 2 {
+    //                 // Connect to the next row
+    //                 indices.extend_from_slice(&[
+    //                     bottom_left,
+    //                     bottom_left + data.width as u32,
+    //                     bottom_right,
+    //                 ]);
+    //                 indices.extend_from_slice(&[
+    //                     bottom_right,
+    //                     bottom_left + data.width as u32,
+    //                     bottom_right + data.width as u32,
+    //                 ]);
+    //             }
+    //         }
+    //     }
+
+    //     // println!("Generating terrain colliders...");
+
+    //     // // Create a static rigid body which doesn't move
+    //     // let terrain_body = RigidBodyBuilder::fixed() // fixed means immovable
+    //     //     .build();
+
+    //     // println!("Body built...");
+
+    //     // let terrain_collider = ColliderBuilder::trimesh(
+    //     //     rapier_vertices,
+    //     //     indices
+    //     //         .chunks(3)
+    //     //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
+    //     //         .collect::<Vec<[u32; 3]>>(),
+    //     // )
+    //     // .build();
+
+    //     println!("Terrain ready!");
+
+    //     (vertices, indices)
+    // }
+
     pub fn generate_terrain(data: &LandscapePixelData, scale: f32) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::with_capacity(data.width * data.height);
-        // let mut rapier_vertices = Vec::with_capacity(data.width * data.height);
         let mut indices = Vec::new();
 
+        // First pass: Create vertices with placeholder normals
         for y in 0..data.height {
             for x in 0..data.width {
                 vertices.push(Vertex {
                     position: data.pixel_data[y][x].position,
-                    normal: [0.0, 1.0, 0.0],
+                    normal: [0.0, 1.0, 0.0], // Will calculate properly below
                     tex_coords: data.pixel_data[y][x].tex_coords,
                     color: [1.0, 1.0, 1.0, 1.0],
                 });
-                // rapier_vertices.push(Point::new(
-                //     data.pixel_data[y][x].position[0],
-                //     data.pixel_data[y][x].position[1],
-                //     data.pixel_data[y][x].position[2],
-                // ));
             }
         }
 
-        // Generate indices with additional connections
+        // Generate indices
         for y in 0..(data.height - 1) {
             for x in 0..(data.width - 1) {
                 let top_left = (y * data.width + x) as u32;
@@ -473,19 +596,17 @@ impl Landscape {
                 let bottom_left = ((y + 1) * data.width + x) as u32;
                 let bottom_right = bottom_left + 1;
 
-                // Main triangle
+                // Main triangles
                 indices.extend_from_slice(&[top_left, bottom_left, top_right]);
                 indices.extend_from_slice(&[top_right, bottom_left, bottom_right]);
 
                 // Additional connections
                 if x < data.width - 2 {
-                    // Connect to the next column
                     indices.extend_from_slice(&[top_right, bottom_right, top_right + 1]);
                     indices.extend_from_slice(&[bottom_right, bottom_right + 1, top_right + 1]);
                 }
 
                 if y < data.height - 2 {
-                    // Connect to the next row
                     indices.extend_from_slice(&[
                         bottom_left,
                         bottom_left + data.width as u32,
@@ -500,26 +621,65 @@ impl Landscape {
             }
         }
 
-        // println!("Generating terrain colliders...");
-
-        // // Create a static rigid body which doesn't move
-        // let terrain_body = RigidBodyBuilder::fixed() // fixed means immovable
-        //     .build();
-
-        // println!("Body built...");
-
-        // let terrain_collider = ColliderBuilder::trimesh(
-        //     rapier_vertices,
-        //     indices
-        //         .chunks(3)
-        //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
-        //         .collect::<Vec<[u32; 3]>>(),
-        // )
-        // .build();
+        // Calculate proper normals
+        Self::calculate_normals(&mut vertices, &indices, data.width, data.height);
 
         println!("Terrain ready!");
 
         (vertices, indices)
+    }
+
+    fn calculate_normals(vertices: &mut [Vertex], indices: &[u32], width: usize, height: usize) {
+        // Initialize all normals to zero
+        for vertex in vertices.iter_mut() {
+            vertex.normal = [0.0, 0.0, 0.0];
+        }
+
+        // Calculate face normals and accumulate to vertex normals
+        for triangle in indices.chunks(3) {
+            let i0 = triangle[0] as usize;
+            let i1 = triangle[1] as usize;
+            let i2 = triangle[2] as usize;
+
+            let v0 = vertices[i0].position;
+            let v1 = vertices[i1].position;
+            let v2 = vertices[i2].position;
+
+            // Calculate two edges of the triangle
+            let edge1 = [v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]];
+            let edge2 = [v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]];
+
+            // Cross product gives us the face normal
+            let normal = [
+                edge1[1] * edge2[2] - edge1[2] * edge2[1],
+                edge1[2] * edge2[0] - edge1[0] * edge2[2],
+                edge1[0] * edge2[1] - edge1[1] * edge2[0],
+            ];
+
+            // Accumulate to each vertex of the triangle
+            for &idx in &[i0, i1, i2] {
+                vertices[idx].normal[0] += normal[0];
+                vertices[idx].normal[1] += normal[1];
+                vertices[idx].normal[2] += normal[2];
+            }
+        }
+
+        // Normalize all vertex normals
+        for vertex in vertices.iter_mut() {
+            let length = (vertex.normal[0] * vertex.normal[0]
+                + vertex.normal[1] * vertex.normal[1]
+                + vertex.normal[2] * vertex.normal[2])
+                .sqrt();
+
+            if length > 0.0001 {
+                vertex.normal[0] /= length;
+                vertex.normal[1] /= length;
+                vertex.normal[2] /= length;
+            } else {
+                // Fallback to up vector if normal is too small
+                vertex.normal = [0.0, 1.0, 0.0];
+            }
+        }
     }
 
     pub fn generate_debug_terrain(

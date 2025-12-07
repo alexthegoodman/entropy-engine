@@ -747,13 +747,15 @@ impl ExportPipeline {
                     grass.update_uniforms(&queue, time, camera.position);
                 }
                 render_pass.set_pipeline(&grass.render_pipeline);
-                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                // We set the vertex buffer for the grass blade model at slot 0
-                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                // We set the instance buffer at slot 1
-                render_pass.set_vertex_buffer(1, grass.instance_buffer.slice(..));
-                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..grass.instance_count);
+                grass.render(&mut render_pass, &camera_binding.bind_group);
+                // render_pass.set_pipeline(&grass.render_pipeline);
+                // render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                // // We set the vertex buffer for the grass blade model at slot 0
+                // render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                // // We set the instance buffer at slot 1
+                // render_pass.set_vertex_buffer(1, grass.instance_buffer.slice(..));
+                // render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                // render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..grass.instance_count);
             }
 
             // // draw text items
