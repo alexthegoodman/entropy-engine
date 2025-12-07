@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::time::Instant;
 use std::{cell::RefCell, collections::HashMap};
+use noise::{Fbm, NoiseFn, Perlin, Worley};
+use noise::MultiFractal;
 
 use crate::core::editor::Editor;
 use crate::core::gpu_resources;
@@ -504,6 +506,13 @@ pub fn handle_add_grass(
         let grass_count = 500_000;
         let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
 
+        // let noise = Fbm::<Perlin>::new(12345)
+        //     .set_octaves(4)           // More octaves = more detail layers
+        //     .set_frequency(0.5)       // Lower = bigger patches
+        //     .set_lacunarity(2.0)      // How much each octave changes frequency
+        //     .set_persistence(0.5);    // How much each octave affects amplitude
+        let noise = Worley::new(12345)
+                        .set_frequency(0.05);
         let mut rng = rand::thread_rng();
         let square_size = 1024.0 * 4.0; // Should be consistent with landscape creation
 
@@ -511,8 +520,27 @@ pub fn handle_add_grass(
             let world_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
             let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
 
+            // if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
+            //     let position = Vector3::new(world_x, world_y, world_z);
+            //     let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
+            //     let model_matrix = Matrix4::new_translation(&position) * rotation;
+
+            //     Some(InstanceRaw {
+            //         model: model_matrix.into()
+            //     })
+            // } else {
+            //     None
+            // }
+
             if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-                let position = Vector3::new(world_x, world_y + 0.9, world_z);
+                // Then just use the noise value directly or with minimal adjustment:
+                let noise_value = noise.get([world_x as f64, world_z as f64]);
+
+                if noise_value < 0.0 {  // Simple: positive = grass, negative = no grass
+                    return None;
+                }
+
+                let position = Vector3::new(world_x, world_y, world_z);
                 let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
                 let model_matrix = Matrix4::new_translation(&position) * rotation;
 

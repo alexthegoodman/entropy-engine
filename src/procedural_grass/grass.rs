@@ -79,8 +79,8 @@ impl GrassBlade {
         let vertices: &[Vertex] = &[
             Vertex { position: [-0.1, 0.0, 0.0], tex_coords: [0.0, 1.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Bottom left
             Vertex { position: [ 0.1, 0.0, 0.0], tex_coords: [1.0, 1.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Bottom right
-            Vertex { position: [ 0.1, 1.0, 0.0], tex_coords: [1.0, 0.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Top right
-            Vertex { position: [-0.1, 1.0, 0.0], tex_coords: [0.0, 0.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Top left
+            Vertex { position: [ 0.1, 2.5, 0.0], tex_coords: [1.0, 0.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Top right
+            Vertex { position: [-0.1, 2.5, 0.0], tex_coords: [0.0, 0.0], normal: [0.0, 1.0, 0.0], color: [1.0,1.0,1.0,1.0] }, // Top left
         ];
 
         let indices: &[u16] = &[

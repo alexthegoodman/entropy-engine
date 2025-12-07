@@ -52,6 +52,7 @@ tracing = "0.1.43"
 egui = "0.33.2"
 egui-wgpu = { version = "0.33.2", features = ["winit"] }
 egui-winit = "0.33.2"
+noise = "0.8"
 
 [dependencies.gltf]
 features = ["utils"]

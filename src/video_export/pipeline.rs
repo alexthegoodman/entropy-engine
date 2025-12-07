@@ -741,7 +741,11 @@ impl ExportPipeline {
             // draw grass
             let time = self.start_time.elapsed().as_secs_f32();
             for grass in &renderer_state.grasses {
-                grass.update_uniforms(&queue, time, camera.position);
+                if let Some(sphere) = &renderer_state.player_character.sphere {
+                    grass.update_uniforms(&queue, time, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                } else {
+                    grass.update_uniforms(&queue, time, camera.position);
+                }
                 render_pass.set_pipeline(&grass.render_pipeline);
                 render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
                 // We set the vertex buffer for the grass blade model at slot 0
@@ -1112,6 +1116,17 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             }
                                                         }
                                                     }
+
+                                                    // TODO: only load in when in saved state / data, and with the desireed configuration (ex. grass color)
+                                                    let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+
+                                                    handle_add_grass(
+                                                        renderer_state,
+                                                        &gpu_resources.device,
+                                                        &gpu_resources.queue,
+                                                        &camera_binding.bind_group_layout,
+                                                        &component.id.clone(),
+                                                    );
                                                 }
                                             }
                                         }

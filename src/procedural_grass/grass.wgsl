@@ -80,7 +80,7 @@ fn vs_main(
     let world_pos = model_matrix * vec4<f32>(model.position, 1.0);
 
     // -- Wind Sway --
-    let wind_strength = 0.1;
+    let wind_strength = 0.05;
     // let wind_speed = 2.0;
     let wind_speed = 0.2;
     let wind_scale = 0.5;
@@ -93,14 +93,15 @@ fn vs_main(
     let final_wind_disp = wind_displacement * sway_factor;
 
     // -- Player Interaction --
-    let interaction_radius = 2.0;
+    let interaction_radius = 3.0;
     let instance_pos = model_matrix[3].xyz;
     let dist_to_player = distance(instance_pos, uniforms.player_pos.xyz);
     var interaction_disp = vec3<f32>(0.0);
 
     if (dist_to_player < interaction_radius) {
         let push_dir = normalize(instance_pos - uniforms.player_pos.xyz);
-        let push_strength = (1.0 - (dist_to_player / interaction_radius)) * 0.5;
+        // let push_strength = (1.0 - (dist_to_player / interaction_radius)) * 0.5;
+        let push_strength = (1.0 - (dist_to_player / interaction_radius)) * 1.5;
         interaction_disp = push_dir * push_strength * sway_factor;
     }
 
