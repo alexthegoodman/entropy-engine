@@ -15,6 +15,7 @@ use noise::MultiFractal;
 
 use crate::core::editor::Editor;
 use crate::core::gpu_resources;
+use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
@@ -434,12 +435,12 @@ pub fn handle_add_landscape_texture(
     // });
 }
 
-#[derive(Deserialize)]
-pub struct TextureData {
-    bytes: Vec<u8>,
-    width: u32,
-    height: u32,
-}
+// #[derive(Deserialize)]
+// pub struct TextureData {
+//     bytes: Vec<u8>,
+//     width: u32,
+//     height: u32,
+// }
 
 pub fn fetch_texture_data(
     project_id: String,
@@ -568,10 +569,24 @@ pub fn handle_add_grass(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
+    model_bind_group_layout: &wgpu::BindGroupLayout,
     landscape_id: &str,
+    texture_data: TextureData
 ) {
     if let Some(landscape) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
         println!("Adding grass to landscape: {}", landscape.id);
+
+        let texture = Texture::new(texture_data.bytes, texture_data.width, texture_data.height);
+
+        landscape.update_particle_texture(
+            device,
+            queue,
+            &model_bind_group_layout,
+            &state.texture_render_mode_buffer,
+            &state.color_render_mode_buffer,
+            LandscapeTextureKinds::Primary,
+            &texture,
+        );
 
         // let grass_count = 500_000;
         // let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);

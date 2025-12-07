@@ -1,7 +1,7 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_landscape, handle_add_landscape_texture, handle_add_grass}, helpers::{saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
@@ -135,6 +135,7 @@ impl ExportPipeline {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
+                    // required_features: wgpu::Features::FLOAT32_FILTERABLE,
                     ..Default::default()
                 },
                 // None,
@@ -430,34 +431,37 @@ impl ExportPipeline {
         );
 
         let mut grids = Vec::new();
-        grids.push(Grid::new(
-            &device,
-            &queue,
-            &model_bind_group_layout,
-            &group_bind_group_layout.clone(),
-            &texture_render_mode_buffer.clone(),
-            &camera,
-            GridConfig {
-                width: 200.0,
-                depth: 200.0,
-                spacing: 4.0,
-                line_thickness: 0.1,
-            },
-        ));
-        grids.push(Grid::new(
-            &device,
-            &queue,
-            &model_bind_group_layout,
-            &group_bind_group_layout,
-            &texture_render_mode_buffer,
-             &camera,
-            GridConfig {
-                width: 200.0,
-                depth: 200.0,
-                spacing: 1.0,
-                line_thickness: 0.025,
-            },
-        ));
+
+        if !game_mode {
+            grids.push(Grid::new(
+                &device,
+                &queue,
+                &model_bind_group_layout,
+                &group_bind_group_layout.clone(),
+                &texture_render_mode_buffer.clone(),
+                &camera,
+                GridConfig {
+                    width: 200.0,
+                    depth: 200.0,
+                    spacing: 4.0,
+                    line_thickness: 0.1,
+                },
+            ));
+            grids.push(Grid::new(
+                &device,
+                &queue,
+                &model_bind_group_layout,
+                &group_bind_group_layout,
+                &texture_render_mode_buffer,
+                &camera,
+                GridConfig {
+                    width: 200.0,
+                    depth: 200.0,
+                    spacing: 1.0,
+                    line_thickness: 0.025,
+                },
+            ));
+        }
 
         renderer_state.grids = grids;
 
@@ -748,14 +752,6 @@ impl ExportPipeline {
                 }
                 render_pass.set_pipeline(&grass.render_pipeline);
                 grass.render(&mut render_pass, &camera_binding.bind_group);
-                // render_pass.set_pipeline(&grass.render_pipeline);
-                // render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                // // We set the vertex buffer for the grass blade model at slot 0
-                // render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                // // We set the instance buffer at slot 1
-                // render_pass.set_vertex_buffer(1, grass.instance_buffer.slice(..));
-                // render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                // render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..grass.instance_count);
             }
 
             // // draw text items
@@ -1017,25 +1013,27 @@ impl ExportPipeline {
                 // println!("Landscape added {:?}", editor.cubes.len());
             }
 
-            if ui.button("Add Grass").clicked() {
-                let editor = self.export_editor.as_mut().unwrap();
-                let gpu_resources = self.gpu_resources.as_ref().unwrap();
-                let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+            // if ui.button("Add Grass").clicked() {
+            //     let editor = self.export_editor.as_mut().unwrap();
+            //     let gpu_resources = self.gpu_resources.as_ref().unwrap();
+            //     let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-                if let Some(landscape) = renderer_state.landscapes.first() {
-                    let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
-                    let landscape_id = landscape.id.clone();
-                    handle_add_grass(
-                        renderer_state,
-                        &gpu_resources.device,
-                        &gpu_resources.queue,
-                        &camera_binding.bind_group_layout,
-                        &landscape_id,
-                    );
-                } else {
-                    println!("No landscape found to add grass to!");
-                }
-            }
+            //     if let Some(landscape) = renderer_state.landscapes.first() {
+            //         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+            //         let landscape_id = landscape.id.clone();
+            //         handle_add_grass(
+            //             renderer_state,
+            //             &gpu_resources.device,
+            //             &gpu_resources.queue,
+            //             &camera_binding.bind_group_layout,
+            //             &editor.model_bind_group_layout.as_ref().expect("Couldn't get layout"),
+
+            //             &landscape_id,
+            //         );
+            //     } else {
+            //         println!("No landscape found to add grass to!");
+            //     }
+            // }
         });
     
         egui::Window::new("Hello too").show(ctx, |ui| {
@@ -1119,16 +1117,22 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                         }
                                                     }
 
-                                                    // TODO: only load in when in saved state / data, and with the desireed configuration (ex. grass color)
-                                                    let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+                                                    let heightmap_texture = read_landscape_heightmap_as_texture(project_id.to_string(), landscape_data.id.clone(), heightmap.fileName.clone());
 
-                                                    handle_add_grass(
-                                                        renderer_state,
-                                                        &gpu_resources.device,
-                                                        &gpu_resources.queue,
-                                                        &camera_binding.bind_group_layout,
-                                                        &component.id.clone(),
-                                                    );
+                                                    if let Some(texture) = heightmap_texture.ok() {
+                                                        // TODO: only load in when in saved state / data, and with the desireed configuration (ex. grass color)
+                                                        let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+
+                                                        handle_add_grass(
+                                                            renderer_state,
+                                                            &gpu_resources.device,
+                                                            &gpu_resources.queue,
+                                                            &camera_binding.bind_group_layout,
+                                                            &editor.model_bind_group_layout.as_ref().expect("Couldn't get layout"),
+                                                            &component.id.clone(),
+                                                            texture
+                                                        );
+                                                    }
                                                 }
                                             }
                                         }

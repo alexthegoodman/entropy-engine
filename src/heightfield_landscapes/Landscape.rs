@@ -38,7 +38,8 @@ pub struct Landscape {
     pub collider_handle: Option<ColliderHandle>,
     pub rigid_body_handle: Option<RigidBodyHandle>,
     pub heights: nalgebra::DMatrix<f32>,
-    pub particle_bind_group_layout: Option<wgpu::BindGroupLayout>
+    pub particle_bind_group_layout: Option<wgpu::BindGroupLayout>,
+    pub particle_texture_view: Option<wgpu::TextureView>
 }
 
 impl Landscape {
@@ -278,7 +279,8 @@ impl Landscape {
             collider_handle: None,
             rigid_body_handle: None,
             heights: data.rapier_heights.clone(),
-            particle_bind_group_layout: None
+            particle_bind_group_layout: None,
+            particle_texture_view: None
         }
     }
 
@@ -304,6 +306,9 @@ impl Landscape {
         if self.texture_array.is_none() {
             self.create_texture_array(device, new_texture.size());
         }
+
+        // let float_data: Vec<f32> = new_texture.data.iter().map(|&b| f32::from(b) / 255.0).collect();
+        // let float_data_bytes: &[u8] = bytemuck::cast_slice(&float_data);
 
         if let Some(texture_array) = &self.texture_array {
             queue.write_texture(
@@ -345,6 +350,7 @@ impl Landscape {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
+            // format: wgpu::TextureFormat::Rgba32Float,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             label: Some("landscape_texture_array"),
@@ -358,6 +364,52 @@ impl Landscape {
 
         self.texture_array = Some(texture_array);
         self.texture_array_view = Some(texture_array_view);
+    }
+
+   pub fn update_particle_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
+        color_render_mode_buffer: &wgpu::Buffer,
+        kind: LandscapeTextureKinds,
+        new_texture: &Texture,
+    ) {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default White Texture"),
+            size: new_texture.size(),
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        // Copy white pixel data to texture
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &new_texture.data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * new_texture.size().width),
+                rows_per_image: Some(new_texture.size().height),
+            },
+            new_texture.size(),
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            // dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        self.particle_texture_view = Some(texture_view);
     }
 
     // fn update_bind_group(
@@ -403,7 +455,7 @@ impl Landscape {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.texture_array_view.as_ref().expect("Couldn't get landscape texture array")), // Your texture array view
+                    resource: wgpu::BindingResource::TextureView(&self.particle_texture_view.as_ref().expect("Couldn't get landscape texture array")), // Your texture array view
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -424,7 +476,7 @@ impl Landscape {
                         visibility: wgpu::ShaderStages::VERTEX, // Vertex shader needs to sample height
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2Array, // Texture array
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
                         count: None,

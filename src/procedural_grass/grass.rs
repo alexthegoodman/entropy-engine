@@ -270,6 +270,8 @@ struct GrassUniforms {
     blade_height: f32,
     blade_width: f32,
     brownian_strength: f32,
+    blade_density: f32, // NEW
+    _pad0: [f32; 3],   // <---- Add padding to reach 64 bytes total
 }
 
 // Instead of per-blade instances, we'll use a simple grid vertex buffer
@@ -470,6 +472,9 @@ impl Grass {
             blade_height: 2.5,
             blade_width: 0.15,
             brownian_strength: 0.2,
+            blade_density: self.blade_density as f32,
+            _pad0: [0.0; 3],
+
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }

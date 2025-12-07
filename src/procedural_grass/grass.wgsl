@@ -136,13 +136,14 @@ struct GrassUniforms {
     blade_height: f32,
     blade_width: f32,
     brownian_strength: f32,
+    blade_density: f32, // NEW
 }
 @group(1) @binding(0)
 var<uniform> uniforms: GrassUniforms;
 
 // Landscape texture array and sampler for height/normal sampling
 @group(2) @binding(0)
-var landscape_texture: texture_2d_array<f32>;
+var landscape_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var landscape_sampler: sampler;
 
@@ -171,6 +172,8 @@ struct VertexOutput {
 
 // Sample height from landscape texture array
 fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
+    // return -5.0;
+
     // Your terrain dimensions from Rust code:
     // square_size = 1024.0 * 4.0 = 4096.0
     // square_height = 150.0 * 4.0 = 600.0
@@ -184,11 +187,12 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
     
     // Use textureSampleLevel for vertex shader (explicit LOD = 0)
-    let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, HEIGHTMAP_LAYER, 0.0);
+    // let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, HEIGHTMAP_LAYER, 0.0);
+    let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
     
     // Your heightmap is normalized (0-1), so scale to actual height
     // The R channel contains the normalized height value
-    return height_sample.r * max_height;
+    return (height_sample.r * max_height) - 500.0; // hardcoded landscape offset from generic properties!
 }
 
 // Calculate terrain normal by sampling nearby heights
@@ -283,12 +287,25 @@ fn fbm(p: vec2<f32>) -> f32 {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     
-    // Calculate grid cell from instance index
-    let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
-    let blades_per_cell = grid_cells * grid_cells;
+    // // Calculate grid cell from instance index
+    // let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
+    // let blades_per_cell = grid_cells * grid_cells;
     
-    let cell_x = (in.instance_index / blades_per_cell) % grid_cells;
-    let cell_z = (in.instance_index / blades_per_cell) / grid_cells;
+    // let cell_x = (in.instance_index / blades_per_cell) % grid_cells;
+    // let cell_z = (in.instance_index / blades_per_cell) / grid_cells;
+    // let blade_in_cell = in.instance_index % blades_per_cell;
+
+    // Calculate grid cell count
+    let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
+
+    // Number of blades per cell (from uniform)
+    let blades_per_cell = u32(uniforms.blade_density);
+
+    // total instances expected: grid_cells * grid_cells * blades_per_cell
+    // decode instance_index -> (cell_x, cell_z, blade_in_cell)
+    let cell_index = in.instance_index / blades_per_cell;
+    let cell_x = cell_index % grid_cells;
+    let cell_z = cell_index / grid_cells;
     let blade_in_cell = in.instance_index % blades_per_cell;
     
     // Calculate cell position relative to player

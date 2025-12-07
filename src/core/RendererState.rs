@@ -214,7 +214,7 @@ impl RendererState {
         // ));
 
         let mut cubes = Vec::new();
-        cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
+        // cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
 
         let mut pyramids = Vec::new();
         // pyramids.push(Pyramid::new(device, bind_group_layout, color_render_mode_buffer));

@@ -186,6 +186,121 @@ pub fn get_landscape_pixels(
     }
 }
 
+// pub fn read_landscape_heightmap_as_texture(
+//     // state: tauri::State<'_, AppState>,
+//     projectId: String,
+//     landscapeId: String,
+//     textureFilename: String,
+//     // textureKind: String,
+// ) -> Result<TextureData, String> {
+//     // let handle = &state.handle;
+//     // let config = handle.config();
+//     // let package_info = handle.package_info();
+//     // let env = handle.env();
+
+//     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+//     let texture_path = sync_dir.join(format!(
+//         "midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+//         projectId, landscapeId, textureFilename // NOTE: this is a .tif file
+//     ));
+
+//     println!("texture path {:?}", texture_path,);
+
+//     // Read the image file
+//     let img = image::open(&texture_path)
+//         .map_err(|e| format!("Failed to open landscape texture: {}", e))?;
+
+//     // Get dimensions
+//     let (width, height) = img.dimensions();
+
+//     println!("heightfield image color {:?}", img.color());
+
+//     let luma16 = img.to_luma16();
+
+//     // Check min/max values in the heightmap
+//     let mut min_val = u16::MAX;
+//     let mut max_val = u16::MIN;
+//     for pixel in luma16.pixels() {
+//         let val = pixel[0];
+//         min_val = min_val.min(val);
+//         max_val = max_val.max(val);
+//     }
+
+//     println!("Heightmap range: {} to {} (should be 0-65535)", min_val, max_val);
+
+//     // Now convert...
+//     let rgba_img = img.to_rgba8();
+//     let bytes = rgba_img.into_raw();
+
+//     // Check converted values too
+//     println!("First RGBA pixel: R={}, G={}, B={}, A={}", 
+//         bytes[0], bytes[1], bytes[2], bytes[3]);
+
+//     // Convert to RGBA
+//     let rgba_img = img.to_rgba8();
+//     let bytes = rgba_img.into_raw();
+
+//     Ok(TextureData {
+//         bytes,
+//         width,
+//         height,
+//     })
+// }
+
+pub fn read_landscape_heightmap_as_texture(
+    projectId: String,
+    landscapeId: String,
+    textureFilename: String,
+) -> Result<TextureData, String> {
+    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+    let texture_path = sync_dir.join(format!(
+        "midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        projectId, landscapeId, textureFilename
+    ));
+
+    println!("texture path {:?}", texture_path);
+
+    let img = image::open(&texture_path)
+        .map_err(|e| format!("Failed to open landscape texture: {}", e))?;
+
+    let (width, height) = img.dimensions();
+    
+    let luma16 = img.to_luma16();
+
+    // Find min/max values
+    let mut min_val = u16::MAX;
+    let mut max_val = u16::MIN;
+    for pixel in luma16.pixels() {
+        let val = pixel[0];
+        min_val = min_val.min(val);
+        max_val = max_val.max(val);
+    }
+
+    println!("Heightmap range: {} to {}", min_val, max_val);
+
+    // Normalize to 0-255 range
+    let mut bytes = Vec::with_capacity((width * height * 4) as usize);
+    let range = (max_val - min_val) as f32;
+    
+    for pixel in luma16.pixels() {
+        let val = pixel[0];
+        // Normalize: (value - min) / (max - min) * 255
+        let normalized = ((val - min_val) as f32 / range * 255.0) as u8;
+        bytes.push(normalized); // R
+        bytes.push(normalized); // G
+        bytes.push(normalized); // B
+        bytes.push(255);        // A
+    }
+
+    println!("First normalized pixel: R={}", bytes[0]);
+
+    Ok(TextureData {
+        bytes,
+        width,
+        height,
+    })
+}
+
 pub fn read_landscape_texture(
     // state: tauri::State<'_, AppState>,
     projectId: String,
