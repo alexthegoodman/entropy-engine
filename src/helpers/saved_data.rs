@@ -23,7 +23,8 @@ pub struct LandscapeData {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub enum ComponentKind {
-    Model,
+    Model, // sometimes active alone
+    NPC, // only active alongside a corresponding Model component
     Landscape,
 }
 
@@ -58,6 +59,11 @@ pub struct ModelProperties {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct NPCProperties {
+    pub model_id: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct ComponentData {
     pub id: String,
     pub kind: Option<ComponentKind>,
@@ -65,6 +71,7 @@ pub struct ComponentData {
     pub generic_properties: GenericProperties,
     pub landscape_properties: Option<LandscapeProperties>,
     pub model_properties: Option<ModelProperties>,
+    pub npc_properties: Option<NPCProperties>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -87,11 +94,11 @@ pub struct ProjectsDataFile {
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct SavedState {
     // games
-    pub concepts: Vec<File>,
-    pub models: Vec<File>,
-    pub landscapes: Option<Vec<LandscapeData>>,
-    pub textures: Option<Vec<File>>,
-    pub levels: Option<Vec<LevelData>>,
+    pub concepts: Vec<File>, // counts as Assets
+    pub models: Vec<File>, // counts as Assets
+    pub landscapes: Option<Vec<LandscapeData>>, // counts as Assets
+    pub textures: Option<Vec<File>>, // counts as Assets
+    pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     pub skeleton_parts: Vec<SkeletonPart>,
     pub skeletons: Vec<SkeletonAssemblyConfig>,
     pub motion_paths: Vec<SkeletonMotionPath>,

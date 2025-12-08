@@ -15,6 +15,7 @@ Powering a unified OS inspired by MCP.
 - Video export
 - GLB Import
 - Interactive, windy, procedural grass blades
+- Deferred rendering / lighting
 - and more!
 
 TBD:

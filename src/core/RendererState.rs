@@ -920,7 +920,8 @@ impl RendererState {
                     );
                     mesh.collider_handle = Some(collider_handle);
                 });
-            }
+            },
+            ComponentKind::NPC => return
         }
     }
 

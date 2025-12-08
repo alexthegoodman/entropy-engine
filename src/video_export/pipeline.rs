@@ -1520,34 +1520,15 @@ impl ExportPipeline {
     
                 // println!("Landscape added {:?}", editor.cubes.len());
             }
-
-            // if ui.button("Add Grass").clicked() {
-            //     let editor = self.export_editor.as_mut().unwrap();
-            //     let gpu_resources = self.gpu_resources.as_ref().unwrap();
-            //     let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
-
-            //     if let Some(landscape) = renderer_state.landscapes.first() {
-            //         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
-            //         let landscape_id = landscape.id.clone();
-            //         handle_add_grass(
-            //             renderer_state,
-            //             &gpu_resources.device,
-            //             &gpu_resources.queue,
-            //             &camera_binding.bind_group_layout,
-            //             &editor.model_bind_group_layout.as_ref().expect("Couldn't get layout"),
-
-            //             &landscape_id,
-            //         );
-            //     } else {
-            //         println!("No landscape found to add grass to!");
-            //     }
-            // }
         });
     
-        egui::Window::new("Hello too").show(ctx, |ui| {
-            // let fps = ui.io().framerate;
-            // ui.label(format!("Frametime: {:?}", fps));
-        });
+        // egui::Window::new("Asset Library").show(ctx, |ui| {
+        //     // TODO: need to display textures and models (assets) available in the saved_data library
+        // });
+
+        // egui::Window::new("Active Components").show(ctx, |ui| {
+        //     // TODO: for now, the only relevant Components to display are Models and NPCs stored in the saved_data (editor.saved_state)
+        // });
     
         // self.chat.render(ctx);
     }
