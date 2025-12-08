@@ -931,23 +931,22 @@ impl RendererState {
         model_component_id: &String,
         bytes: &Vec<u8>,
         isometry: Isometry3<f32>,
+        camera: &SimpleCamera
     ) {
-        // let model = Model::from_glb(
-        //     model_component_id,
-        //     bytes,
-        //     device,
-        //     queue,
-        //     &self.model_bind_group_layout,
-        //     &self.texture_bind_group_layout,
-        //     &self.reg_texture_render_mode_buffer,
-        //     &self.color_render_mode_buffer,
-        //     isometry,
-        // );
+        let model = Model::from_glb(
+            model_component_id,
+            bytes,
+            device,
+            queue,
+            &self.model_bind_group_layout,
+            &self.group_bind_group_layout,
+            &self.texture_render_mode_buffer,
+            &self.color_render_mode_buffer,
+            isometry,
+            camera
+        );
 
-        // // test npcs
-        // // self.npcs.push(NPC::new(model.id.clone()));
-
-        // self.models.push(model);
+        self.models.push(model);
     }
 
     pub fn add_landscape(

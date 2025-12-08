@@ -13,6 +13,7 @@ use std::{cell::RefCell, collections::HashMap};
 use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
 
+use crate::core::PlayerCharacter::NPC;
 use crate::core::editor::Editor;
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
@@ -72,84 +73,11 @@ pub struct GetMaskParams {
     pub maskKind: String,
 }
 
-
-
 static mut CAMERA: Option<SimpleCamera> = None;
 
 thread_local! {
     static CAMERA_INIT: std::cell::Cell<bool> = std::cell::Cell::new(false);
 }
-
-
-// pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
-//     let camera = state.camera.as_mut().expect("Couldn't get camera");
-//     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
-//     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
-//     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
-//     let speed_multiplier = state.navigation_speed;
-
-//     let mut diff = Vector3::identity();
-
-//     let mut new_position = None;
-
-//     match key_code {
-//         "w" => {
-//             if is_pressed {
-//                 // println!("w pressed");
-//                 diff = camera.direction * 0.1;
-//                 diff = diff * speed_multiplier;
-//                 new_position = Some(camera.position + diff);
-//             }
-//         }
-//         "s" => {
-//             if is_pressed {
-//                 diff = camera.direction * 0.1;
-//                 diff = diff * speed_multiplier;
-//                 new_position = Some(camera.position - diff);
-//             }
-//         }
-//         "a" => {
-//             if is_pressed {
-//                 let right = camera.direction.cross(&camera.up).normalize();
-//                 diff = right * 0.1;
-//                 diff = diff * speed_multiplier;
-//                 new_position = Some(camera.position - diff);
-//             }
-//         }
-//         "d" => {
-//             if is_pressed {
-//                 let right = camera.direction.cross(&camera.up).normalize();
-//                 diff = right * 0.1;
-//                 diff = diff * speed_multiplier;
-//                 new_position = Some(camera.position + diff);
-//             }
-//         }
-//         _ => {
-//             // Handle any other keys if necessary
-//         }
-//     }
-
-//     if let Some(position) = new_position {
-//         if (renderer_state.game_mode) {
-//             // Calculate delta time
-//             let now = std::time::Instant::now();
-//             let last_movement_time = renderer_state.last_movement_time.unwrap_or(Instant::now());
-//             let dt = (now - last_movement_time).as_secs_f32();
-//             renderer_state.last_movement_time = Some(now);
-
-//             renderer_state.update_player_rigidbody_position([
-//                     position.x,
-//                     position.y,
-//                     position.z,
-//                 ]);
-//             renderer_state.update_player_character_position(diff, 0.1, camera);
-//         } else {
-//             camera.position = position;
-//             camera.update();
-//             camera_binding.update_3d(&gpu_resources.queue, &camera);
-//         }
-//     }
-// }
 
 pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     let camera = state.camera.as_mut().expect("Couldn't get camera");
@@ -214,7 +142,6 @@ pub fn handle_mouse_move(dx: f32, dy: f32, state: &mut Editor) {
     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
-    // let camera = get_camera();
     let sensitivity = 0.005;
 
     let dx = -dx * sensitivity;
@@ -229,55 +156,43 @@ pub fn handle_mouse_move(dx: f32, dy: f32, state: &mut Editor) {
 }
 
 pub fn handle_add_model(
-    state: Arc<Mutex<RendererState>>,
+    state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     projectId: String,
-    landscapeAssetId: String,
-    landscapeComponentId: String,
+    modelAssetId: String, // model is added to stored library as an asset
+    modelComponentId: String, // model is added from library to scene as an active component
     modelFilename: String,
     isometry: Isometry3<f32>,
+    camera: &SimpleCamera
 ) {
-    pause_rendering();
-
-    // let state = get_renderer_state();
-
-    // ideally would spawn because adding model could be expensive
-    // not sure how to pass wgpu items across threads
-
-    // spawn(async move {
-    // let mut state_guard = get_renderer_state_write_lock();
-
-    let mut state_guard = state.lock().unwrap();
-
-    // let params = to_value(&ReadModelParams {
-    //     projectId,
-    //     modelFilename,
-    // })
-    // .unwrap();
-    // // let bytes = crate::app::invoke("read_model", params).await;
-    // let bytes = invoke("read_model", params).await;
-    // let bytes = bytes
-    //     .into_serde()
-    //     .expect("Failed to transform byte string to value");
-
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
 
-    state_guard.add_model(device, queue, &landscapeComponentId, &bytes, isometry);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, camera);
+}
 
-    drop(state_guard);
+pub fn handle_add_npc(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    projectId: String,
+    modelAssetId: String, // model is added to stored library as an asset
+    modelComponentId: String, // model is added from library to scene as an active component
+    modelFilename: String,
+    isometry: Isometry3<f32>,
+    camera: &SimpleCamera
+) {
+    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
 
-    resume_rendering();
-    // });
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, camera);
+
+    state.npcs.push(NPC::new(modelComponentId.clone()));
 }
 
 #[derive(Serialize, Deserialize)]
 pub struct LandscapeData {
-    // pub width: usize,
-    // pub height: usize,
     pub width: usize,
     pub height: usize,
-    // pub data: Vec<u8>,
     pub pixel_data: Vec<Vec<PixelData>>,
 }
 
@@ -365,21 +280,14 @@ pub fn handle_add_landscape_texture(
     texture_kind: LandscapeTextureKinds,
     mask_filename: String,
 ) {
-    // pause_rendering();
-
     println!(
         "Adding texture and mask {:?} {:?}",
         texture_filename, mask_filename
     );
 
-    // let state = get_renderer_state();
-
     // Clone the values that need to be moved into the closure
     let landscape_component_id_clone = landscape_component_id.clone();
     let texture_kind_clone = texture_kind.clone();
-
-    // spawn(async move {
-    // let mut state_guard = state.lock().unwrap();
 
     let texture = fetch_texture_data(
         project_id.clone(),
@@ -394,27 +302,11 @@ pub fn handle_add_landscape_texture(
         texture_kind.clone(),
     );
 
-    // if let Some(texture) = texture {
-    // let kind = match texture_kind_clone {
-    //     "Primary" => LandscapeTextureKinds::Primary,
-    //     "Rockmap" => LandscapeTextureKinds::Rockmap,
-    //     "Soil" => LandscapeTextureKinds::Soil,
-    //     _ => {
-    //         // web_sys::console::error_1(
-    //         //     &format!("Invalid texture kind: {}", texture_kind_clone).into(),
-    //         // );
-    //         return;
-    //     }
-    // };
-
     let maskKind = match texture_kind_clone {
         LandscapeTextureKinds::Primary => LandscapeTextureKinds::PrimaryMask,
         LandscapeTextureKinds::Rockmap => LandscapeTextureKinds::RockmapMask,
         LandscapeTextureKinds::Soil => LandscapeTextureKinds::SoilMask,
         _ => {
-            // web_sys::console::error_1(
-            //     &format!("Invalid texture kind: {}", texture_kind_clone).into(),
-            // );
             return;
         }
     };
@@ -428,44 +320,17 @@ pub fn handle_add_landscape_texture(
         maskKind,
         mask,
     );
-
-    // drop(state_guard);
-
-    // resume_rendering();
-    // });
 }
-
-// #[derive(Deserialize)]
-// pub struct TextureData {
-//     bytes: Vec<u8>,
-//     width: u32,
-//     height: u32,
-// }
 
 pub fn fetch_texture_data(
     project_id: String,
     landscape_id: String,
     texture_filename: String,
-    // texture_kind: String,
 ) -> Texture {
-    // let params = to_value(&GetTextureParams {
-    //     projectId: project_id,
-    //     landscapeId: landscape_id,
-    //     textureFilename: texture_filename,
-    //     textureKind: texture_kind,
-    // })
-    // .unwrap();
-    // let js_data = invoke("read_landscape_texture", params).await;
-    // let texture_data: TextureData = js_data
-    //     .into_serde()
-    //     .ok()
-    //     .expect("Couldn't transform texture data serde");
-
     let texture_data =
         read_landscape_texture(project_id, landscape_id, texture_filename)
             .expect("Couldn't get texture data");
 
-    // Some((texture_data.data, texture_data.width, texture_data.height))
     Texture::new(texture_data.bytes, texture_data.width, texture_data.height)
 }
 
@@ -475,94 +340,11 @@ pub fn fetch_mask_data(
     mask_filename: String,
     mask_kind: LandscapeTextureKinds,
 ) -> Texture {
-    // let params = to_value(&GetMaskParams {
-    //     projectId: project_id,
-    //     landscapeId: landscape_id,
-    //     maskFilename: mask_filename,
-    //     maskKind: mask_kind,
-    // })
-    // .unwrap();
-    // let js_data = invoke("read_landscape_mask", params).await;
     let mask_data = read_landscape_mask(project_id, landscape_id, mask_filename, mask_kind)
         .expect("Couldn't get mask data");
-    // let mask_data: TextureData = js_data
-    //     .into_serde()
-    //     .ok()
-    //     .expect("Couldn't transform texture data serde");
 
-    // Some((texture_data.data, texture_data.width, texture_data.height))
     Texture::new(mask_data.bytes, mask_data.width, mask_data.height)
 }
-
-// pub fn handle_add_grass(
-//     state: &mut RendererState,
-//     device: &wgpu::Device,
-//     queue: &wgpu::Queue,
-//     camera_bind_group_layout: &wgpu::BindGroupLayout,
-//     landscape_id: &str,
-// ) {
-//     if let Some(landscape) = state.landscapes.iter().find(|l| l.id == landscape_id) {
-//         println!("Adding grass to landscape: {}", landscape.id);
-
-//         let target_grass_count = 1_000_000;
-//         let mut grass = Grass::new(device, camera_bind_group_layout, landscape, target_grass_count);
-
-//         // let noise = Fbm::<Perlin>::new(12345)
-//         //     .set_octaves(4)           // More octaves = more detail layers
-//         //     .set_frequency(0.5)       // Lower = bigger patches
-//         //     .set_lacunarity(2.0)      // How much each octave changes frequency
-//         //     .set_persistence(0.5);    // How much each octave affects amplitude
-//         let noise = Worley::new(12345)
-//                         .set_frequency(0.75);
-//         let mut rng = rand::thread_rng();
-//         let square_size = 1024.0 * 4.0; // Should be consistent with landscape creation
-
-//         let instances = (0..target_grass_count).filter_map(|_| {
-//             let world_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
-//             let world_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
-
-//             // if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-//             //     let position = Vector3::new(world_x, world_y, world_z);
-//             //     let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-//             //     let model_matrix = Matrix4::new_translation(&position) * rotation;
-
-//             //     Some(InstanceRaw {
-//             //         model: model_matrix.into()
-//             //     })
-//             // } else {
-//             //     None
-//             // }
-
-//             if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-//                 // Then just use the noise value directly or with minimal adjustment:
-//                 let noise_value = noise.get([world_x as f64, world_z as f64]);
-
-//                 if noise_value < 0.0 {  // Simple: positive = grass, negative = no grass
-//                     return None;
-//                 }
-
-//                 let position = Vector3::new(world_x, world_y, world_z);
-//                 let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-//                 let model_matrix = Matrix4::new_translation(&position) * rotation;
-
-//                 Some(InstanceRaw {
-//                     model: model_matrix.into()
-//                 })
-//             } else {
-//                 None
-//             }
-//         }).collect::<Vec<_>>();
-        
-//         grass.instance_count = instances.len() as u32;
-//         queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
-
-//         state.grasses.push(grass);
-//         println!("Added {} blades of grass.", instances.len());
-
-//     } else {
-//         println!("Could not find landscape with id: {}", landscape_id);
-//     }
-// }
 
 pub fn handle_add_grass(
     state: &mut RendererState,
@@ -588,58 +370,9 @@ pub fn handle_add_grass(
             &texture,
         );
 
-        // let grass_count = 500_000;
-        // let mut grass = Grass::new(device, camera_bind_group_layout, landscape, grass_count);
         let grass = Grass::new(&device, &camera_bind_group_layout, landscape);
 
-        // let mut rng = rand::thread_rng();
-        // let square_size = 1024.0 * 4.0;
-
-        // // Generate splotch centers
-        // let num_splotches = 30;
-        // let min_radius = 50.0;
-        // let max_radius = 150.0;
-        
-        // let splotches: Vec<(f32, f32, f32)> = (0..num_splotches)
-        //     .map(|_| {
-        //         let center_x = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.x;
-        //         let center_z = rng.gen_range(-square_size / 2.0..square_size / 2.0) + landscape.transform.position.z;
-        //         let radius = rng.gen_range(min_radius..max_radius);
-        //         (center_x, center_z, radius)
-        //     })
-        //     .collect();
-
-        // // Distribute grass count across splotches
-        // let blades_per_splotch = grass_count / num_splotches as u32;
-
-        // let instances: Vec<InstanceRaw> = splotches.iter().flat_map(|(cx, cz, radius)| {
-        //     (0..blades_per_splotch).filter_map(|_| {
-        //         // Generate random point within circle
-        //         let angle = rng.gen_range(0.0..std::f32::consts::PI * 2.0);
-        //         let r = radius * random::<f32>().sqrt(); // sqrt for uniform distribution
-                
-        //         let world_x = cx + r * angle.cos();
-        //         let world_z = cz + r * angle.sin();
-
-        //         if let Some(world_y) = landscape.get_height_at(world_x, world_z) {
-        //             let position = Vector3::new(world_x, world_y, world_z);
-        //             let rotation = Matrix4::from_euler_angles(0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0);
-        //             let model_matrix = Matrix4::new_translation(&position) * rotation;
-
-        //             Some(InstanceRaw {
-        //                 model: model_matrix.into()
-        //             })
-        //         } else {
-        //             None
-        //         }
-        //     }).collect::<Vec<_>>()
-        // }).collect();
-        
-        // grass.instance_count = instances.len() as u32;
-        // queue.write_buffer(&grass.instance_buffer, 0, bytemuck::cast_slice(&instances));
-
         state.grasses.push(grass);
-        // println!("Added {} blades of grass in {} splotches.", instances.len(), num_splotches);
         println!("Added grass");
     } else {
         println!("Could not find landscape with id: {}", landscape_id);
