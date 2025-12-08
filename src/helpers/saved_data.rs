@@ -5,6 +5,13 @@ use crate::{helpers::timelines::SavedTimelineStateConfig, kinematic_animations::
     skeleton::{SkeletonAssemblyConfig, SkeletonPart},
 }, vector_animations::animations::Sequence};
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ScatterSettings {
+    pub density: f32,
+    pub radius: f32,
+    pub seed: u32,
+}
+
 #[derive(Hash, Eq, Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct File {
     pub id: String,
@@ -72,6 +79,8 @@ pub struct ComponentData {
     pub landscape_properties: Option<LandscapeProperties>,
     pub model_properties: Option<ModelProperties>,
     pub npc_properties: Option<NPCProperties>,
+    #[serde(default)]
+    pub scatter: Option<ScatterSettings>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
