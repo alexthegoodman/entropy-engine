@@ -26,6 +26,9 @@ TBD:
 
 ## Run
 
+My current recommendation is to fork this engine and customize it for each game that you do. 
+Some controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
+
 Example Game:
 - `cargo run --bin game --release` (need the game files to run)
 
