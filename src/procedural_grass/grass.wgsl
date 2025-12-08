@@ -166,6 +166,7 @@ struct VertexOutput {
     @location(0) world_pos: vec3<f32>,
     @location(1) height_factor: f32,
     @location(2) blade_id: f32,
+    @location(3) normal: vec3<f32>,
 };
 
 // ===== LANDSCAPE SAMPLING =====
@@ -423,14 +424,21 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     out.clip_position = camera.view_proj * vec4<f32>(world_position, 1.0);
     out.height_factor = height_factor;
     out.blade_id = blade_seed;
+    out.normal = terrain_normal;
     
     return out;
 }
 
 // ===== FRAGMENT SHADER =====
 
+struct GbufferOutput {
+    @location(0) position: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+    @location(2) albedo: vec4<f32>,
+}
+
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> GbufferOutput {
     // Gradient from dark green at base to lighter green at tip
     let base_color = vec3<f32>(0.15, 0.4, 0.15);
     let tip_color = vec3<f32>(0.3, 0.7, 0.25);
@@ -443,6 +451,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     
     // Simple lighting based on height (ambient occlusion approximation)
     let ao = 0.7 + in.height_factor * 0.3;
+
+    var output: GbufferOutput;
+    output.position = vec4<f32>(in.world_pos, 1.0);
+    output.normal = vec4<f32>(in.normal, 1.0);
+    output.albedo = vec4<f32>(final_color * ao, 1.0);
     
-    return vec4<f32>(final_color * ao, 1.0);
+    return output;
 }

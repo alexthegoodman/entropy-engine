@@ -424,11 +424,23 @@ impl Grass {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: wgpu::TextureFormat::Rgba8Unorm,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState {
@@ -478,20 +490,5 @@ impl Grass {
 
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
-    }
-
-    pub fn render<'a>(&'a self, render_pass: &mut wgpu::RenderPass<'a>, camera_bind_group: &'a wgpu::BindGroup) {
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, camera_bind_group, &[]);
-        render_pass.set_bind_group(1, &self.uniform_bind_group, &[]);
-        render_pass.set_bind_group(2, &self.landscape_bind_group, &[]);
-        render_pass.set_vertex_buffer(0, self.blade.vertex_buffer.slice(..));
-        render_pass.set_index_buffer(self.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        
-        // Draw with instancing - the shader will handle culling and positioning
-        let grid_cells = ((self.render_distance * 2.0) / self.grid_size).ceil() as u32;
-        let total_instances = grid_cells * grid_cells * self.blade_density;
-        
-        render_pass.draw_indexed(0..self.blade.index_count, 0, 0..total_instances);
     }
 }

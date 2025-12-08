@@ -68,35 +68,15 @@ impl Vertex {
             color,
         }
     }
-}
 
-impl Vertex {
+    const ATTRIBS: [wgpu::VertexAttribute; 4] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x2, 3 => Float32x4];
+
     pub fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
             array_stride: std::mem::size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0, // Corresponds to layout(location = 0) in shader
-                    format: wgpu::VertexFormat::Float32x3, // x3 for position
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 3]>() as wgpu::BufferAddress,
-                    shader_location: 1, // Corresponds to layout(location = 1) in shader
-                    format: wgpu::VertexFormat::Float32x2, // x2 for uv
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 6]>() as wgpu::BufferAddress,
-                    shader_location: 2, // Corresponds to layout(location = 1) in shader
-                    format: wgpu::VertexFormat::Float32x2, // x2 for uv
-                },
-                wgpu::VertexAttribute {
-                    offset: std::mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 3, // Corresponds to layout(location = 2) in shader
-                    format: wgpu::VertexFormat::Float32x4, // x4 for color
-                },
-            ],
+            attributes: &Self::ATTRIBS,
         }
     }
 }
