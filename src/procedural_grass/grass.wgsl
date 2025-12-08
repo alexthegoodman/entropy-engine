@@ -193,7 +193,7 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     
     // Your heightmap is normalized (0-1), so scale to actual height
     // The R channel contains the normalized height value
-    return (height_sample.r * max_height) - 500.0; // hardcoded landscape offset from generic properties!
+    return (height_sample.r * max_height) - 400.0; // hardcoded landscape offset from generic properties!
 }
 
 // Calculate terrain normal by sampling nearby heights
