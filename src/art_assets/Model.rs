@@ -229,6 +229,26 @@ impl Model {
                     .map(|iter| iter.into_u32().collect())
                     .unwrap_or_default();
 
+                // --- Conversion Step ---
+                // 1. Check if the length is a multiple of 3 (essential for a valid triangle mesh).
+                if indices_u32.len() % 3 != 0 {
+                    // You should handle this error, as it means the mesh data is corrupt
+                    // or not a standard indexed triangle list.
+                    eprintln!("Error: Flat index vector length is not a multiple of 3.");
+                    // Decide how to proceed: panic, return an error, or just skip collider creation.
+                }
+
+                let rapier_indices: Vec<[u32; 3]> = indices_u32
+                    .chunks_exact(3) // Iterate over the vector in non-overlapping chunks of 3
+                    .map(|chunk| {
+                        // Since we checked len() % 3 == 0, and used chunks_exact,
+                        // this unwrap should be safe.
+                        // It converts a &[u32] slice of length 3 into a [u32; 3] array.
+                        let a: [u32; 3] = chunk.try_into().unwrap();
+                        a
+                    })
+                    .collect();
+
                 // let indices: Vec<u16> = indices_u32.iter().map(|&i| i as u16).collect();
 
                 println!("Model vertices: {:?}", vertices.len());
@@ -342,8 +362,20 @@ impl Model {
                 };
 
                 // rapier physics and collision detection!
-                let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
-                    .expect("Couldn't create convex hull")
+                // let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
+                //     .expect("Couldn't create convex hull")
+                //     .friction(0.7)
+                //     .restitution(0.0)
+                //     .density(1.0)
+                //     .user_data(
+                //         Uuid::from_str(&model_component_id)
+                //             .expect("Couldn't extract uuid")
+                //             .as_u128(),
+                //     )
+                //     .build();
+
+                let rapier_collider = ColliderBuilder::trimesh(rapier_points, rapier_indices)
+                    // .expect("Couldn't create trimesh")
                     .friction(0.7)
                     .restitution(0.0)
                     .density(1.0)
