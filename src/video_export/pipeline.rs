@@ -450,6 +450,16 @@ impl ExportPipeline {
 
         let texture_render_mode_buffer = Arc::new(texture_render_mode_buffer);
 
+        let regular_texture_render_mode_buffer =
+            device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Regular Texture Render Mode Buffer"),
+                    contents: bytemuck::cast_slice(&[2i32]), // Default to text mode
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+        let regular_texture_render_mode_buffer = Arc::new(regular_texture_render_mode_buffer);
+
         // Define the layouts
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Stunts Engine Export Pipeline Layout"),
@@ -725,6 +735,7 @@ impl ExportPipeline {
             &camera,
             texture_render_mode_buffer.clone(),
             color_render_mode_buffer,
+            regular_texture_render_mode_buffer,
             game_mode
         );
 
@@ -1629,6 +1640,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                         if let Some(ComponentKind::Model) = component.kind {
                                             let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
                                             let model_position = Isometry3::translation(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                            let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
                                             if let Some(asset_item) = asset {
                                                 handle_add_model(
@@ -1640,6 +1652,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                     component.id.clone(), 
                                                     asset_item.fileName.clone(), 
                                                     model_position, 
+                                                    model_scale,
                                                     camera
                                                 );
                                             }

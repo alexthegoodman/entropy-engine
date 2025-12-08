@@ -164,11 +164,12 @@ pub fn handle_add_model(
     modelComponentId: String, // model is added from library to scene as an active component
     modelFilename: String,
     isometry: Isometry3<f32>,
+    scale: Vector3<f32>,
     camera: &SimpleCamera
 ) {
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, camera);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
 }
 
 pub fn handle_add_npc(
@@ -180,11 +181,12 @@ pub fn handle_add_npc(
     modelComponentId: String, // model is added from library to scene as an active component
     modelFilename: String,
     isometry: Isometry3<f32>,
+    scale: Vector3<f32>,
     camera: &SimpleCamera
 ) {
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, camera);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
 
     state.npcs.push(NPC::new(modelComponentId.clone()));
 }

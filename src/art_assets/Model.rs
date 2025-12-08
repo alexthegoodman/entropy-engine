@@ -49,9 +49,10 @@ impl Model {
         queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
         group_bind_group_layout: &wgpu::BindGroupLayout,
-        texture_render_mode_buffer: &wgpu::Buffer,
+        regular_texture_render_mode_buffer: &wgpu::Buffer,
         color_render_mode_buffer: &wgpu::Buffer,
         isometry: Isometry3<f32>,
+        scale: Vector3<f32>,
         camera: &SimpleCamera
     ) -> Self {
         // web_sys::console::log_1(&format!("Bytes len: {:?}", bytes.len()).into());
@@ -197,12 +198,12 @@ impl Model {
                     .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
 
                 println!(
-                    "first 5 tex_coords {:?} {:?} {:?} {:?} {:?}",
+                    "first 5 tex_coords {:?}",
                     tex_coords[0],
-                    tex_coords[100],
-                    tex_coords[200],
-                    tex_coords[300],
-                    tex_coords[400]
+                    // tex_coords[100],
+                    // tex_coords[200],
+                    // tex_coords[300],
+                    // tex_coords[400]
                 );
 
                 let vertices: Vec<Vertex> = positions
@@ -286,7 +287,7 @@ impl Model {
                 // });
 
                 let render_mode_buffer = if uses_textures {
-                    texture_render_mode_buffer
+                    regular_texture_render_mode_buffer
                 } else {
                     color_render_mode_buffer
                 };
@@ -325,7 +326,7 @@ impl Model {
                             wgpu::BindGroupEntry {
                                 binding: 3,
                                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: texture_render_mode_buffer,
+                                    buffer: regular_texture_render_mode_buffer,
                                     offset: 0,
                                     size: None,
                                 }),
@@ -351,7 +352,7 @@ impl Model {
                             wgpu::BindGroupEntry {
                                 binding: 3,
                                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: texture_render_mode_buffer,
+                                    buffer: color_render_mode_buffer,
                                     offset: 0,
                                     size: None,
                                 }),
@@ -416,7 +417,7 @@ impl Model {
                             isometry.translation.z,
                         ),
                         Vector3::new(euler.0, euler.1, euler.2),
-                        Vector3::new(1.0, 1.0, 1.0),
+                        scale,
                         uniform_buffer,
                     ),
                     vertex_buffer,

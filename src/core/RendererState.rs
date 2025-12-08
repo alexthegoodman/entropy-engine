@@ -104,6 +104,7 @@ pub struct RendererState {
     pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
+    pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
 
     // state
@@ -160,6 +161,7 @@ impl RendererState {
         // reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
         texture_render_mode_buffer: Arc<wgpu::Buffer>,
         color_render_mode_buffer: Arc<wgpu::Buffer>,
+        regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
         // camera_uniform_buffer: Arc<wgpu::Buffer>,
         // camera_bind_group: Arc<wgpu::BindGroup>,
         // camera: &SimpleCamera,
@@ -316,6 +318,7 @@ impl RendererState {
             group_bind_group_layout,
             // texture_bind_group_layout,
             // reg_texture_render_mode_buffer,
+            regular_texture_render_mode_buffer,
             texture_render_mode_buffer,
             color_render_mode_buffer,
             // camera_uniform_buffer,
@@ -932,6 +935,7 @@ impl RendererState {
         model_component_id: &String,
         bytes: &Vec<u8>,
         isometry: Isometry3<f32>,
+        scale: Vector3<f32>,
         camera: &SimpleCamera
     ) {
         let model = Model::from_glb(
@@ -941,9 +945,10 @@ impl RendererState {
             queue,
             &self.model_bind_group_layout,
             &self.group_bind_group_layout,
-            &self.texture_render_mode_buffer,
+            &self.regular_texture_render_mode_buffer,
             &self.color_render_mode_buffer,
             isometry,
+            scale,
             camera
         );
 
