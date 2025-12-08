@@ -60,26 +60,6 @@ impl Landscape {
         let scale = 1.0;
         let (vertices, indices) = Self::generate_terrain(data, scale);
 
-        // Create the scale vector - this determines the size of each cell in the heightfield
-
-        // let ratio = square_height / square_size;
-        // let scale = Vector::new(
-        //     square_size, // x scale (width between columns) // i chose 2 because it 1024x1024 heightmap and 2048 size
-        //     square_height,  // y scale (height scaling)
-        //     square_size, // z scale (width between rows)
-        // );
-
-        // let terrain_collider = ColliderBuilder::heightfield(data.rapier_heights.clone(), scale)
-        //     .friction(0.5) // Adjust how slippery the terrain is
-        //     .restitution(0.0) // How bouncy (probably want 0 for terrain)
-        //     .collision_groups(InteractionGroups::all()) // Make sure it can collide with everything
-        //     .user_data(
-        //         Uuid::from_str(landscapeComponentId)
-        //             .expect("Couldn't extract uuid")
-        //             .as_u128(),
-        //     )
-        //     .build();
-
         // Get the actual dimensions of your heightmap data
         let heightmap_width = data.rapier_heights.ncols() as f32;
         let heightmap_height = data.rapier_heights.nrows() as f32;
@@ -113,14 +93,6 @@ impl Landscape {
         );
 
         let isometry = Isometry3::translation(position[0], position[1], position[2]);
-
-        // let isometry = Isometry3::translation(-500.0, -500.0, -500.0);
-
-        // println!(
-        //     "vertices length: {:?} heights length: {:?}",
-        //     vertices.len(),
-        //     data.rapier_heights.clone().len()
-        // );
 
         let terrain_collider =
             ColliderBuilder::heightfield(data.rapier_heights.clone(), terrain_size)
@@ -307,9 +279,6 @@ impl Landscape {
             self.create_texture_array(device, new_texture.size());
         }
 
-        // let float_data: Vec<f32> = new_texture.data.iter().map(|&b| f32::from(b) / 255.0).collect();
-        // let float_data_bytes: &[u8] = bytemuck::cast_slice(&float_data);
-
         if let Some(texture_array) = &self.texture_array {
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -412,41 +381,6 @@ impl Landscape {
         self.particle_texture_view = Some(texture_view);
     }
 
-    // fn update_bind_group(
-    //     &mut self,
-    //     device: &wgpu::Device,
-    //     texture_bind_group_layout: &wgpu::BindGroupLayout,
-    //     texture_render_mode_buffer: &wgpu::Buffer,
-    //     color_render_mode_buffer: &wgpu::Buffer,
-    // ) {
-    //     if let Some(texture_array_view) = &self.texture_array_view {
-    //         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-
-    //         self.texture_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-    //             layout: texture_bind_group_layout,
-    //             entries: &[
-    //                 wgpu::BindGroupEntry {
-    //                     binding: 0,
-    //                     resource: wgpu::BindingResource::TextureView(texture_array_view),
-    //                 },
-    //                 wgpu::BindGroupEntry {
-    //                     binding: 1,
-    //                     resource: wgpu::BindingResource::Sampler(&sampler),
-    //                 },
-    //                 wgpu::BindGroupEntry {
-    //                     binding: 2,
-    //                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-    //                         buffer: texture_render_mode_buffer,
-    //                         offset: 0,
-    //                         size: None,
-    //                     }),
-    //                 },
-    //             ],
-    //             label: Some("landscape_texture_bind_group"),
-    //         }));
-    //     }
-    // }
-
     pub fn create_particle_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
@@ -505,15 +439,6 @@ impl Landscape {
         if let Some(texture_array_view) = &self.texture_array_view {
             let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-            // let empty_buffer = Matrix4::<f32>::identity();
-            // let raw_matrix = matrix4_to_raw_array(&empty_buffer);
-
-            // let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //     label: Some("Terrain Uniform Buffer"),
-            //     contents: bytemuck::cast_slice(&raw_matrix),
-            //     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            // });
-
             println!("New landscape bind group!");
 
             self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -544,85 +469,6 @@ impl Landscape {
             });
         }
     }
-
-    // Generate vertex buffer from heightmap data
-    // pub fn generate_terrain(data: &LandscapePixelData, scale: f32) -> (Vec<Vertex>, Vec<u32>) {
-    //     let mut vertices = Vec::with_capacity(data.width * data.height);
-    //     // let mut rapier_vertices = Vec::with_capacity(data.width * data.height);
-    //     let mut indices = Vec::new();
-
-    //     for y in 0..data.height {
-    //         for x in 0..data.width {
-    //             vertices.push(Vertex {
-    //                 position: data.pixel_data[y][x].position,
-    //                 normal: [0.0, 1.0, 0.0],
-    //                 tex_coords: data.pixel_data[y][x].tex_coords,
-    //                 color: [1.0, 1.0, 1.0, 1.0],
-    //             });
-    //             // rapier_vertices.push(Point::new(
-    //             //     data.pixel_data[y][x].position[0],
-    //             //     data.pixel_data[y][x].position[1],
-    //             //     data.pixel_data[y][x].position[2],
-    //             // ));
-    //         }
-    //     }
-
-    //     // Generate indices with additional connections
-    //     for y in 0..(data.height - 1) {
-    //         for x in 0..(data.width - 1) {
-    //             let top_left = (y * data.width + x) as u32;
-    //             let top_right = top_left + 1;
-    //             let bottom_left = ((y + 1) * data.width + x) as u32;
-    //             let bottom_right = bottom_left + 1;
-
-    //             // Main triangle
-    //             indices.extend_from_slice(&[top_left, bottom_left, top_right]);
-    //             indices.extend_from_slice(&[top_right, bottom_left, bottom_right]);
-
-    //             // Additional connections
-    //             if x < data.width - 2 {
-    //                 // Connect to the next column
-    //                 indices.extend_from_slice(&[top_right, bottom_right, top_right + 1]);
-    //                 indices.extend_from_slice(&[bottom_right, bottom_right + 1, top_right + 1]);
-    //             }
-
-    //             if y < data.height - 2 {
-    //                 // Connect to the next row
-    //                 indices.extend_from_slice(&[
-    //                     bottom_left,
-    //                     bottom_left + data.width as u32,
-    //                     bottom_right,
-    //                 ]);
-    //                 indices.extend_from_slice(&[
-    //                     bottom_right,
-    //                     bottom_left + data.width as u32,
-    //                     bottom_right + data.width as u32,
-    //                 ]);
-    //             }
-    //         }
-    //     }
-
-    //     // println!("Generating terrain colliders...");
-
-    //     // // Create a static rigid body which doesn't move
-    //     // let terrain_body = RigidBodyBuilder::fixed() // fixed means immovable
-    //     //     .build();
-
-    //     // println!("Body built...");
-
-    //     // let terrain_collider = ColliderBuilder::trimesh(
-    //     //     rapier_vertices,
-    //     //     indices
-    //     //         .chunks(3)
-    //     //         .map(|chunk| [chunk[0], chunk[1], chunk[2]])
-    //     //         .collect::<Vec<[u32; 3]>>(),
-    //     // )
-    //     // .build();
-
-    //     println!("Terrain ready!");
-
-    //     (vertices, indices)
-    // }
 
     pub fn generate_terrain(data: &LandscapePixelData, scale: f32) -> (Vec<Vertex>, Vec<u32>) {
         let mut vertices = Vec::with_capacity(data.width * data.height);
