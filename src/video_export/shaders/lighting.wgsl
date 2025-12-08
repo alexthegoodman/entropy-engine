@@ -21,9 +21,15 @@ struct WindowSize {
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
-    let x = f32(i32(in_vertex_index) - 1);
-    let y = f32(i32(in_vertex_index & 1u) * 2 - 1);
-    return vec4<f32>(x, y, 0.0, 1.0);
+    var out_pos: vec2<f32>;
+    if (in_vertex_index == 0u) {
+        out_pos = vec2<f32>(-1.0, 3.0);
+    } else if (in_vertex_index == 1u) {
+        out_pos = vec2<f32>(-1.0, -1.0);
+    } else { // in_vertex_index == 2u
+        out_pos = vec2<f32>(3.0, -1.0);
+    }
+    return vec4<f32>(out_pos, 0.0, 1.0);
 }
 
 @fragment
