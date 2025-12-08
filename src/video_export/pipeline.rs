@@ -41,6 +41,7 @@ pub struct ExportPipeline {
     pub g_buffer_normal_view: Option<wgpu::TextureView>,
     pub g_buffer_albedo_texture: Option<wgpu::Texture>,
     pub g_buffer_albedo_view: Option<wgpu::TextureView>,
+    pub g_buffer_sampler: Option<wgpu::Sampler>,
 
     // G-Buffer bind group
     pub g_buffer_bind_group_layout: Option<wgpu::BindGroupLayout>,
@@ -77,6 +78,7 @@ impl ExportPipeline {
             g_buffer_bind_group_layout: None,
             g_buffer_bind_group: None,
             light_bind_group: None,
+            g_buffer_sampler: None
         }
     }
 
@@ -276,7 +278,7 @@ impl ExportPipeline {
                         binding: 2,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
                             view_dimension: wgpu::TextureViewDimension::D2,
                             multisampled: false,
                         },
@@ -839,13 +841,17 @@ impl ExportPipeline {
         self.g_buffer_bind_group_layout = Some(g_buffer_bind_group_layout);
         self.g_buffer_bind_group = Some(g_buffer_bind_group);
         self.light_bind_group = Some(light_bind_group);
+        self.g_buffer_sampler = Some(g_buffer_sampler);
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             let gpu_resources = self.gpu_resources.as_ref().unwrap();
             let device = &gpu_resources.device;
-    
+            let g_buffer_bind_group_layout = self.g_buffer_bind_group_layout.as_ref().unwrap();
+            let g_buffer_sampler = self.g_buffer_sampler.as_ref().unwrap(); // Assuming sampler is at binding 3
+
+            // Recreate depth texture
             let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
                 size: wgpu::Extent3d {
                     width: new_size.width,
@@ -860,9 +866,123 @@ impl ExportPipeline {
                 label: Some("Stunts Engine Export Depth Texture"),
                 view_formats: &[],
             });
-    
             let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
             self.depth_view = Some(depth_view);
+
+            // Recreate G-buffer textures and views
+            let gbuffer_position_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("G-Buffer Position Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let gbuffer_position_view = gbuffer_position_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            let gbuffer_normal_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("G-Buffer Normal Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba16Float,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let gbuffer_normal_view = gbuffer_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            let gbuffer_albedo_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("G-Buffer Albedo Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+            // Recreate window size buffer and bind group
+            let window_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: None,
+                contents: bytemuck::cast_slice(&[WindowSizeShader {
+                    width: new_size.width as f32,
+                    height: new_size.height as f32,
+                }]),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            let window_size_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+            let window_size_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &window_size_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: window_size_buffer.as_entire_binding(),
+                }],
+                label: None,
+            });
+
+            // Recreate G-buffer bind group
+            let new_g_buffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("G-Buffer Bind Group (Resized)"),
+                layout: g_buffer_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&gbuffer_position_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&gbuffer_normal_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&gbuffer_albedo_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        // Need to get the sampler from the original bind group
+                        resource: wgpu::BindingResource::Sampler(&g_buffer_sampler),
+                    },
+                ],
+            });
+
+            self.g_buffer_position_texture = Some(gbuffer_position_texture);
+            self.g_buffer_position_view = Some(gbuffer_position_view);
+            self.g_buffer_normal_texture = Some(gbuffer_normal_texture);
+            self.g_buffer_normal_view = Some(gbuffer_normal_view);
+            self.g_buffer_albedo_texture = Some(gbuffer_albedo_texture);
+            self.g_buffer_albedo_view = Some(gbuffer_albedo_view);
+            self.g_buffer_bind_group = Some(new_g_buffer_bind_group);
+            self.window_size_bind_group = Some(window_size_bind_group);
     
             if let Some(editor) = self.export_editor.as_mut() {
                 if let Some(camera) = editor.camera.as_mut() {
