@@ -5,6 +5,7 @@ use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
+use winit::dpi::PhysicalPosition;
 use winit::keyboard::ModifiersState;
 
 use crate::core::camera::CameraBinding;
@@ -141,9 +142,15 @@ pub struct RendererState {
 
     pub last_movement_time: Option<Instant>,
     pub last_frame_time: Option<Instant>,
+    pub current_mouse_position: Option<PhysicalPosition<f64>>,
+    pub last_mouse_position: Option<PhysicalPosition<f64>>,
 
     pub navigation_speed: f32,
     pub game_mode: bool,
+
+    // Angles stored in radians (in theory, better controlled here in state)
+    pub camera_pitch: f32, // Up/Down rotation
+    pub camera_yaw: f32,   // Left/Right rotation
 }
 
 // impl<'a> RendererState<'a> {
@@ -366,11 +373,20 @@ impl RendererState {
             // dragging_translation_gizmo: false,
             last_movement_time: None,
             last_frame_time: None,
+            current_mouse_position: None,
+            last_mouse_position: None,
             npcs: Vec::new(),
             // gizmo_drag_axis: None,
             navigation_speed: 5.0,
-            game_mode
+            game_mode,
+            camera_pitch: 0.0,
+            camera_yaw: 0.0
         }
+    }
+
+    pub fn set_mouse_position(&mut self, new_position: PhysicalPosition<f64>) {
+        self.last_mouse_position = self.current_mouse_position;
+        self.current_mouse_position = Some(new_position);
     }
 
     pub fn is_player_grounded(
@@ -438,17 +454,6 @@ impl RendererState {
 
         self.update_terrain_managers(device, dt, camera);
 
-        // println!("Before step:");
-        // println!("  Bodies: {}", self.rigid_body_set.len());
-        // println!("  Colliders: {}", self.collider_set.len());
-        // println!("  Impulse Joints: {}", self.impulse_joint_set.len());
-        // // println!("  Multibody Joints: {}", self.multibody_joint_set.len());
-        // println!(
-        //     "  Islands: {} {}",
-        //     self.island_manager.active_dynamic_bodies().len(),
-        //     self.island_manager.active_kinematic_bodies().len()
-        // );
-
         let step_time = Instant::now();
 
         // Step the physics pipeline
@@ -491,10 +496,6 @@ impl RendererState {
             .collect();
 
         let physics_update_duration = physics_update_time.elapsed();
-        // println!(
-        //     "  physics_update collect _duration: {:?}",
-        //     physics_update_duration
-        // );
 
         let physics_update_time = Instant::now();
 
@@ -502,20 +503,84 @@ impl RendererState {
         if self.game_mode {
             if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
                 if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                    let pos = rb.translation();
+                    // let pos = rb.translation();
 
-                    // third-person camera
-                    let distance = 10.0;
-                    let height = 10.0;
-                    let camera_pos = Point3::new(pos.x, pos.y + height, pos.z - distance);
-                    camera.position = camera_pos;
+                    // // third-person / 3rd person camera
+                    // // TODO: use self.last_mouse_position to determine camera position, so user can look around while remaining in 3rd person
+                    // let distance = 10.0;
+                    // let height = 10.0;
+                    // let camera_pos = Point3::new(pos.x, pos.y + height, pos.z - distance);
+                    // camera.position = camera_pos;
                     
-                    // Set direction to look at the player
-                    let direction = Vector3::new(
-                        pos.x - camera_pos.x,
-                        pos.y - camera_pos.y,
-                        pos.z - camera_pos.z
-                    ).normalize();
+                    // // Set direction to look at the player
+                    // let direction = Vector3::new(
+                    //     pos.x - camera_pos.x,
+                    //     pos.y - camera_pos.y,
+                    //     pos.z - camera_pos.z
+                    // ).normalize();
+                    // camera.direction = direction;
+
+                    // camera.update();
+                    // camera_binding.update_3d(&queue, &camera);
+
+                    // Retrieve player position
+                    let pos = rb.translation(); // nalgebra::Vector3<f32>
+
+                    // --- Mouse Input and Angle Update ---
+                    if let (Some(current), Some(last)) = (
+                        self.current_mouse_position,
+                        self.last_mouse_position
+                    ) {
+                        let mouse_sensitivity: f32 = 0.005; 
+                        
+                        // Calculate difference (delta) in screen coordinates
+                        let delta_x = current.x - last.x;
+                        let delta_y = current.y - last.y;
+                        
+                        // 1. Update Yaw (Left/Right rotation)
+                        // Positive delta_x (mouse moved right) should typically decrease yaw 
+                        // to swing the camera left (assuming a right-hand coordinate system)
+                        self.camera_yaw -= (delta_x as f32) * mouse_sensitivity;
+
+                        // 2. Update Pitch (Up/Down rotation)
+                        // Positive delta_y (mouse moved down) should increase pitch
+                        self.camera_pitch += (delta_y as f32) * mouse_sensitivity;
+                        
+                        // 3. Clamp Pitch to prevent the camera from flipping over
+                        // 1.55 radians is approximately 89 degrees
+                        self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                        
+                        // You should update self.last_mouse_position *after* calculating delta, 
+                        // typically in your event loop, but often set here for simplicity if needed.
+                        // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
+                    }
+
+                    // --- Camera Variables ---
+                    let radius: f32 = 10.0; // The fixed distance from the player
+
+                    // --- Calculate New Camera Position using Spherical Coordinates ---
+
+                    // Calculate horizontal component of the offset (projection onto XZ plane)
+                    let horizontal_distance = radius * self.camera_pitch.cos();
+
+                    // Calculate the offsets
+                    // Note: Assuming your Y-axis is UP (standard for many game engines)
+                    let x_offset = horizontal_distance * self.camera_yaw.sin();
+                    let y_offset = radius * self.camera_pitch.sin();
+                    let z_offset = horizontal_distance * self.camera_yaw.cos(); 
+
+                    // Create the new camera position (Point3 from nalgebra)
+                    // The offsets are added to the player's position
+                    let camera_pos = Point3::new(
+                        pos.x + x_offset,
+                        pos.y + y_offset, 
+                        pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
+                    );
+                    camera.position = camera_pos;
+
+                    // Set direction to look back at the player's center
+                    // The .coords property converts Point3 to Vector3 for the subtraction
+                    let direction = (pos - camera_pos.coords).normalize(); 
                     camera.direction = direction;
 
                     camera.update();

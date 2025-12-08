@@ -14,7 +14,7 @@ use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
 
 use crate::core::PlayerCharacter::NPC;
-use crate::core::editor::Editor;
+use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::ComponentKind;
@@ -137,19 +137,21 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 }
 
-pub fn handle_mouse_move(dx: f32, dy: f32, state: &mut Editor) {
+pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
     let camera = state.camera.as_mut().expect("Couldn't get camera");
     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
+    let renderer_state = state.renderer_state.as_ref().expect("Couldn't get renderer state");
 
     let sensitivity = 0.005;
 
     let dx = -dx * sensitivity;
     let dy = dy * sensitivity;
 
-    // println!("cursor moved {:?} {:?}", dx, dy);
-
-    camera.rotate(dx, dy);
+    // game_mode is handled in renderer_state step_physics_pipeline
+    if !renderer_state.game_mode {
+        camera.rotate(dx, dy);
+    }
 
     camera.update();
     camera_binding.update_3d(&gpu_resources.queue, &camera);
