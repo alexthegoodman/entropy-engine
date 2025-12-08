@@ -91,28 +91,44 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     match key_code {
         "w" => {
             if is_pressed {
-                // Get horizontal direction (ignore Y component for ground movement)
-                let forward = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                // In game mode, move horizontally. In free camera, move in full 3D direction
+                let forward = if renderer_state.game_mode {
+                    Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize()
+                } else {
+                    camera.direction
+                };
                 movement_direction += forward * speed_multiplier;
             }
         }
         "s" => {
             if is_pressed {
-                let forward = Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize();
+                let forward = if renderer_state.game_mode {
+                    Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize()
+                } else {
+                    camera.direction
+                };
                 movement_direction -= forward * speed_multiplier;
             }
         }
         "a" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                let right_horizontal = Vector3::new(right.x, 0.0, right.z).normalize();
+                let right_horizontal = if renderer_state.game_mode {
+                    Vector3::new(right.x, 0.0, right.z).normalize()
+                } else {
+                    right
+                };
                 movement_direction -= right_horizontal * speed_multiplier;
             }
         }
         "d" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
-                let right_horizontal = Vector3::new(right.x, 0.0, right.z).normalize();
+                let right_horizontal = if renderer_state.game_mode {
+                    Vector3::new(right.x, 0.0, right.z).normalize()
+                } else {
+                    right
+                };
                 movement_direction += right_horizontal * speed_multiplier;
             }
         }
@@ -128,7 +144,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
         if renderer_state.game_mode {
             renderer_state.apply_player_movement(movement_direction);
         } else {
-            // Free camera mode - directly update position
+            // Free camera mode - directly update position with full 3D movement
             let diff = movement_direction * 0.1;
             camera.position += diff;
             camera.update();
