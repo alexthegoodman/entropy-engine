@@ -1,12 +1,12 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
 // use cgmath::{Point3, Vector3};
-use nalgebra::{Point3, Vector3};
+use nalgebra::{Isometry3, Point3, Translation3, Vector3};
 use uuid::Uuid;
 use wgpu::{util::DeviceExt, RenderPipeline};
 use winit::window::Window;
@@ -1540,6 +1540,10 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
             Ok(loaded_state) => {
                 editor.saved_state = Some(loaded_state);
                 
+                let renderer_state = editor.renderer_state.as_mut().unwrap();
+                let camera = editor.camera.as_mut().unwrap();
+                let gpu_resources = editor.gpu_resources.as_ref().unwrap();
+
                 // now load landscapes
                 if let Some(saved_state) = &editor.saved_state {
                     if let Some(landscapes) = &saved_state.landscapes {
@@ -1551,9 +1555,6 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                         if let Some(ComponentKind::Landscape) = component.kind {
                                             if component.asset_id == landscape_data.id {
                                                 if let Some(heightmap) = &landscape_data.heightmap {
-                                                    let renderer_state = editor.renderer_state.as_mut().unwrap();
-                                                    let camera = editor.camera.as_mut().unwrap();
-                                                    let gpu_resources = editor.gpu_resources.as_ref().unwrap();
                                                     
                                                     handle_add_landscape(
                                                         renderer_state,
@@ -1623,6 +1624,24 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                         );
                                                     }
                                                 }
+                                            }
+                                        }
+                                        if let Some(ComponentKind::Model) = component.kind {
+                                            let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                            let model_position = Isometry3::translation(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+
+                                            if let Some(asset_item) = asset {
+                                                handle_add_model(
+                                                    renderer_state,  
+                                                    &gpu_resources.device,
+                                                    &gpu_resources.queue, 
+                                                    project_id.to_string(), 
+                                                    asset_item.id.clone(), 
+                                                    component.id.clone(), 
+                                                    asset_item.fileName.clone(), 
+                                                    model_position, 
+                                                    camera
+                                                );
                                             }
                                         }
                                     }
