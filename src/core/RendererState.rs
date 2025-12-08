@@ -25,7 +25,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::{
     helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
@@ -151,6 +151,7 @@ pub struct RendererState {
     // Angles stored in radians (in theory, better controlled here in state)
     pub camera_pitch: f32, // Up/Down rotation
     pub camera_yaw: f32,   // Left/Right rotation
+    pub last_mouse_position_time: Instant
 }
 
 // impl<'a> RendererState<'a> {
@@ -380,13 +381,15 @@ impl RendererState {
             navigation_speed: 5.0,
             game_mode,
             camera_pitch: 0.0,
-            camera_yaw: 0.0
+            camera_yaw: 0.0,
+            last_mouse_position_time: std::time::Instant::now()
         }
     }
 
     pub fn set_mouse_position(&mut self, new_position: PhysicalPosition<f64>) {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
+        self.last_mouse_position_time = std::time::Instant::now();
     }
 
     pub fn is_player_grounded(
@@ -450,6 +453,16 @@ impl RendererState {
         } else {
             0.0
         };
+
+        let near_future = self.last_mouse_position_time.checked_add(Duration::from_millis(100));
+
+        if let Some(future) = near_future {
+            if future < now {
+                self.last_mouse_position = None;
+                self.current_mouse_position =  None;
+            }
+        }
+        
         self.last_frame_time = Some(now);
 
         self.update_terrain_managers(device, dt, camera);
@@ -540,11 +553,13 @@ impl RendererState {
                         // 1. Update Yaw (Left/Right rotation)
                         // Positive delta_x (mouse moved right) should typically decrease yaw 
                         // to swing the camera left (assuming a right-hand coordinate system)
-                        self.camera_yaw -= (delta_x as f32) * mouse_sensitivity;
+                        // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
+                        self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
                         // 2. Update Pitch (Up/Down rotation)
                         // Positive delta_y (mouse moved down) should increase pitch
-                        self.camera_pitch += (delta_y as f32) * mouse_sensitivity;
+                        self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
+                        // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
                         
                         // 3. Clamp Pitch to prevent the camera from flipping over
                         // 1.55 radians is approximately 89 degrees
@@ -556,7 +571,7 @@ impl RendererState {
                     }
 
                     // --- Camera Variables ---
-                    let radius: f32 = 10.0; // The fixed distance from the player
+                    let radius: f32 = 15.0; // The fixed distance from the player
 
                     // --- Calculate New Camera Position using Spherical Coordinates ---
 
