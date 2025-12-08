@@ -55,8 +55,6 @@ impl Model {
         scale: Vector3<f32>,
         camera: &SimpleCamera
     ) -> Self {
-        // web_sys::console::log_1(&format!("Bytes len: {:?}", bytes.len()).into());
-
         let glb = Glb::from_slice(&bytes).expect("Couldn't create glb from slice");
 
         let mut meshes = Vec::new();
@@ -115,9 +113,6 @@ impl Model {
                             },
                             size,
                         );
-
-                        // let texture_view =
-                        //     texture.create_view(&wgpu::TextureViewDescriptor::default());
 
                         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
                             dimension: Some(wgpu::TextureViewDimension::D2Array),
@@ -206,12 +201,17 @@ impl Model {
                     // tex_coords[400]
                 );
 
-                let vertices: Vec<Vertex> = positions
+                // 2. Apply scaling to positions
+                let scaled_positions: Vec<[f32; 3]> = positions
+                    .map(|p| [p[0] * scale.x, p[1] * scale.y, p[2] * scale.z])
+                    .collect();
+
+                let vertices: Vec<Vertex> = scaled_positions.iter()
                     .zip(normals.iter())
                     .zip(tex_coords.iter())
                     .zip(colors.iter())
                     .map(|(((p, n), t), c)| Vertex {
-                        position: p,
+                        position: *p,
                         normal: *n,
                         tex_coords: *t,
                         color: [c[0], c[1], c[2], 1.0],
@@ -250,8 +250,6 @@ impl Model {
                     })
                     .collect();
 
-                // let indices: Vec<u16> = indices_u32.iter().map(|&i| i as u16).collect();
-
                 println!("Model vertices: {:?}", vertices.len());
                 println!("Model indices: {:?}", indices_u32.len());
 
@@ -276,21 +274,6 @@ impl Model {
                     contents: bytemuck::cast_slice(&raw_matrix),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
-
-                // let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                //     layout: &bind_group_layout,
-                //     entries: &[wgpu::BindGroupEntry {
-                //         binding: 0,
-                //         resource: uniform_buffer.as_entire_binding(),
-                //     }],
-                //     label: None,
-                // });
-
-                let render_mode_buffer = if uses_textures {
-                    regular_texture_render_mode_buffer
-                } else {
-                    color_render_mode_buffer
-                };
 
                 // Handle the texture bind group conditionally
                 let bind_group = if uses_textures && !textures.is_empty() {
@@ -375,6 +358,7 @@ impl Model {
                 //     )
                 //     .build();
 
+                // to support interiors
                 let rapier_collider = ColliderBuilder::trimesh(rapier_points, rapier_indices)
                     // .expect("Couldn't create trimesh")
                     .friction(0.7)
@@ -409,7 +393,6 @@ impl Model {
                     });
 
                 meshes.push(Mesh {
-                    // transform: Matrix4::identity(),
                     transform: Transform::new(
                         Vector3::new(
                             isometry.translation.x,
@@ -417,7 +400,7 @@ impl Model {
                             isometry.translation.z,
                         ),
                         Vector3::new(euler.0, euler.1, euler.2),
-                        scale,
+                        Vector3::new(1.0, 1.0, 1.0), // apply scale directly to vertices and set this to 1
                         uniform_buffer,
                     ),
                     vertex_buffer,
@@ -425,7 +408,6 @@ impl Model {
                     index_count: indices_u32.len() as u32,
                     bind_group,
                     group_bind_group: tmp_group_bind_group,
-                    // texture_bind_group,
                     rapier_collider,
                     rapier_rigidbody: dynamic_body,
                     collider_handle: None,
@@ -442,15 +424,9 @@ impl Model {
 }
 
 pub fn read_model(
-    // state: tauri::State<'_, AppState>,
     projectId: String,
     modelFilename: String,
 ) -> Result<Vec<u8>, String> {
-    // let handle = &state.handle;
-    // let config = handle.config();
-    // let package_info = handle.package_info();
-    // let env = handle.env();
-
     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
     let model_path = sync_dir.join(format!(
         "midpoint/projects/{}/models/{}",

@@ -170,6 +170,7 @@ pub fn handle_add_model(
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
+    state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
 pub fn handle_add_npc(
