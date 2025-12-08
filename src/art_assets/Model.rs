@@ -346,22 +346,8 @@ impl Model {
                 };
 
                 // rapier physics and collision detection!
-                let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
-                    .expect("Couldn't create convex hull")
-                    .friction(0.7)
-                    .restitution(0.0)
-                    .density(1.0)
-                    .user_data(
-                        Uuid::from_str(&model_component_id)
-                            .expect("Couldn't extract uuid")
-                            .as_u128(),
-                    )
-                    .build();
-
-                // to support interiors, although may need to use a hollow box collider? not sure. assemble houses in engine? well obviously just do fixed rigidbody for a house
-                // would like to see a PhysicsSettings attached to models in the saved state
-                // let rapier_collider = ColliderBuilder::trimesh(rapier_points, rapier_indices)
-                //     // .expect("Couldn't create trimesh")
+                // let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
+                //     .expect("Couldn't create convex hull")
                 //     .friction(0.7)
                 //     .restitution(0.0)
                 //     .density(1.0)
@@ -372,7 +358,21 @@ impl Model {
                 //     )
                 //     .build();
 
-                let dynamic_body = RigidBodyBuilder::dynamic()
+                // to support interiors, although may need to use a hollow box collider? not sure. assemble houses in engine? well obviously just do fixed rigidbody for a house
+                // would like to see a PhysicsSettings attached to models in the saved state
+                let rapier_collider = ColliderBuilder::trimesh(rapier_points, rapier_indices)
+                    // .expect("Couldn't create trimesh")
+                    .friction(0.7)
+                    .restitution(0.0)
+                    .density(1.0)
+                    .user_data(
+                        Uuid::from_str(&model_component_id)
+                            .expect("Couldn't extract uuid")
+                            .as_u128(),
+                    )
+                    .build();
+
+                let dynamic_body = RigidBodyBuilder::fixed()
                     .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
                     .linear_damping(0.1)
                     .position(isometry)
