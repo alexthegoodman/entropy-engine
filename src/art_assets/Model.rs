@@ -14,9 +14,12 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
+use crate::core::transform::create_empty_group_transform;
 use crate::core::vertex::Vertex;
 use crate::helpers::utilities::get_common_os_dir;
+use crate::core::editor::WindowSize;
 
 pub struct Mesh {
     // pub transform: Matrix4<f32>,
@@ -25,7 +28,7 @@ pub struct Mesh {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub bind_group: wgpu::BindGroup,
-    pub texture_bind_group: wgpu::BindGroup,
+    pub group_bind_group: wgpu::BindGroup,
     pub rapier_collider: Collider,
     pub collider_handle: Option<ColliderHandle>,
     pub rapier_rigidbody: RigidBody,
@@ -45,10 +48,11 @@ impl Model {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
-        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &wgpu::BindGroupLayout,
         texture_render_mode_buffer: &wgpu::Buffer,
         color_render_mode_buffer: &wgpu::Buffer,
         isometry: Isometry3<f32>,
+        camera: &SimpleCamera
     ) -> Self {
         // web_sys::console::log_1(&format!("Bytes len: {:?}", bytes.len()).into());
 
@@ -252,14 +256,14 @@ impl Model {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: &bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: uniform_buffer.as_entire_binding(),
-                    }],
-                    label: None,
-                });
+                // let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                //     layout: &bind_group_layout,
+                //     entries: &[wgpu::BindGroupEntry {
+                //         binding: 0,
+                //         resource: uniform_buffer.as_entire_binding(),
+                //     }],
+                //     label: None,
+                // });
 
                 let render_mode_buffer = if uses_textures {
                     texture_render_mode_buffer
@@ -268,7 +272,7 @@ impl Model {
                 };
 
                 // Handle the texture bind group conditionally
-                let texture_bind_group = if uses_textures && !textures.is_empty() {
+                let bind_group = if uses_textures && !textures.is_empty() {
                     let material = primitive.material();
                     let texture_index = material
                         .pbr_metallic_roughness()
@@ -285,43 +289,49 @@ impl Model {
                     );
 
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &texture_bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
+                            layout: &bind_group_layout,
+                            entries: &[wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(texture_view),
+                                resource: uniform_buffer.as_entire_binding(),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
-                                resource: wgpu::BindingResource::Sampler(sampler),
+                                resource: wgpu::BindingResource::TextureView(&texture_view),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
                                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: render_mode_buffer,
+                                    buffer: texture_render_mode_buffer,
                                     offset: 0,
                                     size: None,
                                 }),
-                            },
-                        ],
+                            }],
                         label: None,
                     })
                 } else {
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &texture_bind_group_layout,
+                        layout: &bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&default_texture_view),
+                                resource: uniform_buffer.as_entire_binding(),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
-                                resource: wgpu::BindingResource::Sampler(&default_sampler),
+                                resource: wgpu::BindingResource::TextureView(&default_texture_view),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&default_sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
                                 resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: render_mode_buffer,
+                                    buffer: texture_render_mode_buffer,
                                     offset: 0,
                                     size: None,
                                 }),
@@ -358,6 +368,13 @@ impl Model {
 
                 let euler = isometry.rotation.euler_angles();
 
+                // probably better per model rather than per mesh
+                let (tmp_group_bind_group, tmp_group_transform) =
+                    create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
+                        width: camera.viewport.window_size.width,
+                        height: camera.viewport.window_size.height
+                    });
+
                 meshes.push(Mesh {
                     // transform: Matrix4::identity(),
                     transform: Transform::new(
@@ -374,7 +391,8 @@ impl Model {
                     index_buffer,
                     index_count: indices_u32.len() as u32,
                     bind_group,
-                    texture_bind_group,
+                    group_bind_group: tmp_group_bind_group,
+                    // texture_bind_group,
                     rapier_collider,
                     rapier_rigidbody: dynamic_body,
                     collider_handle: None,

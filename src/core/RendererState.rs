@@ -88,16 +88,14 @@ pub struct ObjectConfig {
 
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
-    // pub viewport: Arc<Mutex<Viewport>>,
     pub cubes: Vec<Cube>,
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
-    pub models: Vec<Model>,
+    pub models: Vec<Model>, // must add a Model in order to add an NPC
     pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
     pub grasses: Vec<Grass>,
-    // pub light_state: LightState,
 
     // animations
     pub active_animations: Vec<AnimationPlayback>,
@@ -105,13 +103,8 @@ pub struct RendererState {
     // wgpu
     pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    // pub texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    // pub reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
-    // pub camera_uniform_buffer: Arc<wgpu::Buffer>,
-    // pub camera_bind_group: Arc<wgpu::BindGroup>,
-    // pub light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
 
     // state
     pub project_selected: Option<Uuid>,
@@ -119,11 +112,6 @@ pub struct RendererState {
     pub object_selected: Option<Uuid>,
     pub object_selected_kind: Option<ComponentKind>,
     pub object_selected_data: Option<ComponentData>,
-
-    // pub translation_gizmo: TranslationGizmo,
-    // pub rotation_gizmo: RotationGizmo,
-    // pub scale_gizmo: ScaleGizmo,
-    // pub active_gizmo: String,
 
     // physics
     pub gravity: Vector<f32>,
@@ -149,8 +137,6 @@ pub struct RendererState {
     pub ray_intersecting: bool,
     pub ray_intersection: Option<RapierPoint<f32>>,
     pub ray_component_id: Option<Uuid>,
-    // pub dragging_translation_gizmo: bool,
-    // pub gizmo_drag_axis: Option<u8>,
 
     pub last_movement_time: Option<Instant>,
     pub last_frame_time: Option<Instant>,
