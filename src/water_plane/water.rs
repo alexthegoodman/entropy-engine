@@ -5,6 +5,8 @@ pub struct WaterPlane {
     pub vertex_buffer: wgpu::Buffer,
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
+    pub time_buffer: wgpu::Buffer,
+    pub time_bind_group: wgpu::BindGroup,
 }
 
 impl WaterPlane {
@@ -16,6 +18,37 @@ impl WaterPlane {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Water Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("water.wgsl").into()),
+        });
+
+        let time_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Time Buffer"),
+            size: std::mem::size_of::<f32>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let time_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("time_bind_group_layout"),
+            });
+
+        let time_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &time_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: time_buffer.as_entire_binding(),
+            }],
+            label: Some("time_bind_group"),
         });
 
         let size = 4096.0;
@@ -51,6 +84,7 @@ impl WaterPlane {
             label: Some("Water Pipeline Layout"),
             bind_group_layouts: &[
                 camera_bind_group_layout,
+                &time_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -68,17 +102,29 @@ impl WaterPlane {
                         attributes: &wgpu::vertex_attr_array![0 => Float32x3],
                     }
                 ],
-                compilation_options: PipelineCompilationOptions::default()
+                compilation_options: PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: PipelineCompilationOptions::default()
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+                compilation_options: PipelineCompilationOptions::default(),
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -102,7 +148,7 @@ impl WaterPlane {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
-            cache: None
+            cache: None,
         });
 
         Self {
@@ -110,21 +156,24 @@ impl WaterPlane {
             vertex_buffer,
             index_buffer,
             num_indices,
+            time_buffer,
+            time_bind_group,
         }
     }
 }
 
 pub trait DrawWater<'a> {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup);
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup);
 }
 
 impl<'a, 'b> DrawWater<'a> for wgpu::RenderPass<'b>
 where
     'a: 'b,
 {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup) {
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup) {
         self.set_pipeline(&water_plane.pipeline);
         self.set_bind_group(0, camera_bind_group, &[]);
+        self.set_bind_group(1, time_bind_group, &[]);
         self.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
         self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         self.draw_indexed(0..water_plane.num_indices, 0, 0..1);
