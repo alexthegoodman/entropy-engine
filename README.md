@@ -20,9 +20,27 @@ Powering a unified OS inspired by MCP.
 
 TBD:
 
-- Paralax Mapping?
-- Tessellation?
-- Displacement Mapping?
+- Parallax Mapping
+- Tessellation
+- Displacement Mapping
+- God rays
+- Reflections
+- Dynamic clouds
+- Volumetric Fog
+- Air based particle effects (ex. dust, smoke)
+- Fire (light procedural grass on fire, it burns for 15 seconds)
+- Water (initialy just rivers and streams, later submersion) (may require bouyancy forces)
+- Maps for procedural grass (determine where it exists, variations)
+- Vehicles (cars, planes, helicopters, motorcycles, tanks, mechs)
+- Destruction
+- More game logic and mechanics (ex. inventory)
+- Mini-Map
+- Modernize in-game UI choices
+- Enhanced editor experience with stellar transform gizmo
+- Dynamic clothe (not out-of-the-box with Rapier?)
+- Multiplayer helpers
+- Procedural scattering of models
+- PBR Materials
 
 ## Run
 
