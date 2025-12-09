@@ -1,7 +1,8 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer,
+    water_plane::water::DrawWater
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
@@ -1307,6 +1308,11 @@ impl ExportPipeline {
                 render_pass.set_pipeline(&geometry_pipeline);
             }
 
+            // draw water
+            for water_plane in &renderer_state.water_planes {
+                render_pass.draw_water(water_plane, &camera_binding.bind_group);
+            }
+
             // // draw text items
             // for (text_index, text_item) in editor.text_items.iter().enumerate() {
             //     if !text_item.hidden {
@@ -1389,14 +1395,14 @@ impl ExportPipeline {
             //     }
             // }
 
-            // Render all terrain managers
-            for terrain_manager in &renderer_state.terrain_managers {
-                terrain_manager.render(
-                    &mut render_pass,
-                    // &camera_binding.bind_group,
-                    &gpu_resources.queue,
-                );
-            }
+            // Render all terrain managers (for quadtree only)
+            // for terrain_manager in &renderer_state.terrain_managers {
+            //     terrain_manager.render(
+            //         &mut render_pass,
+            //         // &camera_binding.bind_group,
+            //         &gpu_resources.queue,
+            //     );
+            // }
 
             // Drop the render pass before doing texture copies
             drop(render_pass);
@@ -1745,6 +1751,13 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             &editor.model_bind_group_layout.as_ref().expect("Couldn't get layout"),
                                                             &component.id.clone(),
                                                             texture
+                                                        );
+
+                                                        handle_add_water_plane(
+                                                            renderer_state, 
+                                                            &gpu_resources.device, 
+                                                            &camera_binding.bind_group_layout, 
+                                                            wgpu::TextureFormat::Rgba16Float
                                                         );
                                                     }
                                                 }

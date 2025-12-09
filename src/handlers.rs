@@ -25,6 +25,7 @@ use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_textur
 use crate::helpers::saved_data::ComponentKind;
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
+use crate::water_plane::water::WaterPlane;
 use rand::{Rng, random};
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -448,4 +449,14 @@ pub fn handle_add_grass(
     } else {
         println!("Could not find landscape with id: {}", landscape_id);
     }
+}
+
+pub fn handle_add_water_plane(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+    texture_format: wgpu::TextureFormat,
+) {
+    let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format);
+    state.water_planes.push(water_plane);
 }

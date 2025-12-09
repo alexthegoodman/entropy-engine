@@ -39,6 +39,7 @@ use crate::{
     art_assets::Model::Model,
     shape_primitives::{Cube::Cube, Pyramid::Pyramid},
     procedural_grass::grass::Grass,
+    water_plane::water::WaterPlane,
 };
 
 use super::Grid::GridConfig;
@@ -103,6 +104,7 @@ pub struct RendererState {
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
     pub grasses: Vec<Grass>,
+    pub water_planes: Vec<WaterPlane>,
 
     // animations
     pub active_animations: Vec<AnimationPlayback>,
@@ -228,6 +230,7 @@ impl RendererState {
 
         let mut landscapes = Vec::new();
         let mut grasses = Vec::new();
+        let mut water_planes = Vec::new();
 
         let mut terrain_managers = Vec::new();
 
@@ -358,6 +361,7 @@ impl RendererState {
             models,
             landscapes,
             grasses,
+            water_planes,
             skeleton_parts,
             terrain_managers,
             active_animations: Vec::new(),

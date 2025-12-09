@@ -61,7 +61,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
+use crate::handlers::{handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{ExportPipeline, load_project};
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
@@ -787,6 +787,17 @@ impl WindowState {
 
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();
         surface.configure(&gpu_resources.device, &surface_config);
+
+        let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
+        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+        let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+
+        handle_add_water_plane(
+            renderer_state,
+            &gpu_resources.device,
+            &camera_binding.bind_group_layout,
+            surface_config.format,
+        );
 
         let mut state = Self {
             #[cfg(macos_platform)]
