@@ -616,7 +616,7 @@ impl RendererState {
                     }
 
                     // --- Camera Variables ---
-                    let radius: f32 = 15.0; // The fixed distance from the player
+                    let radius: f32 = 25.0; // The fixed distance from the player
 
                     // --- Calculate New Camera Position using Spherical Coordinates ---
 

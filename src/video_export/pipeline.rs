@@ -6,7 +6,7 @@ use crate::{
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
 // use cgmath::{Point3, Vector3};
-use nalgebra::{Isometry3, Point3, Translation3, Vector3};
+use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use uuid::Uuid;
 use wgpu::{util::DeviceExt, RenderPipeline};
 use winit::window::Window;
@@ -1753,7 +1753,9 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                         }
                                         if let Some(ComponentKind::Model) = component.kind {
                                             let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
-                                            let model_position = Isometry3::translation(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                            let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                            let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0], component.generic_properties.rotation[1], component.generic_properties.rotation[2]);
+                                            let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                             let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
                                             if let Some(asset_item) = asset {
@@ -1765,7 +1767,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                     asset_item.id.clone(), 
                                                     component.id.clone(), 
                                                     asset_item.fileName.clone(), 
-                                                    model_position, 
+                                                    model_iso, 
                                                     model_scale,
                                                     camera
                                                 );
