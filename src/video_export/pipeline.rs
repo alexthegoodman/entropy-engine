@@ -1433,6 +1433,7 @@ impl ExportPipeline {
 
             // Draw the gizmo
             let gizmo_draw_data = renderer_state.gizmo.draw();
+            // println!("is_finite {:?}", renderer_state.gizmo.config().viewport.is_finite());
             if !gizmo_draw_data.vertices.is_empty() {
                 // println!("Rendering gizmo");
                 let gizmo_vertex_buffer =

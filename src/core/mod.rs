@@ -3,7 +3,6 @@ pub mod PlayerCharacter;
 pub mod Rays;
 pub mod RendererState;
 pub mod SimpleCamera;
-pub mod TestTransformGizmo;
 pub mod Texture;
 // pub mod Transform;
 pub mod Viewport;

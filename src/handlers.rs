@@ -1,6 +1,8 @@
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
+use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
+use transform_gizmo::math::Transform;
 use transform_gizmo::{GizmoConfig, GizmoInteraction};
 use wgpu::util::DeviceExt;
 
@@ -168,7 +170,15 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: PhysicalPosition<f64>, lastPosition: Option<PhysicalPosition<f64>>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-    let mut transforms = vec![];
+    let test_sphere = renderer_state.player_character.sphere.as_ref().expect("Couldn't get sphere");
+
+    let mut transforms = vec![
+        Transform::from_scale_rotation_translation(
+            MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
+            Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
+            MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
+        )
+    ];
 
     let interaction = GizmoInteraction {
         cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
@@ -178,12 +188,17 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: PhysicalPosition<f
         // dragging: mousePressed
      };
     
+    //  println!("mouse move");
+
     if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
-                     for (new_transform, transform) in
+        // println!("subgizmo dragged");
+
+        for (new_transform, transform) in
          // Update transforms
          new_transforms.iter().zip(&mut transforms)
-         {
+         {    
              *transform = *new_transform;
+             
          }
      }
 }
