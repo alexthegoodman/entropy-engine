@@ -1,3 +1,4 @@
+use mint::RowMatrix4;
 use nalgebra::{Matrix4, Perspective3, Point3, Rotation3, Unit, Vector3};
 
 use crate::core::Viewport::Viewport;
@@ -113,4 +114,15 @@ impl SimpleCamera {
         // Right vector is cross product of forward and up
         self.direction.cross(&self.up).normalize()
     }
+}
+
+pub fn to_row_major_f64(m: &Matrix4<f32>) -> RowMatrix4<f64> {
+    let transposed = m.transpose();
+    let data: [f64; 16] = transposed.as_slice()
+        .iter()
+        .map(|&x| x as f64)
+        .collect::<Vec<f64>>()
+        .try_into()
+        .unwrap();
+    RowMatrix4::from(data)
 }

@@ -1,6 +1,4 @@
-use crate::core::RendererState::WindowSize;
-
-
+use crate::core::editor::WindowSize;
 
 #[derive(Clone, Copy)]
 pub struct Viewport {

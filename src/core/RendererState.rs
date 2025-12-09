@@ -1,15 +1,18 @@
 use gltf::json::camera;
+use mint::ColumnMatrix4;
 use nalgebra::{Isometry3, Point3, Vector3};
 use rapier3d::math::Point as RapierPoint;
 use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
+use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
 use winit::dpi::PhysicalPosition;
 use winit::keyboard::ModifiersState;
 
+use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
-use crate::core::editor::Viewport;
+use crate::core::editor::{Viewport, WindowSize};
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
@@ -26,6 +29,9 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::time::{Duration, Instant};
+use transform_gizmo::{enum_set, Gizmo, GizmoConfig, GizmoMode, GizmoOrientation, GizmoVisuals, Rect};
+use transform_gizmo::mint::RowMatrix4;
+
 
 use crate::{
     helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
@@ -53,11 +59,11 @@ pub struct MouseState {
     pub is_dragging: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct WindowSize {
-    pub width: u32,
-    pub height: u32,
-}
+// #[derive(Debug, Clone, Copy)]
+// pub struct WindowSize {
+//     pub width: u32,
+//     pub height: u32,
+// }
 
 #[derive(Clone, Copy, Debug)]
 pub struct Point {
@@ -151,7 +157,9 @@ pub struct RendererState {
     // Angles stored in radians (in theory, better controlled here in state)
     pub camera_pitch: f32, // Up/Down rotation
     pub camera_yaw: f32,   // Left/Right rotation
-    pub last_mouse_position_time: Instant
+    pub last_mouse_position_time: Instant,
+    pub gizmo: Gizmo,
+
 }
 
 // impl<'a> RendererState<'a> {
@@ -307,6 +315,42 @@ impl RendererState {
         // );
         // player_character.collider_handle = Some(collider_handle);
 
+        let window_size = camera.viewport.window_size;
+        let viewport = Rect {
+            min: (0.0, 0.0).into(),
+            max: (window_size.width as f32, window_size.height as f32).into(),
+        };
+
+        let view_matrix = to_row_major_f64(&camera.get_view());
+        let proj_matrix = to_row_major_f64(&camera.get_projection());
+
+        let gizmo = Gizmo::new(GizmoConfig {
+            view_matrix,
+            projection_matrix: proj_matrix,
+            viewport,
+            // modes: enum_set!(GizmoMode::Rotate | GizmoMode::Translate | GizmoMode::Scale),
+            orientation: GizmoOrientation::Local,
+            pivot_point: TransformPivotPoint::MedianPoint,
+            snapping: false,
+            snap_angle: 15.0,
+            snap_distance: 1.0,
+            snap_scale: 0.1,
+            visuals: GizmoVisuals::default(),
+            pixels_per_point: 1.0,
+            ..Default::default()
+        });
+
+        // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
+        // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
+
+        // // now associate rigidbody with collider
+        // let collider_handle = collider_set.insert_with_parent(
+        //     player_character.movement_collider,
+        //     rigid_body_handle,
+        //     &mut rigid_body_set,
+        // );
+        // player_character.collider_handle = Some(collider_handle);
+
         Self {
             cubes,
             pyramids,
@@ -382,7 +426,8 @@ impl RendererState {
             game_mode,
             camera_pitch: 0.0,
             camera_yaw: 0.0,
-            last_mouse_position_time: std::time::Instant::now()
+            last_mouse_position_time: std::time::Instant::now(),
+            gizmo,
         }
     }
 

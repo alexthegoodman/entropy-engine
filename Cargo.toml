@@ -34,7 +34,7 @@ chrono = { version = "0.4.38", features = ["serde"] }
 anyhow = "1.0"
 # wgpu = "22.1.0"
 raw-window-handle = "0.6.2"
-nalgebra = "0.32.5"
+nalgebra = { version = "0.32.5", features = ["mint"] }
 nalgebra-glm = "0.18.0"
 tokio = "1.41.0"
 base64 = "0.22.1"
@@ -53,6 +53,8 @@ egui = "0.33.2"
 egui-wgpu = { version = "0.33.2", features = ["winit"] }
 egui-winit = "0.33.2"
 noise = "0.8"
+transform-gizmo = "0.8.0"
+mint = "0.5.9"
 
 [dependencies.gltf]
 features = ["utils"]
