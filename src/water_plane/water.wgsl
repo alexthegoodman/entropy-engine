@@ -7,7 +7,7 @@ var<uniform> camera: Camera;
 struct Time {
     time: f32,
 };
-@group(0) @binding(1)
+@group(1) @binding(0)
 var<uniform> u_time: Time;
 
 struct VertexInput {
