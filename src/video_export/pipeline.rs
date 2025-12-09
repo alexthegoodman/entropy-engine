@@ -47,6 +47,7 @@ pub struct ExportPipeline {
     pub g_buffer_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub g_buffer_bind_group: Option<wgpu::BindGroup>,
     pub light_bind_group: Option<wgpu::BindGroup>,
+    pub gizmo_pipeline: Option<RenderPipeline>,
 }
 
 impl ExportPipeline {
@@ -78,7 +79,8 @@ impl ExportPipeline {
             g_buffer_bind_group_layout: None,
             g_buffer_bind_group: None,
             light_bind_group: None,
-            g_buffer_sampler: None
+            g_buffer_sampler: None,
+            gizmo_pipeline: None,
         }
     }
 
@@ -725,6 +727,66 @@ impl ExportPipeline {
 
         camera_binding.update_3d(&queue, &camera);
 
+        let shader_module_gizmo_vert =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Gizmo Vert Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gizmo_vertex.wgsl").into()),
+            });
+
+        let shader_module_gizmo_frag =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Gizmo Frag Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/gizmo_fragment.wgsl").into()),
+            });
+
+        let gizmo_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Gizmo Pipeline Layout"),
+            bind_group_layouts: &[
+                &window_size_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let gizmo_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Gizmo Pipeline"),
+            layout: Some(&gizmo_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_module_gizmo_vert,
+                entry_point: Some("vs_main"),
+                buffers: &[
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2],
+                    },
+                    wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![1 => Float32x4],
+                    },
+                ],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module_gizmo_frag,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: swapchain_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
@@ -832,9 +894,11 @@ impl ExportPipeline {
 
         // self.device = Some(device);
         // self.queue = Some(queue);
-        self.gpu_resources = export_editor.gpu_resources.clone();
+        
 
-        // self.forward_pipeline = Some(render_pipeline);
+        self.gizmo_pipeline = Some(gizmo_pipeline);
+
+        self.gpu_resources = export_editor.gpu_resources.clone();
         self.geometry_pipeline = Some(geometry_pipeline);
         self.lighting_pipeline = Some(lighting_pipeline);
         self.texture = Some(texture);
@@ -1365,6 +1429,55 @@ impl ExportPipeline {
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
                 lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);
+            }
+
+            // Draw the gizmo
+            let gizmo_draw_data = renderer_state.gizmo.draw();
+            if !gizmo_draw_data.vertices.is_empty() {
+                // println!("Rendering gizmo");
+                let gizmo_vertex_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                let gizmo_color_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Color Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                let gizmo_index_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Index Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+
+                let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Gizmo Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
+                gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
+                gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
+                gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
+                gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
             }
 
             if self.frame_buffer.is_some() {
