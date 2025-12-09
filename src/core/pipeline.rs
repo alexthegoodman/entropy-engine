@@ -1,7 +1,7 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model}, helpers::{landscapes::read_landscape_heightmap_as_texture, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer
 };
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
@@ -12,7 +12,6 @@ use wgpu::{util::DeviceExt, RenderPipeline};
 use winit::window::Window;
 use crate::shape_primitives::Cube::Cube;
 
-use super::frame_buffer::FrameCaptureBuffer;
 // use super::chat::Chat;
 
 pub struct ExportPipeline {
