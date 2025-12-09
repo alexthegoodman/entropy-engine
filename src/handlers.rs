@@ -1,9 +1,11 @@
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
 use serde::{Deserialize, Serialize};
 use tokio::spawn;
+use transform_gizmo::{GizmoConfig, GizmoInteraction};
 use wgpu::util::DeviceExt;
 
 use bytemuck::{Pod, Zeroable};
+use winit::dpi::PhysicalPosition;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -14,6 +16,7 @@ use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
 
 use crate::core::PlayerCharacter::NPC;
+use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
@@ -149,8 +152,40 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             camera.position += diff;
             camera.update();
             camera_binding.update_3d(&gpu_resources.queue, &camera);
+
+            let view_matrix = to_row_major_f64(&camera.get_view());
+            let proj_matrix = to_row_major_f64(&camera.get_projection());
+
+            renderer_state.gizmo.update_config(GizmoConfig {
+                view_matrix,
+                projection_matrix: proj_matrix,
+                ..Default::default()
+            });
         }
     }
+}
+
+pub fn handle_mouse_move(mousePressed: bool, currentPosition: PhysicalPosition<f64>, lastPosition: Option<PhysicalPosition<f64>>, state: &mut Editor) {
+    let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+
+    let mut transforms = vec![];
+
+    let interaction = GizmoInteraction {
+        cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
+        ..Default::default()
+        // hovered,
+        // drag_started,
+        // dragging: mousePressed
+     };
+    
+    if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
+                     for (new_transform, transform) in
+         // Update transforms
+         new_transforms.iter().zip(&mut transforms)
+         {
+             *transform = *new_transform;
+         }
+     }
 }
 
 pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {

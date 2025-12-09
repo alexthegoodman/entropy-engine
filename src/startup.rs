@@ -61,7 +61,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{handle_key_press, handle_mouse_move_on_shift};
+use crate::handlers::{handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::video_export::pipeline::{ExportPipeline, load_project};
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
@@ -161,6 +161,7 @@ struct Application {
     game_mode: bool,
     project_id: Option<String>,
     project_loaded: bool,
+    mouse_pressed: bool,
 }
 
 impl Application {
@@ -201,6 +202,7 @@ impl Application {
             game_mode,
             project_id,
             project_loaded: false,
+            mouse_pressed: false
         }
     }
 
@@ -512,7 +514,11 @@ impl ApplicationHandler<UserEvent> for Application {
             WindowEvent::MouseInput { button, state, .. } => {
                 let mods = window.modifiers;
 
-                
+                if state.is_pressed() {
+                    self.mouse_pressed = true;
+                } else {
+                    self.mouse_pressed = false;
+                }
 
                 if let Some(action) =
                     state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
@@ -533,21 +539,28 @@ impl ApplicationHandler<UserEvent> for Application {
 
                 renderer_state.set_mouse_position(position);
 
+                let mut last_x = 0.0;
+                let mut last_y = 0.0;
+
+                if let Some(last_pos) = self.last_mouse_position {
+                    last_x = last_pos.x;
+                    last_y = last_pos.y;
+                }
+
                 if (self.shift_active) {
-                    let mut last_x = 0.0;
-                    let mut last_y = 0.0;
-
-                    if let Some(last_pos) = self.last_mouse_position {
-                        last_x = last_pos.x;
-                        last_y = last_pos.y;
-                    }
-
                     handle_mouse_move_on_shift(
                     (position.x - last_x) as f32, 
                     (position.y - last_y) as f32, 
                 editor
                     );
                 }
+
+                handle_mouse_move(
+                    self.mouse_pressed,
+                    position, 
+                    self.last_mouse_position,
+                    editor
+                );
 
                 self.last_mouse_position = Some(position);
             },
