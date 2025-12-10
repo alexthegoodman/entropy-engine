@@ -21,6 +21,17 @@ use crate::helpers::landscapes::LandscapePixelData;
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::core::editor::WindowSize;
 
+pub enum PBRTextureKind {
+    Normal,
+    MetallicRoughnessAO,
+}
+
+pub enum PBRMaterialType {
+    Primary,
+    Rockmap,
+    Soil,
+}
+
 pub struct Landscape {
     pub id: String,
     pub transform: Transform,
@@ -32,6 +43,10 @@ pub struct Landscape {
     // pub texture_bind_group: wgpu::BindGroup,
     pub texture_array: Option<wgpu::Texture>,
     pub texture_array_view: Option<wgpu::TextureView>,
+    pub normal_texture_array: Option<wgpu::Texture>,
+    pub normal_texture_array_view: Option<wgpu::TextureView>,
+    pub pbr_params_texture_array: Option<wgpu::Texture>,
+    pub pbr_params_texture_array_view: Option<wgpu::TextureView>,
     pub texture_bind_group: Option<wgpu::BindGroup>,
     pub rapier_heightfield: Collider,
     pub rapier_rigidbody: RigidBody,
@@ -178,6 +193,81 @@ impl Landscape {
             ..Default::default()
         });
 
+        // Create a 1x1 default normal texture (flat normal, [0.5, 0.5, 1.0, 1.0] for (0,0,1) normal)
+        let normal_texture_size = wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let normal_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default Normal Texture"),
+            size: normal_texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let flat_normal: [u8; 4] = [128, 128, 255, 255]; // (0,0,1) normal in Rgba8Unorm
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &normal_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &flat_normal,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            normal_texture_size,
+        );
+        let normal_texture_view = normal_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        // Create a 1x1 default PBR params texture (metallic=0, roughness=1, AO=1)
+        let pbr_params_texture_size = wgpu::Extent3d {
+            width: 1,
+            height: 1,
+            depth_or_array_layers: 1,
+        };
+        let pbr_params_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Default PBR Params Texture"),
+            size: pbr_params_texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let default_pbr_params: [u8; 4] = [0, 255, 255, 255]; // metallic=0, roughness=1, AO=1
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &pbr_params_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &default_pbr_params,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            pbr_params_texture_size,
+        );
+        let pbr_params_texture_view = pbr_params_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+
         // Create default sampler
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -207,19 +297,27 @@ impl Landscape {
             },
             wgpu::BindGroupEntry {
                 binding: 1,
-                resource: wgpu::BindingResource::TextureView(&texture_view),
+                resource: wgpu::BindingResource::TextureView(&texture_view), // albedo array
             },
             wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::Sampler(&sampler),
             },wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: texture_render_mode_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    }],
+                binding: 3,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: texture_render_mode_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 4,
+                resource: wgpu::BindingResource::TextureView(&normal_texture_view), // normal array
+            },
+            wgpu::BindGroupEntry {
+                binding: 5,
+                resource: wgpu::BindingResource::TextureView(&pbr_params_texture_view), // pbr params array
+            }],
             label: None,
         });
 
@@ -252,7 +350,15 @@ impl Landscape {
             rigid_body_handle: None,
             heights: data.rapier_heights.clone(),
             particle_bind_group_layout: None,
-            particle_texture_view: None
+            particle_texture_view: None,
+            normal_texture_array: Some(normal_texture),
+            normal_texture_array_view: Some(normal_texture_view),
+            pbr_params_texture_array: Some(pbr_params_texture),
+            pbr_params_texture_array_view: Some(pbr_params_texture_view),
+            // normal_texture_array: None,
+            // normal_texture_array_view: None,
+            // pbr_params_texture_array: None,
+            // pbr_params_texture_array_view: None
         }
     }
 
@@ -429,6 +535,118 @@ impl Landscape {
         self.particle_bind_group_layout = Some(landscape_bind_group_layout);
     }
 
+    pub fn update_pbr_texture(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        texture_bind_group_layout: &wgpu::BindGroupLayout,
+        texture_render_mode_buffer: &wgpu::Buffer,
+        color_render_mode_buffer: &wgpu::Buffer,
+        kind: PBRTextureKind, // New enum to distinguish PBR texture types
+        material_type: PBRMaterialType, // New enum to specify which material (primary, rock, soil)
+        new_texture: &Texture,
+    ) {
+        let layer = match material_type {
+            PBRMaterialType::Primary => 0,
+            PBRMaterialType::Rockmap => 1,
+            PBRMaterialType::Soil => 2,
+        };
+
+        match kind {
+            PBRTextureKind::Normal => {
+                if self.normal_texture_array.is_none() {
+                    self.create_pbr_texture_array(device, new_texture.size(), PBRTextureKind::Normal);
+                }
+                if let Some(texture_array) = &self.normal_texture_array {
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: texture_array,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &new_texture.data,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(4 * new_texture.size().width),
+                            rows_per_image: Some(new_texture.size().height),
+                        },
+                        new_texture.size(),
+                    );
+                }
+            },
+            PBRTextureKind::MetallicRoughnessAO => {
+                if self.pbr_params_texture_array.is_none() {
+                    self.create_pbr_texture_array(device, new_texture.size(), PBRTextureKind::MetallicRoughnessAO);
+                }
+                if let Some(texture_array) = &self.pbr_params_texture_array {
+                    queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: texture_array,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d { x: 0, y: 0, z: layer },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &new_texture.data,
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(4 * new_texture.size().width),
+                            rows_per_image: Some(new_texture.size().height),
+                        },
+                        new_texture.size(),
+                    );
+                }
+            }
+        }
+
+        self.update_bind_group(
+            device,
+            texture_bind_group_layout,
+            texture_render_mode_buffer,
+            color_render_mode_buffer,
+        );
+    }
+
+    fn create_pbr_texture_array(&mut self, device: &wgpu::Device, size: wgpu::Extent3d, kind: PBRTextureKind) {
+        let (label, format, target_array, target_view) = match kind {
+            PBRTextureKind::Normal => (
+                "landscape_normal_texture_array",
+                wgpu::TextureFormat::Rgba8Unorm, // Assuming normal maps are 8-bit RGBA
+                &mut self.normal_texture_array,
+                &mut self.normal_texture_array_view,
+            ),
+            PBRTextureKind::MetallicRoughnessAO => (
+                "landscape_pbr_params_texture_array",
+                wgpu::TextureFormat::Rgba8Unorm, // Packing Metallic, Roughness, AO into RGBA8
+                &mut self.pbr_params_texture_array,
+                &mut self.pbr_params_texture_array_view,
+            ),
+        };
+
+        let texture_array = device.create_texture(&wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 3, // Primary, Rockmap, Soil
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            label: Some(label),
+            view_formats: &[],
+        });
+
+        let texture_array_view = texture_array.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        *target_array = Some(texture_array);
+        *target_view = Some(texture_array_view);
+    }
+
     fn update_bind_group(
         &mut self,
         device: &wgpu::Device,
@@ -463,6 +681,14 @@ impl Landscape {
                             offset: 0,
                             size: None,
                         }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(self.normal_texture_array_view.as_ref().expect("Couldn't get normal texture array")),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(self.pbr_params_texture_array_view.as_ref().expect("Couldn't get PBR params texture array")),
                     },
                 ],
                 label: Some("landscape_texture_bind_group"),

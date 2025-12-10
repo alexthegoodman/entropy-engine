@@ -41,6 +41,8 @@ pub struct ExportPipeline {
     pub g_buffer_normal_view: Option<wgpu::TextureView>,
     pub g_buffer_albedo_texture: Option<wgpu::Texture>,
     pub g_buffer_albedo_view: Option<wgpu::TextureView>,
+    pub g_buffer_pbr_material_texture: Option<wgpu::Texture>,
+    pub g_buffer_pbr_material_view: Option<wgpu::TextureView>,
     pub g_buffer_sampler: Option<wgpu::Sampler>,
 
     // G-Buffer bind group
@@ -76,6 +78,8 @@ impl ExportPipeline {
             g_buffer_normal_view: None,
             g_buffer_albedo_texture: None,
             g_buffer_albedo_view: None,
+            g_buffer_pbr_material_texture: None,
+            g_buffer_pbr_material_view: None,
             g_buffer_bind_group_layout: None,
             g_buffer_bind_group: None,
             light_bind_group: None,
@@ -241,6 +245,22 @@ impl ExportPipeline {
         });
         let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let gbuffer_pbr_material_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("G-Buffer PBR Material Texture"),
+            size: wgpu::Extent3d {
+                width: video_width,
+                height: video_height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
         let g_buffer_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("G-Buffer Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -289,6 +309,16 @@ impl ExportPipeline {
                     wgpu::BindGroupLayoutEntry {
                         binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::NonFiltering),
                         count: None,
                     },
@@ -313,6 +343,10 @@ impl ExportPipeline {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&gbuffer_pbr_material_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
                     resource: wgpu::BindingResource::Sampler(&g_buffer_sampler),
                 },
             ],
@@ -367,6 +401,28 @@ impl ExportPipeline {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
                             min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // Normal map texture array
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 4,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // PBR params texture array
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 5,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            multisampled: false,
                         },
                         count: None,
                     },
@@ -583,6 +639,11 @@ impl ExportPipeline {
                     }),
                     Some(wgpu::ColorTargetState {
                         format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
                         blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
@@ -913,6 +974,8 @@ impl ExportPipeline {
         self.g_buffer_normal_view = Some(gbuffer_normal_view);
         self.g_buffer_albedo_texture = Some(gbuffer_albedo_texture);
         self.g_buffer_albedo_view = Some(gbuffer_albedo_view);
+        self.g_buffer_pbr_material_texture = Some(gbuffer_pbr_material_texture);
+        self.g_buffer_pbr_material_view = Some(gbuffer_pbr_material_view);
         self.g_buffer_bind_group_layout = Some(g_buffer_bind_group_layout);
         self.g_buffer_bind_group = Some(g_buffer_bind_group);
         self.light_bind_group = Some(light_bind_group);
@@ -993,6 +1056,22 @@ impl ExportPipeline {
             });
             let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+            let gbuffer_pbr_material_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("G-Buffer PBR Material Texture"),
+                size: wgpu::Extent3d {
+                    width: new_size.width,
+                    height: new_size.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
             // Recreate window size buffer and bind group
             let window_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
@@ -1044,6 +1123,10 @@ impl ExportPipeline {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&gbuffer_pbr_material_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
                         // Need to get the sampler from the original bind group
                         resource: wgpu::BindingResource::Sampler(&g_buffer_sampler),
                     },
@@ -1056,6 +1139,8 @@ impl ExportPipeline {
             self.g_buffer_normal_view = Some(gbuffer_normal_view);
             self.g_buffer_albedo_texture = Some(gbuffer_albedo_texture);
             self.g_buffer_albedo_view = Some(gbuffer_albedo_view);
+            self.g_buffer_pbr_material_texture = Some(gbuffer_pbr_material_texture);
+            self.g_buffer_pbr_material_view = Some(gbuffer_pbr_material_view);
             self.g_buffer_bind_group = Some(new_g_buffer_bind_group);
             self.window_size_bind_group = Some(window_size_bind_group);
     
@@ -1138,6 +1223,7 @@ impl ExportPipeline {
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();
             let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
+            let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Geometry Pass"),
@@ -1162,6 +1248,15 @@ impl ExportPipeline {
                     }),
                     Some(wgpu::RenderPassColorAttachment {
                         view: gbuffer_albedo_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: gbuffer_pbr_material_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
