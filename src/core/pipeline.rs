@@ -703,15 +703,7 @@ impl ExportPipeline {
 
         // Point Lights
         let point_lights_uniform = crate::core::editor::PointLightsUniform {
-            point_lights: [PointLight {
-                position: [0.0, 0.0, 0.0],
-                _padding1: 0,
-                color: [0.0, 0.0, 0.0],
-                _padding2: 0,
-                intensity: 0.0,
-                max_distance: 100.0, // Default max distance for now
-                _padding3: [0; 2],
-            }; crate::core::editor::MAX_POINT_LIGHTS],
+            point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS],
             num_point_lights: 0,
             _padding: [0; 3],
         };
@@ -1557,21 +1549,18 @@ impl ExportPipeline {
 
             // obviously, no good reason to set this on every frame
             let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
-                point_lights: [PointLight {
-                    position: [0.0, 0.0, 0.0],
-                    _padding1: 0,
-                    color: [0.0, 0.0, 0.0],
-                    _padding2: 0,
-                    intensity: 0.0,
-                    max_distance: 100.0, // Default max distance for now
-                    _padding3: [0; 2],
-                }; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
+                point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
                 num_point_lights: renderer_state.point_lights.len() as u32,
                 _padding: [0; 3],
             };
 
             for (i, pl) in renderer_state.point_lights.iter().enumerate() {
-                point_lights_uniform_data.point_lights[i] = *pl;
+                // point_lights_uniform_data.point_lights[i] = *pl;
+                 point_lights_uniform_data.point_lights[i] = [
+                    pl.position[0], pl.position[1], pl.position[2],0.0,  // position + padding
+                    pl.color[0], pl.color[1], pl.color[2],0.0, pl.intensity, pl.max_distance, // color + intensity
+                     0.0, 0.0
+                ];
             }
             
             // Update point lights buffer

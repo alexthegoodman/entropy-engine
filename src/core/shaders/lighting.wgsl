@@ -11,9 +11,12 @@ struct DirectionalLight {
 
 struct PointLight {
     position: vec3<f32>,
+    _padding0: f32,
     color: vec3<f32>,
+    _padding1: f32,
     intensity: f32,
     max_distance: f32,
+    _padding: vec2<f32>,
 };
 
 struct PointLights {
@@ -58,6 +61,18 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let normal = normalize(textureSample(g_buffer_normal, s_g_buffer, tex_coords).xyz);
     let albedo = textureSample(g_buffer_albedo, s_g_buffer, tex_coords).rgb;
     let pbr_material = textureSample(g_buffer_pbr_material, s_g_buffer, tex_coords).rgb; // Metallic, Roughness, AO
+
+    // Point Lights
+    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
+    //     let p_light = point_lights.point_lights[i];
+    //     let light_vec = p_light.position - position;
+    //     let distance = length(light_vec);
+        
+    //     // Debug: Show red if within max_distance
+    //     if (distance < p_light.max_distance) {
+    //         return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    //     }
+    // }
 
     let metallic = pbr_material.r;
     let roughness = pbr_material.g;
@@ -112,6 +127,25 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     
     var total_Lo = directional_Lo;
 
+    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
+    //     let p_light = point_lights.point_lights[i];
+    //     let light_vec = p_light.position - position;
+    //     let distance = length(light_vec);
+    //     let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, 2.0), 0.0, 1.0);
+        
+    //     return vec4<f32>(vec3<f32>(attenuation), 1.0);
+    // }
+
+    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
+    //     let p_light = point_lights.point_lights[i];
+    //     let light_vec = p_light.position - position;
+    //     let distance = length(light_vec);
+    //     let light_dir = light_vec / distance;
+    //     let NdotL_point = max(dot(N, light_dir), 0.0);
+        
+    //     return vec4<f32>(vec3<f32>(NdotL_point), 1.0);
+    // }
+
     // Point Lights
     for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
         let p_light = point_lights.point_lights[i];
@@ -121,30 +155,48 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
         let light_dir = light_vec / distance; 
 
         let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, 2.0), 0.0, 1.0);
-        let intensity_factor = p_light.intensity / (distance * distance + 1.0); // +1.0 to avoid division by zero and smooth attenuation
+        // let intensity_factor = p_light.intensity / (distance * distance + 1.0); // +1.0 to avoid division by zero and smooth attenuation
+        let intensity_factor = p_light.intensity; // Just use intensity as-is
 
         let NdotL_point = max(dot(N, light_dir), 0.0);
         let halfway_dir_point = normalize(light_dir + view_dir);
 
         let H_point = halfway_dir_point;
+
         let NdotH_point = max(dot(N, H_point), 0.0);
-        // a, a2 are already defined
-        // D is already defined as nom/denom - same formula
+        let NdotH2_point = NdotH_point * NdotH_point;
+        let nom_point = a2;
+        let denom_point = (NdotH2_point * (a2 - 1.0) + 1.0);
+        let D_point = nom_point / (PI * denom_point * denom_point);
+
+        let F_point = F0 + (vec3<f32>(1.0) - F0) * pow(clamp(1.0 - dot(H_point, view_dir), 0.0, 1.0), 5.0);
         
         let G_V_point = NdotV / (NdotV * (1.0 - k) + k);
         let G_L_point = NdotL_point / (NdotL_point * (1.0 - k) + k);
         let G_point = G_V_point * G_L_point;
         
-        let Ks_point = F; // Fresnel remains the same
+        // let Ks_point = F; // Fresnel remains the same
+        let Ks_point = F_point;
         let Kd_point = (vec3<f32>(1.0) - Ks_point) * (1.0 - metallic);
 
-        let numerator_point = D * G_point * F;
+        // let numerator_point = D * G_point * F;
+        let numerator_point = D_point * G_point * F_point;
         let denominator_point = 4.0 * NdotV * NdotL_point + 0.0001;
         let specular_point = numerator_point / denominator_point;
 
+        // return vec4<f32>(p_light.color, 1.0);
+
         let point_radiance = p_light.color * NdotL_point * attenuation * intensity_factor;
 
+        // return vec4<f32>(point_radiance, 1.0);
+
         let point_Lo = (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
+
+        // let diffuse_only = (Kd_point * albedo / PI) * point_radiance * ao;
+        // return vec4<f32>(diffuse_only, 1.0);
+
+        // return vec4<f32>(vec3<f32>(intensity_factor / 100.0), 1.0);
+
         total_Lo = total_Lo + point_Lo;
 
         // total_Lo = vec3<f32>(1.0, 0.0, 0.0);
