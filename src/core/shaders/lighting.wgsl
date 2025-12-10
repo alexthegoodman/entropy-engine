@@ -118,7 +118,7 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let specular_directional = numerator_directional / denominator_directional;
 
     // Light attenuation and final color
-    let directional_intensity = 2.0;
+    let directional_intensity = 10.0;
     let directional_radiance = directional_light.color * directional_intensity * max(dot(N, directional_light_dir), 0.0);
 
     let ambient_light = vec3<f32>(0.3) * albedo * ao; // Very basic ambient for now

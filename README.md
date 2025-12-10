@@ -16,10 +16,13 @@ Powering a unified OS inspired by MCP.
 - GLB Import
 - Interactive, windy, procedural grass blades
 - Deferred rendering / lighting
+- PBR Materials
 - and more!
 
 TBD:
 
+- Shadow Mapping
+- Skybox Pipeline
 - Parallax Mapping
 - Tessellation
 - Displacement Mapping
@@ -40,7 +43,7 @@ TBD:
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
-- PBR Materials
+
 
 ## Run
 

@@ -19,7 +19,6 @@ use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
-use crate::renderer_lighting::LightState::LightState;
 use crate::shape_primitives::Sphere::Sphere;
 use crate::{
     core::Texture::Texture,

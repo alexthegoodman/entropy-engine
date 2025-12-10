@@ -688,6 +688,7 @@ impl ExportPipeline {
 
         let directional_light_uniform = DirectionalLightUniform {
             position: [2.0, 2.0, 2.0],
+            // position: [-0.5, -1.0, -0.3], // since this is the direction in the shader
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
