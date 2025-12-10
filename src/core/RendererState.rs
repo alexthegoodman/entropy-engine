@@ -635,9 +635,10 @@ impl RendererState {
 
                     // Create the new camera position (Point3 from nalgebra)
                     // The offsets are added to the player's position
+                    let comfort_elevation = 2.0;
                     let camera_pos = Point3::new(
                         pos.x + x_offset,
-                        pos.y + y_offset, 
+                        pos.y + y_offset + comfort_elevation, 
                         pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
                     );
                     camera.position = camera_pos;
