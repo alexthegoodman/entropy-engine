@@ -2,9 +2,23 @@
 
 const PI: f32 = 3.14159265359;
 
-struct Light {
+const MAX_POINT_LIGHTS: u32 = 10;
+
+struct DirectionalLight {
     position: vec3<f32>,
     color: vec3<f32>,
+};
+
+struct PointLight {
+    position: vec3<f32>,
+    color: vec3<f32>,
+    intensity: f32,
+    max_distance: f32,
+};
+
+struct PointLights {
+    point_lights: array<PointLight, MAX_POINT_LIGHTS>,
+    num_point_lights: u32,
 };
 
 struct WindowSize {
@@ -12,7 +26,8 @@ struct WindowSize {
     height: f32,
 };
 
-@group(0) @binding(0) var<uniform> light: Light;
+@group(0) @binding(0) var<uniform> directional_light: DirectionalLight;
+@group(0) @binding(1) var<uniform> point_lights: PointLights;
 
 @group(1) @binding(0) var g_buffer_position: texture_2d<f32>;
 @group(1) @binding(1) var g_buffer_normal: texture_2d<f32>;
@@ -48,9 +63,9 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let roughness = pbr_material.g;
     let ao = pbr_material.b;
 
-    let light_dir = normalize(light.position - position);
+    let directional_light_dir = normalize(directional_light.position - position);
     let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
-    let halfway_dir = normalize(light_dir + view_dir);
+    let halfway_dir = normalize(directional_light_dir + view_dir);
 
     // Basic PBR (Cook-Torrance BRDF) components - simplified for initial implementation
     // F0 - Fresnel reflectance at normal incidence.
@@ -69,12 +84,12 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 
     // Specular G (Geometry Obstruction/Self-Shadowing) - Schlick-GGX
     let NdotV = max(dot(N, view_dir), 0.0);
-    let NdotL = max(dot(N, light_dir), 0.0);
+    let NdotL_directional = max(dot(N, directional_light_dir), 0.0);
 
     let k = (roughness + 1.0) * (roughness + 1.0) / 8.0;
     let G_V = NdotV / (NdotV * (1.0 - k) + k);
-    let G_L = NdotL / (NdotL * (1.0 - k) + k);
-    let G = G_V * G_L;
+    let G_L_directional = NdotL_directional / (NdotL_directional * (1.0 - k) + k);
+    let G_directional = G_V * G_L_directional;
 
     // Specular F (Fresnel) - Schlick approximation
     let F = F0 + (vec3<f32>(1.0) - F0) * pow(clamp(1.0 - dot(H, view_dir), 0.0, 1.0), 5.0);
@@ -82,20 +97,54 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let Ks = F;
     let Kd = (vec3<f32>(1.0) - Ks) * (1.0 - metallic); // Diffuse contribution (energy conservation)
 
-    let numerator = D * G * F;
-    let denominator = 4.0 * NdotV * NdotL + 0.0001; // Add 0.0001 to prevent division by zero
-    let specular = numerator / denominator;
+    let numerator_directional = D * G_directional * F;
+    let denominator_directional = 4.0 * NdotV * NdotL_directional + 0.0001; // Add 0.0001 to prevent division by zero
+    let specular_directional = numerator_directional / denominator_directional;
 
     // Light attenuation and final color
-    let light_color = light.color; // Assuming light color is already intensity-scaled
+    let directional_radiance = directional_light.color * max(dot(N, directional_light_dir), 0.0);
+
+    let ambient_light = vec3<f32>(0.4) * albedo * ao; // Very basic ambient for now
+
+    let directional_Lo = (Kd * albedo / PI + specular_directional) * directional_radiance * ao;
     
-    let radiance = light_color * max(dot(N, light_dir), 0.0);
+    var total_Lo = directional_Lo;
 
-    let ambient_light = vec3<f32>(0.6) * albedo * ao; // Very basic ambient for now
+    // Point Lights
+    for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
+        let p_light = point_lights.point_lights[i];
 
-    let Lo = (Kd * albedo / PI + specular) * radiance * ao;
+        let light_vec = p_light.position - position;
+        let distance = length(light_vec);
+        let light_dir = light_vec / distance; 
+
+        let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, 2.0), 0.0, 1.0);
+        let intensity_factor = p_light.intensity / (distance * distance + 1.0); // +1.0 to avoid division by zero and smooth attenuation
+
+        let NdotL_point = max(dot(N, light_dir), 0.0);
+        let halfway_dir_point = normalize(light_dir + view_dir);
+
+        let H_point = halfway_dir_point;
+        let NdotH_point = max(dot(N, H_point), 0.0);
+        // a, a2 are already defined
+        // D is already defined as nom/denom - same formula
+        
+        let G_V_point = NdotV / (NdotV * (1.0 - k) + k);
+        let G_L_point = NdotL_point / (NdotL_point * (1.0 - k) + k);
+        let G_point = G_V_point * G_L_point;
+        
+        let Ks_point = F; // Fresnel remains the same
+        let Kd_point = (vec3<f32>(1.0) - Ks_point) * (1.0 - metallic);
+
+        let numerator_point = D * G_point * F;
+        let denominator_point = 4.0 * NdotV * NdotL_point + 0.0001;
+        let specular_point = numerator_point / denominator_point;
+
+        let point_radiance = p_light.color * NdotL_point * attenuation * intensity_factor;
+
+        let point_Lo = (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
+        total_Lo = total_Lo + point_Lo;
+    }
     
-    let final_color = ambient_light + Lo;
-
-    return vec4<f32>(final_color, 1.0);
+    let final_color = ambient_light + total_Lo;
 }

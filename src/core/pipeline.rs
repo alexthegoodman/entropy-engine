@@ -48,7 +48,9 @@ pub struct ExportPipeline {
     // G-Buffer bind group
     pub g_buffer_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub g_buffer_bind_group: Option<wgpu::BindGroup>,
-    pub light_bind_group: Option<wgpu::BindGroup>,
+    pub lighting_bind_group: Option<wgpu::BindGroup>,
+    pub directional_light_buffer: Option<wgpu::Buffer>,
+    pub point_lights_buffer: Option<wgpu::Buffer>,
     pub gizmo_pipeline: Option<RenderPipeline>,
 }
 
@@ -82,7 +84,9 @@ impl ExportPipeline {
             g_buffer_pbr_material_view: None,
             g_buffer_bind_group_layout: None,
             g_buffer_bind_group: None,
-            light_bind_group: None,
+            lighting_bind_group: None,
+            directional_light_buffer: None,
+            point_lights_buffer: None,
             g_buffer_sampler: None,
             gizmo_pipeline: None,
         }
@@ -672,58 +676,91 @@ impl ExportPipeline {
             },
         });
 
-        // Light
+        // Directional Light
         #[repr(C)]
         #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-        struct Light {
+        struct DirectionalLightUniform {
             position: [f32; 3],
             _padding: u32,
             color: [f32; 3],
             _padding2: u32,
         }
 
-        let light_uniform = Light {
+        let directional_light_uniform = DirectionalLightUniform {
             position: [2.0, 2.0, 2.0],
             _padding: 0,
             color: [1.0, 1.0, 1.0],
             _padding2: 0,
         };
 
-        let light_buffer = device.create_buffer_init(
+        let directional_light_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
-                label: Some("Light VB"),
-                contents: bytemuck::cast_slice(&[light_uniform]),
+                label: Some("Directional Light VB"),
+                contents: bytemuck::cast_slice(&[directional_light_uniform]),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }
         );
 
-        let light_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+        // Point Lights
+        let point_lights_uniform = crate::core::editor::PointLightsUniform {
+            point_lights: [[0.0; 8]; crate::core::editor::MAX_POINT_LIGHTS],
+            num_point_lights: 0,
+            _padding: [0; 3],
+        };
+
+        let point_lights_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Point Lights VB"),
+                contents: bytemuck::cast_slice(&[point_lights_uniform]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+
+        let lighting_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
-            label: None,
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
+            label: Some("Lighting Bind Group Layout"),
         });
 
-        let light_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &light_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: light_buffer.as_entire_binding(),
-            }],
-            label: None,
+        let lighting_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &lighting_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: directional_light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: point_lights_buffer.as_entire_binding(),
+                },
+            ],
+            label: Some("Lighting Bind Group"),
         });
 
         let lighting_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Lighting Pipeline Layout"),
             bind_group_layouts: &[
-                &light_bind_group_layout,
+                &lighting_bind_group_layout,
                 &g_buffer_bind_group_layout,
                 &window_size_bind_group_layout,
             ],
@@ -978,7 +1015,9 @@ impl ExportPipeline {
         self.g_buffer_pbr_material_view = Some(gbuffer_pbr_material_view);
         self.g_buffer_bind_group_layout = Some(g_buffer_bind_group_layout);
         self.g_buffer_bind_group = Some(g_buffer_bind_group);
-        self.light_bind_group = Some(light_bind_group);
+        self.lighting_bind_group = Some(lighting_bind_group);
+        self.directional_light_buffer = Some(directional_light_buffer);
+        self.point_lights_buffer = Some(point_lights_buffer);
         self.g_buffer_sampler = Some(g_buffer_sampler);
     }
 
@@ -1508,10 +1547,63 @@ impl ExportPipeline {
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
+            // Prepare Point Lights data
+            let mut current_point_lights: Vec<crate::core::editor::PointLight> = Vec::new();
+            if let Some(saved_state) = editor.saved_state.as_ref() {
+                if let Some(levels) = &saved_state.levels {
+                    if let Some(level) = levels.get(0) { // Assuming one level for now
+                        if let Some(components) = &level.components {
+                            for component in components.iter() {
+                                if let Some(crate::helpers::saved_data::ComponentKind::PointLight) = component.kind {
+                                    if let Some(light_props) = component.light_properties.as_ref() {
+                                        current_point_lights.push(crate::core::editor::PointLight {
+                                            position: component.generic_properties.position,
+                                            _padding1: 0,
+                                            color: [light_props.color[0], light_props.color[1], light_props.color[2]],
+                                            _padding2: 0,
+                                            intensity: light_props.intensity,
+                                            max_distance: 100.0, // Default max distance for now
+                                            _padding3: [0; 2],
+                                        });
+                                        if current_point_lights.len() >= crate::core::editor::MAX_POINT_LIGHTS {
+                                            break; // Stop if we reach max number of lights
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
+                point_lights: [[0.0; 8]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
+                num_point_lights: current_point_lights.len() as u32,
+                _padding: [0; 3],
+            };
+
+            for (i, pl) in current_point_lights.iter().enumerate() {
+                point_lights_uniform_data.point_lights[i] = [
+                    pl.position[0], pl.position[1], pl.position[2], 0.0, // position + padding
+                    pl.color[0], pl.color[1], pl.color[2], pl.intensity, // color + intensity
+                ];
+                // Note: Max distance is not directly copied here, need to rethink how to pass it
+                // For now, it's hardcoded in the shader, or we need another field in the uniform buffer.
+                // Let's assume for now that the shader will use a fixed max_distance or adjust how data is packed.
+                // Revisit if necessary.
+            }
+            
+            // Update point lights buffer
+            queue.write_buffer(
+                self.point_lights_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::cast_slice(&[point_lights_uniform_data]),
+            );
+
             // Lighting pass
             {
                 let lighting_pipeline = self.lighting_pipeline.as_ref().unwrap();
-                let light_bind_group = self.light_bind_group.as_ref().unwrap();
+                let lighting_bind_group = self.lighting_bind_group.as_ref().unwrap();
                 let g_buffer_bind_group = self.g_buffer_bind_group.as_ref().unwrap();
 
                 let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1531,7 +1623,7 @@ impl ExportPipeline {
                 });
 
                 lighting_pass.set_pipeline(lighting_pipeline);
-                lighting_pass.set_bind_group(0, light_bind_group, &[]);
+                lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
                 lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);

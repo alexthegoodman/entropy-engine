@@ -54,6 +54,29 @@ pub struct WindowSizeShader {
     pub height: f32,
 }
 
+// Point Light Structures
+pub const MAX_POINT_LIGHTS: usize = 10;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PointLight {
+    pub position: [f32; 3],
+    pub _padding1: u32,
+    pub color: [f32; 3],
+    pub _padding2: u32,
+    pub intensity: f32,
+    pub max_distance: f32,
+    pub _padding3: [u32; 2], // Pad to 16-byte alignment
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct PointLightsUniform {
+    pub point_lights: [[f32; 8]; MAX_POINT_LIGHTS], // Array of PointLight data
+    pub num_point_lights: u32,
+    pub _padding: [u32; 3], // Pad to 16-byte alignment
+}
+
 // Basic 2D point structure
 #[derive(Clone, Copy, Debug)]
 pub struct Point {
