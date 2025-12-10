@@ -33,7 +33,12 @@ impl ShadowPipelineData {
 
         let light_view = Matrix4::look_at_rh(&light_position, &light_target, &light_up);
         // Orthographic projection for directional light, adjust as needed for scene size
-        let light_proj = nalgebra::Matrix4::new_orthographic(-20.0, 20.0, -20.0, 20.0, -50.0, 50.0);
+        // let light_proj = nalgebra::Matrix4::new_orthographic(-20.0, 20.0, -20.0, 20.0, -50.0, 50.0);
+        let light_proj = nalgebra::Matrix4::new_orthographic(
+            -2048.0, 2048.0,  // left, right (4096 wide)
+            -2048.0, 2048.0,  // bottom, top (4096 tall)
+            -500.0, 500.0     // near, far (adjust based on your scene height)
+        );
         let light_view_proj_matrix = light_proj * light_view;
 
         let mut light_camera = crate::core::SimpleCamera::SimpleCamera::new(

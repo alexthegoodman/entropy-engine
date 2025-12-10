@@ -627,7 +627,7 @@ impl ExportPipeline {
         //     },
         // });
 
-        let directional_light_position = [2.0, 2.0, 2.0];
+        let directional_light_position = [-2.0, 2.0, 2.0];
 
         let shadow_pipeline_data = ShadowPipelineData::new(
             &device,
