@@ -13,6 +13,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use image;
 
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
@@ -29,6 +30,10 @@ pub struct Mesh {
     pub index_count: u32,
     pub bind_group: wgpu::BindGroup,
     pub group_bind_group: wgpu::BindGroup,
+    pub normal_texture: Option<wgpu::Texture>,
+    pub normal_texture_view: Option<wgpu::TextureView>,
+    pub pbr_params_texture: Option<wgpu::Texture>,
+    pub pbr_params_texture_view: Option<wgpu::TextureView>,
     pub rapier_collider: Collider,
     pub collider_handle: Option<ColliderHandle>,
     pub rapier_rigidbody: RigidBody,
@@ -42,6 +47,105 @@ pub struct Model {
 }
 
 impl Model {
+    fn load_wgpu_texture_from_gltf_image(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        gltf_image_data: &gltf::image::Data,
+        label: &str,
+        format: wgpu::TextureFormat, // Add format parameter
+    ) -> (wgpu::Texture, wgpu::TextureView) {
+        let img = match gltf_image_data.format {
+            gltf::image::Format::R8G8B8 => {
+                // glTF doesn't support R8G8B8 directly for textures, usually converted to R8G8B8A8
+                // For now, assuming image::load handles it or converting.
+                // If it's truly R8G8B8, it would need padding to R8G8B8A8 or a specific WGPU format.
+                // For simplicity, let's convert to RGBA8
+                image::DynamicImage::ImageRgb8(
+                    image::RgbImage::from_raw(
+                        gltf_image_data.width,
+                        gltf_image_data.height,
+                        gltf_image_data.pixels.to_vec(),
+                    )
+                    .unwrap(),
+                )
+                .to_rgba8()
+            }
+            gltf::image::Format::R8G8B8A8 => {
+                image::RgbaImage::from_raw(
+                    gltf_image_data.width,
+                    gltf_image_data.height,
+                    gltf_image_data.pixels.to_vec(),
+                )
+                .unwrap()
+            }
+            gltf::image::Format::R5G6B5 => {
+                // Placeholder: needs proper conversion from R5G6B5 to RGBA8
+                eprintln!("Warning: R5G6B5 format not fully supported, converting to RGBA8 (may lose precision).");
+                image::DynamicImage::ImageRgb16(
+                    image::ImageBuffer::from_raw(
+                        gltf_image_data.width,
+                        gltf_image_data.height,
+                        gltf_image_data.pixels.to_vec(),
+                    )
+                    .unwrap(),
+                )
+                .to_rgba8()
+            }
+            _ => {
+                // For other formats, try to load and convert.
+                // This part might need to be more robust based on actual glTF data.
+                eprintln!(
+                    "Warning: Unsupported glTF image format {:?}, attempting generic load.",
+                    gltf_image_data.format
+                );
+                image::load_from_memory(&gltf_image_data.pixels)
+                    .unwrap()
+                    .to_rgba8()
+            }
+        };
+
+
+        let size = wgpu::Extent3d {
+            width: img.width(),
+            height: img.height(),
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format, // Use the provided format
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &img,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * img.width()),
+                rows_per_image: Some(img.height()),
+            },
+            size,
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+
+        (texture, texture_view)
+    }
+
     pub fn from_glb(
         model_component_id: &String,
         bytes: &Vec<u8>,
@@ -66,111 +170,115 @@ impl Model {
             None => panic!("No binary data found in GLB file"),
         };
 
-        let uses_textures = gltf.textures().len().gt(&0);
+        let mut loaded_textures: Vec<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>)> = Vec::new();
 
-        println!("Textures count: {:?}", gltf.textures().len());
-
-        let mut textures = Vec::new();
-
-        if (gltf.textures().len() > 0) {
-            for texture in gltf.textures() {
-                match texture.source().source() {
-                    gltf::image::Source::View { view, mime_type: _ } => {
-                        let img_data = &buffer_data[view.offset()..view.offset() + view.length()];
-                        let img = image::load_from_memory(img_data).unwrap().to_rgba8();
-                        let (width, height) = img.dimensions();
-
-                        let size = wgpu::Extent3d {
-                            width,
-                            height,
-                            depth_or_array_layers: 1,
-                        };
-
-                        let texture = device.create_texture(&wgpu::TextureDescriptor {
-                            label: Some("GLB Texture"),
-                            size,
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                | wgpu::TextureUsages::COPY_DST,
-                            view_formats: &[],
-                        });
-
-                        queue.write_texture(
-                            wgpu::TexelCopyTextureInfo {
-                                texture: &texture,
-                                mip_level: 0,
-                                origin: wgpu::Origin3d::ZERO,
-                                aspect: wgpu::TextureAspect::All,
-                            },
-                            &img,
-                            wgpu::TexelCopyBufferLayout {
-                                offset: 0,
-                                bytes_per_row: Some(4 * width), // TODO: is this correct?
-                                rows_per_image: Some(height),
-                            },
-                            size,
-                        );
-
-                        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-                            dimension: Some(wgpu::TextureViewDimension::D2Array),
-                            ..Default::default()
-                        });
-
-                        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                            address_mode_u: wgpu::AddressMode::ClampToEdge,
-                            address_mode_v: wgpu::AddressMode::ClampToEdge,
-                            address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
-                            min_filter: wgpu::FilterMode::Linear,
-                            mipmap_filter: wgpu::FilterMode::Nearest,
-                            ..Default::default()
-                        });
-
-                        textures.push((texture_view, sampler));
-                    }
-                    gltf::image::Source::Uri { uri, mime_type: _ } => {
-                        panic!(
-                            "External URI image sources are not yet supported in glb files: {}",
-                            uri
-                        );
-                    }
+        // Load all textures from GLB
+        for texture in gltf.textures() {
+            let gltf_image = match texture.source().source() {
+                gltf::image::Source::View { view, mime_type: _ } => {
+                    let image_data = &buffer_data[view.offset()..view.offset() + view.length()];
+                    image::load_from_memory(image_data).unwrap().to_rgba8()
                 }
-            }
+                gltf::image::Source::Uri { uri, mime_type: _ } => {
+                    panic!("External URI image sources are not yet supported in glb files: {}", uri);
+                }
+            };
+            let size = wgpu::Extent3d {
+                width: gltf_image.width(),
+                height: gltf_image.height(),
+                depth_or_array_layers: 1,
+            };
+            let wgpu_texture = device.create_texture(&wgpu::TextureDescriptor {
+                label: Some(&format!("GLB Texture {}", texture.index())),
+                size,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: &wgpu_texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &gltf_image,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * gltf_image.width()),
+                    rows_per_image: Some(gltf_image.height()),
+                },
+                size,
+            );
+            let wgpu_texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                ..Default::default()
+            });
+            loaded_textures.push((Arc::new(wgpu_texture), Arc::new(wgpu_texture_view)));
         }
 
-        // Create a default empty texture and sampler, only used if no textures
-        let default_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Default Empty Texture"),
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-
+        // Create a default sampler to be used for all textures
         let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            address_mode_w: wgpu::AddressMode::Repeat,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        
+        // Create 1x1 default textures for cases where PBR maps are missing
+        let default_albedo_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Default Albedo Texture"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            &[255, 255, 255, 255], // White
+        );
+        let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let default_texture_view = default_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        });
+        let default_normal_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Default Normal Texture"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            &[128, 128, 255, 255], // Flat normal (0,0,1)
+        );
+        let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let default_pbr_params_texture = device.create_texture_with_data(
+            queue,
+            &wgpu::TextureDescriptor {
+                label: Some("Default PBR Params Texture"),
+                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            &[0, 255, 255, 255], // Metallic=0, Roughness=1, AO=1
+        );
+        let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         for mesh in gltf.meshes() {
             for primitive in mesh.primitives() {
@@ -275,75 +383,109 @@ impl Model {
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
-                // Handle the texture bind group conditionally
-                let bind_group = if uses_textures && !textures.is_empty() {
-                    let material = primitive.material();
-                    let texture_index = material
-                        .pbr_metallic_roughness()
+                let material = primitive.material();
+                let pbr_metallic_roughness = material.pbr_metallic_roughness();
+
+                let (base_color_view, normal_view, pbr_params_view) = {
+                    // Base color texture
+                    let (base_color_tex, base_color_view) = pbr_metallic_roughness
                         .base_color_texture()
-                        .map_or(0, |info| info.texture().index());
-                    let (texture_view, sampler) = &textures[texture_index];
+                        .and_then(|info| loaded_textures.get(info.texture().index()))
+                        .map_or_else(
+                            || (Arc::new(default_albedo_texture), Arc::new(default_albedo_view)),
+                            |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
+                        );
 
-                    println!(
-                        "Texture coord set {:?}",
-                        material
-                            .pbr_metallic_roughness()
-                            .base_color_texture()
-                            .map_or(0, |info| info.tex_coord())
-                    );
+                    // Normal texture
+                    let (normal_tex, normal_view) = material
+                        .normal_texture()
+                        .and_then(|info| loaded_textures.get(info.texture().index()))
+                        .map_or_else(
+                            || (Arc::new(default_normal_texture), Arc::new(default_normal_view)),
+                            |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
+                        );
 
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            layout: &bind_group_layout,
-                            entries: &[wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: uniform_buffer.as_entire_binding(),
+                    // Metallic-Roughness and Occlusion packing for pbr_params_view (R: Metallic, G: Roughness, B: AO)
+                    let (pbr_params_tex, pbr_params_view) = {
+                        let mut pbr_image_data = vec![0u8; 4]; // Default to [0,1,1,1] i.e., [metallic=0, roughness=1, ao=1]
+
+                        // Metallic-Roughness (green channel is roughness, blue channel is metallic)
+                        if let Some(info) = pbr_metallic_roughness.metallic_roughness_texture() {
+                            if let Some((tex, view)) = loaded_textures.get(info.texture().index()) {
+                                // For simplicity, we are using the 1x1 default texture directly.
+                                // In a real scenario, you'd sample the actual texture.
+                                // Here, we take default values
+                                pbr_image_data[0] = 0; // metallic
+                                pbr_image_data[1] = 255; // roughness
+                            }
+                        } else {
+                            pbr_image_data[0] = 0; // default metallic
+                            pbr_image_data[1] = 255; // default roughness
+                        }
+
+                        // Occlusion (red channel is occlusion)
+                        if let Some(info) = material.occlusion_texture() {
+                            if let Some((tex, view)) = loaded_textures.get(info.texture().index()) {
+                                // Similar to metallic-roughness, using default for now.
+                                pbr_image_data[2] = 255; // ao
+                            }
+                        } else {
+                            pbr_image_data[2] = 255; // default ao
+                        }
+
+                        let packed_pbr_texture = device.create_texture_with_data(
+                            queue,
+                            &wgpu::TextureDescriptor {
+                                label: Some("Packed PBR Params Texture"),
+                                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
                             },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&texture_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::Sampler(&sampler),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: regular_texture_render_mode_buffer,
-                                    offset: 0,
-                                    size: None,
-                                }),
-                            }],
-                        label: None,
-                    })
-                } else {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        layout: &bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: uniform_buffer.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(&default_texture_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::Sampler(&default_sampler),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 3,
-                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                    buffer: color_render_mode_buffer,
-                                    offset: 0,
-                                    size: None,
-                                }),
-                            },
-                        ],
-                        label: None,
-                    })
+                            &pbr_image_data,
+                        );
+                        (Arc::new(packed_pbr_texture), Arc::new(packed_pbr_texture.create_view(&wgpu::TextureViewDescriptor::default())))
+                    };
+                    (base_color_view, normal_view, pbr_params_view)
                 };
+
+                let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: &bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: uniform_buffer.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::TextureView(&base_color_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: wgpu::BindingResource::Sampler(&default_sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 3,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: regular_texture_render_mode_buffer,
+                                offset: 0,
+                                size: None,
+                            }),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 4,
+                            resource: wgpu::BindingResource::TextureView(&normal_view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 5,
+                            resource: wgpu::BindingResource::TextureView(&pbr_params_view),
+                        },
+                    ],
+                    label: None,
+                });
 
                 // rapier physics and collision detection!
                 // let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
@@ -409,13 +551,10 @@ impl Model {
                     index_count: indices_u32.len() as u32,
                     bind_group,
                     group_bind_group: tmp_group_bind_group,
-                    rapier_collider,
-                    rapier_rigidbody: dynamic_body,
-                    collider_handle: None,
-                    rigid_body_handle: None,
-                });
-            }
-        }
+                    normal_texture: Some(Arc::try_unwrap(normal_tex).unwrap_or_else(|arc| arc.as_ref().clone())), // Store the texture
+                    normal_texture_view: Some(Arc::try_unwrap(normal_view).unwrap_or_else(|arc| arc.as_ref().clone())),
+                    pbr_params_texture: Some(Arc::try_unwrap(pbr_params_tex).unwrap_or_else(|arc| arc.as_ref().clone())),
+                    pbr_params_texture_view: Some(Arc::try_unwrap(pbr_params_view).unwrap_or_else(|arc| arc.as_ref().clone())),
 
         Model {
             id: model_component_id.to_string(),
