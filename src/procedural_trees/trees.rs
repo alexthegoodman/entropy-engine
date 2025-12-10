@@ -2,13 +2,22 @@ use wgpu::util::DeviceExt;
 use crate::core::{SimpleCamera::SimpleCamera, vertex::Vertex, RendererState::RendererState};
 use crate::heightfield_landscapes::Landscape::Landscape;
 use nalgebra::{Matrix4, Vector3, Point3};
-use rand::Rng;
+use rand::{Rng, random};
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct TreeUniforms {
     time: f32,
     _padding: [f32; 3],
+}
+
+// Branch node for recursive tree generation
+#[derive(Debug, Clone)]
+struct BranchNode {
+    start_pos: [f32; 3],
+    end_pos: [f32; 3],
+    radius: f32,
+    generation: u32,
 }
 
 pub struct TreeArchetype {
@@ -19,82 +28,47 @@ pub struct TreeArchetype {
 
 impl TreeArchetype {
     pub fn new(device: &wgpu::Device) -> Self {
-        // A simple tree made of a cylinder trunk and a cone for leaves
         let mut vertices = vec![];
         let mut indices: Vec<u32> = vec![];
-
-        // Trunk (cylinder)
-        let trunk_height = 2.0;
-        let trunk_radius = 0.2;
-        let trunk_segments = 8;
-        let trunk_color = [0.4, 0.2, 0.0, 1.0]; // Brown
-
-        // Leaves (cone)
-        let leaves_height = 4.0;
-        let leaves_radius = 1.5;
-        let leaves_segments = 12;
-        let leaves_color = [0.0, 0.5, 0.0, 1.0]; // Dark green
-
-        // --- Create Trunk ---
-        let trunk_base_start_index = vertices.len() as u32;
-        // Bottom circle
-        for i in 0..trunk_segments {
-            let angle = (i as f32 / trunk_segments as f32) * 2.0 * std::f32::consts::PI;
-            vertices.push(Vertex {
-                position: [trunk_radius * angle.cos(), 0.0, trunk_radius * angle.sin()],
-                tex_coords: [0.0, 0.0],
-                normal: [angle.cos(), 0.0, angle.sin()],
-                color: trunk_color,
-            });
+        
+        let mut rng = rand::thread_rng();
+        
+        // Generate tree using recursive branching
+        let trunk_base = [0.0, 0.0, 0.0];
+        let trunk_top = [0.0, 3.5, 0.0];
+        let trunk_radius = 0.25;
+        
+        let root_branch = BranchNode {
+            start_pos: trunk_base,
+            end_pos: trunk_top,
+            radius: trunk_radius,
+            generation: 0,
+        };
+        
+        let mut branches = vec![root_branch];
+        Self::generate_branches(&mut branches, 0, 4, &mut rng);
+        
+        // Create geometry for all branches
+        for branch in &branches {
+            Self::add_branch_geometry(
+                &mut vertices,
+                &mut indices,
+                branch,
+                &mut rng,
+            );
         }
-        // Top circle
-        let trunk_top_start_index = vertices.len() as u32;
-        for i in 0..trunk_segments {
-            let angle = (i as f32 / trunk_segments as f32) * 2.0 * std::f32::consts::PI;
-            vertices.push(Vertex {
-                position: [trunk_radius * angle.cos(), trunk_height, trunk_radius * angle.sin()],
-                tex_coords: [0.0, 0.0],
-                normal: [angle.cos(), 0.0, angle.sin()],
-                color: trunk_color,
-            });
-        }
-        // Trunk side indices
-        for i in 0..trunk_segments {
-            let i_u32 = i as u32;
-            let next_i_u32 = (i_u32 + 1) % trunk_segments as u32;
-            indices.extend_from_slice(&[
-                trunk_base_start_index + i_u32, trunk_top_start_index + i_u32, trunk_base_start_index + next_i_u32,
-                trunk_top_start_index + i_u32, trunk_top_start_index + next_i_u32, trunk_base_start_index + next_i_u32,
-            ]);
-        }
-
-        // --- Create Leaves ---
-        let leaves_base_start_index = vertices.len() as u32;
-        // Base circle
-        for i in 0..leaves_segments {
-            let angle = (i as f32 / leaves_segments as f32) * 2.0 * std::f32::consts::PI;
-            vertices.push(Vertex {
-                position: [leaves_radius * angle.cos(), trunk_height, leaves_radius * angle.sin()],
-                tex_coords: [0.0, 0.0],
-                normal: [angle.cos(), 0.0, angle.sin()],
-                color: leaves_color,
-            });
-        }
-        // Cone tip
-        let cone_tip_index = vertices.len() as u32;
-        vertices.push(Vertex {
-            position: [0.0, trunk_height + leaves_height, 0.0],
-            tex_coords: [0.5, 1.0],
-            normal: [0.0, 1.0, 0.0],
-            color: leaves_color,
-        });
-        // Leaves indices
-        for i in 0..leaves_segments {
-            indices.extend_from_slice(&[
-                cone_tip_index,
-                leaves_base_start_index + i as u32,
-                leaves_base_start_index + ((i + 1) % leaves_segments) as u32,
-            ]);
+        
+        // Add foliage clusters at branch endpoints
+        for branch in &branches {
+            if branch.generation >= 2 {
+                Self::add_foliage_cluster(
+                    &mut vertices,
+                    &mut indices,
+                    branch.end_pos,
+                    0.4 + random::<f32>() * 0.3,
+                    &mut rng,
+                );
+            }
         }
         
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -115,8 +89,222 @@ impl TreeArchetype {
             index_count: indices.len() as u32,
         }
     }
+    
+    fn generate_branches(
+        branches: &mut Vec<BranchNode>,
+        parent_idx: usize,
+        max_generation: u32,
+        rng: &mut impl Rng,
+    ) {
+        let parent = branches[parent_idx].clone();
+        
+        if parent.generation >= max_generation {
+            return;
+        }
+        
+        let dir = [
+            parent.end_pos[0] - parent.start_pos[0],
+            parent.end_pos[1] - parent.start_pos[1],
+            parent.end_pos[2] - parent.start_pos[2],
+        ];
+        
+        let num_children = if parent.generation == 0 {
+            3 + rng.gen_range(0..2)
+        } else {
+            2 + rng.gen_range(0..2)
+        };
+        
+        for _ in 0..num_children {
+            let angle = random::<f32>() * std::f32::consts::PI * 2.0;
+            let tilt = if parent.generation == 0 {
+                0.3 + random::<f32>() * 0.4
+            } else {
+                0.4 + random::<f32>() * 0.6
+            };
+            
+            let length_scale = 0.6 + random::<f32>() * 0.3;
+            let branch_length = (parent.end_pos[1] - parent.start_pos[1]) * length_scale;
+            
+            let forward = [
+                dir[0] + angle.cos() * tilt,
+                dir[1] * 0.7 + 0.3,
+                dir[2] + angle.sin() * tilt,
+            ];
+            
+            let mag = (forward[0] * forward[0] + forward[1] * forward[1] + forward[2] * forward[2]).sqrt();
+            let forward_norm = [
+                forward[0] / mag * branch_length,
+                forward[1] / mag * branch_length,
+                forward[2] / mag * branch_length,
+            ];
+            
+            let child_end = [
+                parent.end_pos[0] + forward_norm[0],
+                parent.end_pos[1] + forward_norm[1],
+                parent.end_pos[2] + forward_norm[2],
+            ];
+            
+            let child_radius = parent.radius * (0.5 + random::<f32>() * 0.15);
+            
+            let child = BranchNode {
+                start_pos: parent.end_pos,
+                end_pos: child_end,
+                radius: child_radius,
+                generation: parent.generation + 1,
+            };
+            
+            let child_idx = branches.len();
+            branches.push(child);
+            
+            Self::generate_branches(branches, child_idx, max_generation, rng);
+        }
+    }
+    
+    fn add_branch_geometry(
+        vertices: &mut Vec<Vertex>,
+        indices: &mut Vec<u32>,
+        branch: &BranchNode,
+        rng: &mut impl Rng,
+    ) {
+        let segments = 6;
+        let height_segments = 3;
+        
+        let bark_color_base = [0.3, 0.2, 0.1, 1.0];
+        
+        let dir = [
+            branch.end_pos[0] - branch.start_pos[0],
+            branch.end_pos[1] - branch.start_pos[1],
+            branch.end_pos[2] - branch.start_pos[2],
+        ];
+        
+        for h in 0..=height_segments {
+            let t = h as f32 / height_segments as f32;
+            let radius = branch.radius * (1.0 - t * 0.2);
+            
+            let pos = [
+                branch.start_pos[0] + dir[0] * t,
+                branch.start_pos[1] + dir[1] * t,
+                branch.start_pos[2] + dir[2] * t,
+            ];
+            
+            let ring_start = vertices.len() as u32;
+            
+            for i in 0..segments {
+                let angle = (i as f32 / segments as f32) * 2.0 * std::f32::consts::PI;
+                let cos_a = angle.cos();
+                let sin_a = angle.sin();
+                
+                // Procedural bark texture using pseudo-noise
+                let noise_val = ((pos[1] * 10.0 + angle * 3.0).sin() * 0.5 + 0.5) * 0.3;
+                let bark_variation = 1.0 - noise_val;
+                
+                let vertex_pos = [
+                    pos[0] + radius * cos_a,
+                    pos[1],
+                    pos[2] + radius * sin_a,
+                ];
+                
+                vertices.push(Vertex {
+                    position: vertex_pos,
+                    tex_coords: [i as f32 / segments as f32, t],
+                    normal: [cos_a, 0.0, sin_a],
+                    color: [
+                        bark_color_base[0] * bark_variation,
+                        bark_color_base[1] * bark_variation,
+                        bark_color_base[2] * bark_variation,
+                        1.0,
+                    ],
+                });
+            }
+            
+            if h > 0 {
+                let prev_ring = ring_start - segments as u32;
+                for i in 0..segments {
+                    let i_u32 = i as u32;
+                    let next_i = (i + 1) % segments;
+                    let next_i_u32 = next_i as u32;
+                    
+                    indices.extend_from_slice(&[
+                        prev_ring + i_u32,
+                        ring_start + i_u32,
+                        prev_ring + next_i_u32,
+                        ring_start + i_u32,
+                        ring_start + next_i_u32,
+                        prev_ring + next_i_u32,
+                    ]);
+                }
+            }
+        }
+    }
+    
+    fn add_foliage_cluster(
+        vertices: &mut Vec<Vertex>,
+        indices: &mut Vec<u32>,
+        center: [f32; 3],
+        radius: f32,
+        rng: &mut impl Rng,
+    ) {
+        let detail_level = 2;
+        let leaves_color = [0.1, 0.5, 0.1, 1.0];
+        
+        // Create icosphere-like foliage cluster
+        let t = (1.0 + 5.0_f32.sqrt()) / 2.0;
+        
+        let mut ico_verts = vec![
+            [-1.0, t, 0.0], [1.0, t, 0.0], [-1.0, -t, 0.0], [1.0, -t, 0.0],
+            [0.0, -1.0, t], [0.0, 1.0, t], [0.0, -1.0, -t], [0.0, 1.0, -t],
+            [t, 0.0, -1.0], [t, 0.0, 1.0], [-t, 0.0, -1.0], [-t, 0.0, 1.0],
+        ];
+        
+        // Normalize and scale
+        for v in &mut ico_verts {
+            let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            v[0] = v[0] / mag * radius + center[0];
+            v[1] = v[1] / mag * radius + center[1];
+            v[2] = v[2] / mag * radius + center[2];
+        }
+        
+        let start_idx = vertices.len() as u32;
+        
+        for v in ico_verts {
+            let normal = [
+                (v[0] - center[0]) / radius,
+                (v[1] - center[1]) / radius,
+                (v[2] - center[2]) / radius,
+            ];
+            
+            let color_variation = 0.8 + random::<f32>() * 0.4;
+            
+            vertices.push(Vertex {
+                position: v,
+                tex_coords: [0.0, 0.0],
+                normal,
+                color: [
+                    leaves_color[0] * color_variation,
+                    leaves_color[1] * color_variation,
+                    leaves_color[2] * color_variation,
+                    1.0,
+                ],
+            });
+        }
+        
+        // Icosahedron faces
+        let faces = [
+            [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+            [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+            [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1],
+        ];
+        
+        for face in faces {
+            indices.extend_from_slice(&[
+                start_idx + face[0],
+                start_idx + face[1],
+                start_idx + face[2],
+            ]);
+        }
+    }
 }
-
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -147,7 +335,7 @@ impl ProceduralTrees {
 
         let instance_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Tree Instance Buffer"),
-            size: (1000 * std::mem::size_of::<TreeInstance>()) as wgpu::BufferAddress, // pre-allocate for 1000 trees
+            size: (1000 * std::mem::size_of::<TreeInstance>()) as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -330,4 +518,3 @@ where
         }
     }
 }
-
