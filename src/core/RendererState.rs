@@ -40,6 +40,7 @@ use crate::{
     art_assets::Model::Model,
     shape_primitives::{Cube::Cube, Pyramid::Pyramid},
     procedural_grass::grass::Grass,
+    procedural_trees::trees::ProceduralTrees,
     water_plane::water::WaterPlane,
 };
 
@@ -106,6 +107,7 @@ pub struct RendererState {
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
     pub grasses: Vec<Grass>,
+    pub procedural_trees: Vec<ProceduralTrees>,
     pub water_planes: Vec<WaterPlane>,
     pub point_lights: Vec<PointLight>,
 
@@ -235,6 +237,7 @@ impl RendererState {
         let mut landscapes = Vec::new();
         let mut grasses = Vec::new();
         let mut water_planes = Vec::new();
+        let mut procedural_trees = Vec::new();
 
         let mut terrain_managers = Vec::new();
 
@@ -380,6 +383,7 @@ impl RendererState {
             landscapes,
             grasses,
             water_planes,
+            procedural_trees,
             skeleton_parts,
             terrain_managers,
             active_animations: Vec::new(),

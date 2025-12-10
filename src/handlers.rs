@@ -23,6 +23,7 @@ use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::ComponentKind;
+use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
@@ -459,4 +460,39 @@ pub fn handle_add_water_plane(
 ) {
     let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format);
     state.water_planes.push(water_plane);
+}
+
+pub fn handle_add_trees(
+    renderer_state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+) {
+    if let Some(landscape) = renderer_state.landscapes.get_mut(0) {
+        let mut trees = ProceduralTrees::new(device, camera_bind_group_layout, landscape);
+
+        let mut rng = rand::thread_rng();
+        let num_trees = 50;
+
+        for _ in 0..num_trees {
+            let x = rng.gen_range(-50.0..50.0);
+            let z = rng.gen_range(-50.0..50.0);
+
+            if let Some(y) = landscape.get_height_at(x, z) {
+                trees.instances.push(TreeInstance {
+                    position: [x, y, z],
+                    scale: rng.gen_range(0.8..1.5),
+                    rotation: [0.0, rng.gen_range(0.0..std::f32::consts::PI * 2.0), 0.0],
+                });
+            }
+        }
+        
+        queue.write_buffer(
+            &trees.instance_buffer,
+            0,
+            bytemuck::cast_slice(&trees.instances),
+        );
+
+        renderer_state.procedural_trees.push(trees);
+    }
 }

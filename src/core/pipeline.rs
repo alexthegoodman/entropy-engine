@@ -1,7 +1,7 @@
 use crate::{
-   core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::CameraBinding, editor::{
+    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::CameraBinding, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_trees, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -1538,6 +1538,16 @@ impl ExportPipeline {
                 render_pass.set_pipeline(&geometry_pipeline);
             }
 
+            // draw trees
+            for trees in &renderer_state.procedural_trees {
+                trees.update_uniforms(&queue, time);
+                render_pass.draw_trees(
+                    trees,
+                    &camera_binding.bind_group,
+                );
+                render_pass.set_pipeline(&geometry_pipeline);
+            }
+
             // draw water
             let time = self.start_time.elapsed().as_secs_f32();
             for water_plane in &renderer_state.water_planes {
@@ -1884,6 +1894,19 @@ impl ExportPipeline {
                 renderer_state.cubes.push(new_cube);
     
                 println!("Cube added {:?}", renderer_state.cubes.len());
+            }
+
+            if ui.button("Add Trees").clicked() {
+                let editor = self.export_editor.as_mut().unwrap();
+                let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                let device = &gpu_resources.device;
+                let queue = &gpu_resources.queue;
+                let camera_binding = editor.camera_binding.as_ref().unwrap();
+                let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+    
+                handle_add_trees(renderer_state, device, &queue, &camera_binding.bind_group_layout);
+    
+                println!("Trees added");
             }
     
             if ui.button("Add Landscape").clicked() {
@@ -2309,6 +2332,9 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             &camera_binding.bind_group_layout, 
                                                             wgpu::TextureFormat::Rgba16Float
                                                         );
+
+                                                        handle_add_trees(renderer_state, &gpu_resources.device,
+                                                            &gpu_resources.queue, &camera_binding.bind_group_layout);
                                                     }
                                                 }
                                             }
