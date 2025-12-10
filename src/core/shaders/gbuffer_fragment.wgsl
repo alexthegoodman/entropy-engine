@@ -28,7 +28,6 @@ fn fs_main(in: FragmentInput) -> GbufferOutput {
     let primary_albedo = textureSample(t_diffuse, s_model, tiled_tex_coords, 0);
     let primary_normal = textureSample(t_normal, s_model, tiled_tex_coords, 0);
     let primary_pbr_params = textureSample(t_pbr_params, s_model, tiled_tex_coords, 0);
-
     let primary_mask = textureSample(t_diffuse, s_model, in.tex_coords, 1).r;
 
     let rockmap_albedo = textureSample(t_diffuse, s_model, tiled_tex_coords, 2);

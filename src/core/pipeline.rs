@@ -538,12 +538,12 @@ impl ExportPipeline {
                 source: wgpu::ShaderSource::Wgsl(include_str!("shaders/primary_vertex.wgsl").into()), // midpoint
             });
 
-        let shader_module_frag_primary =
-            device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Stunts Engine Export Frag Shader"),
-                // source: wgpu::ShaderSource::Wgsl(include_str!("shaders/frag_primary.wgsl").into()), // stunts
-                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/primary_fragment.wgsl").into()), // midpoint
-            });
+        // let shader_module_frag_primary =
+        //     device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        //         label: Some("Stunts Engine Export Frag Shader"),
+        //         // source: wgpu::ShaderSource::Wgsl(include_str!("shaders/frag_primary.wgsl").into()), // stunts
+        //         source: wgpu::ShaderSource::Wgsl(include_str!("shaders/primary_fragment.wgsl").into()), // midpoint
+        //     });
 
         let shader_module_frag_gbuffer =
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -1803,7 +1803,40 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                     if let Some(textures) = &saved_state.textures {
                                                         let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
 
-                                                        // ... existing regular texture loading ...
+                                                        // if let Some(texture_id) = &landscape_properties.rockmap_texture_id {
+                                                        //     let rockmap_texture = textures.iter().find(|t| {
+                                                        //         if &t.id == texture_id {
+                                                        //             true
+                                                        //         } else {
+                                                        //             false
+                                                        //         }
+                                                        //     });
+                                                            
+                                                        //     if let Some(rock_texture) = rockmap_texture {
+                                                        //         if let Some(rock_mask) = &landscape_data.rockmap {
+                                                        //             handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                        //             &gpu_resources.queue, project_id.to_string(), component.id.clone(), 
+                                                        //             landscape_data.id.clone(), rock_texture.fileName.clone(), LandscapeTextureKinds::Rockmap, rock_mask.fileName.clone());
+                                                        //         }
+                                                        //     }
+                                                        // }
+                                                        // if let Some(texture_id) = &landscape_properties.soil_texture_id {
+                                                        //     let soil_texture = textures.iter().find(|t| {
+                                                        //         if &t.id == texture_id {
+                                                        //             true
+                                                        //         } else {
+                                                        //             false
+                                                        //         }
+                                                        //     });
+                                                            
+                                                        //     if let Some(soil_texture) = soil_texture {
+                                                        //         if let Some(soil_mask) = &landscape_data.soil {
+                                                        //             handle_add_landscape_texture(renderer_state, &gpu_resources.device,
+                                                        //             &gpu_resources.queue, project_id.to_string(), component.id.clone(), 
+                                                        //             landscape_data.id.clone(), soil_texture.fileName.clone(), LandscapeTextureKinds::Soil, soil_mask.fileName.clone());
+                                                        //         }
+                                                        //     }
+                                                        // }
                                                     }
 
                                                     // NEW: Load PBR textures
@@ -1814,6 +1847,21 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
                                                             let texture_render_mode_buffer = renderer_state.texture_render_mode_buffer.clone();
                                                             let color_render_mode_buffer = renderer_state.color_render_mode_buffer.clone();
+
+                                                            if let Some(rock_mask) = &landscape_data.rockmap {
+                                                                if let Ok(bytes) = read_texture_bytes(project_id.to_string(), rock_mask.id.clone(), rock_mask.fileName.clone()) {
+                                                                    if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, rock_mask.fileName.clone(), false) {
+                                                                        landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::RockmapMask, &texture);
+                                                                    }
+                                                                }
+                                                            }
+                                                            if let Some(soil_mask) = &landscape_data.soil {
+                                                                if let Ok(bytes) = read_texture_bytes(project_id.to_string(), soil_mask.id.clone(), soil_mask.fileName.clone()) {
+                                                                    if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, soil_mask.fileName.clone(), false) {
+                                                                        landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::SoilMask, &texture);
+                                                                    }
+                                                                }
+                                                            }
 
                                                             // Primary PBR Texture
                                                             if let Some(pbr_texture_id) = &landscape_properties.primary_pbr_texture_id {
