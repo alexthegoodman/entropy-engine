@@ -12,7 +12,7 @@ use winit::keyboard::ModifiersState;
 
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
-use crate::core::editor::{Viewport, WindowSize};
+use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
@@ -105,6 +105,7 @@ pub struct RendererState {
     pub landscapes: Vec<Landscape>,
     pub grasses: Vec<Grass>,
     pub water_planes: Vec<WaterPlane>,
+    pub point_lights: Vec<PointLight>,
 
     // animations
     pub active_animations: Vec<AnimationPlayback>,
@@ -365,6 +366,7 @@ impl RendererState {
             skeleton_parts,
             terrain_managers,
             active_animations: Vec::new(),
+            point_lights: Vec::new(),
             // light_state,
 
             // device,

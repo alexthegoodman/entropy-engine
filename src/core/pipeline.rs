@@ -1547,42 +1547,14 @@ impl ExportPipeline {
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
-            // Prepare Point Lights data
-            let mut current_point_lights: Vec<crate::core::editor::PointLight> = Vec::new();
-            if let Some(saved_state) = editor.saved_state.as_ref() {
-                if let Some(levels) = &saved_state.levels {
-                    if let Some(level) = levels.get(0) { // Assuming one level for now
-                        if let Some(components) = &level.components {
-                            for component in components.iter() {
-                                if let Some(crate::helpers::saved_data::ComponentKind::PointLight) = component.kind {
-                                    if let Some(light_props) = component.light_properties.as_ref() {
-                                        current_point_lights.push(crate::core::editor::PointLight {
-                                            position: component.generic_properties.position,
-                                            _padding1: 0,
-                                            color: [light_props.color[0], light_props.color[1], light_props.color[2]],
-                                            _padding2: 0,
-                                            intensity: light_props.intensity,
-                                            max_distance: 100.0, // Default max distance for now
-                                            _padding3: [0; 2],
-                                        });
-                                        if current_point_lights.len() >= crate::core::editor::MAX_POINT_LIGHTS {
-                                            break; // Stop if we reach max number of lights
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
+            // obviously, no good reason to set this on every frame
             let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
                 point_lights: [[0.0; 8]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
-                num_point_lights: current_point_lights.len() as u32,
+                num_point_lights: renderer_state.point_lights.len() as u32,
                 _padding: [0; 3],
             };
 
-            for (i, pl) in current_point_lights.iter().enumerate() {
+            for (i, pl) in renderer_state.point_lights.iter().enumerate() {
                 point_lights_uniform_data.point_lights[i] = [
                     pl.position[0], pl.position[1], pl.position[2], 0.0, // position + padding
                     pl.color[0], pl.color[1], pl.color[2], pl.intensity, // color + intensity
@@ -2264,6 +2236,23 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                     model_scale,
                                                     camera
                                                 );
+                                            }
+                                        }
+
+                                        if let Some(crate::helpers::saved_data::ComponentKind::PointLight) = component.kind {
+                                            if let Some(light_props) = component.light_properties.as_ref() {
+                                                renderer_state.point_lights.push(crate::core::editor::PointLight {
+                                                    position: component.generic_properties.position,
+                                                    _padding1: 0,
+                                                    color: [light_props.color[0], light_props.color[1], light_props.color[2]],
+                                                    _padding2: 0,
+                                                    intensity: light_props.intensity,
+                                                    max_distance: 100.0, // Default max distance for now
+                                                    _padding3: [0; 2],
+                                                });
+                                                // if current_point_lights.len() >= crate::core::editor::MAX_POINT_LIGHTS {
+                                                //     break; // Stop if we reach max number of lights
+                                                // }
                                             }
                                         }
                                     }
