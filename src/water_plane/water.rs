@@ -7,6 +7,8 @@ pub struct WaterPlane {
     pub num_indices: u32,
     pub time_buffer: wgpu::Buffer,
     pub time_bind_group: wgpu::BindGroup,
+    pub player_pos_buffer: wgpu::Buffer,
+    pub player_pos_bind_group: wgpu::BindGroup,
 }
 
 impl WaterPlane {
@@ -80,11 +82,43 @@ impl WaterPlane {
 
         let num_indices = indices.len() as u32;
 
+        let player_pos_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Player Pos Buffer"),
+            size: std::mem::size_of::<[f32; 4]>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let player_pos_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("player_pos_bind_group_layout"),
+            });
+
+        let player_pos_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &player_pos_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: player_pos_buffer.as_entire_binding(),
+            }],
+            label: Some("player_pos_bind_group"),
+        });
+
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Water Pipeline Layout"),
             bind_group_layouts: &[
                 camera_bind_group_layout,
                 &time_bind_group_layout,
+                &player_pos_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -159,22 +193,25 @@ impl WaterPlane {
             num_indices,
             time_buffer,
             time_bind_group,
+            player_pos_buffer,
+            player_pos_bind_group,
         }
     }
 }
 
 pub trait DrawWater<'a> {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup);
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, player_pos_bind_group: &'a wgpu::BindGroup);
 }
 
 impl<'a, 'b> DrawWater<'a> for wgpu::RenderPass<'b>
 where
     'a: 'b,
 {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup) {
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, player_pos_bind_group: &'a wgpu::BindGroup) {
         self.set_pipeline(&water_plane.pipeline);
         self.set_bind_group(0, camera_bind_group, &[]);
         self.set_bind_group(1, time_bind_group, &[]);
+        self.set_bind_group(2, player_pos_bind_group, &[]);
         self.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
         self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
         self.draw_indexed(0..water_plane.num_indices, 0, 0..1);

@@ -323,12 +323,14 @@ use cgmath::SquareMatrix;
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
+    view_pos: [f32; 4],
 }
 
 impl CameraUniform {
     pub fn new() -> Self {
         Self {
             view_proj: Matrix4::identity().into(),
+            view_pos: [0.0; 4],
         }
     }
 
@@ -342,6 +344,7 @@ impl CameraUniform {
 
     pub fn update_view_proj_3d(&mut self, camera: &SimpleCamera) {
         self.view_proj = camera.view_projection_matrix.into();
+        self.view_pos = camera.position.to_homogeneous().into();
     }
 }
 
@@ -369,7 +372,7 @@ impl CameraBinding {
             label: Some("Camera Bind Group Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -405,17 +408,16 @@ impl CameraBinding {
         queue.write_buffer(
             &self.buffer,
             0,
-            bytemuck::cast_slice(&[self.uniform.view_proj]),
+            bytemuck::cast_slice(&[self.uniform]),
         );
     }
 
-    // pub fn update_3d(&mut self, queue: &wgpu::Queue, camera: &Camera3D) {
     pub fn update_3d(&mut self, queue: &wgpu::Queue, camera: &SimpleCamera) {
         self.uniform.update_view_proj_3d(camera);
         queue.write_buffer(
             &self.buffer,
             0,
-            bytemuck::cast_slice(&[self.uniform.view_proj]),
+            bytemuck::cast_slice(&[self.uniform]),
         );
     }
 }
