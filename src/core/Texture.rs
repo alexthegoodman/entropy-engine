@@ -25,7 +25,7 @@ impl Texture {
         is_normal_map: bool,
     ) -> Result<Self, String> {
         let img = image::load_from_memory(bytes)
-            .map_err(|e| format!("Failed to load image from memory: {}", e))?;
+            .map_err(|e| format!("Failed to load image from memory: {}", e)).unwrap();
         let img = img.to_rgba8();
 
         let width = img.width();

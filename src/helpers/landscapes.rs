@@ -638,7 +638,7 @@ pub fn read_texture_bytes(
     project_id: String,
     asset_id: String, // This could be landscapeId or pbr_texture_id
     file_name: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<(Vec<u8>, u32, u32), String> {
     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
 
     // Determine the base directory based on asset_id type
@@ -657,12 +657,16 @@ pub fn read_texture_bytes(
         .and_then(|s| s.to_str())
         .unwrap_or("");
 
-    let bytes = match extension {
+    let data = match extension {
         "png" | "jpg" | "jpeg" => {
-            image::open(&file_path)
-                .map_err(|e| format!("Failed to open image file {}: {}", file_name, e))?
-                .to_rgba8()
-                .into_raw()
+            let image = image::open(&file_path)
+                .map_err(|e| format!("Failed to open image file {}: {}", file_name, e))?;
+
+            let width = image.width();
+            let height = image.height();
+
+                (image.to_rgba8()
+                .into_raw(), width, height)
         }
         "tif" | "tiff" => {
             let file = File::open(&file_path)
@@ -672,14 +676,14 @@ pub fn read_texture_bytes(
             let (width, height) = decoder.dimensions().map_err(|e| format!("Failed to get TIFF dimensions {}: {}", file_name, e))?;
 
             match decoder.read_image().map_err(|e| format!("Failed to read TIFF image data {}: {}", file_name, e))? {
-                DecodingResult::U8(data) => data,
+                DecodingResult::U8(data) => (data, width, height),
                 DecodingResult::U16(data) => {
                     // Convert U16 to U8, perhaps by taking the most significant byte or scaling
-                    data.into_iter().map(|v| (v / 256) as u8).collect()
+                    (data.into_iter().map(|v| (v / 256) as u8).collect(), width, height)
                 },
                 DecodingResult::F32(data) => {
                     // Convert F32 to U8 by scaling 0-1 range to 0-255
-                    data.into_iter().map(|v| (v * 255.0) as u8).collect()
+                    (data.into_iter().map(|v| (v * 255.0) as u8).collect(), width, height)
                 }
                 _ => return Err(format!("Unsupported TIFF decoding result for file: {}", file_name)),
             }
@@ -706,7 +710,7 @@ pub fn read_texture_bytes(
 
             // Convert the nested Vec<Vec<[f32; 4]>> to a flat Vec<u8>
             // EXR stores HDR data as floats, so we need to convert to 8-bit
-            image.layer_data.channel_data.pixels
+            (image.layer_data.channel_data.pixels
                 .iter()
                 .flat_map(|row| {
                     row.iter().flat_map(|&[r, g, b, a]| {
@@ -719,10 +723,10 @@ pub fn read_texture_bytes(
                         ]
                     })
                 })
-                .collect()
+                .collect(), 0, 0)
         }
         _ => return Err(format!("Unsupported texture file format: {}", file_name)),
     };
 
-    Ok(bytes)
+    Ok(data)
 }
