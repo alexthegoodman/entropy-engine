@@ -154,7 +154,7 @@ impl Landscape {
         let texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: 6, // Should be 6 layers for albedo array
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -197,7 +197,7 @@ impl Landscape {
         let normal_texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: 3, // Should be 3 layers for normal array
         };
         let normal_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default Normal Texture"),
@@ -234,7 +234,7 @@ impl Landscape {
         let pbr_params_texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 1,
+            depth_or_array_layers: 3, // Should be 3 layers for PBR params array
         };
         let pbr_params_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default PBR Params Texture"),
