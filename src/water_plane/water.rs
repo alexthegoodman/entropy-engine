@@ -33,7 +33,7 @@ impl WaterPlane {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -53,30 +53,32 @@ impl WaterPlane {
             label: Some("time_bind_group"),
         });
 
+        // Generate dense water mesh
         let size = 4096.0;
         let half_size = size / 2.0;
         let y = -300.0;
-
-        let vertices: &[f32] = &[
-            -half_size, y, -half_size,
-             half_size, y, -half_size,
-             half_size, y,  half_size,
-            -half_size, y,  half_size,
-        ];
-        let indices: &[u16] = &[
-            0, 1, 2,
-            0, 2, 3,
-        ];
+        
+        // Adjust these for performance vs quality tradeoff
+        let grid_resolution = 256; // 256x256 = 65,536 vertices (good quality)
+        // For even better quality: 384 (147k verts) or 512 (262k verts)
+        // For performance: 128 (16k verts) or 192 (37k verts)
+        
+        let (vertices, indices) = Self::generate_grid_mesh(
+            size,
+            half_size,
+            y,
+            grid_resolution,
+        );
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Water Vertex Buffer"),
-            contents: bytemuck::cast_slice(vertices),
+            contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Water Index Buffer"),
-            contents: bytemuck::cast_slice(indices),
+            contents: bytemuck::cast_slice(&indices),
             usage: wgpu::BufferUsages::INDEX,
         });
 
@@ -164,13 +166,12 @@ impl WaterPlane {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, //Some(wgpu::Face::Back),
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
             },
             depth_stencil: Some(wgpu::DepthStencilState {
-                // format: wgpu::TextureFormat::Depth32Float,
                 format: wgpu::TextureFormat::Depth24Plus,
                 depth_write_enabled: true,
                 depth_compare: wgpu::CompareFunction::Less,
@@ -197,6 +198,52 @@ impl WaterPlane {
             player_pos_bind_group,
         }
     }
+
+    /// Generate a dense grid mesh for the water plane
+    /// Returns (vertices, indices)
+    fn generate_grid_mesh(
+        size: f32,
+        half_size: f32,
+        y: f32,
+        resolution: usize,
+    ) -> (Vec<f32>, Vec<u32>) {
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        // Generate vertices
+        for row in 0..=resolution {
+            for col in 0..=resolution {
+                let x = -half_size + (col as f32 / resolution as f32) * size;
+                let z = -half_size + (row as f32 / resolution as f32) * size;
+                
+                vertices.push(x);
+                vertices.push(y);
+                vertices.push(z);
+            }
+        }
+
+        // Generate indices (two triangles per grid cell)
+        for row in 0..resolution {
+            for col in 0..resolution {
+                let top_left = (row * (resolution + 1) + col) as u32;
+                let top_right = top_left + 1;
+                let bottom_left = ((row + 1) * (resolution + 1) + col) as u32;
+                let bottom_right = bottom_left + 1;
+
+                // First triangle
+                indices.push(top_left);
+                indices.push(bottom_left);
+                indices.push(top_right);
+
+                // Second triangle
+                indices.push(top_right);
+                indices.push(bottom_left);
+                indices.push(bottom_right);
+            }
+        }
+
+        (vertices, indices)
+    }
 }
 
 pub trait DrawWater<'a> {
@@ -213,7 +260,7 @@ where
         self.set_bind_group(1, time_bind_group, &[]);
         self.set_bind_group(2, player_pos_bind_group, &[]);
         self.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
-        self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.draw_indexed(0..water_plane.num_indices, 0, 0..1);
     }
 }
