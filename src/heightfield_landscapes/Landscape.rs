@@ -655,44 +655,48 @@ impl Landscape {
         color_render_mode_buffer: &wgpu::Buffer,
     ) {
         if let Some(texture_array_view) = &self.texture_array_view {
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+            if let Some(normal_texture_array_view) = &self.normal_texture_array_view {
+                if let Some(pbr_params_texture_array_view) = &self.pbr_params_texture_array_view {
+                    let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-            println!("New landscape bind group!");
+                    println!("New landscape bind group!");
 
-            self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: texture_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: self.transform.uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&texture_array_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: texture_render_mode_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(self.normal_texture_array_view.as_ref().expect("Couldn't get normal texture array")),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::TextureView(self.pbr_params_texture_array_view.as_ref().expect("Couldn't get PBR params texture array")),
-                    },
-                ],
-                label: Some("landscape_texture_bind_group"),
-            });
+                    self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout: texture_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: self.transform.uniform_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(&texture_array_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(&sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: texture_render_mode_buffer,
+                                    offset: 0,
+                                    size: None,
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: wgpu::BindingResource::TextureView(normal_texture_array_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 5,
+                                resource: wgpu::BindingResource::TextureView(pbr_params_texture_array_view),
+                            },
+                        ],
+                        label: Some("landscape_texture_bind_group"),
+                    });
+                }
+            }
         }
     }
 
