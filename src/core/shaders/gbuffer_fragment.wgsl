@@ -68,6 +68,11 @@ fn fs_main(in: FragmentInput) -> GbufferOutput {
         output.albedo = in.color; // Color mode
     }
 
+    // output.albedo = vec4<f32>(1.0, 0.0, 0.0, 1.0); // testing mode
+
+    // Debug: visualize the PBR values as colors
+    // output.albedo = vec4<f32>(pbr_params, 1.0);
+
     output.position = vec4<f32>(in.world_pos, 1.0);
     
     // Unpack normal from texture and transform to world space
@@ -75,10 +80,36 @@ fn fs_main(in: FragmentInput) -> GbufferOutput {
     // Assuming 'in.normal' is the vertex normal, and 'in.world_pos' provides the context for tangent space.
     // For now, let's just output the unpacked normal. If tangent space normals are used,
     // a TBN matrix construction would be needed here, which is beyond simple replacement.
-    output.normal = vec4<f32>(unpacked_normal, 1.0);
+    output.normal = vec4<f32>(unpacked_normal, 1.0); // all black
+    // output.normal = vec4<f32>(normalize(in.normal), 1.0); // all black
+    // output.normal = vec4<f32>(0.0, 1.0, 0.0, 1.0); // able to see some things, but still landscape is black
+
+    // Add this before unpacking the normal:
+    // all black this way too
+    // let up = vec3<f32>(0.0, 1.0, 0.0);
+    // let tangent = normalize(cross(up, in.normal));
+    // let bitangent = cross(in.normal, tangent);
+    // let tbn = mat3x3<f32>(tangent, bitangent, normalize(in.normal));
+
+    // // Then transform the normal:
+    // let unpacked_normal = normalize(normal_map_color * 2.0 - 1.0);
+    // let world_normal = normalize(tbn * unpacked_normal);
+    // output.normal = vec4<f32>(world_normal, 1.0);
 
     // metallic, roughness, AO
     output.pbr_material = vec4<f32>(pbr_params, 1.0);
+
+    // Force metallic to be low for terrain (rocks/soil shouldn't be metallic)
+    // let metallic = 0.0; // or clamp(pbr_params.r, 0.0, 0.1) for slight metallic
+    // let roughness = pbr_params.g; // green channel
+    // let ao = pbr_params.b; // blue channel
+
+    // output.pbr_material = vec4<f32>(metallic, roughness, ao, 1.0);
+
+    // Test 1: Force reasonable PBR values
+    // output.pbr_material = vec4<f32>(0.0, 0.8, 1.0, 1.0); // metallic=0, roughness=0.8, AO=1.0
+
+    // output.pbr_material = vec4<f32>(1.0, 1.0, 1.0, 1.0); // testing
 
     return output;
 }

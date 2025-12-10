@@ -406,6 +406,8 @@ impl Landscape {
                 new_texture.size(),
             );
 
+            // println!("Bind regular texture {:?}", kind);
+
             self.update_bind_group(
                 device,
                 texture_bind_group_layout,

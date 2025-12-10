@@ -91,7 +91,7 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     
     let radiance = light_color * max(dot(N, light_dir), 0.0);
 
-    let ambient_light = vec3<f32>(0.03) * albedo * ao; // Very basic ambient for now
+    let ambient_light = vec3<f32>(0.3) * albedo * ao; // Very basic ambient for now
 
     let Lo = (Kd * albedo / PI + specular) * radiance * ao;
     
