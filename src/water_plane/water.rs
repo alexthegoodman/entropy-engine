@@ -59,9 +59,10 @@ impl WaterPlane {
         let y = -300.0;
         
         // Adjust these for performance vs quality tradeoff
-        let grid_resolution = 256; // 256x256 = 65,536 vertices (good quality)
+        // let grid_resolution = 256; // 256x256 = 65,536 vertices (good quality)
         // For even better quality: 384 (147k verts) or 512 (262k verts)
         // For performance: 128 (16k verts) or 192 (37k verts)
+        let grid_resolution = 128;
         
         let (vertices, indices) = Self::generate_grid_mesh(
             size,
