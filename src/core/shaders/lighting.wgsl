@@ -147,4 +147,6 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     }
     
     let final_color = ambient_light + total_Lo;
+
+    return vec4<f32>(final_color, 1.0);
 }

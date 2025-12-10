@@ -1,6 +1,6 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::CameraBinding, editor::{
-        Editor, Viewport, WindowSize, WindowSizeShader,
+        Editor, PointLight, Viewport, WindowSize, WindowSizeShader
     }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
@@ -703,7 +703,15 @@ impl ExportPipeline {
 
         // Point Lights
         let point_lights_uniform = crate::core::editor::PointLightsUniform {
-            point_lights: [[0.0; 8]; crate::core::editor::MAX_POINT_LIGHTS],
+            point_lights: [PointLight {
+                position: [0.0, 0.0, 0.0],
+                _padding1: 0,
+                color: [0.0, 0.0, 0.0],
+                _padding2: 0,
+                intensity: 0.0,
+                max_distance: 100.0, // Default max distance for now
+                _padding3: [0; 2],
+            }; crate::core::editor::MAX_POINT_LIGHTS],
             num_point_lights: 0,
             _padding: [0; 3],
         };
@@ -1549,20 +1557,21 @@ impl ExportPipeline {
 
             // obviously, no good reason to set this on every frame
             let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
-                point_lights: [[0.0; 8]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
+                point_lights: [PointLight {
+                    position: [0.0, 0.0, 0.0],
+                    _padding1: 0,
+                    color: [0.0, 0.0, 0.0],
+                    _padding2: 0,
+                    intensity: 0.0,
+                    max_distance: 100.0, // Default max distance for now
+                    _padding3: [0; 2],
+                }; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
                 num_point_lights: renderer_state.point_lights.len() as u32,
                 _padding: [0; 3],
             };
 
             for (i, pl) in renderer_state.point_lights.iter().enumerate() {
-                point_lights_uniform_data.point_lights[i] = [
-                    pl.position[0], pl.position[1], pl.position[2], 0.0, // position + padding
-                    pl.color[0], pl.color[1], pl.color[2], pl.intensity, // color + intensity
-                ];
-                // Note: Max distance is not directly copied here, need to rethink how to pass it
-                // For now, it's hardcoded in the shader, or we need another field in the uniform buffer.
-                // Let's assume for now that the shader will use a fixed max_distance or adjust how data is packed.
-                // Revisit if necessary.
+                point_lights_uniform_data.point_lights[i] = *pl;
             }
             
             // Update point lights buffer

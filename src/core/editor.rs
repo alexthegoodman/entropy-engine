@@ -72,7 +72,7 @@ pub struct PointLight {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct PointLightsUniform {
-    pub point_lights: [[f32; 8]; MAX_POINT_LIGHTS], // Array of PointLight data
+    pub point_lights: [PointLight; MAX_POINT_LIGHTS], // Array of PointLight data
     pub num_point_lights: u32,
     pub _padding: [u32; 3], // Pad to 16-byte alignment
 }
