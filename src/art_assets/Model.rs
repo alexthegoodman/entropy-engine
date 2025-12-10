@@ -215,13 +215,11 @@ impl Model {
                 size,
             );
             let wgpu_texture_view = wgpu_texture.create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
                 ..Default::default()
             });
             loaded_textures.push((Arc::new(wgpu_texture), Arc::new(wgpu_texture_view)));
-        }
-
-        
+        }  
 
         for mesh in gltf.meshes() {
             for primitive in mesh.primitives() {
@@ -252,7 +250,10 @@ impl Model {
                     TextureDataOrder::default(),
                     &[255, 255, 255, 255], // White
                 );
-                let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                });
 
                 let default_normal_texture = device.create_texture_with_data(
                     queue,
@@ -269,7 +270,10 @@ impl Model {
                     TextureDataOrder::default(),
                     &[128, 128, 255, 255], // Flat normal (0,0,1)
                 );
-                let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                });
 
                 let default_pbr_params_texture = device.create_texture_with_data(
                     queue,
@@ -286,7 +290,10 @@ impl Model {
                     TextureDataOrder::default(),
                     &[0, 255, 255, 255], // Metallic=0, Roughness=1, AO=1
                 );
-                let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor {
+                    dimension: Some(wgpu::TextureViewDimension::D2Array),
+                    ..Default::default()
+                });
 
                 let reader = primitive.reader(|buffer| Some(&buffer_data));
 
@@ -467,7 +474,10 @@ impl Model {
                             &pbr_image_data,
                         );
                         let pbr_params_tex = Arc::new(pbr_params_tex);
-                        let pbr_params_view = Arc::new(pbr_params_tex.create_view(&wgpu::TextureViewDescriptor::default()));
+                        let pbr_params_view = Arc::new(pbr_params_tex.create_view(&wgpu::TextureViewDescriptor {
+                            dimension: Some(wgpu::TextureViewDimension::D2Array),
+                            ..Default::default()
+                        }));
                     //     (Arc::new(packed_pbr_texture), Arc::new(packed_pbr_texture.create_view(&wgpu::TextureViewDescriptor::default())))
                     // };
                 //     (base_color_view, normal_view, pbr_params_view)
