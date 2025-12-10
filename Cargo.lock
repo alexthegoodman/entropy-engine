@@ -994,6 +994,7 @@ dependencies = [
  "egui-wgpu",
  "egui-winit",
  "env_logger",
+ "exr",
  "fontdue",
  "futures",
  "gloo-utils",

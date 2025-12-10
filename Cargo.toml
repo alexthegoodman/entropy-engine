@@ -55,6 +55,7 @@ egui-winit = "0.33.2"
 noise = "0.8"
 transform-gizmo = "0.8.0"
 mint = "0.5.9"
+exr = "1.74.0"
 
 [dependencies.gltf]
 features = ["utils"]

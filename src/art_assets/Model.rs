@@ -8,6 +8,7 @@ use wgpu::util::DeviceExt;
 use gltf::buffer::{Source, View};
 use gltf::Glb;
 use gltf::Gltf;
+use wgpu::wgt::TextureDataOrder;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -78,19 +79,19 @@ impl Model {
                 )
                 .unwrap()
             }
-            gltf::image::Format::R5G6B5 => {
-                // Placeholder: needs proper conversion from R5G6B5 to RGBA8
-                eprintln!("Warning: R5G6B5 format not fully supported, converting to RGBA8 (may lose precision).");
-                image::DynamicImage::ImageRgb16(
-                    image::ImageBuffer::from_raw(
-                        gltf_image_data.width,
-                        gltf_image_data.height,
-                        gltf_image_data.pixels.to_vec(),
-                    )
-                    .unwrap(),
-                )
-                .to_rgba8()
-            }
+            // gltf::image::Format::R5G6B5 => {
+            //     // Placeholder: needs proper conversion from R5G6B5 to RGBA8
+            //     eprintln!("Warning: R5G6B5 format not fully supported, converting to RGBA8 (may lose precision).");
+            //     image::DynamicImage::ImageRgb16(
+            //         image::ImageBuffer::from_raw(
+            //             gltf_image_data.width,
+            //             gltf_image_data.height,
+            //             gltf_image_data.pixels.to_vec(),
+            //         )
+            //         .unwrap(),
+            //     )
+            //     .to_rgba8()
+            // }
             _ => {
                 // For other formats, try to load and convert.
                 // This part might need to be more robust based on actual glTF data.
@@ -220,68 +221,73 @@ impl Model {
             loaded_textures.push((Arc::new(wgpu_texture), Arc::new(wgpu_texture_view)));
         }
 
-        // Create a default sampler to be used for all textures
-        let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::Repeat,
-            address_mode_v: wgpu::AddressMode::Repeat,
-            address_mode_w: wgpu::AddressMode::Repeat,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
         
-        // Create 1x1 default textures for cases where PBR maps are missing
-        let default_albedo_texture = device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: Some("Default Albedo Texture"),
-                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            &[255, 255, 255, 255], // White
-        );
-        let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let default_normal_texture = device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: Some("Default Normal Texture"),
-                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            &[128, 128, 255, 255], // Flat normal (0,0,1)
-        );
-        let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        let default_pbr_params_texture = device.create_texture_with_data(
-            queue,
-            &wgpu::TextureDescriptor {
-                label: Some("Default PBR Params Texture"),
-                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            &[0, 255, 255, 255], // Metallic=0, Roughness=1, AO=1
-        );
-        let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         for mesh in gltf.meshes() {
             for primitive in mesh.primitives() {
+                // Create a default sampler to be used for all textures
+                let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                    address_mode_u: wgpu::AddressMode::Repeat,
+                    address_mode_v: wgpu::AddressMode::Repeat,
+                    address_mode_w: wgpu::AddressMode::Repeat,
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    mipmap_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                });
+                
+                // Create 1x1 default textures for cases where PBR maps are missing
+                let default_albedo_texture = device.create_texture_with_data(
+                    queue,
+                    &wgpu::TextureDescriptor {
+                        label: Some("Default Albedo Texture"),
+                        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    },
+                    TextureDataOrder::default(),
+                    &[255, 255, 255, 255], // White
+                );
+                let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                let default_normal_texture = device.create_texture_with_data(
+                    queue,
+                    &wgpu::TextureDescriptor {
+                        label: Some("Default Normal Texture"),
+                        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    },
+                    TextureDataOrder::default(),
+                    &[128, 128, 255, 255], // Flat normal (0,0,1)
+                );
+                let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                let default_pbr_params_texture = device.create_texture_with_data(
+                    queue,
+                    &wgpu::TextureDescriptor {
+                        label: Some("Default PBR Params Texture"),
+                        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                        view_formats: &[],
+                    },
+                    TextureDataOrder::default(),
+                    &[0, 255, 255, 255], // Metallic=0, Roughness=1, AO=1
+                );
+                let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
                 let reader = primitive.reader(|buffer| Some(&buffer_data));
 
                 let positions = reader
@@ -386,27 +392,39 @@ impl Model {
                 let material = primitive.material();
                 let pbr_metallic_roughness = material.pbr_metallic_roughness();
 
-                let (base_color_view, normal_view, pbr_params_view) = {
+                // let (base_color_view, normal_view, pbr_params_view) = {
                     // Base color texture
-                    let (base_color_tex, base_color_view) = pbr_metallic_roughness
+                    let loaded_base = pbr_metallic_roughness
                         .base_color_texture()
-                        .and_then(|info| loaded_textures.get(info.texture().index()))
-                        .map_or_else(
-                            || (Arc::new(default_albedo_texture), Arc::new(default_albedo_view)),
-                            |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
-                        );
+                        .and_then(|info| loaded_textures.get(info.texture().index()));
+                        // .map_or_else(
+                        //     || (Arc::new(default_albedo_texture), Arc::new(default_albedo_view)),
+                        //     |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
+                        // );
+                    
+                    let mut base_color_view = Arc::new(default_albedo_view);
+                    if let Some(base) = loaded_base {
+                        base_color_view = base.1.clone();
+                    }
 
                     // Normal texture
-                    let (normal_tex, normal_view) = material
+                    let loaded_normal = material
                         .normal_texture()
-                        .and_then(|info| loaded_textures.get(info.texture().index()))
-                        .map_or_else(
-                            || (Arc::new(default_normal_texture), Arc::new(default_normal_view)),
-                            |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
-                        );
+                        .and_then(|info| loaded_textures.get(info.texture().index()));
+                        // .map_or_else(
+                        //     || (Arc::new(default_normal_texture), Arc::new(default_normal_view)),
+                        //     |(tex, view)| (Arc::clone(tex), Arc::clone(view)),
+                        // );
+
+                    let mut normal_tex =Arc::new(default_normal_texture);
+                    let mut normal_view = Arc::new(default_normal_view);
+                    if let Some(normal) = loaded_normal {
+                        normal_tex = normal.0.clone();
+                        normal_view = normal.1.clone();
+                    }
 
                     // Metallic-Roughness and Occlusion packing for pbr_params_view (R: Metallic, G: Roughness, B: AO)
-                    let (pbr_params_tex, pbr_params_view) = {
+                    // let (pbr_params_tex, pbr_params_view) = {
                         let mut pbr_image_data = vec![0u8; 4]; // Default to [0,1,1,1] i.e., [metallic=0, roughness=1, ao=1]
 
                         // Metallic-Roughness (green channel is roughness, blue channel is metallic)
@@ -433,7 +451,7 @@ impl Model {
                             pbr_image_data[2] = 255; // default ao
                         }
 
-                        let packed_pbr_texture = device.create_texture_with_data(
+                        let pbr_params_tex = device.create_texture_with_data(
                             queue,
                             &wgpu::TextureDescriptor {
                                 label: Some("Packed PBR Params Texture"),
@@ -445,12 +463,15 @@ impl Model {
                                 usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                                 view_formats: &[],
                             },
+                            TextureDataOrder::default(),
                             &pbr_image_data,
                         );
-                        (Arc::new(packed_pbr_texture), Arc::new(packed_pbr_texture.create_view(&wgpu::TextureViewDescriptor::default())))
-                    };
-                    (base_color_view, normal_view, pbr_params_view)
-                };
+                        let pbr_params_tex = Arc::new(pbr_params_tex);
+                        let pbr_params_view = Arc::new(pbr_params_tex.create_view(&wgpu::TextureViewDescriptor::default()));
+                    //     (Arc::new(packed_pbr_texture), Arc::new(packed_pbr_texture.create_view(&wgpu::TextureViewDescriptor::default())))
+                    // };
+                //     (base_color_view, normal_view, pbr_params_view)
+                // };
 
                 let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                     layout: &bind_group_layout,
@@ -555,6 +576,13 @@ impl Model {
                     normal_texture_view: Some(Arc::try_unwrap(normal_view).unwrap_or_else(|arc| arc.as_ref().clone())),
                     pbr_params_texture: Some(Arc::try_unwrap(pbr_params_tex).unwrap_or_else(|arc| arc.as_ref().clone())),
                     pbr_params_texture_view: Some(Arc::try_unwrap(pbr_params_view).unwrap_or_else(|arc| arc.as_ref().clone())),
+                    rapier_collider,
+                    rapier_rigidbody: dynamic_body,
+                    collider_handle: None,
+                    rigid_body_handle: None,
+                });
+            }
+        }
 
         Model {
             id: model_component_id.to_string(),

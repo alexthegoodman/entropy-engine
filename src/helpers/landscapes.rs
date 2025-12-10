@@ -1,8 +1,10 @@
 use std::{fs::File, path::PathBuf};
 
+use exr::prelude::read_first_rgba_layer_from_file;
 use image::GenericImageView;
 use serde::Serialize;
 use tiff::decoder::{Decoder, DecodingResult};
+use nalgebra as na;
 
 use crate::helpers::saved_data::LandscapeTextureKinds;
 
@@ -31,8 +33,6 @@ pub struct TextureData {
     pub width: u32,
     pub height: u32,
 }
-
-use nalgebra as na;
 
 pub fn read_tiff_heightmap(
     landscape_path: &str,
@@ -632,4 +632,95 @@ fn apply_smoothing(image: &mut Vec<f32>, width: u32, height: u32, factor: f32) {
     }
 
     *image = smoothed;
+}
+
+pub fn read_texture_bytes(
+    project_id: String,
+    asset_id: String, // This could be landscapeId or pbr_texture_id
+    file_name: String,
+) -> Result<Vec<u8>, String> {
+    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+
+    // Determine the base directory based on asset_id type
+    let base_path =
+        sync_dir.join(format!(
+            "midpoint/projects/{}/textures/",
+            project_id
+        ));
+
+    let file_path = base_path.join(file_name.clone());
+
+    println!("Attempting to read texture from path: {:?}", file_path);
+
+    let extension = file_path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    let bytes = match extension {
+        "png" | "jpg" | "jpeg" => {
+            image::open(&file_path)
+                .map_err(|e| format!("Failed to open image file {}: {}", file_name, e))?
+                .to_rgba8()
+                .into_raw()
+        }
+        "tif" | "tiff" => {
+            let file = File::open(&file_path)
+                .map_err(|e| format!("Failed to open TIFF file {}: {}", file_name, e))?;
+            let mut decoder = Decoder::new(file)
+                .map_err(|e| format!("Failed to decode TIFF file {}: {}", file_name, e))?;
+            let (width, height) = decoder.dimensions().map_err(|e| format!("Failed to get TIFF dimensions {}: {}", file_name, e))?;
+
+            match decoder.read_image().map_err(|e| format!("Failed to read TIFF image data {}: {}", file_name, e))? {
+                DecodingResult::U8(data) => data,
+                DecodingResult::U16(data) => {
+                    // Convert U16 to U8, perhaps by taking the most significant byte or scaling
+                    data.into_iter().map(|v| (v / 256) as u8).collect()
+                },
+                DecodingResult::F32(data) => {
+                    // Convert F32 to U8 by scaling 0-1 range to 0-255
+                    data.into_iter().map(|v| (v * 255.0) as u8).collect()
+                }
+                _ => return Err(format!("Unsupported TIFF decoding result for file: {}", file_name)),
+            }
+        }
+        "exr" => {
+            // Read EXR file into a nested Vec<Vec<[f32; 4]>> structure
+            let image = read_first_rgba_layer_from_file(
+                &file_path,
+                // Instantiate image type with the size of the image in file
+                |resolution, _| {
+                    let default_pixel = [0.0, 0.0, 0.0, 0.0];
+                    let empty_line = vec![default_pixel; resolution.width()];
+                    let empty_image = vec![empty_line; resolution.height()];
+                    empty_image
+                },
+                // Transfer the colors from the file to your image type
+                |pixel_vector, position, (r, g, b, a): (f32, f32, f32, f32)| {
+                    pixel_vector[position.y()][position.x()] = [r, g, b, a]
+                }
+            )
+            .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e))?;
+
+            // Convert the nested Vec<Vec<[f32; 4]>> to a flat Vec<u8>
+            // EXR stores HDR data as floats, so we need to convert to 8-bit
+            image.layer_data.channel_data.pixels
+                .iter()
+                .flat_map(|row| {
+                    row.iter().flat_map(|&[r, g, b, a]| {
+                        // Clamp and convert f32 values (0.0-1.0) to u8 (0-255)
+                        [
+                            (r.clamp(0.0, 1.0) * 255.0) as u8,
+                            (g.clamp(0.0, 1.0) * 255.0) as u8,
+                            (b.clamp(0.0, 1.0) * 255.0) as u8,
+                            (a.clamp(0.0, 1.0) * 255.0) as u8,
+                        ]
+                    })
+                })
+                .collect()
+        }
+        _ => return Err(format!("Unsupported texture file format: {}", file_name)),
+    };
+
+    Ok(bytes)
 }
