@@ -32,8 +32,9 @@ impl Sphere {
         radius: f32,
         sectors: u32, // longitude
         stacks: u32,  // latitude
+        color: [f32; 3]
     ) -> Self {
-        let (vertices, indices) = Self::generate_sphere_data(radius, sectors, stacks);
+        let (vertices, indices) = Self::generate_sphere_data(radius, sectors, stacks, color);
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Vertex Buffer"),
@@ -257,7 +258,7 @@ impl Sphere {
         }
     }
 
-    fn generate_sphere_data(radius: f32, sectors: u32, stacks: u32) -> (Vec<Vertex>, Vec<u16>) {
+    fn generate_sphere_data(radius: f32, sectors: u32, stacks: u32, color: [f32; 3]) -> (Vec<Vertex>, Vec<u16>) {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
@@ -285,7 +286,7 @@ impl Sphere {
                     position: [x, y, z],
                     normal: [normal.x, normal.y, normal.z],
                     tex_coords: [s, t],
-                    color: [0.7, 0.7, 0.7, 1.0], // Default to gray, can be modified as needed
+                    color: [color[0], color[1], color[2], 1.0], // Default to gray, can be modified as needed
                 });
             }
         }

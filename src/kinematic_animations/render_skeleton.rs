@@ -155,7 +155,7 @@ impl BoneSegment {
 
         transform.rotation = rotation; // set with quat for accuracy
 
-        let mut joint_sphere = Sphere::new(device, queue, bind_group_layout, group_bind_group_layout, texture_render_mode_bufer, camera, 0.05, 16, 16);
+        let mut joint_sphere = Sphere::new(device, queue, bind_group_layout, group_bind_group_layout, texture_render_mode_bufer, camera, 0.05, 16, 16, [1.0, 1.0, 1.0]);
         joint_sphere.transform.position = start_pos.coords;
 
         Self {

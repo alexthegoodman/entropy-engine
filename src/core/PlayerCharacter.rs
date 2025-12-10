@@ -145,6 +145,7 @@ impl PlayerCharacter {
             1.0,
             32,
             16,
+            [1.0, 1.0, 1.0]
         );
 
         Self {
