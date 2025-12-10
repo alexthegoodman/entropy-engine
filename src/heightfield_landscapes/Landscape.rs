@@ -154,7 +154,7 @@ impl Landscape {
         let texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 6, // Should be 6 layers for albedo array
+            depth_or_array_layers: 1,
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -197,7 +197,7 @@ impl Landscape {
         let normal_texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 3, // Should be 3 layers for normal array
+            depth_or_array_layers: 1,
         };
         let normal_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default Normal Texture"),
@@ -234,7 +234,7 @@ impl Landscape {
         let pbr_params_texture_size = wgpu::Extent3d {
             width: 1,
             height: 1,
-            depth_or_array_layers: 3, // Should be 3 layers for PBR params array
+            depth_or_array_layers: 1,
         };
         let pbr_params_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Default PBR Params Texture"),
@@ -351,14 +351,14 @@ impl Landscape {
             heights: data.rapier_heights.clone(),
             particle_bind_group_layout: None,
             particle_texture_view: None,
-            normal_texture_array: Some(normal_texture),
-            normal_texture_array_view: Some(normal_texture_view),
-            pbr_params_texture_array: Some(pbr_params_texture),
-            pbr_params_texture_array_view: Some(pbr_params_texture_view),
-            // normal_texture_array: None,
-            // normal_texture_array_view: None,
-            // pbr_params_texture_array: None,
-            // pbr_params_texture_array_view: None
+            // normal_texture_array: Some(normal_texture),
+            // normal_texture_array_view: Some(normal_texture_view),
+            // pbr_params_texture_array: Some(pbr_params_texture),
+            // pbr_params_texture_array_view: Some(pbr_params_texture_view),
+            normal_texture_array: None,
+            normal_texture_array_view: None,
+            pbr_params_texture_array: None,
+            pbr_params_texture_array_view: None
         }
     }
 
