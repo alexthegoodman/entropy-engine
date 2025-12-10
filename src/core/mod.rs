@@ -13,3 +13,4 @@ pub mod vertex;
 pub mod camera;
 pub mod gpu_resources;
 pub mod pipeline;
+pub mod shadow_pipeline;

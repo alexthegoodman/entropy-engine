@@ -40,6 +40,11 @@ struct WindowSize {
 
 @group(2) @binding(0) var<uniform> window_size: WindowSize;
 
+// New shadow mapping uniforms
+@group(3) @binding(0) var<uniform> light_view_proj: mat4x4<f32>; // The light's view-projection matrix
+@group(3) @binding(1) var shadow_map: texture_depth_2d; // Shadow map texture
+@group(3) @binding(2) var shadow_sampler: sampler_comparison; // Shadow map sampler
+
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
     var out_pos: vec2<f32>;
@@ -62,24 +67,11 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let albedo = textureSample(g_buffer_albedo, s_g_buffer, tex_coords).rgb;
     let pbr_material = textureSample(g_buffer_pbr_material, s_g_buffer, tex_coords).rgb; // Metallic, Roughness, AO
 
-    // Point Lights
-    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
-    //     let p_light = point_lights.point_lights[i];
-    //     let light_vec = p_light.position - position;
-    //     let distance = length(light_vec);
-        
-    //     // Debug: Show red if within max_distance
-    //     if (distance < p_light.max_distance) {
-    //         return vec4<f32>(1.0, 0.0, 0.0, 1.0);
-    //     }
-    // }
-
     let metallic = pbr_material.r;
     let roughness = pbr_material.g;
     let ao = pbr_material.b;
 
-    // let directional_light_dir = normalize(directional_light.position - position); // we are trying to do sun, so not specifying its spot
-    let directional_light_dir = normalize(directional_light.position);
+    let directional_light_dir = normalize(directional_light.position - position);
     let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
     let halfway_dir = normalize(directional_light_dir + view_dir);
 
@@ -121,30 +113,24 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let directional_intensity = 10.0;
     let directional_radiance = directional_light.color * directional_intensity * max(dot(N, directional_light_dir), 0.0);
 
-    let ambient_light = vec3<f32>(0.3) * albedo * ao; // Very basic ambient for now
+    // --- Shadow Calculation ---
+    // Convert world position to light's clip space
+    let frag_pos_light_space = light_view_proj * vec4<f32>(position, 1.0);
 
-    let directional_Lo = (Kd * albedo / PI + specular_directional) * directional_radiance * ao;
+    // Perspective divide
+    var proj_coords = frag_pos_light_space.xyz / frag_pos_light_space.w;
+
+    // Transform to [0, 1] range for texture sampling
+    proj_coords = proj_coords * 0.5 + 0.5;
+
+    // Perform shadow lookup (PCF might happen in hardware if comparison sampler is used)
+    let shadow_factor = textureSampleCompare(shadow_map, shadow_sampler, proj_coords.xy, proj_coords.z);
+
+    // Apply shadow factor to directional light
+    let ambient_light = vec3<f32>(0.3) * albedo * ao; // Very basic ambient for now
+    let directional_Lo = (Kd * albedo / PI + specular_directional) * directional_radiance * ao * shadow_factor;
     
     var total_Lo = directional_Lo;
-
-    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
-    //     let p_light = point_lights.point_lights[i];
-    //     let light_vec = p_light.position - position;
-    //     let distance = length(light_vec);
-    //     let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, 2.0), 0.0, 1.0);
-        
-    //     return vec4<f32>(vec3<f32>(attenuation), 1.0);
-    // }
-
-    // for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
-    //     let p_light = point_lights.point_lights[i];
-    //     let light_vec = p_light.position - position;
-    //     let distance = length(light_vec);
-    //     let light_dir = light_vec / distance;
-    //     let NdotL_point = max(dot(N, light_dir), 0.0);
-        
-    //     return vec4<f32>(vec3<f32>(NdotL_point), 1.0);
-    // }
 
     // Point Lights
     for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
@@ -175,34 +161,19 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
         let G_L_point = NdotL_point / (NdotL_point * (1.0 - k) + k);
         let G_point = G_V_point * G_L_point;
         
-        // let Ks_point = F; // Fresnel remains the same
         let Ks_point = F_point;
         let Kd_point = (vec3<f32>(1.0) - Ks_point) * (1.0 - metallic);
 
-        // let numerator_point = D * G_point * F;
         let numerator_point = D_point * G_point * F_point;
         let denominator_point = 4.0 * NdotV * NdotL_point + 0.0001;
         let specular_point = numerator_point / denominator_point;
 
-        // return vec4<f32>(p_light.color, 1.0);
-
         let point_radiance = p_light.color * NdotL_point * attenuation * intensity_factor;
-
-        // return vec4<f32>(point_radiance, 1.0);
 
         let point_Lo = (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
 
-        // let diffuse_only = (Kd_point * albedo / PI) * point_radiance * ao;
-        // return vec4<f32>(diffuse_only, 1.0);
-
-        // return vec4<f32>(vec3<f32>(intensity_factor / 100.0), 1.0);
-
         total_Lo = total_Lo + point_Lo;
-
-        // total_Lo = vec3<f32>(1.0, 0.0, 0.0);
     }
-
-    // return vec4<f32>(total_Lo, 1.0);
     
     let final_color = ambient_light + total_Lo;
 

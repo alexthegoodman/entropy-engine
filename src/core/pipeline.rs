@@ -4,6 +4,7 @@ use crate::{
     }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
+use crate::core::shadow_pipeline::ShadowPipelineData;
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
 use egui;
 // use cgmath::{Point3, Vector3};
@@ -44,6 +45,7 @@ pub struct ExportPipeline {
     pub g_buffer_pbr_material_texture: Option<wgpu::Texture>,
     pub g_buffer_pbr_material_view: Option<wgpu::TextureView>,
     pub g_buffer_sampler: Option<wgpu::Sampler>,
+    pub shadow_pipeline_data: Option<ShadowPipelineData>,
 
     // G-Buffer bind group
     pub g_buffer_bind_group_layout: Option<wgpu::BindGroupLayout>,
@@ -52,6 +54,8 @@ pub struct ExportPipeline {
     pub directional_light_buffer: Option<wgpu::Buffer>,
     pub point_lights_buffer: Option<wgpu::Buffer>,
     pub gizmo_pipeline: Option<RenderPipeline>,
+
+    pub directional_light_position: [f32; 3]
 }
 
 impl ExportPipeline {
@@ -88,7 +92,9 @@ impl ExportPipeline {
             directional_light_buffer: None,
             point_lights_buffer: None,
             g_buffer_sampler: None,
+            shadow_pipeline_data: None,
             gizmo_pipeline: None,
+            directional_light_position: [2.0, 2.0, 2.0]
         }
     }
 
@@ -621,6 +627,17 @@ impl ExportPipeline {
         //     },
         // });
 
+        let directional_light_position = [2.0, 2.0, 2.0];
+
+        let shadow_pipeline_data = ShadowPipelineData::new(
+            &device,
+            &queue,
+            &model_bind_group_layout,
+            video_width,
+            video_height,
+            directional_light_position
+        );
+
         let geometry_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Entropy Engine Geometry Pipeline"),
             layout: Some(&pipeline_layout),
@@ -687,7 +704,7 @@ impl ExportPipeline {
         }
 
         let directional_light_uniform = DirectionalLightUniform {
-            position: [2.0, 2.0, 2.0],
+            position: directional_light_position,
             // position: [-0.5, -1.0, -0.3], // since this is the direction in the shader
             _padding: 0,
             color: [1.0, 1.0, 1.0],
@@ -739,6 +756,24 @@ impl ExportPipeline {
                     },
                     count: None,
                 },
+                // Shadow map texture
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                // Shadow map sampler
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
             ],
             label: Some("Lighting Bind Group Layout"),
         });
@@ -754,6 +789,16 @@ impl ExportPipeline {
                     binding: 1,
                     resource: point_lights_buffer.as_entire_binding(),
                 },
+                // Shadow map texture view
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_pipeline_data.shadow_view),
+                },
+                // Shadow map sampler
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_pipeline_data.shadow_sampler),
+                },
             ],
             label: Some("Lighting Bind Group"),
         });
@@ -761,9 +806,10 @@ impl ExportPipeline {
         let lighting_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Lighting Pipeline Layout"),
             bind_group_layouts: &[
-                &lighting_bind_group_layout,
+                &lighting_bind_group_layout, // group(0)
                 &g_buffer_bind_group_layout,
                 &window_size_bind_group_layout,
+                &shadow_pipeline_data.shadow_bind_group_layout, // group(3)
             ],
             push_constant_ranges: &[],
         });
@@ -1020,6 +1066,8 @@ impl ExportPipeline {
         self.directional_light_buffer = Some(directional_light_buffer);
         self.point_lights_buffer = Some(point_lights_buffer);
         self.g_buffer_sampler = Some(g_buffer_sampler);
+        self.shadow_pipeline_data = Some(shadow_pipeline_data);
+        self.directional_light_position = directional_light_position;
     }
 
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -1112,6 +1160,16 @@ impl ExportPipeline {
             });
             let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+            // Recreate shadow pipeline data
+            let shadow_pipeline_data = ShadowPipelineData::new(
+                device,
+                &gpu_resources.queue, // Use gpu_resources.queue
+                self.export_editor.as_ref().unwrap().model_bind_group_layout.as_ref().unwrap(), // Pass model_bind_group_layout
+                new_size.width,
+                new_size.height,
+                self.directional_light_position
+            );
+
             // Recreate window size buffer and bind group
             let window_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: None,
@@ -1182,6 +1240,7 @@ impl ExportPipeline {
             self.g_buffer_pbr_material_texture = Some(gbuffer_pbr_material_texture);
             self.g_buffer_pbr_material_view = Some(gbuffer_pbr_material_view);
             self.g_buffer_bind_group = Some(new_g_buffer_bind_group);
+            self.shadow_pipeline_data = Some(shadow_pipeline_data); // Add this line
             self.window_size_bind_group = Some(window_size_bind_group);
     
             if let Some(editor) = self.export_editor.as_mut() {
@@ -1247,6 +1306,32 @@ impl ExportPipeline {
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
+            // Shadow Pass
+            {
+                let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
+
+                let mut shadow_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Shadow Pass"),
+                    color_attachments: &[], // No color attachment, we only care about depth
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &shadow_pipeline_data.shadow_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0), // Clear to max depth
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                shadow_pipeline_data.render_shadow_pass(
+                    &mut shadow_pass,
+                    renderer_state,
+                    queue,
+                );
+            }
+
             if game_mode {
                 // update rapier collisions
                 renderer_state.update_rapier();
@@ -1586,6 +1671,8 @@ impl ExportPipeline {
                 let lighting_pipeline = self.lighting_pipeline.as_ref().unwrap();
                 let lighting_bind_group = self.lighting_bind_group.as_ref().unwrap();
                 let g_buffer_bind_group = self.g_buffer_bind_group.as_ref().unwrap();
+                let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
+                let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
 
                 let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Lighting Pass"),
@@ -1607,6 +1694,7 @@ impl ExportPipeline {
                 lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
                 lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
+                lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);
             }
 
