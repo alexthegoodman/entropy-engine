@@ -63,7 +63,8 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let roughness = pbr_material.g;
     let ao = pbr_material.b;
 
-    let directional_light_dir = normalize(directional_light.position - position);
+    // let directional_light_dir = normalize(directional_light.position - position); // we are trying to do sun, so not specifying its spot
+    let directional_light_dir = normalize(directional_light.position);
     let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
     let halfway_dir = normalize(directional_light_dir + view_dir);
 
@@ -102,9 +103,10 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let specular_directional = numerator_directional / denominator_directional;
 
     // Light attenuation and final color
-    let directional_radiance = directional_light.color * max(dot(N, directional_light_dir), 0.0);
+    let directional_intensity = 2.0;
+    let directional_radiance = directional_light.color * directional_intensity * max(dot(N, directional_light_dir), 0.0);
 
-    let ambient_light = vec3<f32>(0.4) * albedo * ao; // Very basic ambient for now
+    let ambient_light = vec3<f32>(0.3) * albedo * ao; // Very basic ambient for now
 
     let directional_Lo = (Kd * albedo / PI + specular_directional) * directional_radiance * ao;
     
@@ -144,7 +146,11 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 
         let point_Lo = (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
         total_Lo = total_Lo + point_Lo;
+
+        // total_Lo = vec3<f32>(1.0, 0.0, 0.0);
     }
+
+    // return vec4<f32>(total_Lo, 1.0);
     
     let final_color = ambient_light + total_Lo;
 

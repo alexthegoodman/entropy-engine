@@ -2256,7 +2256,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                     color: [light_props.color[0], light_props.color[1], light_props.color[2]],
                                                     _padding2: 0,
                                                     intensity: light_props.intensity,
-                                                    max_distance: 100.0, // Default max distance for now
+                                                    max_distance: 200.0, // Default max distance for now
                                                     _padding3: [0; 2],
                                                 });
                                                 // if current_point_lights.len() >= crate::core::editor::MAX_POINT_LIGHTS {
