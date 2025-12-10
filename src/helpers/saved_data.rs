@@ -113,6 +113,8 @@ pub struct PBRTextureData {
     pub disp: Option<File>, // will be an .png for now
     pub nor_gl: Option<File>, // will be an .exr for now
     pub rough: Option<File>, // will be an .exr for now
+    pub metallic: Option<File>, // will be an .exr for now
+    pub ao: Option<File>, // will be an .exr for now
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
