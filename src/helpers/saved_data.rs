@@ -55,9 +55,14 @@ pub struct GenericProperties {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct LandscapeProperties {
+    // regular textures
     pub primary_texture_id: Option<String>,
     pub rockmap_texture_id: Option<String>,
     pub soil_texture_id: Option<String>,
+    // new pbr textures
+    pub primary_pbr_texture_id: Option<String>,
+    pub rockmap_pbr_texture_id: Option<String>,
+    pub soil_pbr_texture_id: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -100,6 +105,16 @@ pub struct ProjectsDataFile {
     pub projects: Vec<ProjectData>,
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+pub struct PBRTextureData {
+    pub id: String,
+    // from PolyHaven for now
+    pub diff: Option<File>, // will be an .jpg for now
+    pub disp: Option<File>, // will be an .png for now
+    pub nor_gl: Option<File>, // will be an .exr for now
+    pub rough: Option<File>, // will be an .exr for now
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct SavedState {
     // games
@@ -107,6 +122,7 @@ pub struct SavedState {
     pub models: Vec<File>, // counts as Assets
     pub landscapes: Option<Vec<LandscapeData>>, // counts as Assets
     pub textures: Option<Vec<File>>, // counts as Assets
+    pub pbr_textures: Option<Vec<PBRTextureData>>, // counts as Assets
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     pub skeleton_parts: Vec<SkeletonPart>,
     pub skeletons: Vec<SkeletonAssemblyConfig>,

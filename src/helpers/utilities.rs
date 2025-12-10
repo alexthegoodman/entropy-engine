@@ -135,6 +135,7 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
         models: Vec::new(),
         landscapes: Some(Vec::new()),
         textures: Some(Vec::new()),
+        pbr_textures: Some(Vec::new()),
         levels: Some(levels),
         skeleton_parts: Vec::new(),
         skeletons: Vec::new(),
