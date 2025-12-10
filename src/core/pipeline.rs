@@ -1,7 +1,7 @@
 use crate::{
    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, camera::CameraBinding, editor::{
         Editor, Viewport, WindowSize, WindowSizeShader,
-    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::GpuResources, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
@@ -1849,18 +1849,38 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             let color_render_mode_buffer = renderer_state.color_render_mode_buffer.clone();
 
                                                             if let Some(rock_mask) = &landscape_data.rockmap {
-                                                                if let Ok(bytes) = read_texture_bytes(project_id.to_string(), rock_mask.id.clone(), rock_mask.fileName.clone()) {
-                                                                    if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, rock_mask.fileName.clone(), false) {
-                                                                        landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::RockmapMask, &texture);
-                                                                    }
-                                                                }
+                                                                let mask = fetch_mask_data(
+                                                                    project_id.to_string().clone(),
+                                                                    rock_mask.id.clone(),
+                                                                    rock_mask.fileName.clone(),
+                                                                    LandscapeTextureKinds::Rockmap,
+                                                                );
+                                                                landscape_obj.update_texture(
+                                                                    &gpu_resources.device, 
+                                                                    &gpu_resources.queue, 
+                                                                    model_bind_group_layout, 
+                                                                    &texture_render_mode_buffer, 
+                                                                    &color_render_mode_buffer, 
+                                                                    LandscapeTextureKinds::RockmapMask, 
+                                                                    &mask
+                                                                );
                                                             }
                                                             if let Some(soil_mask) = &landscape_data.soil {
-                                                                if let Ok(bytes) = read_texture_bytes(project_id.to_string(), soil_mask.id.clone(), soil_mask.fileName.clone()) {
-                                                                    if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, soil_mask.fileName.clone(), false) {
-                                                                        landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::SoilMask, &texture);
-                                                                    }
-                                                                }
+                                                                let mask = fetch_mask_data(
+                                                                    project_id.to_string().clone(),
+                                                                    soil_mask.id.clone(),
+                                                                    soil_mask.fileName.clone(),
+                                                                    LandscapeTextureKinds::Soil,
+                                                                );
+                                                                landscape_obj.update_texture(
+                                                                    &gpu_resources.device, 
+                                                                    &gpu_resources.queue, 
+                                                                    model_bind_group_layout, 
+                                                                    &texture_render_mode_buffer, 
+                                                                    &color_render_mode_buffer, 
+                                                                    LandscapeTextureKinds::SoilMask, 
+                                                                    &mask
+                                                                );
                                                             }
 
                                                             // Primary PBR Texture
