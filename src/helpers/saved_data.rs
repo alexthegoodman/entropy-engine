@@ -114,6 +114,11 @@ pub struct ProjectsDataFile {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+pub struct GameSettings {
+    pub third_person: bool,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 pub struct PBRTextureData {
     pub id: String,
     // from PolyHaven for now

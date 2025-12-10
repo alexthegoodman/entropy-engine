@@ -13,6 +13,7 @@ use winit::keyboard::ModifiersState;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
+use crate::helpers::saved_data::GameSettings;
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
@@ -156,6 +157,7 @@ pub struct RendererState {
 
     pub navigation_speed: f32,
     pub game_mode: bool,
+    pub game_settings: GameSettings,
 
     // Angles stored in radians (in theory, better controlled here in state)
     pub camera_pitch: f32, // Up/Down rotation
@@ -430,6 +432,9 @@ impl RendererState {
             // gizmo_drag_axis: None,
             navigation_speed: 5.0,
             game_mode,
+            game_settings: GameSettings {
+                third_person: false
+            },
             camera_pitch: 0.0,
             camera_yaw: 0.0,
             last_mouse_position_time: std::time::Instant::now(),
@@ -567,91 +572,122 @@ impl RendererState {
         if self.game_mode {
             if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
                 if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                    // let pos = rb.translation();
+                    if self.game_settings.third_person {
+                        // // third-person / 3rd person camera
+                        // Retrieve player position
+                        let pos = rb.translation(); // nalgebra::Vector3<f32>
 
-                    // // third-person / 3rd person camera
-                    // // TODO: use self.last_mouse_position to determine camera position, so user can look around while remaining in 3rd person
-                    // let distance = 10.0;
-                    // let height = 10.0;
-                    // let camera_pos = Point3::new(pos.x, pos.y + height, pos.z - distance);
-                    // camera.position = camera_pos;
-                    
-                    // // Set direction to look at the player
-                    // let direction = Vector3::new(
-                    //     pos.x - camera_pos.x,
-                    //     pos.y - camera_pos.y,
-                    //     pos.z - camera_pos.z
-                    // ).normalize();
-                    // camera.direction = direction;
+                        // --- Mouse Input and Angle Update ---
+                        if let (Some(current), Some(last)) = (
+                            self.current_mouse_position,
+                            self.last_mouse_position
+                        ) {
+                            let mouse_sensitivity: f32 = 0.005; 
+                            
+                            // Calculate difference (delta) in screen coordinates
+                            let delta_x = current.x - last.x;
+                            let delta_y = current.y - last.y;
+                            
+                            // 1. Update Yaw (Left/Right rotation)
+                            // Positive delta_x (mouse moved right) should typically decrease yaw 
+                            // to swing the camera left (assuming a right-hand coordinate system)
+                            // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
+                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                    // camera.update();
-                    // camera_binding.update_3d(&queue, &camera);
+                            // 2. Update Pitch (Up/Down rotation)
+                            // Positive delta_y (mouse moved down) should increase pitch
+                            self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
+                            // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
+                            
+                            // 3. Clamp Pitch to prevent the camera from flipping over
+                            // 1.55 radians is approximately 89 degrees
+                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                            
+                            // You should update self.last_mouse_position *after* calculating delta, 
+                            // typically in your event loop, but often set here for simplicity if needed.
+                            // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
+                        }
 
-                    // Retrieve player position
-                    let pos = rb.translation(); // nalgebra::Vector3<f32>
+                        // --- Camera Variables ---
+                        let radius: f32 = 25.0; // The fixed distance from the player
 
-                    // --- Mouse Input and Angle Update ---
-                    if let (Some(current), Some(last)) = (
-                        self.current_mouse_position,
-                        self.last_mouse_position
-                    ) {
-                        let mouse_sensitivity: f32 = 0.005; 
-                        
-                        // Calculate difference (delta) in screen coordinates
-                        let delta_x = current.x - last.x;
-                        let delta_y = current.y - last.y;
-                        
-                        // 1. Update Yaw (Left/Right rotation)
-                        // Positive delta_x (mouse moved right) should typically decrease yaw 
-                        // to swing the camera left (assuming a right-hand coordinate system)
-                        // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
-                        self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+                        // --- Calculate New Camera Position using Spherical Coordinates ---
 
-                        // 2. Update Pitch (Up/Down rotation)
-                        // Positive delta_y (mouse moved down) should increase pitch
-                        self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
-                        // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
-                        
-                        // 3. Clamp Pitch to prevent the camera from flipping over
-                        // 1.55 radians is approximately 89 degrees
-                        self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
-                        
-                        // You should update self.last_mouse_position *after* calculating delta, 
-                        // typically in your event loop, but often set here for simplicity if needed.
-                        // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
+                        // Calculate horizontal component of the offset (projection onto XZ plane)
+                        let horizontal_distance = radius * self.camera_pitch.cos();
+
+                        // Calculate the offsets
+                        // Note: Assuming your Y-axis is UP (standard for many game engines)
+                        let x_offset = horizontal_distance * self.camera_yaw.sin();
+                        let y_offset = radius * self.camera_pitch.sin();
+                        let z_offset = horizontal_distance * self.camera_yaw.cos(); 
+
+                        // Create the new camera position (Point3 from nalgebra)
+                        // The offsets are added to the player's position
+                        let comfort_elevation = 2.0;
+                        let camera_pos = Point3::new(
+                            pos.x + x_offset,
+                            pos.y + y_offset + comfort_elevation, 
+                            pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
+                        );
+                        camera.position = camera_pos;
+
+                        // Set direction to look back at the player's center
+                        // The .coords property converts Point3 to Vector3 for the subtraction
+                        let direction = (pos - camera_pos.coords).normalize(); 
+                        camera.direction = direction;
+
+                        camera.update();
+                        camera_binding.update_3d(&queue, &camera);
+
+                    } else {
+                        // first / 1st person camera with lookaround
+                        // Retrieve player position
+                        let pos = rb.translation();
+
+                        // --- Mouse Input and Angle Update ---
+                        if let (Some(current), Some(last)) = (
+                            self.current_mouse_position,
+                            self.last_mouse_position
+                        ) {
+                            let mouse_sensitivity: f32 = 0.005; 
+                            
+                            // Calculate difference (delta) in screen coordinates
+                            let delta_x = current.x - last.x;
+                            let delta_y = current.y - last.y;
+                            
+                            // Update Yaw (Left/Right rotation)
+                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+
+                            // Update Pitch (Up/Down rotation)
+                            self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
+                            
+                            // Clamp Pitch to prevent camera flipping
+                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                        }
+
+                        // --- Position camera at player's eye level ---
+                        let eye_height: f32 = 1.7; // Adjust based on your player model
+                        let camera_pos = Point3::new(
+                            pos.x,
+                            pos.y + eye_height,
+                            pos.z
+                        );
+                        camera.position = camera_pos;
+
+                        // --- Calculate look direction from yaw and pitch ---
+                        // Convert spherical angles to a direction vector
+                        let direction = Vector3::new(
+                            self.camera_yaw.cos() * self.camera_pitch.cos(),
+                            self.camera_pitch.sin(),
+                            self.camera_yaw.sin() * self.camera_pitch.cos()
+                        ).normalize();
+
+                        camera.direction = direction;
+
+                        camera.update();
+                        camera_binding.update_3d(&queue, &camera);
                     }
-
-                    // --- Camera Variables ---
-                    let radius: f32 = 25.0; // The fixed distance from the player
-
-                    // --- Calculate New Camera Position using Spherical Coordinates ---
-
-                    // Calculate horizontal component of the offset (projection onto XZ plane)
-                    let horizontal_distance = radius * self.camera_pitch.cos();
-
-                    // Calculate the offsets
-                    // Note: Assuming your Y-axis is UP (standard for many game engines)
-                    let x_offset = horizontal_distance * self.camera_yaw.sin();
-                    let y_offset = radius * self.camera_pitch.sin();
-                    let z_offset = horizontal_distance * self.camera_yaw.cos(); 
-
-                    // Create the new camera position (Point3 from nalgebra)
-                    // The offsets are added to the player's position
-                    let comfort_elevation = 2.0;
-                    let camera_pos = Point3::new(
-                        pos.x + x_offset,
-                        pos.y + y_offset + comfort_elevation, 
-                        pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
-                    );
-                    camera.position = camera_pos;
-
-                    // Set direction to look back at the player's center
-                    // The .coords property converts Point3 to Vector3 for the subtraction
-                    let direction = (pos - camera_pos.coords).normalize(); 
-                    camera.direction = direction;
-
-                    camera.update();
-                    camera_binding.update_3d(&queue, &camera);
                 }
             }
         } else {
