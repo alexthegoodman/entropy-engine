@@ -17,11 +17,11 @@ Powering a unified OS inspired by MCP.
 - Interactive, windy, procedural grass blades
 - Deferred rendering / lighting
 - PBR Materials
+- Shadow Mapping
 - and more!
 
 TBD:
 
-- Shadow Mapping
 - Skybox Pipeline
 - Parallax Mapping
 - Tessellation
