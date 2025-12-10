@@ -1851,7 +1851,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             if let Some(rock_mask) = &landscape_data.rockmap {
                                                                 let mask = fetch_mask_data(
                                                                     project_id.to_string().clone(),
-                                                                    rock_mask.id.clone(),
+                                                                    component.asset_id.clone(),
                                                                     rock_mask.fileName.clone(),
                                                                     LandscapeTextureKinds::Rockmap,
                                                                 );
@@ -1868,7 +1868,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             if let Some(soil_mask) = &landscape_data.soil {
                                                                 let mask = fetch_mask_data(
                                                                     project_id.to_string().clone(),
-                                                                    soil_mask.id.clone(),
+                                                                    component.asset_id.clone(),
                                                                     soil_mask.fileName.clone(),
                                                                     LandscapeTextureKinds::Soil,
                                                                 );
