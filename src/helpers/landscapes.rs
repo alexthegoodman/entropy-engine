@@ -700,7 +700,9 @@ pub fn read_texture_bytes(
                     pixel_vector[position.y()][position.x()] = [r, g, b, a]
                 }
             )
-            .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e))?;
+            .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e)).unwrap();
+
+            // println!("exr pixels {:?}", image.layer_data.channel_data.pixels.len());
 
             // Convert the nested Vec<Vec<[f32; 4]>> to a flat Vec<u8>
             // EXR stores HDR data as floats, so we need to convert to 8-bit

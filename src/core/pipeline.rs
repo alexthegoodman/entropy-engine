@@ -1892,6 +1892,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, diff_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Primary, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load normal
@@ -1900,6 +1902,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, nor_gl_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Primary, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load roughness/metallic/AO (packed into pbr_params_texture)
@@ -1914,6 +1918,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[0] = texture.data[0]; // Roughness (red channel)
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(metallic_file) = &pbr_data.metallic { // Assuming 'metallic' field exists in PBRTextureData
@@ -1923,6 +1929,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[1] = texture.data[0]; // Metallic (red channel)
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(ao_file) = &pbr_data.ao { // Assuming 'ao' field exists in PBRTextureData
@@ -1932,6 +1940,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[2] = texture.data[0]; // AO (red channel)
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
 
@@ -1952,6 +1962,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, diff_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Rockmap, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load normal
@@ -1960,6 +1972,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, nor_gl_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Rockmap, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load roughness/metallic/AO
@@ -1971,6 +1985,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[0] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(metallic_file) = &pbr_data.metallic {
@@ -1980,6 +1996,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[1] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(ao_file) = &pbr_data.ao {
@@ -1989,6 +2007,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[2] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     let pbr_params_texture = Texture::from_bytes_1x1(&gpu_resources.device, &gpu_resources.queue, &pbr_params_data, "packed_pbr_params", false);
@@ -2007,6 +2027,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, diff_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Soil, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load normal
@@ -2015,6 +2037,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                             if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, nor_gl_file.fileName.clone(), false) {
                                                                                 landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Soil, &texture);
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     // Load roughness/metallic/AO
@@ -2026,6 +2050,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[0] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(metallic_file) = &pbr_data.metallic {
@@ -2035,6 +2061,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[1] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     if let Some(ao_file) = &pbr_data.ao {
@@ -2044,6 +2072,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                                                     pbr_params_data[2] = texture.data[0];
                                                                                 }
                                                                             }
+                                                                        } else {
+                                                                            println!("Failed to load texture!");
                                                                         }
                                                                     }
                                                                     let pbr_params_texture = Texture::from_bytes_1x1(&gpu_resources.device, &gpu_resources.queue, &pbr_params_data, "packed_pbr_params", false);
