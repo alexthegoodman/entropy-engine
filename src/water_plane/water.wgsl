@@ -247,6 +247,7 @@ struct GbufferOutput {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
     @location(2) albedo: vec4<f32>,
+    @location(3) pbr_material: vec4<f32>,
 }
 
 @fragment
@@ -296,5 +297,6 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     output.position = vec4<f32>(in.world_position, 1.0);
     output.normal = vec4<f32>(perturbed_normal, 1.0);
     output.albedo = vec4<f32>(final_color, 0.85);
+    output.pbr_material = vec4<f32>(0.0, 0.1, 1.0, 1.0); // Metallic=0, Roughness=0.1, AO=1.0 (no occlusion)
     return output;
 }

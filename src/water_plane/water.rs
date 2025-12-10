@@ -159,6 +159,11 @@ impl WaterPlane {
                         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
+                        blend: None, // Water PBR material is likely opaque
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
                 ],
                 compilation_options: PipelineCompilationOptions::default(),
             }),

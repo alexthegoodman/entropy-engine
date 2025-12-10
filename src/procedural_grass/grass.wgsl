@@ -435,6 +435,7 @@ struct GbufferOutput {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
     @location(2) albedo: vec4<f32>,
+    @location(3) pbr_material: vec4<f32>,
 }
 
 @fragment
@@ -456,6 +457,7 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     output.position = vec4<f32>(in.world_pos, 1.0);
     output.normal = vec4<f32>(in.normal, 1.0);
     output.albedo = vec4<f32>(final_color * ao, 1.0);
+    output.pbr_material = vec4<f32>(0.0, 1.0, ao, 1.0); // Metallic=0, Roughness=1, AO from grass calculation
     
     return output;
 }
