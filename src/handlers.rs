@@ -160,6 +160,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             let mut config = renderer_state.gizmo.config().clone();
             config.view_matrix = to_row_major_f64(&camera.get_view());
             config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
+            // config.projection_matrix = to_row_major_f64(&&camera.get_projection());
             renderer_state.gizmo.update_config(config);
         }
     }
@@ -223,6 +224,7 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
     let mut config = renderer_state.gizmo.config().clone();
     config.view_matrix = to_row_major_f64(&camera.get_view());
     config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
+    // config.projection_matrix = to_row_major_f64(&&camera.get_projection());
     renderer_state.gizmo.update_config(config.clone());
 }
 

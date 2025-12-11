@@ -1719,6 +1719,18 @@ impl ExportPipeline {
             let gizmo_draw_data = renderer_state.gizmo.draw();
             // println!("is_finite {:?}", renderer_state.gizmo.config().viewport.is_finite());
             if !gizmo_draw_data.vertices.is_empty() {
+                    // DEBUG: Print first few vertices and viewport info
+                // println!("=== GIZMO DEBUG ===");
+                // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
+                // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
+                // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
+                // println!("First 5 vertices:");
+                // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
+                //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
+                // }
+                // println!("Index count: {}", gizmo_draw_data.indices.len());
+                // println!("==================");
+
                 // println!("Rendering gizmo");
                 let gizmo_vertex_buffer =
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -256,6 +256,7 @@ impl RendererState {
 
         let view_matrix = to_row_major_f64(&camera.get_view());
         let proj_matrix = to_row_major_f64(&camera.get_orthographic_projection());
+        // let proj_matrix = to_row_major_f64(&camera.get_projection());
 
         let gizmo = Gizmo::new(GizmoConfig {
             view_matrix,
