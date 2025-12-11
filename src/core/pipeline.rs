@@ -711,7 +711,7 @@ impl ExportPipeline {
             position: directional_light_position,
             // position: [-0.5, -1.0, -0.3], // since this is the direction in the shader
             _padding: 0,
-            color: [1.0, 1.0, 1.0],
+            color: [0.5, 0.5, 0.5],
             _padding2: 0,
         };
 
