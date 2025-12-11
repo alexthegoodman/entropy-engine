@@ -157,59 +157,55 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             camera.update();
             camera_binding.update_3d(&gpu_resources.queue, &camera);
 
-            let view_matrix = to_row_major_f64(&camera.get_view());
-            let proj_matrix = to_row_major_f64(&camera.get_projection());
-
-            renderer_state.gizmo.update_config(GizmoConfig {
-                view_matrix,
-                projection_matrix: proj_matrix,
-                ..Default::default()
-            });
+            let mut config = renderer_state.gizmo.config().clone();
+            config.view_matrix = to_row_major_f64(&camera.get_view());
+            config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
+            renderer_state.gizmo.update_config(config);
         }
     }
 }
 
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: PhysicalPosition<f64>, lastPosition: Option<PhysicalPosition<f64>>, state: &mut Editor) {
-    // let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+    let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-    // let test_sphere = renderer_state.player_character.sphere.as_ref().expect("Couldn't get sphere");
+    let test_sphere = renderer_state.player_character.sphere.as_ref().expect("Couldn't get sphere");
 
-    // let mut transforms = vec![
-    //     Transform::from_scale_rotation_translation(
-    //         MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
-    //         Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
-    //         MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
-    //     )
-    // ];
+    let mut transforms = vec![
+        Transform::from_scale_rotation_translation(
+            MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
+            Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
+            MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
+        )
+    ];
 
-    // let interaction = GizmoInteraction {
-    //     cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
-    //     ..Default::default()
-    //     // hovered,
-    //     // drag_started,
-    //     // dragging: mousePressed
-    //  };
+    let interaction = GizmoInteraction {
+        cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
+        ..Default::default()
+        // hovered,
+        // drag_started,
+        // dragging: mousePressed
+     };
     
-    // //  println!("mouse move");
+    //  println!("mouse move");
 
-    // if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
-    //     // println!("subgizmo dragged");
+    if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
+        // println!("subgizmo dragged");
 
-    //     for (new_transform, transform) in
-    //      // Update transforms
-    //      new_transforms.iter().zip(&mut transforms)
-    //      {    
-    //          *transform = *new_transform;
+        for (new_transform, transform) in
+         // Update transforms
+         new_transforms.iter().zip(&mut transforms)
+         {    
+             *transform = *new_transform;
              
-    //      }
-    //  }
+         }
+     }
 }
 
 pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
     let camera = state.camera.as_mut().expect("Couldn't get camera");
     let camera_binding = state.camera_binding.as_mut().expect("Couldn't get camera binding");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
-    let renderer_state = state.renderer_state.as_ref().expect("Couldn't get renderer state");
+    let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
     let sensitivity = 0.005;
 
@@ -223,6 +219,11 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
 
     camera.update();
     camera_binding.update_3d(&gpu_resources.queue, &camera);
+
+    let mut config = renderer_state.gizmo.config().clone();
+    config.view_matrix = to_row_major_f64(&camera.get_view());
+    config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
+    renderer_state.gizmo.update_config(config.clone());
 }
 
 pub fn handle_add_model(

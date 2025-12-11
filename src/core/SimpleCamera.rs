@@ -56,6 +56,17 @@ impl SimpleCamera {
         projection_matrix
     }
 
+    pub fn get_orthographic_projection(&self) -> Matrix4<f32> {
+        let left = 0.0;
+        let right = self.viewport.window_size.width as f32;
+        let bottom = self.viewport.window_size.height as f32;
+        let top = 0.0;
+        let near = -100.0;
+        let far = 100.0;
+
+        Matrix4::new_orthographic(left, right, bottom, top, near, far)
+    }
+
     pub fn update_view_projection_matrix(&mut self) {
         let view_matrix = self.get_view();
         let projection_matrix = self.get_projection();

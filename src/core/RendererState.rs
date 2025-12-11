@@ -195,42 +195,13 @@ impl RendererState {
         // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         game_mode: bool
     ) -> Self {
-        // let there be light!
-        // let light_state = LightState::new(device, &light_bind_group_layout);
-
         // create the utility grid(s)
         let mut grids = Vec::new();
-        // grids.push(Grid::new(
-        //     &device,
-        //     &model_bind_group_layout,
-        //     &texture_bind_group_layout,
-        //     &color_render_mode_buffer,
-        //     GridConfig {
-        //         width: 200.0,
-        //         depth: 200.0,
-        //         spacing: 4.0,
-        //         line_thickness: 0.1,
-        //     },
-        // ));
-        // grids.push(Grid::new(
-        //     &device,
-        //     &model_bind_group_layout,
-        //     &texture_bind_group_layout,
-        //     &color_render_mode_buffer,
-        //     GridConfig {
-        //         width: 200.0,
-        //         depth: 200.0,
-        //         spacing: 1.0,
-        //         line_thickness: 0.025,
-        //     },
-        // ));
 
         let mut cubes = Vec::new();
         // cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
 
         let mut pyramids = Vec::new();
-        // pyramids.push(Pyramid::new(device, bind_group_layout, color_render_mode_buffer));
-        // add more pyramids as needed
 
         let mut models = Vec::new();
 
@@ -242,54 +213,6 @@ impl RendererState {
         let mut terrain_managers = Vec::new();
 
         let mut skeleton_parts = Vec::new();
-
-        // let gizmo = TestTransformGizmo::new(
-        //     &device,
-        //     camera,
-        //     WindowSize {
-        //         width: window_width,
-        //         height: window_height,
-        //     },
-        //     camera_bind_group_layout.clone(), // TODO: check if right layout
-        //     color_render_mode_buffer.clone(),
-        //     texture_bind_group_layout.clone(),
-        // );
-
-        // let translation_gizmo = TranslationGizmo::new(
-        //     &device,
-        //     camera,
-        //     WindowSize {
-        //         width: window_width,
-        //         height: window_height,
-        //     },
-        //     camera_bind_group_layout.clone(), // TODO: check if right layout
-        //     color_render_mode_buffer.clone(),
-        //     texture_bind_group_layout.clone(),
-        // );
-
-        // let rotation_gizmo = RotationGizmo::new(
-        //     &device,
-        //     camera,
-        //     WindowSize {
-        //         width: window_width,
-        //         height: window_height,
-        //     },
-        //     camera_bind_group_layout.clone(), // TODO: check if right layout
-        //     color_render_mode_buffer.clone(),
-        //     texture_bind_group_layout.clone(),
-        // );
-
-        // let scale_gizmo = ScaleGizmo::new(
-        //     &device,
-        //     camera,
-        //     WindowSize {
-        //         width: window_width,
-        //         height: window_height,
-        //     },
-        //     camera_bind_group_layout.clone(), // TODO: check if right layout
-        //     color_render_mode_buffer.clone(),
-        //     texture_bind_group_layout.clone(),
-        // );
 
         let integration_parameters = IntegrationParameters::default();
         let physics_pipeline = PhysicsPipeline::new();
@@ -332,7 +255,7 @@ impl RendererState {
         };
 
         let view_matrix = to_row_major_f64(&camera.get_view());
-        let proj_matrix = to_row_major_f64(&camera.get_projection());
+        let proj_matrix = to_row_major_f64(&camera.get_orthographic_projection());
 
         let gizmo = Gizmo::new(GizmoConfig {
             view_matrix,
