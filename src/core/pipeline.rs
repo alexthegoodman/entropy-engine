@@ -2000,7 +2000,8 @@ impl ExportPipeline {
             
             egui::Window::new("Properties").show(ctx, |ui| {
                 if let Some(saved_state) = &mut editor.saved_state {
-                    if let Some(levels) = &mut saved_state.levels.clone() {
+                    let project_id = saved_state.id.as_ref().expect("Couldn't get project id");
+                    if let Some(levels) = &mut saved_state.levels {
                         if let Some(components) = &mut levels[0].components {
                             if let Some(component) = components.clone().iter_mut().find(|c| &c.id == selected_component_id) {
                                                                         match component.kind {
@@ -2018,7 +2019,7 @@ impl ExportPipeline {
                                                                                             }
                                                                                         }
                                                                                     }
-                                                                                    utilities::update_project_state(&saved_state.id.as_ref().expect("Couldn't get project id"), saved_state).expect("Failed to update project state");
+                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
                                                                                 }
                                 
                                                                                 ui.label("Rotation");
@@ -2034,10 +2035,12 @@ impl ExportPipeline {
                                                                                             }
                                                                                         }
                                                                                     }
-                                                                                    utilities::update_project_state(&saved_state.id.as_ref().expect("Couldn't get project id"), saved_state).expect("Failed to update project state");
+                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
                                                                                 }
                                                                             },
                                                                             Some(ComponentKind::PointLight) => {
+                                                                                let components = components.clone();
+
                                                                                 ui.label("Position");
                                                                                 if ui.horizontal(|ui| {
                                                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
@@ -2052,7 +2055,7 @@ impl ExportPipeline {
                                                                                             }
                                                                                         }
                                                                                     }
-                                                                                    utilities::update_project_state(&saved_state.id.as_ref().expect("Couldn't get project id"), saved_state).expect("Failed to update project state");
+                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
                                                                                 }
                                 
                                                                                 if let Some(light_props) = &mut component.light_properties {
@@ -2066,7 +2069,7 @@ impl ExportPipeline {
                                                                                                 }
                                                                                             }
                                                                                         }
-                                                                                        utilities::update_project_state(&saved_state.id.as_ref().expect("Couldn't get project id"), saved_state).expect("Failed to update project state");
+                                                                                        utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
                                                                                     }
                                 
                                                                                     ui.label("Color");
@@ -2079,7 +2082,7 @@ impl ExportPipeline {
                                                                                                 }
                                                                                             }
                                                                                         }
-                                                                                        utilities::update_project_state(&saved_state.id.as_ref().expect("Couldn't get project id"), saved_state).expect("Failed to update project state");
+                                                                                        utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
                                                                                     }
                                                                                 }
                                                                             },
