@@ -119,6 +119,16 @@ pub fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::e
     Ok(state)
 }
 
+pub fn update_project_state(project_id: &str, saved_state: &SavedState) -> Result<(), Box<dyn std::error::Error>> {
+    let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
+    let json_path = project_dir.join("midpoint.json");
+
+    let json = serde_json::to_string_pretty(saved_state)?;
+    fs::write(json_path, json)?;
+
+    Ok(())
+}
+
 pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
 
