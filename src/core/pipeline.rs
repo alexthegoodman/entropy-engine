@@ -1715,67 +1715,67 @@ impl ExportPipeline {
                 lighting_pass.draw(0..3, 0..1);
             }
 
-            // Draw the gizmo
-            let gizmo_draw_data = renderer_state.gizmo.draw();
-            // println!("is_finite {:?}", renderer_state.gizmo.config().viewport.is_finite());
-            if !gizmo_draw_data.vertices.is_empty() {
-                    // DEBUG: Print first few vertices and viewport info
-                // println!("=== GIZMO DEBUG ===");
-                // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
-                // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
-                // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
-                // println!("First 5 vertices:");
-                // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
-                //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
-                // }
-                // println!("Index count: {}", gizmo_draw_data.indices.len());
-                // println!("==================");
+            // hiding for now, opting for object selection and property updates via egui inputs for simplcity
+            // // Draw the gizmo
+            // let gizmo_draw_data = renderer_state.gizmo.draw();
+            // if !gizmo_draw_data.vertices.is_empty() {
+            //     // DEBUG: Print first few vertices and viewport info
+            //     // println!("=== GIZMO DEBUG ===");
+            //     // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
+            //     // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
+            //     // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
+            //     // println!("First 5 vertices:");
+            //     // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
+            //     //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
+            //     // }
+            //     // println!("Index count: {}", gizmo_draw_data.indices.len());
+            //     // println!("==================");
 
-                // println!("Rendering gizmo");
-                let gizmo_vertex_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+            //     // println!("Rendering gizmo");
+            //     let gizmo_vertex_buffer =
+            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //             label: Some("Gizmo Vertex Buffer"),
+            //             contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
+            //             usage: wgpu::BufferUsages::VERTEX,
+            //         });
 
-                let gizmo_color_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Color Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+            //     let gizmo_color_buffer =
+            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //             label: Some("Gizmo Color Buffer"),
+            //             contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
+            //             usage: wgpu::BufferUsages::VERTEX,
+            //         });
 
-                let gizmo_index_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Index Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
+            //     let gizmo_index_buffer =
+            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            //             label: Some("Gizmo Index Buffer"),
+            //             contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
+            //             usage: wgpu::BufferUsages::INDEX,
+            //         });
 
-                let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Gizmo Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+            //     let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //         label: Some("Gizmo Pass"),
+            //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //             view: &view,
+            //             resolve_target: None,
+            //             ops: wgpu::Operations {
+            //                 load: wgpu::LoadOp::Load,
+            //                 store: wgpu::StoreOp::Store,
+            //             },
+            //             depth_slice: None,
+            //         })],
+            //         depth_stencil_attachment: None,
+            //         timestamp_writes: None,
+            //         occlusion_query_set: None,
+            //     });
 
-                gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
-                gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
-                gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
-                gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
-                gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
-            }
+            //     gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
+            //     gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
+            //     gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
+            //     gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
+            //     gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            //     gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
+            // }
 
             if self.frame_buffer.is_some() {
                 let frame_buffer = self
