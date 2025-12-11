@@ -1,6 +1,7 @@
-use cgmath::SquareMatrix;
-use cgmath::{Matrix4, Vector2};
+// use cgmath::SquareMatrix;
+// use cgmath::{Matrix4, Vector2};
 use image::GenericImageView;
+use nalgebra::{Matrix4, Vector3};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::str::FromStr;
@@ -9,9 +10,10 @@ use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue, TextureView};
 
+use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
 use crate::core::editor::Point;
 use crate::shape_primitives::polygon::SavedPoint;
-use crate::core::transform::{Transform, create_empty_group_transform, matrix4_to_raw_array};
+use crate::core::transform::{create_empty_group_transform};
 use crate::{
     core::editor::WindowSize,
     core::Transform_2,
@@ -198,25 +200,23 @@ impl StImage {
         // Option 2: Use scale in transform to adjust size
         let mut transform = if feature != "high_quality_resize" {
             Transform::new(
-                Vector2::new(image_config.position.x, image_config.position.y),
-                0.0,
-                Vector2::new(scale_x, scale_y), // Apply scaling here instead of resizing image
+                Vector3::new(image_config.position.x, image_config.position.y, 0.0),
+                Vector3::new(0.0, 0.0, 0.0),
+                Vector3::new(scale_x, scale_y, 1.0), // Apply scaling here instead of resizing image
                 uniform_buffer,
-                window_size,
             )
         } else {
             Transform::new(
-                Vector2::new(image_config.position.x, image_config.position.y),
-                0.0,
-                Vector2::new(1.0, 1.0),
+                Vector3::new(image_config.position.x, image_config.position.y, 0.0),
+                Vector3::new(0.0, 0.0, 0.0),
+                Vector3::new(1.0, 1.0, 1.0), // Apply scaling here instead of resizing image
                 uniform_buffer,
-                window_size,
             )
         };
 
         // -10.0 to provide 10 spots for internal items on top of objects
-        transform.layer = image_config.layer as f32 - 0 as f32;
-        transform.update_uniform_buffer(&queue, &window_size);
+        // transform.layer = image_config.layer as f32 - 0 as f32;
+        transform.update_uniform_buffer(&queue);
 
         // Rest of the implementation remains the same...
         let vertices = [
@@ -307,8 +307,8 @@ impl StImage {
     ) {
         // for "low" quality resize
         self.dimensions = (dimensions.0 as u32, dimensions.1 as u32);
-        self.transform.update_scale([dimensions.0, dimensions.1]);
-        self.transform.update_uniform_buffer(&queue, &window_size);
+        // self.transform.update_scale([dimensions.0, dimensions.1]);
+        // self.transform.update_uniform_buffer(&queue, &window_size);
     }
 
     pub fn update_data_from_scale(
@@ -321,19 +321,19 @@ impl StImage {
         // camera: &Camera,
     ) {
         // for "low" quality resize
-        self.transform.update_scale([self.dimensions.0 as f32 * (scale_factor / 100.0), self.dimensions.1 as f32 * (scale_factor / 100.0)]);
-        self.transform.update_uniform_buffer(&queue, &window_size);
+        // self.transform.update_scale([self.dimensions.0 as f32 * (scale_factor / 100.0), self.dimensions.1 as f32 * (scale_factor / 100.0)]);
+        // self.transform.update_uniform_buffer(&queue, &window_size);
     }
 
     pub fn update_layer(&mut self, layer_index: i32) {
         // -10.0 to provide 10 spots for internal items on top of objects
         let layer_index = layer_index - 0;
         self.layer = layer_index;
-        self.transform.layer = layer_index as f32;
+        // self.transform.layer = layer_index as f32;
     }
 
     pub fn update(&mut self, queue: &Queue, window_size: &WindowSize) {
-        self.transform.update_uniform_buffer(queue, window_size);
+        // self.transform.update_uniform_buffer(queue, window_size);
     }
 
     pub fn get_dimensions(&self) -> (u32, u32) {
@@ -422,7 +422,7 @@ impl StImage {
         };
 
         // Apply inverse rotation
-        let rotation_rad = -self.transform.rotation; // Negative for inverse rotation
+        let rotation_rad = -self.transform.rotation.euler_angles().0; // Negative for inverse rotation
         let rotated = Point {
             x: untranslated.x * rotation_rad.cos() - untranslated.y * rotation_rad.sin(),
             y: untranslated.x * rotation_rad.sin() + untranslated.y * rotation_rad.cos(),

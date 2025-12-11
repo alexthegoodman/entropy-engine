@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
 use rapier3d::math::Point;
 use rapier3d::prelude::ColliderBuilder;
 use rapier3d::prelude::*;
@@ -30,7 +30,6 @@ pub struct Mesh {
     pub index_buffer: wgpu::Buffer,
     pub index_count: u32,
     pub bind_group: wgpu::BindGroup,
-    pub group_bind_group: wgpu::BindGroup,
     pub normal_texture: Option<wgpu::Texture>,
     pub normal_texture_view: Option<wgpu::TextureView>,
     pub pbr_params_texture: Option<wgpu::Texture>,
@@ -43,6 +42,8 @@ pub struct Mesh {
 
 pub struct Model {
     pub id: String,
+    pub group_transform: Transform,
+    pub group_bind_group: wgpu::BindGroup,
     pub meshes: Vec<Mesh>,
     // pub transform: Transform,
 }
@@ -221,7 +222,13 @@ impl Model {
             loaded_textures.push((Arc::new(wgpu_texture), Arc::new(wgpu_texture_view)));
         }  
 
-        for mesh in gltf.meshes() {
+        for node in gltf.nodes() {
+            let transform = node.transform().decomposed();
+            if let Some(mesh) = node.mesh() {
+
+            
+
+        // for mesh in gltf.meshes() {
             for primitive in mesh.primitives() {
                 // Create a default sampler to be used for all textures
                 let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -557,14 +564,19 @@ impl Model {
                     )
                     .build();
 
-                let euler = isometry.rotation.euler_angles();
+                // let euler = isometry.rotation.euler_angles();
+                
 
-                // probably better per model rather than per mesh
-                let (tmp_group_bind_group, tmp_group_transform) =
-                    create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
-                        width: camera.viewport.window_size.width,
-                        height: camera.viewport.window_size.height
-                    });
+                
+                let node_quat: nalgebra::Unit<Quaternion<f32>> = UnitQuaternion::from_quaternion(Quaternion::new(transform.1[0], transform.1[1], transform.1[2], transform.1[3]));
+                // 
+                // let new_quat = node_quat * quat;
+                // let euler = new_quat.euler_angles();
+                // let node_euler= node_quat.euler_angles();
+
+                // println!("node euler {:?} {:?} {:?} {:?} {:?} {:?} {:?}", model_component_id, euler.0, euler.1, euler.2, euler.0.to_degrees(), euler.1.to_degrees(), euler.2.to_degrees());
+
+                let euler = node_quat.euler_angles();
 
                 meshes.push(Mesh {
                     transform: Transform::new(
@@ -573,7 +585,7 @@ impl Model {
                             isometry.translation.y,
                             isometry.translation.z,
                         ),
-                        Vector3::new(euler.0, euler.1, euler.2),
+                        Vector3::new( euler.0.to_degrees(), euler.1.to_degrees(), euler.2.to_degrees()),
                         Vector3::new(1.0, 1.0, 1.0), // apply scale directly to vertices and set this to 1
                         uniform_buffer,
                     ),
@@ -581,7 +593,7 @@ impl Model {
                     index_buffer,
                     index_count: indices_u32.len() as u32,
                     bind_group,
-                    group_bind_group: tmp_group_bind_group,
+                    // group_bind_group: tmp_group_bind_group,
                     normal_texture: Some(Arc::try_unwrap(normal_tex).unwrap_or_else(|arc| arc.as_ref().clone())), // Store the texture
                     normal_texture_view: Some(Arc::try_unwrap(normal_view).unwrap_or_else(|arc| arc.as_ref().clone())),
                     pbr_params_texture: Some(Arc::try_unwrap(pbr_params_tex).unwrap_or_else(|arc| arc.as_ref().clone())),
@@ -592,10 +604,27 @@ impl Model {
                     rigid_body_handle: None,
                 });
             }
+        // }
         }
+        }
+
+        // probably better per model rather than per mesh
+        let mut t_data =
+            create_empty_group_transform(device, group_bind_group_layout, &WindowSize {
+                width: camera.viewport.window_size.width,
+                height: camera.viewport.window_size.height
+            });
+
+        let quat = isometry.rotation.quaternion();
+        let quat: nalgebra::Unit<Quaternion<f32>> = UnitQuaternion::from_quaternion(Quaternion::new(quat.w, quat.i, quat.j, quat.k));
+
+        t_data.1.rotation = quat;
+        t_data.1.update_uniform_buffer(queue);
 
         Model {
             id: model_component_id.to_string(),
+            group_transform: t_data.1,
+            group_bind_group: t_data.0,
             meshes,
         }
     }

@@ -1492,10 +1492,11 @@ impl ExportPipeline {
             }
 
             for model in &renderer_state.models {
+                render_pass.set_bind_group(3, &model.group_bind_group, &[]);
+
                 for mesh in &model.meshes {
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
                     render_pass.set_bind_group(1, &mesh.bind_group, &[]);
-                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
 
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(

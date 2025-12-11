@@ -1,28 +1,26 @@
 use std::collections::HashMap;
 
-use cgmath::{Matrix4, Vector2};
 use fontdue::{
     layout::{
         CoordinateSystem, GlyphPosition, GlyphRasterConfig, Layout, LayoutSettings, TextStyle,
     },
     Font,
 };
+use nalgebra::{Matrix4, Vector3};
 use uuid::Uuid;
 use wgpu::{BindGroup, Buffer, Device, Queue};
 // use allsorts::binary::read::ReadScope;
 // use allsorts::font::read_cmap_subtable;
-use cgmath::SquareMatrix;
 use serde::Deserialize;
 use serde::Serialize;
 use std::str::FromStr;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
-use crate::core::SimpleCamera::SimpleCamera as Camera;
+use crate::core::{SimpleCamera::SimpleCamera as Camera, Transform_2::{Transform, matrix4_to_raw_array}};
 use crate::core::{
     // camera::Camera3D as Camera,
     editor::{Point, WindowSize},
-    transform::{matrix4_to_raw_array, Transform},
     vertex::Vertex,
 };
 use crate::core::{editor::rgb_to_wgpu, transform::create_empty_group_transform};
@@ -192,16 +190,15 @@ impl TextRenderer {
         });
 
         let mut transform = Transform::new(
-            Vector2::new(text_config.position.x, text_config.position.y),
-            0.0,
-            Vector2::new(1.0, 1.0),
+            Vector3::new(text_config.position.x, text_config.position.y, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 1.0, 1.0),
             uniform_buffer,
-            window_size,
         );
 
         // -10.0 to provide 10 spots for internal items on top of objects
-        transform.layer = text_config.layer as f32 - 0 as f32;
-        transform.update_uniform_buffer(&queue, &window_size);
+        // transform.layer = text_config.layer as f32 - 0 as f32;
+        transform.update_uniform_buffer(&queue);
 
         let (tmp_group_bind_group, tmp_group_transform) =
             create_empty_group_transform(device, group_bind_group_layout, window_size);
@@ -231,7 +228,7 @@ impl TextRenderer {
                 y: text_config.position.y as f32 - CANVAS_VERT_OFFSET,
             },
             // TODO: restore rotation?
-            0.0,
+            (0.0, 0.0, 0.0),
             0.0 as f32,
             rgb_to_wgpu(
                 text_config.background_fill[0] as u8,
@@ -285,9 +282,9 @@ impl TextRenderer {
         // -10.0 to provide 10 spots for internal items on top of objects
         let layer_index = layer_index - 0;
         self.layer = layer_index;
-        self.transform.layer = layer_index as f32;
-        self.background_polygon.layer = layer_index - 1;
-        self.background_polygon.transform.layer = (layer_index - 1) as f32;
+        // self.transform.layer = layer_index as f32;
+        // self.background_polygon.layer = layer_index - 1;
+        // self.background_polygon.transform.layer = (layer_index - 1) as f32;
     }
 
     fn add_glyph_to_atlas(

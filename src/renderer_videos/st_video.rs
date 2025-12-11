@@ -1,8 +1,7 @@
 use std::path::Path;
 use std::time::Duration;
 
-use cgmath::SquareMatrix;
-use cgmath::{Matrix4, Vector2};
+use nalgebra::{Matrix4, Vector3};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use uuid::Uuid;
@@ -14,10 +13,11 @@ use windows::Win32::System::Com::StructuredStorage::PropVariantToInt64;
 use windows_core::{PCWSTR, PROPVARIANT};
 
 use crate::core::SimpleCamera::SimpleCamera as Camera;
+use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
 use crate::screen_capture::capture::{MousePosition, SourceData};
 use crate::core::editor::{Point, WindowSize};
 use crate::shape_primitives::polygon::SavedPoint;
-use crate::core::transform::{create_empty_group_transform, matrix4_to_raw_array, Transform};
+use crate::core::transform::{create_empty_group_transform};
 use crate::core::vertex::Vertex;
 use crate::{
     core::editor::{CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET},
@@ -166,19 +166,19 @@ impl StVideo {
         });
 
         let mut transform = Transform::new(
-            Vector2::new(video_config.position.x, video_config.position.y),
-            0.0,
-            Vector2::new(
+            Vector3::new(video_config.position.x, video_config.position.y, 0.0),
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(
                 video_config.dimensions.0 as f32,
                 video_config.dimensions.1 as f32,
+                1.0
             ), // Apply scaling here instead of resizing image
             uniform_buffer,
-            window_size,
         );
 
         // -10.0 to provide 10 spots for internal items on top of objects
-        transform.layer = video_config.layer as f32 - 0 as f32;
-        transform.update_uniform_buffer(&queue, &window_size);
+        // transform.layer = video_config.layer as f32 - 0 as f32;
+        transform.update_uniform_buffer(&queue);
 
         // let vertices = [
         //     Vertex {
@@ -504,8 +504,8 @@ impl StVideo {
         camera: &Camera,
     ) {
         self.dimensions = (dimensions.0 as u32, dimensions.1 as u32);
-        self.transform.update_scale([dimensions.0, dimensions.1]);
-        self.transform.update_uniform_buffer(&queue, &window_size);
+        // self.transform.update_scale([dimensions.0, dimensions.1]);
+        // self.transform.update_uniform_buffer(&queue, &window_size);
     }
 
     pub fn update_zoom(&mut self, queue: &Queue, new_zoom: f32, center_point: Point) {
@@ -716,7 +716,7 @@ impl StVideo {
         // -10.0 to provide 10 spots for internal items on top of objects
         let layer_index = layer_index - 0;
         self.layer = layer_index;
-        self.transform.layer = layer_index as f32;
+        // self.transform.layer = layer_index as f32;
     }
 
     pub fn to_config(&self) -> StVideoConfig {

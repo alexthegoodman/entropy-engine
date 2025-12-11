@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use cgmath::{Matrix4, Vector2};
+use nalgebra::{Matrix4, Vector3};
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 
 use crate::core::SimpleCamera::SimpleCamera as Camera;
+use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
 use crate::{
     core::editor::{BoundingBox, Point, Shape, WindowSize},
     core::transform::{
-        create_empty_group_transform, matrix4_to_raw_array, Transform as SnTransform,
+        create_empty_group_transform,
     },
     core::vertex::Vertex,
 };
@@ -128,7 +129,7 @@ pub fn get_polygon_data(
     points: Vec<Point>,
     dimensions: (f32, f32),
     position: Point,
-    rotation: f32,
+    rotation: (f32, f32, f32),
     border_radius: f32,
     fill: [f32; 4],
     stroke: Stroke,
@@ -140,7 +141,7 @@ pub fn get_polygon_data(
     wgpu::Buffer,
     wgpu::Buffer,
     wgpu::BindGroup,
-    SnTransform,
+    Transform,
 ) {
     // println!("Get polygon data: {:?}", fill);
 
@@ -300,18 +301,18 @@ pub fn get_polygon_data(
         label: None,
     });
 
-    let mut transform = SnTransform::new(
-        Vector2::new(position.x, position.y),
-        rotation,
-        Vector2::new(1.0, 1.0),
+    let mut transform = Transform::new(
+        Vector3::new(position.x, position.y, 0.0),
+        // rotation,
+        Vector3::new(0.0, 0.0, 0.0),
+        Vector3::new(1.0, 1.0, 1.0),
         uniform_buffer,
-        window_size,
     );
 
     // -10.0 to provide 10 spots for internal items on top of objects
     // transform.layer = transform_layer as f32 - 0 as f32; // important?
-    transform.layer = transform_layer as f32;
-    transform.update_uniform_buffer(&queue, &WindowSize { width: camera.viewport.window_size.width, height: camera.viewport.window_size.height });
+    // transform.layer = transform_layer as f32;
+    transform.update_uniform_buffer(&queue);
 
     (
         geometry.vertices,
@@ -408,7 +409,7 @@ impl Polygon {
         points: Vec<Point>,
         dimensions: (f32, f32),
         position: Point,
-        rotation: f32,
+        rotation: (f32, f32, f32),
         border_radius: f32,
         fill: [f32; 4],
         stroke: Stroke,
@@ -498,7 +499,7 @@ impl Polygon {
         // -10.0 to provide 10 spots for internal items on top of objects
         // let layer_index = layer_index - 0;
         self.layer = layer_index;
-        self.transform.layer = layer_index as f32;
+        // self.transform.layer = layer_index as f32;
     }
 
     pub fn update_group_position(&mut self, position: [i32; 2]) {
@@ -530,7 +531,7 @@ impl Polygon {
         };
 
         // Apply inverse rotation
-        let rotation_rad = -self.transform.rotation; // Negative for inverse rotation
+        let rotation_rad = -self.transform.rotation.euler_angles().0; // Negative for inverse rotation
         let rotated = Point {
             x: untranslated.x * rotation_rad.cos() - untranslated.y * rotation_rad.sin(),
             y: untranslated.x * rotation_rad.sin() + untranslated.y * rotation_rad.cos(),
@@ -567,7 +568,7 @@ impl Polygon {
                     x: self.transform.position.x,
                     y: self.transform.position.y,
                 },
-                self.transform.rotation,
+                self.transform.rotation.euler_angles(),
                 self.border_radius,
                 self.fill,
                 self.stroke,
@@ -593,8 +594,8 @@ impl Polygon {
         position: Point,
         camera: &Camera,
     ) {
-        self.transform
-            .update_position([position.x, position.y], &WindowSize { width: camera.viewport.window_size.width, height: camera.viewport.window_size.height });
+        // self.transform
+        //     .update_position([position.x, position.y], &WindowSize { width: camera.viewport.window_size.width, height: camera.viewport.window_size.height });
     }
 
     pub fn update_data_from_border_radius(
@@ -619,7 +620,7 @@ impl Polygon {
                     x: self.transform.position.x,
                     y: self.transform.position.y,
                 },
-                self.transform.rotation,
+                self.transform.rotation.euler_angles(),
                 border_radius,
                 self.fill,
                 self.stroke,
@@ -661,7 +662,7 @@ impl Polygon {
                     x: self.transform.position.x,
                     y: self.transform.position.y,
                 },
-                self.transform.rotation,
+                self.transform.rotation.euler_angles(),
                 self.border_radius,
                 self.fill,
                 stroke,
@@ -703,7 +704,7 @@ impl Polygon {
                     x: self.transform.position.x,
                     y: self.transform.position.y,
                 },
-                self.transform.rotation,
+                self.transform.rotation.euler_angles(),
                 self.border_radius,
                 fill,
                 self.stroke,
@@ -784,7 +785,7 @@ impl Polygon {
             ],
             (config.dimensions.0, config.dimensions.1), // width = length of segment, height = thickness
             config.position,
-            0.0,
+            (0.0, 0.0, 0.0),
             config.border_radius,
             // [0.5, 0.8, 1.0, 1.0], // light blue with some transparency
             config.fill,
@@ -830,7 +831,7 @@ pub struct Polygon {
     pub old_points: Option<Vec<Point>>,
     pub dimensions: (f32, f32), // (width, height) in pixels
     pub fill: [f32; 4],
-    pub transform: SnTransform,
+    pub transform: Transform,
     pub border_radius: f32,
     pub stroke: Stroke,
     pub vertices: Vec<Vertex>,
