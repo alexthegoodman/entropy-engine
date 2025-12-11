@@ -231,12 +231,12 @@ impl Grass {
             time,
             grid_size: self.grid_size,
             render_distance: self.render_distance,
-            wind_strength: 0.1,
+            wind_strength: 2.5,
             player_pos: [player_pos.x, player_pos.y, player_pos.z, 0.0],
-            wind_speed: 0.02, // slow
-            blade_height: 2.5,
+            wind_speed: 0.1, // slow
+            blade_height: 2.75,
             blade_width: 0.03, // thin
-            brownian_strength: 0.02,
+            brownian_strength: 0.003,
             blade_density: self.blade_density as f32,
             _pad0: [0.0; 3],
 

@@ -1,123 +1,3 @@
-// // src/procedural_grass/grass.wgsl
-
-// struct Camera {
-//     view_proj: mat4x4<f32>,
-// };
-// @group(0) @binding(0)
-// var<uniform> camera: Camera;
-
-// struct GrassUniforms {
-//     time: f32,
-//     player_pos: vec4<f32>,  // Use w component as padding, or for height
-// }
-// @group(1) @binding(0)
-// var<uniform> uniforms: GrassUniforms;
-
-// struct VertexInput {
-//     @location(0) position: vec3<f32>,
-//     @location(1) tex_coords: vec2<f32>,
-//     @location(2) normal: vec3<f32>,
-//     @location(3) color: vec4<f32>,
-// };
-
-// struct InstanceInput {
-//     @location(5) model_matrix_0: vec4<f32>,
-//     @location(6) model_matrix_1: vec4<f32>,
-//     @location(7) model_matrix_2: vec4<f32>,
-//     @location(8) model_matrix_3: vec4<f32>,
-// };
-
-// struct VertexOutput {
-//     @builtin(position) clip_position: vec4<f32>,
-//     @location(0) color: vec4<f32>,
-// };
-
-// // 2D Simplex noise function (public domain)
-// fn mod289_v2(x: vec2<f32>) -> vec2<f32> {
-//     return x - floor(x * (1.0 / 289.0)) * 289.0;
-// }
-// fn mod289_v3(x: vec3<f32>) -> vec3<f32> {
-//     return x - floor(x * (1.0 / 289.0)) * 289.0;
-// }
-// fn permute(x: vec3<f32>) -> vec3<f32> {
-//     return mod289_v3(((x * 34.0) + 1.0) * x);
-// }
-// fn snoise(v: vec2<f32>) -> f32 {
-//     let C = vec2<f32>(0.211324865405187, 0.366025403784439);
-//     let i = floor(v + dot(v, C.yy));
-//     let x0 = v - i + dot(i, C.xx);
-//     let i1 = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), x0.x > x0.y);
-//     let x1 = x0.xy - i1 + C.xx;
-//     let x2 = x0.xy - 1.0 + 2.0 * C.xx;
-//     let i_ = mod289_v2(i);
-//     let p = permute(permute(i_.y + vec3<f32>(0.0, i1.y, 1.0)) + i_.x + vec3<f32>(0.0, i1.x, 1.0));
-//     var m = max(0.5 - vec3<f32>(dot(x0, x0), dot(x1, x1), dot(x2, x2)), vec3<f32>(0.0));
-//     m = m * m;
-//     m = m * m;
-//     // let x = 2.0 * fract(p * C.www) - 1.0;
-//     let x = 2.0 * fract(p * C.xxx) - 1.0;
-//     let h = abs(x) - 0.5;
-//     let ox = floor(x + 0.5);
-//     let a0 = x - ox;
-//     m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
-//     let g = vec3<f32>(a0.x * x0.x + h.x * x0.y, a0.yz * x1.xy + h.yz * x1.yx);
-//     return 130.0 * dot(m, g);
-// }
-
-
-// @vertex
-// fn vs_main(
-//     model: VertexInput,
-//     instance: InstanceInput,
-// ) -> VertexOutput {
-//     let model_matrix = mat4x4<f32>(
-//         instance.model_matrix_0,
-//         instance.model_matrix_1,
-//         instance.model_matrix_2,
-//         instance.model_matrix_3,
-//     );
-
-//     let world_pos = model_matrix * vec4<f32>(model.position, 1.0);
-
-//     // -- Wind Sway --
-//     let wind_strength = 0.05;
-//     // let wind_speed = 2.0;
-//     let wind_speed = 0.2;
-//     let wind_scale = 0.5;
-//     let noise_coord = world_pos.xz * wind_scale + uniforms.time * wind_speed;
-//     let wind_noise = snoise(noise_coord);
-//     let wind_displacement = vec3<f32>(wind_noise, 0.0, wind_noise) * wind_strength;
-    
-//     // Apply sway only to the top part of the grass blade
-//     let sway_factor = smoothstep(0.5, 1.0, model.position.y);
-//     let final_wind_disp = wind_displacement * sway_factor;
-
-//     // -- Player Interaction --
-//     let interaction_radius = 3.0;
-//     let instance_pos = model_matrix[3].xyz;
-//     let dist_to_player = distance(instance_pos, uniforms.player_pos.xyz);
-//     var interaction_disp = vec3<f32>(0.0);
-
-//     if (dist_to_player < interaction_radius) {
-//         let push_dir = normalize(instance_pos - uniforms.player_pos.xyz);
-//         // let push_strength = (1.0 - (dist_to_player / interaction_radius)) * 0.5;
-//         let push_strength = (1.0 - (dist_to_player / interaction_radius)) * 1.5;
-//         interaction_disp = push_dir * push_strength * sway_factor;
-//     }
-
-//     let final_pos = world_pos + vec4<f32>(final_wind_disp + interaction_disp, 0.0);
-
-//     var out: VertexOutput;
-//     out.clip_position = camera.view_proj * final_pos;
-//     out.color = model.color;
-//     return out;
-// }
-
-// @fragment
-// fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-//     return vec4<f32>(0.2, 0.8, 0.3, 1.0); // A nice green color for grass
-// }
-
 // src/procedural_grass/grass.wgsl
 
 struct Camera {
@@ -287,14 +167,6 @@ fn fbm(p: vec2<f32>) -> f32 {
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    
-    // // Calculate grid cell from instance index
-    // let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
-    // let blades_per_cell = grid_cells * grid_cells;
-    
-    // let cell_x = (in.instance_index / blades_per_cell) % grid_cells;
-    // let cell_z = (in.instance_index / blades_per_cell) / grid_cells;
-    // let blade_in_cell = in.instance_index % blades_per_cell;
 
     // Calculate grid cell count
     let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
@@ -379,27 +251,74 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // Height factor for effects (0 at base, 1 at tip)
     let height_factor = in.position.y;
     
+    // // ===== WIND WITH BROWNIAN MOTION =====
+    // let wind_coord = blade_pos.xz * 0.1 + uniforms.time * uniforms.wind_speed * 0.1;
+    // let wind_fbm = fbm(wind_coord);
+    
+    // // Multi-octave wind for more natural movement
+    // let wind_main = snoise(wind_coord * 0.5);
+    // let wind_detail = snoise(wind_coord * 2.0) * 0.3;
+    // let combined_wind = (wind_main + wind_detail + wind_fbm * 0.5) * uniforms.wind_strength;
+    
+    // // Apply wind displacement with Brownian motion
+    // let wind_disp = vec3<f32>(
+    //     combined_wind * cos(uniforms.time * 0.5 + blade_seed * 6.28),
+    //     0.0,
+    //     combined_wind * sin(uniforms.time * 0.5 + blade_seed * 6.28)
+    // );
+    
+    // // ===== BROWNIAN FORCE (Natural random motion) =====
+    // let brownian_time = uniforms.time * 2.0 + blade_seed * 10.0;
+    // let brownian_x = snoise(vec2<f32>(brownian_time, blade_seed * 100.0)) * uniforms.brownian_strength;
+    // let brownian_z = snoise(vec2<f32>(brownian_time + 50.0, blade_seed * 100.0)) * uniforms.brownian_strength;
+    // let brownian_disp = vec3<f32>(brownian_x, 0.0, brownian_z);
+
     // ===== WIND WITH BROWNIAN MOTION =====
-    let wind_coord = blade_pos.xz * 0.1 + uniforms.time * uniforms.wind_speed * 0.1;
-    let wind_fbm = fbm(wind_coord);
-    
-    // Multi-octave wind for more natural movement
-    let wind_main = snoise(wind_coord * 0.5);
-    let wind_detail = snoise(wind_coord * 2.0) * 0.3;
-    let combined_wind = (wind_main + wind_detail + wind_fbm * 0.5) * uniforms.wind_strength;
-    
-    // Apply wind displacement with Brownian motion
-    let wind_disp = vec3<f32>(
-        combined_wind * cos(uniforms.time * 0.5 + blade_seed * 6.28),
-        0.0,
-        combined_wind * sin(uniforms.time * 0.5 + blade_seed * 6.28)
-    );
-    
+    var wind_disp = vec3<f32>(0.0);
+
+    if (uniforms.wind_strength > 0.001) {
+        // let wind_coord = blade_pos.xz * 0.1 + uniforms.time * uniforms.wind_speed * 0.1;
+        // let wind_fbm = fbm(wind_coord);
+        
+        // // Multi-octave wind for more natural movement
+        // let wind_main = snoise(wind_coord * 0.5);
+        // let wind_detail = snoise(wind_coord * 2.0) * 0.3;
+        // let combined_wind = (wind_main + wind_detail + wind_fbm * 0.5) * uniforms.wind_strength;
+        
+        // // Apply wind displacement with Brownian motion
+        // wind_disp = vec3<f32>(
+        //     combined_wind * cos(uniforms.time * 0.5 + blade_seed * 6.28),
+        //     0.0,
+        //     combined_wind * sin(uniforms.time * 0.5 + blade_seed * 6.28)
+        // );
+
+        // Spatial wind (slow-changing wind direction per blade)
+        let wind_coord_spatial = blade_pos.xz * 0.05;
+        let wind_direction = fbm(wind_coord_spatial);
+
+        // Temporal sway (smooth oscillation)
+        let sway_phase = uniforms.time * uniforms.wind_speed * 0.3 + blade_seed * 6.28;
+        let sway_amount = sin(sway_phase) * 0.5 + 0.5; // 0 to 1
+
+        // Combine smoothly
+        let wind_strength = wind_direction * uniforms.wind_strength * sway_amount;
+
+        wind_disp = vec3<f32>(
+            wind_strength * cos(sway_phase),
+            0.0,
+            wind_strength * sin(sway_phase)
+        );
+    }
+
     // ===== BROWNIAN FORCE (Natural random motion) =====
-    let brownian_time = uniforms.time * 2.0 + blade_seed * 10.0;
-    let brownian_x = snoise(vec2<f32>(brownian_time, blade_seed * 100.0)) * uniforms.brownian_strength;
-    let brownian_z = snoise(vec2<f32>(brownian_time + 50.0, blade_seed * 100.0)) * uniforms.brownian_strength;
-    let brownian_disp = vec3<f32>(brownian_x, 0.0, brownian_z);
+    var brownian_disp = vec3<f32>(0.0);
+
+    if (uniforms.brownian_strength > 0.001) {
+        let brownian_time = uniforms.time * 2.0 + blade_seed * 10.0;
+        let brownian_x = snoise(vec2<f32>(brownian_time, blade_seed * 100.0)) * uniforms.brownian_strength;
+        let brownian_z = snoise(vec2<f32>(brownian_time + 50.0, blade_seed * 100.0)) * uniforms.brownian_strength;
+        brownian_disp = vec3<f32>(brownian_x, 0.0, brownian_z);
+    }
     
     // ===== PLAYER INTERACTION =====
     let interaction_radius = 4.0;
@@ -440,10 +359,55 @@ struct GbufferOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> GbufferOutput {
-    // Gradient from dark green at base to lighter green at tip
-    let base_color = vec3<f32>(0.15, 0.4, 0.15);
-    let tip_color = vec3<f32>(0.3, 0.7, 0.25);
-    
+    // // Gradient from dark green at base to lighter green at tip
+    // let base_color = vec3<f32>(0.15, 0.4, 0.15);
+    // let tip_color = vec3<f32>(0.3, 0.7, 0.25);
+
+    // Dried yellow grass
+    // let base_color = vec3<f32>(0.45, 0.42, 0.25);
+    // let tip_color = vec3<f32>(0.65, 0.58, 0.35);
+
+    // // Ashy gray-brown
+    // let base_color = vec3<f32>(0.25, 0.22, 0.18);
+    // let tip_color = vec3<f32>(0.42, 0.38, 0.30);
+
+    // // Sickly yellow-gray
+    // let base_color = vec3<f32>(0.35, 0.35, 0.25);
+    // let tip_color = vec3<f32>(0.55, 0.52, 0.38);
+
+    // Magical/Fantasy
+    // // Bioluminescent cyan
+    // let base_color = vec3<f32>(0.1, 0.3, 0.35);
+    // let tip_color = vec3<f32>(0.2, 0.7, 0.8);
+
+    // // Purple twilight
+    // let base_color = vec3<f32>(0.25, 0.15, 0.35);
+    // let tip_color = vec3<f32>(0.5, 0.3, 0.7);
+
+    // // Golden enchanted
+    let base_color = vec3<f32>(0.3, 0.35, 0.1);
+    let tip_color = vec3<f32>(0.9, 0.8, 0.3);
+
+    // // Pink fairy
+    // let base_color = vec3<f32>(0.35, 0.2, 0.3);
+    // let tip_color = vec3<f32>(0.9, 0.5, 0.7);
+    // // Normal/Realistic
+    // // Spring green (your original, brighter)
+    // let base_color = vec3<f32>(0.15, 0.4, 0.15);
+    // let tip_color = vec3<f32>(0.3, 0.7, 0.25);
+
+    // // Deep forest green
+    // let base_color = vec3<f32>(0.1, 0.25, 0.1);
+    // let tip_color = vec3<f32>(0.2, 0.45, 0.15);
+
+    // // Late summer (slightly dried)
+    // let base_color = vec3<f32>(0.25, 0.35, 0.15);
+    // let tip_color = vec3<f32>(0.4, 0.6, 0.3);
+
+    // // Tropical bright
+    // let base_color = vec3<f32>(0.2, 0.45, 0.2);
+    // let tip_color = vec3<f32>(0.35, 0.8, 0.3);
+        
     let grass_color = mix(base_color, tip_color, in.height_factor);
     
     // Add some variation per blade
