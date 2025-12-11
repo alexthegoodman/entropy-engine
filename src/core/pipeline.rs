@@ -1965,13 +1965,29 @@ impl ExportPipeline {
 
         egui::Window::new("Components").show(ctx, |ui| {
             if let Some(saved_state) = &mut editor.saved_state {
-                if let Some(levels) = &mut saved_state.levels {
+                if let Some(levels) = &mut saved_state.levels.clone() {
                     if let Some(components) = &mut levels[0].components {
                         for component in components {
                             ui.horizontal(|ui| {
                                 ui.label(&component.generic_properties.name);
                                 if ui.button("Select").clicked() {
                                     self.selected_component_id = Some(component.id.clone());
+
+                                    // let mut new_cam_pos = None;
+                                    // let component_pos = component.generic_properties.position;
+                                    // new_cam_pos = Some(Point3::new(component_pos[0], component_pos[1] + 2.0, component_pos[2] - 5.0));
+
+                                    // if let Some(pos) = new_cam_pos {
+                                    //     if let Some(camera) = &mut editor.camera {
+                                    //         camera.position = pos;
+                                    //         let component_pos = component.generic_properties.position;
+                                    //         let target = Point3::new(component_pos[0], component_pos[1], component_pos[2]);
+                                    //         camera.direction = (target - camera.position).normalize();
+                                    //         let cam_bind = editor.camera_binding.as_mut().expect("Couldn't get cam bind");
+                                    //         let gpu = editor.gpu_resources.as_ref().expect("Couldn't get cam bind");
+                                    //         cam_bind.update_3d(&gpu.queue, camera);
+                                    //     }
+                                    // }
                                 }
                             });
                         }
@@ -1981,7 +1997,7 @@ impl ExportPipeline {
         });
     
         if let Some(selected_component_id) = &self.selected_component_id {
-            let mut new_cam_pos = None;
+            
             egui::Window::new("Properties").show(ctx, |ui| {
                 if let Some(saved_state) = &mut editor.saved_state {
                     if let Some(levels) = &mut saved_state.levels.clone() {
@@ -2071,31 +2087,14 @@ impl ExportPipeline {
                                                                                 ui.label("This component type is not editable.");
                                                                             }
                                                                         }    
-                                let component_pos = component.generic_properties.position;
-                                new_cam_pos = Some(Point3::new(component_pos[0], component_pos[1] + 2.0, component_pos[2] - 5.0));
+                                
                             }
                         }
                     }
                 }
             });
 
-            if let Some(pos) = new_cam_pos {
-                if let Some(camera) = &mut editor.camera {
-                    camera.position = pos;
-                    let selected_component_id = self.selected_component_id.as_ref().unwrap().clone();
-                    if let Some(saved_state) = &mut editor.saved_state {
-                        if let Some(levels) = &mut saved_state.levels {
-                            if let Some(components) = &mut levels[0].components {
-                                if let Some(component) = components.iter_mut().find(|c| c.id == selected_component_id) {
-                                    let component_pos = component.generic_properties.position;
-                                    let target = Point3::new(component_pos[0], component_pos[1], component_pos[2]);
-                                    camera.direction = (target - camera.position).normalize();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            
         }
 
         // self.chat.render(ctx);
