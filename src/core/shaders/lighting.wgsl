@@ -29,6 +29,13 @@ struct WindowSize {
     height: f32,
 };
 
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+};
+
+@group(4) @binding(0) var<uniform> camera: Camera;
+
 @group(0) @binding(0) var<uniform> directional_light: DirectionalLight;
 @group(0) @binding(1) var<uniform> point_lights: PointLights;
 
@@ -72,7 +79,8 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let ao = pbr_material.b;
 
     let directional_light_dir = normalize(directional_light.position - position);
-    let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
+    // let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
+    let view_dir = normalize(camera.view_pos.xyz - position); // proper
     let halfway_dir = normalize(directional_light_dir + view_dir);
 
     // Basic PBR (Cook-Torrance BRDF) components - simplified for initial implementation

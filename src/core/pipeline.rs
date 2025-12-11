@@ -10,7 +10,7 @@ use egui;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use uuid::Uuid;
-use wgpu::{util::DeviceExt, RenderPipeline};
+use wgpu::{Limits, RenderPipeline, util::DeviceExt};
 use winit::window::Window;
 use crate::shape_primitives::Cube::Cube;
 
@@ -178,6 +178,10 @@ impl ExportPipeline {
                 &wgpu::DeviceDescriptor {
                     label: None,
                     // required_features: wgpu::Features::FLOAT32_FILTERABLE,
+                    required_limits: Limits {
+                        max_bind_groups: 5,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 // None,
@@ -810,6 +814,7 @@ impl ExportPipeline {
                 &g_buffer_bind_group_layout,
                 &window_size_bind_group_layout,
                 &shadow_pipeline_data.shadow_bind_group_layout, // group(3)
+                &camera_binding.bind_group_layout
             ],
             push_constant_ranges: &[],
         });
@@ -1682,6 +1687,7 @@ impl ExportPipeline {
                 let lighting_bind_group = self.lighting_bind_group.as_ref().unwrap();
                 let g_buffer_bind_group = self.g_buffer_bind_group.as_ref().unwrap();
                 let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
+                let camera_binding = editor.camera_binding.as_ref().unwrap();
                 let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
 
                 let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1705,6 +1711,7 @@ impl ExportPipeline {
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
                 lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
                 lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
+                lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);
             }
 
