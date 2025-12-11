@@ -1492,12 +1492,12 @@ impl ExportPipeline {
             }
 
             for model in &renderer_state.models {
-                render_pass.set_bind_group(3, &model.group_bind_group, &[]);
+                // render_pass.set_bind_group(3, &model.group_bind_group, &[]); // NOTE: better to create separate controllable Model instances for each Mesh in a GLB
 
                 for mesh in &model.meshes {
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
                     render_pass.set_bind_group(1, &mesh.bind_group, &[]);
-
+                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         mesh.index_buffer.slice(..),
@@ -1512,7 +1512,7 @@ impl ExportPipeline {
                 // if !polygon.hidden {
                     landscape
                         .transform
-                        .update_uniform_buffer(&queue);
+                        .update_uniform_buffer(&queue); // probably unnecessary
                     render_pass.set_bind_group(1, &landscape.bind_group, &[]);
                     render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
                     render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
@@ -2034,7 +2034,7 @@ impl ExportPipeline {
                                             if let Some(renderer_state) = &mut editor.renderer_state {
                                                 if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
                                                     for mesh in &mut model.meshes {
-                                                        mesh.transform.update_rotation(component.generic_properties.rotation);
+                                                        mesh.transform.update_rotation([component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians()]);
                                                     }
                                                 }
                                             }
@@ -2497,7 +2497,7 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                         if let Some(ComponentKind::Model) = component.kind {
                                             let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
                                             let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
-                                            let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0], component.generic_properties.rotation[1], component.generic_properties.rotation[2]);
+                                            let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                             let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                             let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
