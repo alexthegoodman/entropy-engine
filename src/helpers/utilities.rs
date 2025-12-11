@@ -4,6 +4,8 @@ use directories::{BaseDirs, UserDirs};
 use nalgebra::Matrix4;
 use uuid::Uuid;
 
+use crate::helpers::saved_data::ComponentData;
+
 use super::saved_data::{LevelData, SavedState};
 
 pub fn get_common_os_dir() -> Option<PathBuf> {
@@ -117,6 +119,26 @@ pub fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::e
     let state: SavedState = serde_json::from_str(&json_content)?;
 
     Ok(state)
+}
+
+pub fn update_project_state_component(project_id: &str, component: &ComponentData) -> Result<(), Box<dyn std::error::Error>> {
+    let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
+    let json_path = project_dir.join("midpoint.json");
+
+    let mut existing_state = load_project_state(project_id)?;
+
+    let level = existing_state.levels.as_mut().expect("Couldn't get levels");
+
+    level[0].components.as_mut().expect("Couldn't get components").iter_mut().for_each(|c| {
+        if c.id == component.id {
+            *c = component.clone();
+        }
+    });
+
+    let json = serde_json::to_string_pretty(&existing_state)?;
+    fs::write(json_path, json)?;
+
+    Ok(())
 }
 
 pub fn update_project_state(project_id: &str, saved_state: &SavedState) -> Result<(), Box<dyn std::error::Error>> {

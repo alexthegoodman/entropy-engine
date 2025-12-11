@@ -2003,94 +2003,93 @@ impl ExportPipeline {
                     let project_id = saved_state.id.as_ref().expect("Couldn't get project id");
                     if let Some(levels) = &mut saved_state.levels {
                         if let Some(components) = &mut levels[0].components {
-                            if let Some(component) = components.clone().iter_mut().find(|c| &c.id == selected_component_id) {
-                                                                        match component.kind {
-                                                                            Some(ComponentKind::Model) => {
-                                                                                ui.label("Position");
-                                                                                if ui.horizontal(|ui| {
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[1]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[2]).speed(0.1)).changed()
-                                                                                }).inner {
-                                                                                    if let Some(renderer_state) = &mut editor.renderer_state {
-                                                                                        if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
-                                                                                            for mesh in &mut model.meshes {
-                                                                                                mesh.transform.update_position(component.generic_properties.position);
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
-                                                                                }
-                                
-                                                                                ui.label("Rotation");
-                                                                                if ui.horizontal(|ui| {
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[0]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[1]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[2]).speed(0.1)).changed()
-                                                                                }).inner {
-                                                                                    if let Some(renderer_state) = &mut editor.renderer_state {
-                                                                                        if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
-                                                                                            for mesh in &mut model.meshes {
-                                                                                                mesh.transform.update_rotation(component.generic_properties.rotation);
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
-                                                                                }
-                                                                            },
-                                                                            Some(ComponentKind::PointLight) => {
-                                                                                let components = components.clone();
+                            let light_components: Vec<_> = components.clone();
+                            let light_components: Vec<_> = light_components.iter().filter(|c| matches!(c.kind, Some(ComponentKind::PointLight))).collect();
+                            if let Some(component) = components.iter_mut().find(|c| &c.id == selected_component_id) {
+                                match component.kind {
+                                    Some(ComponentKind::Model) => {
+                                        ui.label("Position");
+                                        if ui.horizontal(|ui| {
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[1]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[2]).speed(0.1)).changed()
+                                        }).inner {
+                                            if let Some(renderer_state) = &mut editor.renderer_state {
+                                                if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
+                                                    for mesh in &mut model.meshes {
+                                                        mesh.transform.update_position(component.generic_properties.position);
+                                                    }
+                                                }
+                                            }
+                                            utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                        }
 
-                                                                                ui.label("Position");
-                                                                                if ui.horizontal(|ui| {
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[1]).speed(0.1)).changed() ||
-                                                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.position[2]).speed(0.1)).changed()
-                                                                                }).inner {
-                                                                                    if let Some(renderer_state) = &mut editor.renderer_state {
-                                                                                        let light_components: Vec<_> = components.iter().filter(|c| matches!(c.kind, Some(ComponentKind::PointLight))).collect();
-                                                                                        if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
-                                                                                            if let Some(light) = renderer_state.point_lights.get_mut(index) {
-                                                                                                light.position = component.generic_properties.position;
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                    utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
-                                                                                }
-                                
-                                                                                if let Some(light_props) = &mut component.light_properties {
-                                                                                    ui.label("Intensity");
-                                                                                    if ui.add(egui::DragValue::new(&mut light_props.intensity).speed(0.1)).changed() {
-                                                                                        if let Some(renderer_state) = &mut editor.renderer_state {
-                                                                                            let light_components: Vec<_> = components.iter().filter(|c| matches!(c.kind, Some(ComponentKind::PointLight))).collect();
-                                                                                            if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
-                                                                                                if let Some(light) = renderer_state.point_lights.get_mut(index) {
-                                                                                                    light.intensity = light_props.intensity;
-                                                                                                }
-                                                                                            }
-                                                                                        }
-                                                                                        utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
-                                                                                    }
-                                
-                                                                                    ui.label("Color");
-                                                                                    if ui.color_edit_button_rgba_premultiplied(&mut light_props.color).changed() {
-                                                                                        if let Some(renderer_state) = &mut editor.renderer_state {
-                                                                                            let light_components: Vec<_> = components.iter().filter(|c| matches!(c.kind, Some(ComponentKind::PointLight))).collect();
-                                                                                            if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
-                                                                                                if let Some(light) = renderer_state.point_lights.get_mut(index) {
-                                                                                                    light.color = [light_props.color[0], light_props.color[1], light_props.color[2]];
-                                                                                                }
-                                                                                            }
-                                                                                        }
-                                                                                        utilities::update_project_state(&project_id, &saved_state.clone()).expect("Failed to update project state");
-                                                                                    }
-                                                                                }
-                                                                            },
-                                                                            _ => {
-                                                                                ui.label("This component type is not editable.");
-                                                                            }
-                                                                        }    
-                                
+                                        ui.label("Rotation");
+                                        if ui.horizontal(|ui| {
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[0]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[1]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[2]).speed(0.1)).changed()
+                                        }).inner {
+                                            if let Some(renderer_state) = &mut editor.renderer_state {
+                                                if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
+                                                    for mesh in &mut model.meshes {
+                                                        mesh.transform.update_rotation(component.generic_properties.rotation);
+                                                    }
+                                                }
+                                            }
+                                            utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                        }
+                                    },
+                                    Some(ComponentKind::PointLight) => {
+                                        // let components = components.clone();
+
+                                        ui.label("Position");
+                                        if ui.horizontal(|ui| {
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[1]).speed(0.1)).changed() ||
+                                            ui.add(egui::DragValue::new(&mut component.generic_properties.position[2]).speed(0.1)).changed()
+                                        }).inner {
+                                            if let Some(renderer_state) = &mut editor.renderer_state {
+                                                
+                                                if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
+                                                    if let Some(light) = renderer_state.point_lights.get_mut(index) {
+                                                        light.position = component.generic_properties.position;
+                                                    }
+                                                }
+                                            }
+                                            utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                        }
+
+                                        if let Some(light_props) = &mut component.light_properties {
+                                            ui.label("Intensity");
+                                            if ui.add(egui::DragValue::new(&mut light_props.intensity).speed(0.1)).changed() {
+                                                if let Some(renderer_state) = &mut editor.renderer_state {
+                                                    if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
+                                                        if let Some(light) = renderer_state.point_lights.get_mut(index) {
+                                                            light.intensity = light_props.intensity;
+                                                        }
+                                                    }
+                                                }
+                                                utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                            }
+
+                                            // ui.label("Color");
+                                            // if ui.color_edit_button_rgba_premultiplied(&mut light_props.color).changed() {
+                                            //     if let Some(renderer_state) = &mut editor.renderer_state {
+                                            //         if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
+                                            //             if let Some(light) = renderer_state.point_lights.get_mut(index) {
+                                            //                 light.color = [light_props.color[0], light_props.color[1], light_props.color[2]];
+                                            //             }
+                                            //         }
+                                            //     }
+                                            //     utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                            // }
+                                        }
+                                    },
+                                    _ => {
+                                        ui.label("This component type is not editable.");
+                                    }
+                                }
                             }
                         }
                     }
