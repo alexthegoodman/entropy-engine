@@ -23,17 +23,6 @@ use crate::{
     core::editor::{CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET},
 };
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
-pub struct SavedStVideoConfig {
-    pub id: String,
-    pub name: String,
-    pub dimensions: (u32, u32),
-    pub path: String,
-    pub position: SavedPoint,
-    pub layer: i32,
-    pub mouse_path: Option<String>,
-}
-
 #[derive(Clone)]
 pub struct StVideoConfig {
     pub id: String,

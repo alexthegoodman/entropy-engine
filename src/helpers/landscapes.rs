@@ -385,212 +385,212 @@ pub fn read_landscape_mask(
 }
 
 use image::{open, ImageBuffer, Luma};
-use rayon::prelude::*;
+// use rayon::prelude::*;
 use std::path::Path;
 
-use rayon::prelude::*;
-/// Upscales a TIFF heightmap by a given multiplier and subdivides it into tiles
-///
-/// # Arguments
-/// * `input_path` - Path to the input TIFF file
-/// * `output_dir` - Directory where the subdivided tiles will be saved
-/// * `multiplier` - Factor by which to upscale (e.g., 100 will upscale by 100x then also create 100 images, each equal in size to the original image)
-/// * `smoothing_factor` - 0.0 to 1.0, where 0.0 is no smoothing and 1.0 is maximum smoothing
-///
-/// # Returns
-/// Result with the number of tiles created
-use tiff::encoder::*;
+// use rayon::prelude::*;
+// /// Upscales a TIFF heightmap by a given multiplier and subdivides it into tiles
+// ///
+// /// # Arguments
+// /// * `input_path` - Path to the input TIFF file
+// /// * `output_dir` - Directory where the subdivided tiles will be saved
+// /// * `multiplier` - Factor by which to upscale (e.g., 100 will upscale by 100x then also create 100 images, each equal in size to the original image)
+// /// * `smoothing_factor` - 0.0 to 1.0, where 0.0 is no smoothing and 1.0 is maximum smoothing
+// ///
+// /// # Returns
+// /// Result with the number of tiles created
+// use tiff::encoder::*;
 
-pub fn upscale_tiff_heightmap(
-    input_path: &Path,
-    output_dir: &Path,
-    multiplier: u32,
-    tiles_per_side: u32,
-    smoothing_factor: f32,
-) -> Result<usize, Box<dyn std::error::Error>> {
-    println!(
-        "Upscaling {:?} {:?} {:?} {:?}",
-        input_path, output_dir, multiplier, smoothing_factor
-    );
+// pub fn upscale_tiff_heightmap(
+//     input_path: &Path,
+//     output_dir: &Path,
+//     multiplier: u32,
+//     tiles_per_side: u32,
+//     smoothing_factor: f32,
+// ) -> Result<usize, Box<dyn std::error::Error>> {
+//     println!(
+//         "Upscaling {:?} {:?} {:?} {:?}",
+//         input_path, output_dir, multiplier, smoothing_factor
+//     );
 
-    // Open and decode input TIFF
-    let mut decoder = Decoder::new(File::open(input_path)?)?;
+//     // Open and decode input TIFF
+//     let mut decoder = Decoder::new(File::open(input_path)?)?;
 
-    // Get image dimensions
-    let width = decoder.dimensions()?.0;
-    let height = decoder.dimensions()?.1;
+//     // Get image dimensions
+//     let width = decoder.dimensions()?.0;
+//     let height = decoder.dimensions()?.1;
 
-    // Read the image data
-    let image_data = match decoder.read_image()? {
-        DecodingResult::F32(data) => data,
-        _ => return Err("Unsupported TIFF format - expected F32".into()),
-    };
+//     // Read the image data
+//     let image_data = match decoder.read_image()? {
+//         DecodingResult::F32(data) => data,
+//         _ => return Err("Unsupported TIFF format - expected F32".into()),
+//     };
 
-    // Calculate dimensions
-    let upscaled_width = width * multiplier;
-    let upscaled_height = height * multiplier;
-    let tile_width = upscaled_width / tiles_per_side; // still divide by multipler, not the square root
-    let tile_height = upscaled_height / tiles_per_side;
+//     // Calculate dimensions
+//     let upscaled_width = width * multiplier;
+//     let upscaled_height = height * multiplier;
+//     let tile_width = upscaled_width / tiles_per_side; // still divide by multipler, not the square root
+//     let tile_height = upscaled_height / tiles_per_side;
 
-    println!(
-        "read data... {:?}x{:?} and {:?}x{:?}",
-        upscaled_width, upscaled_height, tile_width, tile_height
-    );
+//     println!(
+//         "read data... {:?}x{:?} and {:?}x{:?}",
+//         upscaled_width, upscaled_height, tile_width, tile_height
+//     );
 
-    // Create output directory if it doesn't exist
-    std::fs::create_dir_all(output_dir)?;
+//     // Create output directory if it doesn't exist
+//     std::fs::create_dir_all(output_dir)?;
 
-    // Let's try both methods and compare
-    let mut upscaled_nearest = vec![0.0f32; (upscaled_width * upscaled_height) as usize];
-    let mut upscaled_bilinear = vec![0.0f32; (upscaled_width * upscaled_height) as usize];
+//     // Let's try both methods and compare
+//     let mut upscaled_nearest = vec![0.0f32; (upscaled_width * upscaled_height) as usize];
+//     let mut upscaled_bilinear = vec![0.0f32; (upscaled_width * upscaled_height) as usize];
 
-    // let mut last_value = image_data[0]; // Initialize with first value
-    // let mut value_changes = 0;
+//     // let mut last_value = image_data[0]; // Initialize with first value
+//     // let mut value_changes = 0;
 
-    // Upscale using both methods
-    for y in 0..upscaled_height {
-        for x in 0..upscaled_width {
-            // Calculate source coordinates
-            let src_x = (x as f32 / multiplier as f32).floor();
-            let src_y = (y as f32 / multiplier as f32).floor();
+//     // Upscale using both methods
+//     for y in 0..upscaled_height {
+//         for x in 0..upscaled_width {
+//             // Calculate source coordinates
+//             let src_x = (x as f32 / multiplier as f32).floor();
+//             let src_y = (y as f32 / multiplier as f32).floor();
 
-            // Nearest Neighbor
-            let nearest_x = src_x.clamp(0.0, (width - 1) as f32) as u32;
-            let nearest_y = src_y.clamp(0.0, (height - 1) as f32) as u32;
-            let nearest_value = image_data[(nearest_y * width + nearest_x) as usize];
-            upscaled_nearest[(y * upscaled_width + x) as usize] = nearest_value;
+//             // Nearest Neighbor
+//             let nearest_x = src_x.clamp(0.0, (width - 1) as f32) as u32;
+//             let nearest_y = src_y.clamp(0.0, (height - 1) as f32) as u32;
+//             let nearest_value = image_data[(nearest_y * width + nearest_x) as usize];
+//             upscaled_nearest[(y * upscaled_width + x) as usize] = nearest_value;
 
-            // // Log when value changes significantly (using a small epsilon to avoid float comparison issues)
-            // const EPSILON: f32 = 0.0001;
-            // if (nearest_value - last_value).abs() > EPSILON {
-            //     println!(
-            //         "Value changed at ({}, {}): {} -> {} (src: {}, {})",
-            //         x, y, last_value, nearest_value, src_x, src_y
-            //     );
-            //     last_value = nearest_value;
-            //     value_changes += 1;
-            // }
+//             // // Log when value changes significantly (using a small epsilon to avoid float comparison issues)
+//             // const EPSILON: f32 = 0.0001;
+//             // if (nearest_value - last_value).abs() > EPSILON {
+//             //     println!(
+//             //         "Value changed at ({}, {}): {} -> {} (src: {}, {})",
+//             //         x, y, last_value, nearest_value, src_x, src_y
+//             //     );
+//             //     last_value = nearest_value;
+//             //     value_changes += 1;
+//             // }
 
-            // Bilinear (modified to print debug info for first few pixels)
-            let x_fract = (x as f32 / multiplier as f32) - src_x;
-            let y_fract = (y as f32 / multiplier as f32) - src_y;
+//             // Bilinear (modified to print debug info for first few pixels)
+//             let x_fract = (x as f32 / multiplier as f32) - src_x;
+//             let y_fract = (y as f32 / multiplier as f32) - src_y;
 
-            let x1 = src_x.clamp(0.0, (width - 1) as f32) as u32;
-            let y1 = src_y.clamp(0.0, (height - 1) as f32) as u32;
-            let x2 = (x1 + 1).min(width - 1);
-            let y2 = (y1 + 1).min(height - 1);
+//             let x1 = src_x.clamp(0.0, (width - 1) as f32) as u32;
+//             let y1 = src_y.clamp(0.0, (height - 1) as f32) as u32;
+//             let x2 = (x1 + 1).min(width - 1);
+//             let y2 = (y1 + 1).min(height - 1);
 
-            let p11 = image_data[(y1 * width + x1) as usize];
-            let p12 = image_data[(y2 * width + x1) as usize];
-            let p21 = image_data[(y1 * width + x2) as usize];
-            let p22 = image_data[(y2 * width + x2) as usize];
+//             let p11 = image_data[(y1 * width + x1) as usize];
+//             let p12 = image_data[(y2 * width + x1) as usize];
+//             let p21 = image_data[(y1 * width + x2) as usize];
+//             let p22 = image_data[(y2 * width + x2) as usize];
 
-            // // Debug print for first few pixels to compare methods
-            // if x < 5 && y < 5 {
-            //     println!("Pixel ({}, {})", x, y);
-            //     println!("  Nearest: {}", nearest_value);
-            //     println!(
-            //         "  Bilinear inputs: p11={}, p12={}, p21={}, p22={}",
-            //         p11, p12, p21, p22
-            //     );
-            //     println!("  Fractions: x={}, y={}", x_fract, y_fract);
-            // }
+//             // // Debug print for first few pixels to compare methods
+//             // if x < 5 && y < 5 {
+//             //     println!("Pixel ({}, {})", x, y);
+//             //     println!("  Nearest: {}", nearest_value);
+//             //     println!(
+//             //         "  Bilinear inputs: p11={}, p12={}, p21={}, p22={}",
+//             //         p11, p12, p21, p22
+//             //     );
+//             //     println!("  Fractions: x={}, y={}", x_fract, y_fract);
+//             // }
 
-            let bilinear_value = bilinear_interpolate(p11, p12, p21, p22, x_fract, y_fract);
-            upscaled_bilinear[(y * upscaled_width + x) as usize] = bilinear_value;
-        }
-    }
+//             let bilinear_value = bilinear_interpolate(p11, p12, p21, p22, x_fract, y_fract);
+//             upscaled_bilinear[(y * upscaled_width + x) as usize] = bilinear_value;
+//         }
+//     }
 
-    // Print ranges for both methods
-    let (nearest_min, nearest_max) = upscaled_nearest
-        .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
-            (min.min(value), max.max(value))
-        });
-    println!("Nearest neighbor range: {} to {}", nearest_min, nearest_max);
+//     // Print ranges for both methods
+//     let (nearest_min, nearest_max) = upscaled_nearest
+//         .iter()
+//         .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
+//             (min.min(value), max.max(value))
+//         });
+//     println!("Nearest neighbor range: {} to {}", nearest_min, nearest_max);
 
-    let (bilinear_min, bilinear_max) = upscaled_bilinear
-        .iter()
-        .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
-            (min.min(value), max.max(value))
-        });
-    println!("Bilinear range: {} to {}", bilinear_min, bilinear_max);
+//     let (bilinear_min, bilinear_max) = upscaled_bilinear
+//         .iter()
+//         .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), &value| {
+//             (min.min(value), max.max(value))
+//         });
+//     println!("Bilinear range: {} to {}", bilinear_min, bilinear_max);
 
-    // After upscaling, verify the data size
-    assert_eq!(
-        upscaled_nearest.len(),
-        (upscaled_width * upscaled_height) as usize,
-        "Upscaled data size mismatch"
-    );
+//     // After upscaling, verify the data size
+//     assert_eq!(
+//         upscaled_nearest.len(),
+//         (upscaled_width * upscaled_height) as usize,
+//         "Upscaled data size mismatch"
+//     );
 
-    println!("upscaled... {:?}", upscaled_nearest.len());
+//     println!("upscaled... {:?}", upscaled_nearest.len());
 
-    // Apply smoothing if requested
-    if smoothing_factor > 0.0 {
-        apply_smoothing(
-            &mut upscaled_nearest,
-            upscaled_width,
-            upscaled_height,
-            smoothing_factor,
-        );
-    }
+//     // Apply smoothing if requested
+//     if smoothing_factor > 0.0 {
+//         apply_smoothing(
+//             &mut upscaled_nearest,
+//             upscaled_width,
+//             upscaled_height,
+//             smoothing_factor,
+//         );
+//     }
 
-    println!("smoothed...");
+//     println!("smoothed...");
 
-    // DEBUG verify upscale
-    // let tile_path = output_dir.join("test_tile.tiff");
-    // let mut file = File::create(&tile_path).expect("Failed to create test tile file");
+//     // DEBUG verify upscale
+//     // let tile_path = output_dir.join("test_tile.tiff");
+//     // let mut file = File::create(&tile_path).expect("Failed to create test tile file");
 
-    // let mut tiff = TiffEncoder::new(&mut file).unwrap();
-    // tiff.write_image::<colortype::Gray32Float>(upscaled_width, upscaled_height, &upscaled_nearest)
-    //     .unwrap_or_else(|e| {
-    //         panic!(
-    //             "Failed to write test tile {}_{}: {}",
-    //             upscaled_width, upscaled_height, e
-    //         )
-    //     });
+//     // let mut tiff = TiffEncoder::new(&mut file).unwrap();
+//     // tiff.write_image::<colortype::Gray32Float>(upscaled_width, upscaled_height, &upscaled_nearest)
+//     //     .unwrap_or_else(|e| {
+//     //         panic!(
+//     //             "Failed to write test tile {}_{}: {}",
+//     //             upscaled_width, upscaled_height, e
+//     //         )
+//     //     });
 
-    // Subdivide and save tiles
-    let tiles: Vec<(usize, usize)> = (0..tiles_per_side as usize)
-        .flat_map(|y| (0..tiles_per_side as usize).map(move |x| (x, y)))
-        .collect();
+//     // Subdivide and save tiles
+//     let tiles: Vec<(usize, usize)> = (0..tiles_per_side as usize)
+//         .flat_map(|y| (0..tiles_per_side as usize).map(move |x| (x, y)))
+//         .collect();
 
-    tiles.par_iter().for_each(|&(tile_x, tile_y)| {
-        // Create buffer of correct size: 4096x4096
-        let mut tile_data = vec![0.0f32; (tile_width * tile_height) as usize];
+//     tiles.par_iter().for_each(|&(tile_x, tile_y)| {
+//         // Create buffer of correct size: 4096x4096
+//         let mut tile_data = vec![0.0f32; (tile_width * tile_height) as usize];
 
-        let start_x = tile_x as u32 * tile_width;
-        let start_y = tile_y as u32 * tile_height;
+//         let start_x = tile_x as u32 * tile_width;
+//         let start_y = tile_y as u32 * tile_height;
 
-        println!(
-            "Processing tile {}_{}: starts at ({}, {}), dimensions {}x{}",
-            tile_x, tile_y, start_x, start_y, tile_width, tile_height
-        );
+//         println!(
+//             "Processing tile {}_{}: starts at ({}, {}), dimensions {}x{}",
+//             tile_x, tile_y, start_x, start_y, tile_width, tile_height
+//         );
 
-        // Now we'll sample the full 4096x4096 region
-        for y in 0..tile_height {
-            for x in 0..tile_width {
-                let src_x = start_x + x;
-                let src_y = start_y + y;
-                let src_idx = src_y * upscaled_width + src_x;
-                let dst_idx = y * tile_width + x;
-                tile_data[dst_idx as usize] = upscaled_nearest[src_idx as usize];
-            }
-        }
+//         // Now we'll sample the full 4096x4096 region
+//         for y in 0..tile_height {
+//             for x in 0..tile_width {
+//                 let src_x = start_x + x;
+//                 let src_y = start_y + y;
+//                 let src_idx = src_y * upscaled_width + src_x;
+//                 let dst_idx = y * tile_width + x;
+//                 tile_data[dst_idx as usize] = upscaled_nearest[src_idx as usize];
+//             }
+//         }
 
-        // Save the full-sized tile...
-        let tile_path = output_dir.join(format!("tile_{}_{}.tiff", tile_x, tile_y));
-        let mut file = File::create(&tile_path).expect("Failed to create tile file");
+//         // Save the full-sized tile...
+//         let tile_path = output_dir.join(format!("tile_{}_{}.tiff", tile_x, tile_y));
+//         let mut file = File::create(&tile_path).expect("Failed to create tile file");
 
-        let mut tiff = TiffEncoder::new(&mut file).unwrap();
-        tiff.write_image::<colortype::Gray32Float>(tile_width, tile_height, &tile_data)
-            .unwrap_or_else(|e| panic!("Failed to write tile {}_{}: {}", tile_x, tile_y, e));
-    });
+//         let mut tiff = TiffEncoder::new(&mut file).unwrap();
+//         tiff.write_image::<colortype::Gray32Float>(tile_width, tile_height, &tile_data)
+//             .unwrap_or_else(|e| panic!("Failed to write tile {}_{}: {}", tile_x, tile_y, e));
+//     });
 
-    println!("upscale finsihed!");
+//     println!("upscale finsihed!");
 
-    Ok(tiles.len())
-}
+//     Ok(tiles.len())
+// }
 
 fn bilinear_interpolate(p11: f32, p12: f32, p21: f32, p22: f32, x: f32, y: f32) -> f32 {
     let p1 = p11 * (1.0 - x) + p21 * x;

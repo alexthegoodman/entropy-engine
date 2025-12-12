@@ -8,15 +8,20 @@ name = "game"
 path = "src/bin/game.rs"
 
 [dependencies]
+# For dependencies that use getrandom 0.2
+getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
+
+# For dependencies that use getrandom 0.3
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 env_logger = "0.11"
 pollster = "0.3"
 bytemuck = { version = "1.19.0", features = ["derive"] }
 # wgpu = "22.1.0"
 # wgpu = "0.19"
 wgpu = "27.0.1"
-winit = { version = "0.30.12", features = ["rwh_06"] }
 futures = "0.3.30"
-uuid = { version = "1.8.0", features = ["v4"] }
+uuid = { version = "1.8.0", features = ["v4", "js"] }
 lyon_tessellation = "1.0.15"
 strum = "0.26.3"
 strum_macros = "0.26"
@@ -28,7 +33,6 @@ fontdue = "0.9.2"
 image = "0.25.5"
 rand = "0.8.5"
 munkres = "0.5.2"
-device_query = "2.1.0"
 directories = "5.0.1"
 chrono = { version = "0.4.38", features = ["serde"] }
 anyhow = "1.0"
@@ -45,13 +49,9 @@ regex = "1"
 gloo-utils = "0.2.0"
 rapier3d = { version = "0.20.0" }
 lazy_static = "1.5.0"
-rayon = "1.10.0"
-meshopt = "0.4.1"
+# rayon = "1.10.0" # no wasm?
 cursor-icon = "1.2.0"
 tracing = "0.1.43"
-egui = "0.33.2"
-egui-wgpu = { version = "0.33.2", features = ["winit"] }
-egui-winit = "0.33.2"
 noise = "0.8"
 transform-gizmo = "0.8.0"
 mint = "0.5.9"
@@ -80,3 +80,9 @@ windows = { version = "0.58", features = [
 ] }
 windows-core = "0.58.0"
 windows-capture = "1.5.0"
+meshopt = "0.4.1"
+winit = { version = "0.30.12", features = ["rwh_06"] }
+egui = "0.33.2"
+egui-wgpu = { version = "0.33.2", features = ["winit"] }
+egui-winit = "0.33.2"
+device_query = "2.1.0"

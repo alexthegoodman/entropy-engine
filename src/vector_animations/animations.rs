@@ -3,11 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
 use crate::{
-    core::editor::{ControlPoint, CurveData, PathType},
-    shape_primitives::polygon::SavedPolygonConfig,
-    renderer_images::st_image::SavedStImageConfig,
-    renderer_videos::st_video::SavedStVideoConfig,
-    renderer_text::text_due::SavedTextRendererConfig,
+    core::editor::{ControlPoint, CurveData, PathType}, renderer_images::st_image::SavedStImageConfig, renderer_text::text_due::SavedTextRendererConfig, shape_primitives::polygon::{SavedPoint, SavedPolygonConfig}
 };
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
@@ -16,6 +12,17 @@ pub enum ObjectType {
     TextItem,
     ImageItem,
     VideoItem,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+pub struct SavedStVideoConfig {
+    pub id: String,
+    pub name: String,
+    pub dimensions: (u32, u32),
+    pub path: String,
+    pub position: SavedPoint,
+    pub layer: i32,
+    pub mouse_path: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]

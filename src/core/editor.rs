@@ -16,7 +16,7 @@ use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
-use crate::renderer_videos::st_video::StVideo;
+// use crate::renderer_videos::st_video::StVideo;
 use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
@@ -311,7 +311,7 @@ pub struct Editor {
     // pub dragging_path_keyframe: Option<Uuid>,
     // pub dragging_path_assoc_path: Option<Uuid>,
     // pub cursor_dot: Option<RingDot>,
-    pub video_items: Vec<StVideo>,
+    // pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
     pub saved_state: Option<SavedState>,
     
@@ -498,7 +498,7 @@ impl Editor {
             control_mode: ControlMode::Select,
             is_panning: false,
             motion_mode: false,
-            video_items: Vec::new(),
+            // video_items: Vec::new(),
             // dragging_video: None,
             // saved_state: None,
             

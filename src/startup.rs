@@ -62,7 +62,8 @@ use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
 use crate::handlers::{handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
-use crate::core::pipeline::{ExportPipeline, load_project};
+use crate::core::pipeline::{ExportPipeline};
+use crate::helpers::load_project::load_project;
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
 use pollster; // For pollster::block_on

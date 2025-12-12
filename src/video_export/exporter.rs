@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use tokio::sync::mpsc::{UnboundedSender};
+// use tokio::sync::mpsc::{UnboundedSender};
 
-use super::{encode::VideoEncoder, frame_buffer::FrameCaptureBuffer};
+// use super::{encode::VideoEncoder, frame_buffer::FrameCaptureBuffer};
 use crate::{core::{editor::WindowSize, pipeline::ExportPipeline}, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence};
 
 // Progress message sent from export thread to UI
@@ -14,14 +14,16 @@ pub enum ExportProgress {
 }
 
 pub struct Exporter {
-    pub video_encoder: VideoEncoder,
+    // pub video_encoder: VideoEncoder,
 }
 
 impl Exporter {
     pub fn new(output_path: &str) -> Self {
         println!("Preparing video encoder...");
-        let video_encoder = VideoEncoder::new(output_path).expect("Couldn't get video encoder");
-        Exporter { video_encoder }
+        // let video_encoder = VideoEncoder::new(output_path).expect("Couldn't get video encoder");
+        Exporter { 
+            // video_encoder 
+        }
     }
 
     pub async fn run(
@@ -32,7 +34,7 @@ impl Exporter {
         video_width: u32,
         video_height: u32,
         total_duration_s: f64,
-        progress_tx: UnboundedSender<ExportProgress>,
+        // progress_tx: UnboundedSender<ExportProgress>,
         project_id: String,
     ) -> Result<Arc<u32>, String> {
         println!("Preparing wgpu pipeline...");
@@ -50,66 +52,63 @@ impl Exporter {
             )
             .await;
 
-        println!("Preparing frame buffer...");
-        let frame_buffer = FrameCaptureBuffer::new(
-            &wgpu_pipeline
-                .gpu_resources
-                .as_ref()
-                .expect("Couldn't get gpu resources")
-                .device,
-            video_width,
-            video_height,
-        );
-        wgpu_pipeline.frame_buffer = Some(frame_buffer);
-
-        // Calculate total frames based on sequence duration
+        // // Calculate total frames based on sequence duration
         const FPS: f64 = 60.0;
-        // let total_duration = sequences.iter()
-        //     .map(|seq| seq.duration)
-        //     .sum::<f64>();
         let total_frames = (total_duration_s * FPS).ceil() as u32;
 
-        println!(
-            "total_frames {:?}, total_duration_s: {:?}",
-            total_frames, total_duration_s
-        );
+        // println!("Preparing frame buffer...");
+        // let frame_buffer = FrameCaptureBuffer::new(
+        //     &wgpu_pipeline
+        //         .gpu_resources
+        //         .as_ref()
+        //         .expect("Couldn't get gpu resources")
+        //         .device,
+        //     video_width,
+        //     video_height,
+        // );
+        // wgpu_pipeline.frame_buffer = Some(frame_buffer);
 
-        // Frame loop
-        for frame_index in 0..total_frames {
-            // Calculate current time position
-            let current_time = frame_index as f64 / FPS;
+        // println!(
+        //     "total_frames {:?}, total_duration_s: {:?}",
+        //     total_frames, total_duration_s
+        // );
 
-            // Render frame
-            wgpu_pipeline.render_frame(None, current_time, false);
+        // // Frame loop
+        // for frame_index in 0..total_frames {
+        //     // Calculate current time position
+        //     let current_time = frame_index as f64 / FPS;
 
-            // Get frame buffer and extract data
-            let frame_buffer = wgpu_pipeline
-                .frame_buffer
-                .as_ref()
-                .expect("Couldn't get frame buffer");
+        //     // Render frame
+        //     wgpu_pipeline.render_frame(None, current_time, false);
 
-            let frame_bytes = frame_buffer
-                .get_frame_data(
-                    &wgpu_pipeline
-                        .gpu_resources
-                        .as_ref()
-                        .expect("Couldn't get gpu resources")
-                        .device,
-                )
-                .await;
+        //     // Get frame buffer and extract data
+        //     let frame_buffer = wgpu_pipeline
+        //         .frame_buffer
+        //         .as_ref()
+        //         .expect("Couldn't get frame buffer");
 
-            // Write frame to video
-            self.video_encoder
-                .write_frame(&frame_bytes)
-                .expect("Couldn't write frame");
+        //     let frame_bytes = frame_buffer
+        //         .get_frame_data(
+        //             &wgpu_pipeline
+        //                 .gpu_resources
+        //                 .as_ref()
+        //                 .expect("Couldn't get gpu resources")
+        //                 .device,
+        //         )
+        //         .await;
 
-            // Send progress updates every 60 frames
-            if frame_index % 60 == 0 {
-                let progress = (frame_index as f32 / total_frames as f32) * 100.0;
-                println!("export progress {:?}", progress);
-                progress_tx.send(ExportProgress::Progress(progress)).ok();
-            }
-        }
+        //     // Write frame to video
+        //     self.video_encoder
+        //         .write_frame(&frame_bytes)
+        //         .expect("Couldn't write frame");
+
+        //     // Send progress updates every 60 frames
+        //     if frame_index % 60 == 0 {
+        //         let progress = (frame_index as f32 / total_frames as f32) * 100.0;
+        //         println!("export progress {:?}", progress);
+        //         progress_tx.send(ExportProgress::Progress(progress)).ok();
+        //     }
+        // }
 
         println!("Export finished!");
 
