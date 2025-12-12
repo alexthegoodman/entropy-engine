@@ -7,7 +7,7 @@ use transform_gizmo::{GizmoConfig, GizmoInteraction};
 use wgpu::util::DeviceExt;
 
 use bytemuck::{Pod, Zeroable};
-use winit::dpi::PhysicalPosition;
+// use winit::dpi::PhysicalPosition;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -50,6 +50,19 @@ use crate::{
     art_assets::Model::{Mesh, Model},
 };
 use crate::{art_assets::Model::read_model, shape_primitives::Pyramid::Pyramid};
+
+#[derive(Debug, Clone, Copy)]
+pub struct EntropyPosition {
+    pub x: f32,
+    pub y: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct EntropySize {
+    pub width: u32,
+    pub height: u32,
+}
+
 
 #[derive(Serialize)]
 pub struct ReadModelParams {
@@ -166,7 +179,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 }
 
-pub fn handle_mouse_move(mousePressed: bool, currentPosition: PhysicalPosition<f64>, lastPosition: Option<PhysicalPosition<f64>>, state: &mut Editor) {
+pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
     let test_sphere = renderer_state.player_character.sphere.as_ref().expect("Couldn't get sphere");

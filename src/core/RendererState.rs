@@ -7,12 +7,11 @@ use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
 use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
-use winit::dpi::PhysicalPosition;
-use winit::keyboard::ModifiersState;
 
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
+use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::GameSettings;
 use crate::kinematic_animations::motion_path::AnimationPlayback;
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
@@ -146,7 +145,7 @@ pub struct RendererState {
     pub player_character: PlayerCharacter,
     pub npcs: Vec<NPC>,
 
-    pub current_modifiers: ModifiersState,
+    // pub current_modifiers: ModifiersState,
     pub mouse_state: MouseState,
     pub last_ray: Option<Ray>,
     pub ray_intersecting: bool,
@@ -155,8 +154,8 @@ pub struct RendererState {
 
     pub last_movement_time: Option<Instant>,
     pub last_frame_time: Option<Instant>,
-    pub current_mouse_position: Option<PhysicalPosition<f64>>,
-    pub last_mouse_position: Option<PhysicalPosition<f64>>,
+    pub current_mouse_position: Option<EntropyPosition>,
+    pub last_mouse_position: Option<EntropyPosition>,
 
     pub navigation_speed: f32,
     pub game_mode: bool,
@@ -353,7 +352,7 @@ impl RendererState {
             collider_set,
             player_character,
 
-            current_modifiers: ModifiersState::empty(),
+            // current_modifiers: ModifiersState::empty(),
             mouse_state: MouseState {
                 last_mouse_x: 0.0,
                 last_mouse_y: 0.0,
@@ -385,7 +384,7 @@ impl RendererState {
         }
     }
 
-    pub fn set_mouse_position(&mut self, new_position: PhysicalPosition<f64>) {
+    pub fn set_mouse_position(&mut self, new_position: EntropyPosition) {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
         self.last_mouse_position_time = std::time::Instant::now();

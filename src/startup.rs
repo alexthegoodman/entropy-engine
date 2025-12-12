@@ -61,7 +61,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
+use crate::handlers::{EntropyPosition, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{ExportPipeline};
 use crate::helpers::load_project::load_project;
 use crate::core::editor::WindowSize;
@@ -556,10 +556,21 @@ impl ApplicationHandler<UserEvent> for Application {
                     );
                 }
 
+                let mut last_pos = None;
+                if let Some(last) = self.last_mouse_position {
+                    last_pos = Some(EntropyPosition {
+                        x: last.x as f32,
+                        y: last.y as f32
+                    });
+                }
+
                 handle_mouse_move(
                     self.mouse_pressed,
-                    position, 
-                    self.last_mouse_position,
+                    EntropyPosition {
+                        x: position.x as f32,
+                        y: position.y as f32
+                    }, 
+                    last_pos,
                     editor
                 );
 

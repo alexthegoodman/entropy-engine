@@ -1,17 +1,28 @@
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::CameraBinding, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_landscape_texture, handle_add_model, handle_add_trees, handle_add_water_plane}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, startup::Gui, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use std::{fs, sync::{Arc, Mutex}, time::Instant};
-use egui;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use uuid::Uuid;
+
+#[cfg(target_arch = "wasm32")]
+use web_sys::HtmlCanvasElement;
 use wgpu::{Limits, RenderPipeline, util::DeviceExt};
+
+#[cfg(target_os = "windows")]
 use winit::window::Window;
+
+#[cfg(target_os = "windows")]
+use egui;
+
+#[cfg(target_os = "windows")]
+use crate::startup::Gui;
+
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 
@@ -103,7 +114,13 @@ impl ExportPipeline {
 
     pub async fn initialize(
         &mut self,
+        
+        #[cfg(target_os = "windows")]
         window: Option<&Window>,
+
+        #[cfg(target_arch = "wasm32")]
+        canvas: Option<HtmlCanvasElement>,
+
         window_size: WindowSize,
         sequences: Vec<Sequence>,
         video_current_sequence_timeline: SavedTimelineStateConfig,
@@ -141,6 +158,12 @@ impl ExportPipeline {
 
         // create a dedicated editor so it can be used in the async thread
         let mut export_editor = Editor::new(viewport, project_id.clone());
+
+        let window = if let Some(canvas) = canvas {
+            Some(wgpu::SurfaceTarget::Canvas(canvas))
+        } else {
+            None
+        };
 
         // continue on with wgpu items
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
@@ -1078,7 +1101,7 @@ impl ExportPipeline {
         self.directional_light_position = directional_light_position;
     }
 
-    pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+    pub fn resize(&mut self, new_size: EntropySize) {
         if new_size.width > 0 && new_size.height > 0 {
             let gpu_resources = self.gpu_resources.as_ref().unwrap();
             let device = &gpu_resources.device;
@@ -1795,7 +1818,7 @@ impl ExportPipeline {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {}
+    pub fn render_display_frame(&mut self, game_mode: bool) {}
 
     #[cfg(target_os = "windows")]
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {

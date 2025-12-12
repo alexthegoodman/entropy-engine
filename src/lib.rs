@@ -1,4 +1,6 @@
+#[cfg(target_os = "windows")]
 pub mod startup;
+
 pub mod core;
 pub mod handlers;
 pub mod art_assets;
