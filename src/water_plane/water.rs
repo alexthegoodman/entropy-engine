@@ -1,5 +1,7 @@
 use wgpu::{PipelineCompilationOptions, util::DeviceExt};
 
+use crate::heightfield_landscapes::Landscape::Landscape;
+
 pub struct WaterPlane {
     pub pipeline: wgpu::RenderPipeline,
     pub vertex_buffer: wgpu::Buffer,
@@ -9,6 +11,7 @@ pub struct WaterPlane {
     pub time_bind_group: wgpu::BindGroup,
     pub player_pos_buffer: wgpu::Buffer,
     pub player_pos_bind_group: wgpu::BindGroup,
+    pub landscape_bind_group: wgpu::BindGroup
 }
 
 impl WaterPlane {
@@ -16,7 +19,11 @@ impl WaterPlane {
         device: &wgpu::Device,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         texture_format: wgpu::TextureFormat,
+        landscape: &mut Landscape,
     ) -> Self {
+        landscape.create_layout_for_particles(device);
+        let landscape_bind_group = landscape.create_particle_bind_group(device);
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Water Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("water.wgsl").into()),
@@ -121,6 +128,7 @@ impl WaterPlane {
             bind_group_layouts: &[
                 camera_bind_group_layout,
                 &time_bind_group_layout,
+                &landscape.particle_bind_group_layout.as_ref().expect("Couldn't get landscape layout"), // Add landscape bind group
                 &player_pos_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -202,6 +210,7 @@ impl WaterPlane {
             time_bind_group,
             player_pos_buffer,
             player_pos_bind_group,
+            landscape_bind_group,
         }
     }
 
@@ -253,18 +262,19 @@ impl WaterPlane {
 }
 
 pub trait DrawWater<'a> {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, player_pos_bind_group: &'a wgpu::BindGroup);
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, landscape_bind_group: &'a wgpu::BindGroup,  player_pos_bind_group: &'a wgpu::BindGroup);
 }
 
 impl<'a, 'b> DrawWater<'a> for wgpu::RenderPass<'b>
 where
     'a: 'b,
 {
-    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, player_pos_bind_group: &'a wgpu::BindGroup) {
+    fn draw_water(&mut self, water_plane: &'a WaterPlane, camera_bind_group: &'a wgpu::BindGroup, time_bind_group: &'a wgpu::BindGroup, landscape_bind_group: &'a wgpu::BindGroup, player_pos_bind_group: &'a wgpu::BindGroup) {
         self.set_pipeline(&water_plane.pipeline);
         self.set_bind_group(0, camera_bind_group, &[]);
         self.set_bind_group(1, time_bind_group, &[]);
-        self.set_bind_group(2, player_pos_bind_group, &[]);
+        self.set_bind_group(2, landscape_bind_group, &[]);
+        self.set_bind_group(3, player_pos_bind_group, &[]);
         self.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
         self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.draw_indexed(0..water_plane.num_indices, 0, 0..1);

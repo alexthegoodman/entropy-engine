@@ -1563,7 +1563,7 @@ impl ExportPipeline {
                     let player_pos = sphere.transform.position;
                     queue.write_buffer(&water_plane.time_buffer, 0, bytemuck::cast_slice(&[time]));
                     queue.write_buffer(&water_plane.player_pos_buffer, 0, bytemuck::cast_slice(&[player_pos.x, player_pos.y, player_pos.z, 1.0]));
-                    render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.player_pos_bind_group);
+                    render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.player_pos_bind_group);
                 }
             }
 
@@ -2485,7 +2485,8 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                                                             renderer_state, 
                                                             &gpu_resources.device, 
                                                             &camera_binding.bind_group_layout, 
-                                                            wgpu::TextureFormat::Rgba16Float
+                                                            wgpu::TextureFormat::Rgba16Float,
+                                                            component.id.clone()
                                                         );
 
                                                         handle_add_trees(renderer_state, &gpu_resources.device,

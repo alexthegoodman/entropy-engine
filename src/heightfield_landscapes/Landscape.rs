@@ -515,7 +515,7 @@ impl Landscape {
                     // Texture array binding
                     wgpu::BindGroupLayoutEntry {
                         binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX, // Vertex shader needs to sample height
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, // Vertex shader needs to sample height
                         ty: wgpu::BindingType::Texture {
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                             view_dimension: wgpu::TextureViewDimension::D2,
@@ -526,7 +526,7 @@ impl Landscape {
                     // Sampler binding
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
-                        visibility: wgpu::ShaderStages::VERTEX, // Vertex shader needs the sampler too
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT, // Vertex shader needs the sampler too
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), // Filtering sampler
                         count: None,
                     },

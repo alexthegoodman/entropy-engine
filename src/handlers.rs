@@ -460,9 +460,12 @@ pub fn handle_add_water_plane(
     device: &wgpu::Device,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     texture_format: wgpu::TextureFormat,
+    component_id: String
 ) {
-    let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format);
-    state.water_planes.push(water_plane);
+    if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == component_id) {
+        let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj);
+        state.water_planes.push(water_plane);
+    }
 }
 
 pub fn handle_add_trees(
