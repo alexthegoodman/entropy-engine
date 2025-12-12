@@ -440,22 +440,24 @@ impl Model {
                                 // For simplicity, we are using the 1x1 default texture directly.
                                 // In a real scenario, you'd sample the actual texture.
                                 // Here, we take default values
-                                pbr_image_data[0] = 0; // metallic
-                                pbr_image_data[1] = 255; // roughness
+                                pbr_image_data[0] = 16; // metallic
+                                // pbr_image_data[1] = 255; // roughness
+                                pbr_image_data[1] = 64; // roughness
                             }
                         } else {
-                            pbr_image_data[0] = 0; // default metallic
-                            pbr_image_data[1] = 255; // default roughness
+                            pbr_image_data[0] = 16; // default metallic
+                            // pbr_image_data[1] = 255; // default roughness
+                            pbr_image_data[1] = 64; // default roughness
                         }
 
                         // Occlusion (red channel is occlusion)
                         if let Some(info) = material.occlusion_texture() {
                             if let Some((tex, view)) = loaded_textures.get(info.texture().index()) {
                                 // Similar to metallic-roughness, using default for now.
-                                pbr_image_data[2] = 255; // ao
+                                pbr_image_data[2] = 128; // ao
                             }
                         } else {
-                            pbr_image_data[2] = 255; // default ao
+                            pbr_image_data[2] = 128; // default ao
                         }
 
                         let pbr_params_tex = device.create_texture_with_data(

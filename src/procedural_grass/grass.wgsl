@@ -415,7 +415,8 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let final_color = grass_color + color_variation;
     
     // Simple lighting based on height (ambient occlusion approximation)
-    let ao = 0.7 + in.height_factor * 0.3;
+    // let ao = 0.7 + in.height_factor * 0.3;
+    let ao = 0.35;
 
     var output: GbufferOutput;
     output.position = vec4<f32>(in.world_pos, 1.0);
