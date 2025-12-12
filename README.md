@@ -18,6 +18,7 @@ Powering a unified OS inspired by MCP.
 - Deferred rendering / lighting
 - PBR Materials
 - Shadow Mapping
+- Procedural trees (somewhat)
 - and more!
 
 TBD:
@@ -39,11 +40,10 @@ TBD:
 - More game logic and mechanics (ex. inventory)
 - Mini-Map
 - Modernize in-game UI choices
-- Enhanced editor experience with stellar transform gizmo
+- Enhanced editor experience with stellar transform gizmo (for now using egui inputs)
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
-- Procedural trees
 
 ## Run
 
