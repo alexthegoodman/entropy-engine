@@ -4,10 +4,7 @@ use entropy_engine::startup;
 use std::error::Error;
 use std::env;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     #[cfg(target_os = "windows")]
-    startup::run(None)?;
-
-    #[cfg(not(target_os = "windows"))]
-    Ok(())
+    startup::run(None).expect("Couldn't run editor");
 }

@@ -61,7 +61,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{EntropyPosition, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
+use crate::handlers::{EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{ExportPipeline};
 use crate::helpers::load_project::load_project;
 use crate::core::editor::WindowSize;
@@ -538,7 +538,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
                 let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-                renderer_state.set_mouse_position(position);
+                renderer_state.set_mouse_position(EntropyPosition { x: position.x as f32, y: position.y as f32 });
 
                 let mut last_x = 0.0;
                 let mut last_y = 0.0;
@@ -1000,7 +1000,10 @@ impl WindowState {
                     surface.configure(&gpu_resources.device, &self.surface_config);
                 }
             }
-            self.pipeline.resize(size);
+            self.pipeline.resize(EntropySize {
+                width: size.width,
+                height: size.height
+            });
         }
         self.window.request_redraw();
     }

@@ -4,12 +4,9 @@ use entropy_engine::startup;
 use std::error::Error;
 use std::env;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() {
     let project_id = Some("5fa6dd47-4355-4de5-b5a3-a7f61e979fcc".to_string());
     
     #[cfg(target_os = "windows")]
-    startup::run_game(project_id)?;
-
-    #[cfg(not(target_os = "windows"))]
-    Ok(())
+    startup::run_game(project_id).expect("Couldn't run game");
 }

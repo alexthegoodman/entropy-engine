@@ -159,6 +159,7 @@ impl ExportPipeline {
         // create a dedicated editor so it can be used in the async thread
         let mut export_editor = Editor::new(viewport, project_id.clone());
 
+        #[cfg(target_arch = "wasm32")]
         let window = if let Some(canvas) = canvas {
             Some(wgpu::SurfaceTarget::Canvas(canvas))
         } else {
