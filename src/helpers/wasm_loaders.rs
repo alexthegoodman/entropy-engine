@@ -1,41 +1,37 @@
-use std::{fs::File, path::PathBuf};
-
-use exr::prelude::read_first_rgba_layer_from_file;
-use image::GenericImageView;
-use serde::Serialize;
+#[cfg(target_arch = "wasm32")]
+use crate::helpers::saved_data::LandscapeTextureKinds;
+use crate::helpers::saved_data::SavedState;
+use crate::helpers::landscapes::{TextureData, LandscapePixelData, PixelData}; // Import TextureData, LandscapePixelData and PixelData
+use reqwest;
+use image::{self, GenericImageView};
+use std::io::Cursor;
 use tiff::decoder::{Decoder, DecodingResult};
 use nalgebra as na;
+use exr::prelude::ReadChannels;
+use exr::prelude::ReadLayers;
+use exr::image::read as exr_read;
 
-use crate::helpers::saved_data::LandscapeTextureKinds;
-
-use super::utilities::get_common_os_dir;
-
-pub struct LandscapePixelData {
-    pub width: usize,
-    pub height: usize,
-    // data: Vec<u8>,
-    pub pixel_data: Vec<Vec<PixelData>>,
-    pub rapier_heights: na::DMatrix<f32>,
-    pub raw_heights: Vec<f32>,
-    pub max_height: f32,
+#[cfg(target_arch = "wasm32")]
+pub async fn load_project_state_wasm(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
+    let url = format!("asset://midpoint/projects/{}/midpoint.json", project_id);
+    let json_content = reqwest::get(&url).await?.text().await?;
+    let state: SavedState = serde_json::from_str(&json_content)?;
+    Ok(state)
 }
 
-#[derive(Serialize)]
-pub struct PixelData {
-    pub height_value: f32,
-    pub position: [f32; 3],
-    pub tex_coords: [f32; 2],
+#[cfg(target_arch = "wasm32")]
+pub async fn load_image_from_url(url: &str) -> Result<TextureData, Box<dyn std::error::Error>> {
+    let response = reqwest::get(url).await?.bytes().await?;
+    let img = image::load_from_memory(&response)?;
+    let (width, height) = img.dimensions();
+    let rgba_img = img.to_rgba8();
+    let bytes = rgba_img.into_raw();
+    Ok(TextureData { bytes, width, height })
 }
 
-#[derive(Serialize)]
-pub struct TextureData {
-    pub bytes: Vec<u8>,
-    pub width: u32,
-    pub height: u32,
-}
-
-pub fn read_tiff_heightmap(
-    landscape_path: &str,
+#[cfg(target_arch = "wasm32")]
+pub fn read_tiff_heightmap_wasm(
+    tiff_bytes: Vec<u8>,
     target_width: f32,
     target_length: f32,
     target_height: f32,
@@ -47,9 +43,8 @@ pub fn read_tiff_heightmap(
     Vec<f32>,
     f32,
 ) {
-    // Added DMatrix return
-    let file = File::open(landscape_path).expect("Couldn't open tif file");
-    let mut decoder = Decoder::new(file).expect("Couldn't decode tif file");
+    let cursor = Cursor::new(tiff_bytes);
+    let mut decoder = Decoder::new(cursor).expect("Couldn't decode tif bytes");
 
     let (width, height) = decoder.dimensions().expect("Couldn't get tif dimensions");
 
@@ -134,42 +129,29 @@ pub fn read_tiff_heightmap(
     )
 }
 
-pub fn get_landscape_pixels(
-    // state: tauri::State<'_, AppState>,
-    projectId: String,
-    landscapeAssetId: String,
-    landscapeFilename: String,
+#[cfg(target_arch = "wasm32")]
+pub async fn get_landscape_pixels_wasm(
+    project_id: String,
+    landscape_asset_id: String,
+    landscape_filename: String,
 ) -> LandscapePixelData {
-    // let handle = &state.handle;
-    // let config = handle.config();
-    // let package_info = handle.package_info();
-    // let env = handle.env();
+    let url = format!(
+        "asset://midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        project_id, landscape_asset_id, landscape_filename
+    );
 
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
-    let landscapes_dir = sync_dir.join(format!(
-        "midpoint/projects/{}/landscapes/{}/heightmaps",
-        projectId, landscapeAssetId
-    ));
-    let landscape_path = landscapes_dir.join(landscapeFilename);
-    // let landscape_path = landscapes_dir
-    //     .join("upscaled")
-    //     .join("upscaled_heightmap.tiff");
+    let tiff_bytes = reqwest::get(&url)
+        .await
+        .expect("Failed to fetch tiff file")
+        .bytes()
+        .await
+        .expect("Failed to get tiff bytes")
+        .to_vec();
 
-    println!("landscape_path {:?}", landscape_path);
-
-    // let square_size = 1024.0 * 100.0;
-    // let square_height = 1858.0 * 10.0;
     let square_size = 1024.0 * 4.0;
     let square_height = 150.0 * 4.0;
-    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_tiff_heightmap(
-        landscape_path
-            .to_str()
-            .expect("Couldn't form landscape string"),
-        // battlefield size
-        // 2048.0,
-        // 2048.0,
-        // 250.0,
-        // literal grand canyon in meters
+    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_tiff_heightmap_wasm(
+        tiff_bytes,
         square_size,
         square_size,
         square_height,
@@ -178,7 +160,6 @@ pub fn get_landscape_pixels(
     LandscapePixelData {
         width,
         height,
-        // data: heightmap.to_vec(),
         pixel_data,
         rapier_heights,
         raw_heights,
@@ -186,24 +167,28 @@ pub fn get_landscape_pixels(
     }
 }
 
-pub fn read_landscape_heightmap_as_texture(
-    projectId: String,
-    landscapeId: String,
-    textureFilename: String,
+#[cfg(target_arch = "wasm32")]
+pub async fn read_landscape_heightmap_as_texture_wasm(
+    project_id: String,
+    landscape_id: String,
+    texture_filename: String,
 ) -> Result<TextureData, String> {
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
-    let texture_path = sync_dir.join(format!(
-        "midpoint/projects/{}/landscapes/{}/heightmaps/{}",
-        projectId, landscapeId, textureFilename
-    ));
+    let url = format!(
+        "asset://midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        project_id, landscape_id, texture_filename
+    );
 
-    println!("texture path {:?}", texture_path);
+    let response_bytes = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch heightmap texture: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to get heightmap texture bytes: {}", e))?;
 
-    let img = image::open(&texture_path)
-        .map_err(|e| format!("Failed to open landscape texture: {}", e))?;
+    let img = image::load_from_memory(&response_bytes)
+        .map_err(|e| format!("Failed to load heightmap image from memory: {}", e))?;
 
     let (width, height) = img.dimensions();
-    
     let luma16 = img.to_luma16();
 
     // Find min/max values
@@ -220,7 +205,7 @@ pub fn read_landscape_heightmap_as_texture(
     // Normalize to 0-255 range
     let mut bytes = Vec::with_capacity((width * height * 4) as usize);
     let range = (max_val - min_val) as f32;
-    
+
     for pixel in luma16.pixels() {
         let val = pixel[0];
         // Normalize: (value - min) / (max - min) * 255
@@ -240,127 +225,82 @@ pub fn read_landscape_heightmap_as_texture(
     })
 }
 
-pub fn read_landscape_texture(
-    // state: tauri::State<'_, AppState>,
-    projectId: String,
-    landscapeId: String,
-    textureFilename: String,
-    // textureKind: String,
+#[cfg(target_arch = "wasm32")]
+pub async fn read_landscape_texture_wasm(
+    project_id: String,
+    _landscape_id: String, // Note: original takes landscapeId, but URL uses projectId only for textures dir
+    texture_filename: String,
 ) -> Result<TextureData, String> {
-    // let handle = &state.handle;
-    // let config = handle.config();
-    // let package_info = handle.package_info();
-    // let env = handle.env();
-
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
-    let texture_path = sync_dir.join(format!(
-        "midpoint/projects/{}/textures/{}{}",
-        projectId, textureFilename, ".png"
-    ));
-
-    println!("texture path {:?}", texture_path);
-
-    // Read the image file
-    let img = image::open(&texture_path)
-        .map_err(|e| format!("Failed to open landscape texture: {}", e))?;
-
-    // Get dimensions
-    let (width, height) = img.dimensions();
-
-    // Convert to RGBA
-    let rgba_img = img.to_rgba8();
-    let bytes = rgba_img.into_raw();
-
-    Ok(TextureData {
-        bytes,
-        width,
-        height,
-    })
+    let url = format!(
+        "asset://midpoint/projects/{}/textures/{}.png",
+        project_id, texture_filename
+    );
+    load_image_from_url(&url)
+        .await
+        .map_err(|e| format!("Failed to load landscape texture: {}", e))
 }
 
-pub fn read_landscape_mask(
-    // state: tauri::State<'_, AppState>,
-    projectId: String,
-    landscapeId: String,
-    maskFilename: String,
-    maskKind: LandscapeTextureKinds,
-) -> Result<TextureData, String> {
-    // let handle = &state.handle;
-    // let config = handle.config();
-    // let package_info = handle.package_info();
-    // let env = handle.env();
 
-    let kind_slug = match maskKind {
+#[cfg(target_arch = "wasm32")]
+pub async fn read_landscape_mask_wasm(
+    project_id: String,
+    landscape_id: String,
+    mask_filename: String,
+    mask_kind: LandscapeTextureKinds,
+) -> Result<TextureData, String> {
+    let kind_slug = match mask_kind {
         LandscapeTextureKinds::Primary => "heightmaps",
         LandscapeTextureKinds::Rockmap => "rockmaps",
         LandscapeTextureKinds::Soil => "soils",
-        _ => "",
+        _ => "", // Handle other cases if necessary
     };
 
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
-    let mask_path = sync_dir.join(format!(
-        "midpoint/projects/{}/landscapes/{}/{}/{}",
-        projectId, landscapeId, kind_slug, maskFilename
-    ));
+    let url = format!(
+        "asset://midpoint/projects/{}/landscapes/{}/{}/{}",
+        project_id, landscape_id, kind_slug, mask_filename
+    );
 
-    println!("mask_path {:?}", mask_path);
-
-    // Read the image file
-    let img =
-        image::open(&mask_path).map_err(|e| format!("Failed to open landscape mask: {}", e))?;
-
-    // Get dimensions
-    let (width, height) = img.dimensions();
-
-    // Convert to RGBA
-    let rgba_img = img.to_rgba8();
-    let bytes = rgba_img.into_raw();
-
-    Ok(TextureData {
-        bytes,
-        width,
-        height,
-    })
+    load_image_from_url(&url)
+        .await
+        .map_err(|e| format!("Failed to load landscape mask: {}", e))
 }
 
-pub fn read_texture_bytes(
+#[cfg(target_arch = "wasm32")]
+pub async fn read_texture_bytes_wasm(
     project_id: String,
-    asset_id: String, // This could be landscapeId or pbr_texture_id
+    _asset_id: String, // This could be landscapeId or pbr_texture_id
     file_name: String,
 ) -> Result<(Vec<u8>, u32, u32), String> {
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
-
     // Determine the base directory based on asset_id type
-    let base_path =
-        sync_dir.join(format!(
-            "midpoint/projects/{}/textures/",
-            project_id
-        ));
+    let url = format!(
+        "asset://midpoint/projects/{}/textures/{}",
+        project_id, file_name
+    );
 
-    let file_path = base_path.join(file_name.clone());
+    println!("Attempting to read texture from URL: {:?}", url);
 
-    println!("Attempting to read texture from path: {:?}", file_path);
+    let response_bytes = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch texture: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to get texture bytes: {}", e))?;
 
-    let extension = file_path
-        .extension()
-        .and_then(|s| s.to_str())
+    let extension = file_name
+        .rsplit('.')
+        .next()
         .unwrap_or("");
 
-    let data = match extension {
+    let (bytes, width, height) = match extension {
         "png" | "jpg" | "jpeg" => {
-            let image = image::open(&file_path)
-                .map_err(|e| format!("Failed to open image file {}: {}", file_name, e))?;
-
-            let width = image.width();
-            let height = image.height();
-
-                (image.to_rgba8()
-                .into_raw(), width, height)
+            let img = image::load_from_memory(&response_bytes)
+                .map_err(|e| format!("Failed to load image file {}: {}", file_name, e))?;
+            let (width, height) = img.dimensions();
+            (img.to_rgba8().into_raw(), width, height)
         }
         "tif" | "tiff" => {
-            let file = File::open(&file_path)
-                .map_err(|e| format!("Failed to open TIFF file {}: {}", file_name, e))?;
-            let mut decoder = Decoder::new(file)
+            let cursor = Cursor::new(response_bytes);
+            let mut decoder = Decoder::new(cursor)
                 .map_err(|e| format!("Failed to decode TIFF file {}: {}", file_name, e))?;
             let (width, height) = decoder.dimensions().map_err(|e| format!("Failed to get TIFF dimensions {}: {}", file_name, e))?;
 
@@ -379,10 +319,28 @@ pub fn read_texture_bytes(
         }
         "exr" => {
             // Read EXR file into a nested Vec<Vec<[f32; 4]>> structure
-            let image = read_first_rgba_layer_from_file(
-                &file_path,
-                // Instantiate image type with the size of the image in file
-                |resolution, _| {
+            // let image = read_first_rgba_layer_from_reader(
+            //     Cursor::new(response_bytes),
+            //     // Instantiate image type with the size of the image in file
+            //     |resolution, _| {
+            //         let default_pixel = [0.0, 0.0, 0.0, 0.0];
+            //         let empty_line = vec![default_pixel; resolution.width()];
+            //         let empty_image = vec![empty_line; resolution.height()];
+            //         empty_image
+            //     },
+            //     // Transfer the colors from the file to your image type
+            //     |pixel_vector, position, (r, g, b, a): (f32, f32, f32, f32)| {
+            //         pixel_vector[position.y()][position.x()] = [r, g, b, a]
+            //     }
+            // )
+            // .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e)).unwrap();
+
+            
+
+            let image = exr_read::read()
+                .no_deep_data()
+                .largest_resolution_level()
+                .rgba_channels(|resolution, _| {
                     let default_pixel = [0.0, 0.0, 0.0, 0.0];
                     let empty_line = vec![default_pixel; resolution.width()];
                     let empty_image = vec![empty_line; resolution.height()];
@@ -391,18 +349,24 @@ pub fn read_texture_bytes(
                 // Transfer the colors from the file to your image type
                 |pixel_vector, position, (r, g, b, a): (f32, f32, f32, f32)| {
                     pixel_vector[position.y()][position.x()] = [r, g, b, a]
-                }
-            )
-            .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e)).unwrap();
+                })
+                .first_valid_layer()
+                .all_attributes()
+                // .from_file(path)
+                .from_buffered(Cursor::new(response_bytes))
+                .map_err(|e| format!("Failed to read EXR file {}: {:?}", file_name, e)).unwrap();
 
             // println!("exr pixels {:?}", image.layer_data.channel_data.pixels.len());
 
             // Convert the nested Vec<Vec<[f32; 4]>> to a flat Vec<u8>
             // EXR stores HDR data as floats, so we need to convert to 8-bit
+            let width_exr = image.layer_data.size.0;
+            let height_exr = image.layer_data.size.1;
+
             (image.layer_data.channel_data.pixels
-                .iter()
+                .into_iter()
                 .flat_map(|row| {
-                    row.iter().flat_map(|&[r, g, b, a]| {
+                    row.into_iter().flat_map(|[r, g, b, a]| {
                         // Clamp and convert f32 values (0.0-1.0) to u8 (0-255)
                         [
                             (r.clamp(0.0, 1.0) * 255.0) as u8,
@@ -412,10 +376,10 @@ pub fn read_texture_bytes(
                         ]
                     })
                 })
-                .collect(), 0, 0)
+                .collect(), width_exr as u32, height_exr as u32)
         }
         _ => return Err(format!("Unsupported texture file format: {}", file_name)),
     };
 
-    Ok(data)
+    Ok((bytes, width, height))
 }

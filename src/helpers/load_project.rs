@@ -8,9 +8,9 @@ use crate::{
     saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities}
 };
 
-pub fn load_project(editor: &mut Editor, project_id: &str) {
+pub async fn load_project(editor: &mut Editor, project_id: &str) {
     // let editor = self.export_editor.as_mut().unwrap();
-    match utilities::load_project_state(project_id) {
+    match utilities::load_project_state(project_id).await {
         Ok(loaded_state) => {
             place_project(editor, project_id, loaded_state);
             }

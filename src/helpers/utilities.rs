@@ -7,6 +7,8 @@ use uuid::Uuid;
 use crate::helpers::saved_data::ComponentData;
 
 use super::saved_data::{LevelData, SavedState};
+#[cfg(target_arch = "wasm32")]
+use super::wasm_loaders;
 
 pub fn get_common_os_dir() -> Option<PathBuf> {
     UserDirs::new().map(|user_dirs| {
@@ -101,7 +103,8 @@ pub fn get_models_dir(project_id: &str) -> Option<PathBuf> {
     Some(models_dir)
 }
 
-pub fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
     let project_dir = sync_dir.join("midpoint/projects").join(project_id);
     let json_path = project_dir.join("midpoint.json");
@@ -121,11 +124,17 @@ pub fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::e
     Ok(state)
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
+    wasm_loaders::load_project_state_wasm(project_id).await
+}
+
+
 pub fn update_project_state_component(project_id: &str, component: &ComponentData) -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
     let json_path = project_dir.join("midpoint.json");
 
-    let mut existing_state = load_project_state(project_id)?;
+    let mut existing_state = pollster::block_on(load_project_state(project_id))?;
 
     let level = existing_state.levels.as_mut().expect("Couldn't get levels");
 

@@ -1952,7 +1952,7 @@ impl ExportPipeline {
                 for project_id in &self.projects {
                     if ui.button(project_id).clicked() {
 
-                        load_project(editor, project_id);
+                        load_project(editor, project_id); // await needed?
                     }
                 }
             });
