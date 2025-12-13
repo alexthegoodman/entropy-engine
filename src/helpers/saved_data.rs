@@ -132,6 +132,7 @@ pub struct PBRTextureData {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct SavedState {
+    pub project_name: String,
     // games
     pub concepts: Vec<File>, // counts as Assets
     pub models: Vec<File>, // counts as Assets

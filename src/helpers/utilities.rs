@@ -163,6 +163,7 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
     levels.push(empty_level);
 
     let empty_saved_state = SavedState {
+        project_name: project_id.to_string(), // Initialize the new project_name field
         concepts: Vec::new(),
         models: Vec::new(),
         landscapes: Some(Vec::new()),
