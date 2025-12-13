@@ -460,15 +460,19 @@ impl RendererState {
             0.0
         };
 
-        let near_future = self.last_mouse_position_time.elapsed().as_secs_f64();
-
-        // if let Some(future) = near_future {
         #[cfg(target_os = "windows")]
-        if near_future < now {
-            self.last_mouse_position = None;
-            self.current_mouse_position =  None;
+        let near_future = self.last_mouse_position_time.checked_add(Duration::from_millis(100));
+
+        #[cfg(target_os = "windows")]
+        if let Some(future) = near_future {
+            if future < now {
+                self.last_mouse_position = None;
+                self.current_mouse_position =  None;
+            }
         }
-        // }
+
+        #[cfg(target_arch = "wasm32")]
+        let near_future = self.last_mouse_position_time.elapsed().as_secs_f64();
 
         #[cfg(target_arch = "wasm32")]
         if near_future < js_sys::Date::now() {

@@ -68,7 +68,7 @@ fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) ve
 
 @fragment
 fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
-    let tex_coords = frag_coord.xy / vec2<f32>(window_size.width, window_size.height);
+    let tex_coords = frag_coord.xy / vec2<f32>(camera.window_size.width, camera.window_size.height);
 
     let position = textureSample(g_buffer_position, s_g_buffer, tex_coords).xyz;
     let normal = normalize(textureSample(g_buffer_normal, s_g_buffer, tex_coords).xyz);
