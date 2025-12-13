@@ -5,14 +5,23 @@ use crate::{
     handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_model, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
-    saved_data::{ComponentKind, LandscapeTextureKinds}, utilities}
+    saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities}
 };
 
 pub fn load_project(editor: &mut Editor, project_id: &str) {
     // let editor = self.export_editor.as_mut().unwrap();
     match utilities::load_project_state(project_id) {
         Ok(loaded_state) => {
-            editor.saved_state = Some(loaded_state);
+            place_project(editor, project_id, loaded_state);
+            }
+        Err(e) => {
+            println!("Failed to load project: {}", e);
+        }
+    }
+}
+
+pub fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
+editor.saved_state = Some(loaded_state);
             
             let renderer_state = editor.renderer_state.as_mut().unwrap();
             let camera = editor.camera.as_mut().unwrap();
@@ -444,9 +453,5 @@ pub fn load_project(editor: &mut Editor, project_id: &str) {
                     }
                 }
             }
-        }
-        Err(e) => {
-            println!("Failed to load project: {}", e);
-        }
-    }
+        
 }

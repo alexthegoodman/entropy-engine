@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 
-use std::time::Duration;
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use crate::{
     core::editor::{ControlPoint, CurveData, PathType}, renderer_images::st_image::SavedStImageConfig, renderer_text::text_due::SavedTextRendererConfig, shape_primitives::polygon::{SavedPoint, SavedPolygonConfig}
@@ -47,7 +51,7 @@ pub struct AnimationData {
     /// id of the associated polygon
     pub polygon_id: String,
     /// Total duration of the animation
-    pub duration: Duration,
+    // pub duration: Duration,
     /// Start time within sequence
     pub start_time_ms: i32,
     /// Hierarchical property structure for UI
@@ -62,7 +66,7 @@ impl Default for AnimationData {
             id: String::new(),
             object_type: ObjectType::Polygon,
             polygon_id: String::new(),
-            duration: Duration::from_secs(1),
+            // duration: Duration::from_secs(1),
             start_time_ms: 0,
             properties: Vec::new(),
             position: [0, 0],
@@ -114,7 +118,7 @@ pub struct UIKeyframe {
     /// Used to associate with this speciifc UI Keyframe
     pub id: String,
     /// Time of the keyframe
-    pub time: Duration,
+    // pub time: Duration,
     /// Value at this keyframe (could be position, rotation, etc)
     pub value: KeyframeValue,
     /// Type of interpolation to next keyframe
@@ -129,7 +133,7 @@ impl Default for UIKeyframe {
     fn default() -> Self {
         Self {
             id: String::new(),
-            time: Duration::from_secs(0),
+            // time: Duration::from_secs(0),
             value: KeyframeValue::Position([0, 0]),
             easing: EasingType::Linear,
             path_type: PathType::Linear,
@@ -160,13 +164,13 @@ pub enum BackgroundFill {
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
 #[serde(default)]
 pub struct RangeData {
-    pub end_time: Duration,
+    // pub end_time: Duration,
 }
 
 impl Default for RangeData {
     fn default() -> Self {
         Self {
-            end_time: Duration::from_secs(1),
+            // end_time: Duration::from_secs(1),
         }
     }
 }
@@ -187,11 +191,11 @@ impl UIKeyframe {
                 let distance = ((dx.pow(2) + dy.pow(2)) as f64).sqrt();
 
                 // Calculate time difference
-                let time_diff =
-                    next_keyframe.time.as_millis() as f64 - self.time.as_millis() as f64;
+                // let time_diff =
+                //     next_keyframe.time.as_millis() as f64 - self.time.as_millis() as f64;
 
                 // Calculate velocity (pixels per millisecond)
-                let velocity = distance / time_diff;
+                // let velocity = distance / time_diff;
 
                 // If the movement is very small, use Linear
                 if distance < 10.0 {
@@ -202,8 +206,9 @@ impl UIKeyframe {
                 let control_points = calculate_natural_control_points(
                     current_pos,
                     next_pos,
-                    time_diff as f64,
-                    velocity,
+                    // time_diff as f64,
+                    // velocity,
+                    0.0, 0.0
                 );
 
                 PathType::Bezier(CurveData {

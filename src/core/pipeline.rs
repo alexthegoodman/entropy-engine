@@ -5,7 +5,7 @@ use crate::{
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
-use std::{fs, sync::{Arc, Mutex}, time::Instant};
+use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use uuid::Uuid;
@@ -22,6 +22,12 @@ use egui;
 
 #[cfg(target_os = "windows")]
 use crate::startup::Gui;
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
@@ -45,7 +51,12 @@ pub struct ExportPipeline {
     // pub chat: Chat,
     new_project_name: String,
     projects: Vec<String>,
+
+    #[cfg(target_os = "windows")]
     start_time: Instant,
+
+    #[cfg(target_arch = "wasm32")]
+    start_time: f64,
 
     // G-Buffer textures
     pub g_buffer_position_texture: Option<wgpu::Texture>,
@@ -90,7 +101,13 @@ impl ExportPipeline {
             // chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
+            
+            #[cfg(target_os = "windows")]
             start_time: Instant::now(),
+            
+            #[cfg(target_arch = "wasm32")]
+            start_time: js_sys::Date::now(),
+
             g_buffer_position_texture: None,
             g_buffer_position_view: None,
             g_buffer_normal_texture: None,
@@ -206,7 +223,7 @@ impl ExportPipeline {
                     label: None,
                     // required_features: wgpu::Features::FLOAT32_FILTERABLE,
                     required_limits: Limits {
-                        max_bind_groups: 5,
+                        // max_bind_groups: 5, // bad for wasm :(
                         ..Default::default()
                     },
                     ..Default::default()
@@ -839,9 +856,10 @@ impl ExportPipeline {
             bind_group_layouts: &[
                 &lighting_bind_group_layout, // group(0)
                 &g_buffer_bind_group_layout,
-                &window_size_bind_group_layout,
+                // &window_size_bind_group_layout,
+                 &camera_binding.bind_group_layout,
                 &shadow_pipeline_data.shadow_bind_group_layout, // group(3)
-                &camera_binding.bind_group_layout
+                // &camera_binding.bind_group_layout
             ],
             push_constant_ranges: &[],
         });
@@ -1054,8 +1072,12 @@ impl ExportPipeline {
         //         // &gpu_resources.queue,
         //     );
         // });
+        // #[cfg(target_os = "windows")]
+        let now = Instant::now();
         
-        let now = std::time::Instant::now();
+        // #[cfg(target_arch = "wasm32")]
+        // let now = js_sys::Date::now() - self.start_time;
+        
         export_editor.video_start_playing_time = Some(now.clone());
 
         export_editor.video_current_sequence_timeline = Some(video_current_sequence_timeline);
@@ -1550,12 +1572,17 @@ impl ExportPipeline {
             }
 
             // draw grass
+            #[cfg(target_os = "windows")]
             let time = self.start_time.elapsed().as_secs_f32();
+            
+            #[cfg(target_arch = "wasm32")]
+            let time = js_sys::Date::now() - self.start_time;
+
             for grass in &renderer_state.grasses {
                 if let Some(sphere) = &renderer_state.player_character.sphere {
-                    grass.update_uniforms(&queue, time, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                    grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                 } else {
-                    grass.update_uniforms(&queue, time, camera.position);
+                    grass.update_uniforms(&queue, time as f32, camera.position);
                 }
                 render_pass.set_pipeline(&grass.render_pipeline);
                 render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
@@ -1573,7 +1600,7 @@ impl ExportPipeline {
 
             // draw trees
             for trees in &renderer_state.procedural_trees {
-                trees.update_uniforms(&queue, time);
+                trees.update_uniforms(&queue, time as f32);
                 render_pass.draw_trees(
                     trees,
                     &camera_binding.bind_group,
@@ -1582,11 +1609,11 @@ impl ExportPipeline {
             }
 
             // draw water
-            let time = self.start_time.elapsed().as_secs_f32();
+            // let time = self.start_time.elapsed().as_secs_f32();
             for water_plane in &renderer_state.water_planes {
                 if let Some(sphere) = &renderer_state.player_character.sphere {
                     let player_pos = sphere.transform.position;
-                    queue.write_buffer(&water_plane.time_buffer, 0, bytemuck::cast_slice(&[time]));
+                    queue.write_buffer(&water_plane.time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                     queue.write_buffer(&water_plane.player_pos_buffer, 0, bytemuck::cast_slice(&[player_pos.x, player_pos.y, player_pos.z, 1.0]));
                     render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.player_pos_bind_group);
                 }
@@ -1737,9 +1764,10 @@ impl ExportPipeline {
                 lighting_pass.set_pipeline(lighting_pipeline);
                 lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
-                lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
+                // lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
                 lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
-                lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
+                // lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
+                lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);
             }
 

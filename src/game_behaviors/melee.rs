@@ -2,7 +2,12 @@ use nalgebra::{vector, ComplexField, Vector3};
 use nalgebra_glm::Vec3;
 use rand::Rng;
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
-use std::time::Instant;
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
 

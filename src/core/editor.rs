@@ -2,7 +2,12 @@ use std::fs;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use cgmath::{Point3, Vector3, Vector4};
 use crate::core::Grid::Grid;
@@ -354,6 +359,7 @@ pub struct Editor {
     // state
     pub is_playing: bool,
     pub current_sequence_data: Option<Sequence>,
+
     pub last_frame_time: Option<Instant>,
     pub start_playing_time: Option<Instant>,
     pub video_is_playing: bool,
@@ -533,32 +539,32 @@ impl Editor {
 }
 
 // Helper function to create default properties with constant values
-fn create_default_property(
-    name: &str,
-    path: &str,
-    value: KeyframeValue,
-    timestamps: &[i32],
-) -> AnimationProperty {
-    let keyframes = timestamps
-        .iter()
-        .map(|&time| UIKeyframe {
-            id: Uuid::new_v4().to_string(),
-            time: Duration::from_millis(time as u64),
-            value: value.clone(),
-            easing: EasingType::EaseInOut,
-            path_type: PathType::Linear,
-            key_type: KeyType::Frame,
-        })
-        .collect();
+// fn create_default_property(
+//     name: &str,
+//     path: &str,
+//     value: KeyframeValue,
+//     timestamps: &[i32],
+// ) -> AnimationProperty {
+//     let keyframes = timestamps
+//         .iter()
+//         .map(|&time| UIKeyframe {
+//             id: Uuid::new_v4().to_string(),
+//             time: Duration::from_millis(time as u64),
+//             value: value.clone(),
+//             easing: EasingType::EaseInOut,
+//             path_type: PathType::Linear,
+//             key_type: KeyType::Frame,
+//         })
+//         .collect();
 
-    AnimationProperty {
-        name: name.to_string(),
-        property_path: path.to_string(),
-        children: Vec::new(),
-        keyframes,
-        depth: 0,
-    }
-}
+//     AnimationProperty {
+//         name: name.to_string(),
+//         property_path: path.to_string(),
+//         children: Vec::new(),
+//         keyframes,
+//         depth: 0,
+//     }
+// }
 
 // /// Get interpolated position at a specific time
 // fn interpolate_position(start: &UIKeyframe, end: &UIKeyframe, time: Duration) -> [i32; 2] {
@@ -615,94 +621,94 @@ pub enum PathType {
 
 /// Creates curves in between keyframes, on the same path, rather than sharing a curve with another
 /// but it's better this way, as using a keyframe as a middle point on a curve leads to various problems
-pub fn interpolate_position(start: &UIKeyframe, end: &UIKeyframe, time: f32) -> [i32; 2] {
-    if let (KeyframeValue::Position(start_pos), KeyframeValue::Position(end_pos)) =
-        (&start.value, &end.value)
-    {
-        let progress = {
-            let total_time = (end.time - start.time).as_secs_f32();
-            let current_time = time - (start.time).as_secs_f32();
-            let t = current_time / total_time;
+// pub fn interpolate_position(start: &UIKeyframe, end: &UIKeyframe, time: f32) -> [i32; 2] {
+//     if let (KeyframeValue::Position(start_pos), KeyframeValue::Position(end_pos)) =
+//         (&start.value, &end.value)
+//     {
+//         let progress = {
+//             let total_time = (end.time - start.time).as_secs_f32();
+//             let current_time = time - (start.time).as_secs_f32();
+//             let t = current_time / total_time;
 
-            match start.easing {
-                EasingType::Linear => t,
-                EasingType::EaseIn => t * t,
-                EasingType::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
-                EasingType::EaseInOut => {
-                    if t < 0.5 {
-                        2.0 * t * t
-                    } else {
-                        1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
-                    }
-                }
-            }
-        };
+//             match start.easing {
+//                 EasingType::Linear => t,
+//                 EasingType::EaseIn => t * t,
+//                 EasingType::EaseOut => 1.0 - (1.0 - t) * (1.0 - t),
+//                 EasingType::EaseInOut => {
+//                     if t < 0.5 {
+//                         2.0 * t * t
+//                     } else {
+//                         1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+//                     }
+//                 }
+//             }
+//         };
 
-        // Get curve data from the keyframe
-        let path_type = start.path_type.clone();
-        // let path_type = PathType::Bezier(CurveData {
-        //     control_point1: None,
-        //     control_point2: None,
-        // });
-        // let test_offset = 50.0;
-        // let path_type = PathType::Bezier(CurveData {
-        //     control_point1: Some(ControlPoint {
-        //         x: (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * 0.2) + test_offset,
-        //         y: (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * 0.2) + test_offset,
-        //     }),
-        //     control_point2: Some(ControlPoint {
-        //         x: (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * 0.8) + test_offset,
-        //         y: (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * 0.8) + test_offset,
-        //     }),
-        // });
-        // let path_type = PathType::Bezier(CurveData {
-        //     control_point1: Some(ControlPoint { x: 500.0, y: 300.0 }),
-        //     control_point2: Some(ControlPoint { x: 700.0, y: 400.0 }),
-        // });
+//         // Get curve data from the keyframe
+//         let path_type = start.path_type.clone();
+//         // let path_type = PathType::Bezier(CurveData {
+//         //     control_point1: None,
+//         //     control_point2: None,
+//         // });
+//         // let test_offset = 50.0;
+//         // let path_type = PathType::Bezier(CurveData {
+//         //     control_point1: Some(ControlPoint {
+//         //         x: (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * 0.2) + test_offset,
+//         //         y: (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * 0.2) + test_offset,
+//         //     }),
+//         //     control_point2: Some(ControlPoint {
+//         //         x: (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * 0.8) + test_offset,
+//         //         y: (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * 0.8) + test_offset,
+//         //     }),
+//         // });
+//         // let path_type = PathType::Bezier(CurveData {
+//         //     control_point1: Some(ControlPoint { x: 500.0, y: 300.0 }),
+//         //     control_point2: Some(ControlPoint { x: 700.0, y: 400.0 }),
+//         // });
 
-        match path_type {
-            PathType::Linear => [
-                (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * progress) as i32,
-                (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * progress) as i32,
-            ],
-            PathType::Bezier(curve_data) => {
-                let p0 = (start_pos[0] as f32, start_pos[1] as f32);
-                let p3 = (end_pos[0] as f32, end_pos[1] as f32);
+//         match path_type {
+//             PathType::Linear => [
+//                 (start_pos[0] as f32 + (end_pos[0] - start_pos[0]) as f32 * progress) as i32,
+//                 (start_pos[1] as f32 + (end_pos[1] - start_pos[1]) as f32 * progress) as i32,
+//             ],
+//             PathType::Bezier(curve_data) => {
+//                 let p0 = (start_pos[0] as f32, start_pos[1] as f32);
+//                 let p3 = (end_pos[0] as f32, end_pos[1] as f32);
 
-                // Use control points if available, otherwise generate default ones
-                let p1 = curve_data.control_point1.as_ref().map_or_else(
-                    || (p0.0 + (p3.0 - p0.0) * 0.33, p0.1 + (p3.1 - p0.1) * 0.33),
-                    |cp| (cp.x as f32, cp.y as f32),
-                );
+//                 // Use control points if available, otherwise generate default ones
+//                 let p1 = curve_data.control_point1.as_ref().map_or_else(
+//                     || (p0.0 + (p3.0 - p0.0) * 0.33, p0.1 + (p3.1 - p0.1) * 0.33),
+//                     |cp| (cp.x as f32, cp.y as f32),
+//                 );
 
-                let p2 = curve_data.control_point2.as_ref().map_or_else(
-                    || (p0.0 + (p3.0 - p0.0) * 0.66, p0.1 + (p3.1 - p0.1) * 0.66),
-                    |cp| (cp.x as f32, cp.y as f32),
-                );
+//                 let p2 = curve_data.control_point2.as_ref().map_or_else(
+//                     || (p0.0 + (p3.0 - p0.0) * 0.66, p0.1 + (p3.1 - p0.1) * 0.66),
+//                     |cp| (cp.x as f32, cp.y as f32),
+//                 );
 
-                // Cubic Bezier curve formula
-                let t = progress;
-                let t2 = t * t;
-                let t3 = t2 * t;
-                let mt = 1.0 - t;
-                let mt2 = mt * mt;
-                let mt3 = mt2 * mt;
+//                 // Cubic Bezier curve formula
+//                 let t = progress;
+//                 let t2 = t * t;
+//                 let t3 = t2 * t;
+//                 let mt = 1.0 - t;
+//                 let mt2 = mt * mt;
+//                 let mt3 = mt2 * mt;
 
-                let x = p0.0 * mt3 + 3.0 * p1.0 * mt2 * t + 3.0 * p2.0 * mt * t2 + p3.0 * t3;
-                let y = p0.1 * mt3 + 3.0 * p1.1 * mt2 * t + 3.0 * p2.1 * mt * t2 + p3.1 * t3;
+//                 let x = p0.0 * mt3 + 3.0 * p1.0 * mt2 * t + 3.0 * p2.0 * mt * t2 + p3.0 * t3;
+//                 let y = p0.1 * mt3 + 3.0 * p1.1 * mt2 * t + 3.0 * p2.1 * mt * t2 + p3.1 * t3;
 
-                // println!(
-                //     "Bezier {:?} and {:?} vs ({:?}, {:?}) at {:?} and {:?}",
-                //     p0, p3, x, y, progress, time
-                // );
+//                 // println!(
+//                 //     "Bezier {:?} and {:?} vs ({:?}, {:?}) at {:?} and {:?}",
+//                 //     p0, p3, x, y, progress, time
+//                 // );
 
-                [x as i32, y as i32]
-            }
-        }
-    } else {
-        panic!("Expected position keyframes")
-    }
-}
+//                 [x as i32, y as i32]
+//             }
+//         }
+//     } else {
+//         panic!("Expected position keyframes")
+//     }
+// }
 
 
 #[derive(Debug)]

@@ -6,7 +6,6 @@ use rapier3d::prelude::{Collider, ColliderBuilder, RigidBody, RigidBodyBuilder};
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Instant;
 use util::BufferInitDescriptor;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;

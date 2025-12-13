@@ -32,9 +32,10 @@ struct WindowSize {
 struct Camera {
     view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
+    window_size: WindowSize,
 };
 
-@group(4) @binding(0) var<uniform> camera: Camera;
+@group(2) @binding(0) var<uniform> camera: Camera;
 
 @group(0) @binding(0) var<uniform> directional_light: DirectionalLight;
 @group(0) @binding(1) var<uniform> point_lights: PointLights;
@@ -45,7 +46,7 @@ struct Camera {
 @group(1) @binding(3) var g_buffer_pbr_material: texture_2d<f32>;
 @group(1) @binding(4) var s_g_buffer: sampler;
 
-@group(2) @binding(0) var<uniform> window_size: WindowSize;
+// @group(2) @binding(0) var<uniform> window_size: WindowSize;
 
 // New shadow mapping uniforms
 @group(3) @binding(0) var<uniform> light_view_proj: mat4x4<f32>; // The light's view-projection matrix

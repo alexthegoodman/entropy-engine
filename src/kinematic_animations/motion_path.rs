@@ -1,7 +1,12 @@
 // use glam::{Quat, Vec3};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 /// Example usage:
 /// ```rust
@@ -81,8 +86,8 @@ pub struct SkeletonKeyframe {
     /// Identifier for associated various keyframe structures
     pub id: String,
     /// Time offset from the start of the animation
-    #[serde_as(as = "serde_with::DurationSecondsWithFrac<String>")]
-    pub time: Duration,
+    // #[serde_as(as = "serde_with::DurationSecondsWithFrac<String>")]
+    // pub time: Duration,
     /// Optional easing function identifier
     pub easing: Option<EasingType>,
     /// If this keyframe is editing in IK mode
@@ -122,8 +127,8 @@ pub struct SkeletonMotionPath {
     /// Ordered list of skeleton-specific keyframes
     pub keyframes: Vec<SkeletonKeyframe>,
     /// Total duration of the path
-    #[serde_as(as = "serde_with::DurationSecondsWithFrac<String>")]
-    pub duration: Duration,
+    // #[serde_as(as = "serde_with::DurationSecondsWithFrac<String>")]
+    // pub duration: Duration,
     /// Whether this path loops
     pub is_looping: bool,
     /// Blending settings for transitions
@@ -145,7 +150,6 @@ pub struct KinematicSolverSettings {
 
 use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
 use nalgebra::{Point3, Quaternion, UnitQuaternion, Vector3};
-use std::time::Instant;
 use uuid::Uuid;
 
 use super::{
@@ -158,7 +162,7 @@ pub struct AnimationPlayback {
     /// Identifier to associate RendererState with animations
     pub id: String,
     /// Current time position in the animation
-    pub current_time: Duration,
+    // pub current_time: Duration,
     /// When playback started
     pub start_time: Instant,
     /// Whether animation is currently playing
@@ -175,7 +179,7 @@ impl AnimationPlayback {
 
         Self {
             id: id.to_string(),
-            current_time: Duration::from_secs(0),
+            // current_time: Duration::from_secs(0),
             start_time: Instant::now(),
             is_playing: true, // for now playing if in the RendererState vector
             active_motion_paths: motion_paths,
@@ -193,88 +197,88 @@ impl AnimationPlayback {
     }
 
     pub fn reset(&mut self) {
-        self.current_time = Duration::from_secs(0);
-        self.start_time = Instant::now();
+        // self.current_time = Duration::from_secs(0);
+        // self.start_time = Instant::now();
     }
 
     pub fn update(&mut self, skeleton_parts: &mut Vec<SkeletonRenderPart>, queue: &wgpu::Queue) {
-        if !self.is_playing {
-            return;
-        }
+        // if !self.is_playing {
+        //     return;
+        // }
 
-        // Update current time
-        let elapsed = Instant::now().duration_since(self.start_time);
-        let raw_time = elapsed.as_secs_f32() * self.speed_multiplier;
-        let duration = self.active_motion_paths[0].duration.as_secs_f32();
+        // // Update current time
+        // let elapsed = Instant::now().duration_since(self.start_time);
+        // let raw_time = elapsed.as_secs_f32() * self.speed_multiplier;
+        // let duration = self.active_motion_paths[0].duration.as_secs_f32();
 
-        // Handle looping
-        self.current_time = if self.active_motion_paths[0].is_looping {
-            Duration::from_secs_f32(raw_time % duration)
-        } else {
-            Duration::from_secs_f32((raw_time).min(duration))
-        };
+        // // Handle looping
+        // self.current_time = if self.active_motion_paths[0].is_looping {
+        //     Duration::from_secs_f32(raw_time % duration)
+        // } else {
+        //     Duration::from_secs_f32((raw_time).min(duration))
+        // };
 
-        // Calculate current joint positions and rotations
-        let mut joint_transforms = HashMap::new();
+        // // Calculate current joint positions and rotations
+        // let mut joint_transforms = HashMap::new();
 
-        for motion_path in &self.active_motion_paths {
-            if let Some(part_id) = motion_path.target.part_id.clone() {
-                let part_data = skeleton_parts
-                    .iter()
-                    .find(|sp| sp.skeleton_part_id == part_id)
-                    .expect("Couldn't find target part");
+        // for motion_path in &self.active_motion_paths {
+        //     if let Some(part_id) = motion_path.target.part_id.clone() {
+        //         let part_data = skeleton_parts
+        //             .iter()
+        //             .find(|sp| sp.skeleton_part_id == part_id)
+        //             .expect("Couldn't find target part");
 
-                let transforms = self.evaluate_motion_path(motion_path, part_data);
-                joint_transforms.extend(transforms);
-            }
-        }
+        //         let transforms = self.evaluate_motion_path(motion_path, part_data);
+        //         joint_transforms.extend(transforms);
+        //     }
+        // }
 
-        // println!("joint_transforms {:?}", joint_transforms);
+        // // println!("joint_transforms {:?}", joint_transforms);
 
-        // Update SkeletonRenderPart's BoneSegment's Transforms
-        for part in skeleton_parts {
-            for bone_segment in &mut part.bones {
-                // Try to get start and end positions
-                if let (Some(start), Some(end)) = (
-                    joint_transforms
-                        .get(&bone_segment.start_joint_id)
-                        .map(|(pos, _)| *pos),
-                    joint_transforms
-                        .get(&bone_segment.end_joint_id)
-                        .map(|(pos, _)| *pos),
-                ) {
-                    // if let Some(attach_point) = &bone_segment.attach_point {
-                    bone_segment.update_from_joint_positions(
-                        start,
-                        end,
-                        part.attachment_transform.clone(),
-                    );
-                    bone_segment.transform.update_uniform_buffer(&queue);
-                    bone_segment.joint_sphere.transform.position = start.coords;
-                    bone_segment
-                        .joint_sphere
-                        .transform
-                        .update_uniform_buffer(queue);
-                    // }
-                } else {
-                    // Log which joints weren't found for debugging
-                    // if !joint_transforms.contains_key(&bone_segment.start_joint_id) {
-                    //     println!(
-                    //         "Warning: Start joint '{}' not found in transforms",
-                    //         bone_segment.start_joint_id
-                    //     );
-                    // }
-                    // if !joint_transforms.contains_key(&bone_segment.end_joint_id) {
-                    //     println!(
-                    //         "Warning: End joint '{}' not found in transforms",
-                    //         bone_segment.end_joint_id
-                    //     );
-                    // }
-                    // Could potentially use last known good positions or rest pose here
-                    // bone_segment.reset_to_rest_pose();
-                }
-            }
-        }
+        // // Update SkeletonRenderPart's BoneSegment's Transforms
+        // for part in skeleton_parts {
+        //     for bone_segment in &mut part.bones {
+        //         // Try to get start and end positions
+        //         if let (Some(start), Some(end)) = (
+        //             joint_transforms
+        //                 .get(&bone_segment.start_joint_id)
+        //                 .map(|(pos, _)| *pos),
+        //             joint_transforms
+        //                 .get(&bone_segment.end_joint_id)
+        //                 .map(|(pos, _)| *pos),
+        //         ) {
+        //             // if let Some(attach_point) = &bone_segment.attach_point {
+        //             bone_segment.update_from_joint_positions(
+        //                 start,
+        //                 end,
+        //                 part.attachment_transform.clone(),
+        //             );
+        //             bone_segment.transform.update_uniform_buffer(&queue);
+        //             bone_segment.joint_sphere.transform.position = start.coords;
+        //             bone_segment
+        //                 .joint_sphere
+        //                 .transform
+        //                 .update_uniform_buffer(queue);
+        //             // }
+        //         } else {
+        //             // Log which joints weren't found for debugging
+        //             // if !joint_transforms.contains_key(&bone_segment.start_joint_id) {
+        //             //     println!(
+        //             //         "Warning: Start joint '{}' not found in transforms",
+        //             //         bone_segment.start_joint_id
+        //             //     );
+        //             // }
+        //             // if !joint_transforms.contains_key(&bone_segment.end_joint_id) {
+        //             //     println!(
+        //             //         "Warning: End joint '{}' not found in transforms",
+        //             //         bone_segment.end_joint_id
+        //             //     );
+        //             // }
+        //             // Could potentially use last known good positions or rest pose here
+        //             // bone_segment.reset_to_rest_pose();
+        //         }
+        //     }
+        // }
     }
 
     /// Evaluates a motion path at the current time
@@ -284,323 +288,323 @@ impl AnimationPlayback {
         part_data: &SkeletonRenderPart,
     ) -> HashMap<String, (Point3<f32>, UnitQuaternion<f32>)> {
         let mut transforms = HashMap::new();
-        let current_time = self.current_time.as_secs_f32();
+        // let current_time = self.current_time.as_secs_f32();
 
-        // Find the surrounding keyframes
-        let mut prev_keyframe = &motion_path.keyframes[0];
-        let mut next_keyframe = &motion_path.keyframes[0];
+        // // Find the surrounding keyframes
+        // let mut prev_keyframe = &motion_path.keyframes[0];
+        // let mut next_keyframe = &motion_path.keyframes[0];
 
-        for window in motion_path.keyframes.windows(2) {
-            let frame1 = &window[0];
-            let frame2 = &window[1];
+        // for window in motion_path.keyframes.windows(2) {
+        //     let frame1 = &window[0];
+        //     let frame2 = &window[1];
 
-            let time1 = frame1.time.as_secs_f32();
-            let time2 = frame2.time.as_secs_f32();
+        //     let time1 = frame1.time.as_secs_f32();
+        //     let time2 = frame2.time.as_secs_f32();
 
-            if current_time >= time1 && current_time <= time2 {
-                prev_keyframe = frame1;
-                next_keyframe = frame2;
-                break;
-            }
-        }
+        //     if current_time >= time1 && current_time <= time2 {
+        //         prev_keyframe = frame1;
+        //         next_keyframe = frame2;
+        //         break;
+        //     }
+        // }
 
-        // Calculate interpolation factor
-        let start_time = prev_keyframe.time.as_secs_f32();
-        let end_time = next_keyframe.time.as_secs_f32();
-        let mut t = (current_time - start_time) / (end_time - start_time);
+        // // Calculate interpolation factor
+        // let start_time = prev_keyframe.time.as_secs_f32();
+        // let end_time = next_keyframe.time.as_secs_f32();
+        // let mut t = (current_time - start_time) / (end_time - start_time);
 
-        // Apply easing if specified
-        if let Some(easing) = &prev_keyframe.easing {
-            t = match easing {
-                EasingType::Linear => t,
-                EasingType::EaseIn => t * t,
-                EasingType::EaseOut => t * (2.0 - t),
-                EasingType::EaseInOut => {
-                    if t < 0.5 {
-                        2.0 * t * t
-                    } else {
-                        -1.0 + (4.0 - 2.0 * t) * t
-                    }
-                }
-            };
-        }
+        // // Apply easing if specified
+        // if let Some(easing) = &prev_keyframe.easing {
+        //     t = match easing {
+        //         EasingType::Linear => t,
+        //         EasingType::EaseIn => t * t,
+        //         EasingType::EaseOut => t * (2.0 - t),
+        //         EasingType::EaseInOut => {
+        //             if t < 0.5 {
+        //                 2.0 * t * t
+        //             } else {
+        //                 -1.0 + (4.0 - 2.0 * t) * t
+        //             }
+        //         }
+        //     };
+        // }
 
-        if let (Some(prev_ik), Some(next_ik)) =
-            (&prev_keyframe.ik_settings, &next_keyframe.ik_settings)
-        {
-            if let Some(k_chain_id) = &motion_path.target.k_chain_id {
-                let chain_bones = collect_chain_bones(part_data, k_chain_id);
+        // if let (Some(prev_ik), Some(next_ik)) =
+        //     (&prev_keyframe.ik_settings, &next_keyframe.ik_settings)
+        // {
+        //     if let Some(k_chain_id) = &motion_path.target.k_chain_id {
+        //         let chain_bones = collect_chain_bones(part_data, k_chain_id);
 
-                if chain_bones.is_empty() {
-                    println!("Warning: No bones found for kinematic chain {}", k_chain_id);
-                    return transforms;
-                }
+        //         if chain_bones.is_empty() {
+        //             println!("Warning: No bones found for kinematic chain {}", k_chain_id);
+        //             return transforms;
+        //         }
 
-                match chain_bones.as_slice() {
-                    [first, second] => {
-                        if let Some(attach_point) = &first.attach_point {
-                            // Convert attach point array to Vector3
-                            let attach_offset = Vector3::new(
-                                attach_point.local_position[0],
-                                attach_point.local_position[1],
-                                attach_point.local_position[2],
-                            );
+        //         match chain_bones.as_slice() {
+        //             [first, second] => {
+        //                 if let Some(attach_point) = &first.attach_point {
+        //                     // Convert attach point array to Vector3
+        //                     let attach_offset = Vector3::new(
+        //                         attach_point.local_position[0],
+        //                         attach_point.local_position[1],
+        //                         attach_point.local_position[2],
+        //                     );
 
-                            let transform_offset = part_data.attachment_transform.position.coords;
+        //                     let transform_offset = part_data.attachment_transform.position.coords;
 
-                            // First, add attach_offset to the input positions before interpolation
-                            let prev_start = [
-                                prev_ik.start_joint_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                prev_ik.start_joint_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                prev_ik.start_joint_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     // First, add attach_offset to the input positions before interpolation
+        //                     let prev_start = [
+        //                         prev_ik.start_joint_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         prev_ik.start_joint_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         prev_ik.start_joint_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            let prev_pole = [
-                                prev_ik.pole_vector_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                prev_ik.pole_vector_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                prev_ik.pole_vector_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     let prev_pole = [
+        //                         prev_ik.pole_vector_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         prev_ik.pole_vector_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         prev_ik.pole_vector_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            let prev_end = [
-                                prev_ik.end_joint_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                prev_ik.end_joint_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                prev_ik.end_joint_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     let prev_end = [
+        //                         prev_ik.end_joint_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         prev_ik.end_joint_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         prev_ik.end_joint_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            let next_start = [
-                                next_ik.start_joint_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                next_ik.start_joint_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                next_ik.start_joint_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     let next_start = [
+        //                         next_ik.start_joint_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         next_ik.start_joint_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         next_ik.start_joint_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            let next_pole = [
-                                next_ik.pole_vector_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                next_ik.pole_vector_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                next_ik.pole_vector_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     let next_pole = [
+        //                         next_ik.pole_vector_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         next_ik.pole_vector_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         next_ik.pole_vector_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            let next_end = [
-                                next_ik.end_joint_position[0]
-                                    + attach_offset.x
-                                    + transform_offset.x,
-                                next_ik.end_joint_position[1]
-                                    + attach_offset.y
-                                    + transform_offset.y,
-                                next_ik.end_joint_position[2]
-                                    + attach_offset.z
-                                    + transform_offset.z,
-                            ];
+        //                     let next_end = [
+        //                         next_ik.end_joint_position[0]
+        //                             + attach_offset.x
+        //                             + transform_offset.x,
+        //                         next_ik.end_joint_position[1]
+        //                             + attach_offset.y
+        //                             + transform_offset.y,
+        //                         next_ik.end_joint_position[2]
+        //                             + attach_offset.z
+        //                             + transform_offset.z,
+        //                     ];
 
-                            // Now interpolate the offset-adjusted positions
-                            let start_pos = Point3::from(lerp_vector3(&prev_start, &next_start, t));
+        //                     // Now interpolate the offset-adjusted positions
+        //                     let start_pos = Point3::from(lerp_vector3(&prev_start, &next_start, t));
 
-                            let pole_pos = Point3::from(lerp_vector3(&prev_pole, &next_pole, t));
+        //                     let pole_pos = Point3::from(lerp_vector3(&prev_pole, &next_pole, t));
 
-                            let end_pos = Point3::from(lerp_vector3(&prev_end, &next_end, t));
+        //                     let end_pos = Point3::from(lerp_vector3(&prev_end, &next_end, t));
 
-                            // Calculate rotations based on offset-adjusted positions
-                            let start_to_pole = (pole_pos - start_pos).normalize();
-                            let pole_to_end = (end_pos - pole_pos).normalize();
+        //                     // Calculate rotations based on offset-adjusted positions
+        //                     let start_to_pole = (pole_pos - start_pos).normalize();
+        //                     let pole_to_end = (end_pos - pole_pos).normalize();
 
-                            let default_up = Vector3::new(0.0, 1.0, 0.0);
-                            let start_rotation =
-                                UnitQuaternion::rotation_between(&default_up, &start_to_pole)
-                                    .unwrap_or(UnitQuaternion::identity());
-                            let pole_rotation =
-                                UnitQuaternion::rotation_between(&default_up, &pole_to_end)
-                                    .unwrap_or(UnitQuaternion::identity());
-                            let end_rotation = pole_rotation;
+        //                     let default_up = Vector3::new(0.0, 1.0, 0.0);
+        //                     let start_rotation =
+        //                         UnitQuaternion::rotation_between(&default_up, &start_to_pole)
+        //                             .unwrap_or(UnitQuaternion::identity());
+        //                     let pole_rotation =
+        //                         UnitQuaternion::rotation_between(&default_up, &pole_to_end)
+        //                             .unwrap_or(UnitQuaternion::identity());
+        //                     let end_rotation = pole_rotation;
 
-                            // Store transforms with already-offset positions
-                            transforms
-                                .insert(first.start_joint_id.clone(), (start_pos, start_rotation));
-                            transforms
-                                .insert(first.end_joint_id.clone(), (pole_pos, pole_rotation));
-                            transforms
-                                .insert(second.start_joint_id.clone(), (pole_pos, pole_rotation));
-                            transforms.insert(second.end_joint_id.clone(), (end_pos, end_rotation));
+        //                     // Store transforms with already-offset positions
+        //                     transforms
+        //                         .insert(first.start_joint_id.clone(), (start_pos, start_rotation));
+        //                     transforms
+        //                         .insert(first.end_joint_id.clone(), (pole_pos, pole_rotation));
+        //                     transforms
+        //                         .insert(second.start_joint_id.clone(), (pole_pos, pole_rotation));
+        //                     transforms.insert(second.end_joint_id.clone(), (end_pos, end_rotation));
 
-                            // After main chain is processed, handle the first connected chain
-                            if let Some(last_bone) = chain_bones.last() {
-                                let end_joint_id = &last_bone.end_joint_id;
+        //                     // After main chain is processed, handle the first connected chain
+        //                     if let Some(last_bone) = chain_bones.last() {
+        //                         let end_joint_id = &last_bone.end_joint_id;
 
-                                // Find the first connected chain
-                                if let Some(first_connected_bone) =
-                                    part_data.bones.iter().find(|bone| {
-                                        bone.k_chain.is_some()
-                                            && bone.start_joint_id == *end_joint_id
-                                    })
-                                {
-                                    // Transform the first connected chain using the final rotation
-                                    let first_chain_transforms = transform_chain(
-                                        first_connected_bone,
-                                        end_pos,
-                                        end_rotation,
-                                        part_data,
-                                    );
+        //                         // Find the first connected chain
+        //                         if let Some(first_connected_bone) =
+        //                             part_data.bones.iter().find(|bone| {
+        //                                 bone.k_chain.is_some()
+        //                                     && bone.start_joint_id == *end_joint_id
+        //                             })
+        //                         {
+        //                             // Transform the first connected chain using the final rotation
+        //                             let first_chain_transforms = transform_chain(
+        //                                 first_connected_bone,
+        //                                 end_pos,
+        //                                 end_rotation,
+        //                                 part_data,
+        //                             );
 
-                                    // println!("add first chain");
+        //                             // println!("add first chain");
 
-                                    transforms.extend(first_chain_transforms.clone());
+        //                             transforms.extend(first_chain_transforms.clone());
 
-                                    // // Start recursive process for subsequent chains
-                                    // if let Some(chain) = &first_connected_bone.k_chain {
-                                    //     // println!("begin recursive");
-                                    //     transforms.extend(evaluate_chain_recursive(
-                                    //         part_data,
-                                    //         &chain.id,
-                                    //         &first_chain_transforms,
-                                    //         0,
-                                    //         10,
-                                    //     ));
-                                    // }
-                                }
-                            }
-                        } else {
-                            println!(
-                                "Warning: No attach point found for first bone in chain {}",
-                                k_chain_id
-                            );
-                        }
-                    }
-                    _ => {
-                        println!(
-                            "Warning: Expected exactly 2 bones in chain {}, found {}",
-                            k_chain_id,
-                            chain_bones.len()
-                        );
-                    }
-                }
+        //                             // // Start recursive process for subsequent chains
+        //                             // if let Some(chain) = &first_connected_bone.k_chain {
+        //                             //     // println!("begin recursive");
+        //                             //     transforms.extend(evaluate_chain_recursive(
+        //                             //         part_data,
+        //                             //         &chain.id,
+        //                             //         &first_chain_transforms,
+        //                             //         0,
+        //                             //         10,
+        //                             //     ));
+        //                             // }
+        //                         }
+        //                     }
+        //                 } else {
+        //                     println!(
+        //                         "Warning: No attach point found for first bone in chain {}",
+        //                         k_chain_id
+        //                     );
+        //                 }
+        //             }
+        //             _ => {
+        //                 println!(
+        //                     "Warning: Expected exactly 2 bones in chain {}, found {}",
+        //                     k_chain_id,
+        //                     chain_bones.len()
+        //                 );
+        //             }
+        //         }
 
-                // // Calculate end position and rotation for the main chain
-                // let end_pos = Point3::from(lerp_vector3(
-                //     &prev_ik.end_joint_position,
-                //     &next_ik.end_joint_position,
-                //     t,
-                // ));
+        //         // // Calculate end position and rotation for the main chain
+        //         // let end_pos = Point3::from(lerp_vector3(
+        //         //     &prev_ik.end_joint_position,
+        //         //     &next_ik.end_joint_position,
+        //         //     t,
+        //         // ));
 
-                // let pole_pos = Point3::from(lerp_vector3(
-                //     &prev_ik.pole_vector_position,
-                //     &next_ik.pole_vector_position,
-                //     t,
-                // ));
+        //         // let pole_pos = Point3::from(lerp_vector3(
+        //         //     &prev_ik.pole_vector_position,
+        //         //     &next_ik.pole_vector_position,
+        //         //     t,
+        //         // ));
 
-                // // Calculate the final rotation based on the direction to the end
-                // let pole_to_end = (end_pos - pole_pos).normalize();
-                // let default_up = Vector3::new(0.0, 1.0, 0.0);
-                // let end_rot = UnitQuaternion::rotation_between(&default_up, &pole_to_end)
-                //     .unwrap_or(UnitQuaternion::identity());
-            }
-        } else if let (Some(prev_fk), Some(next_fk)) =
-            (&prev_keyframe.fk_settings, &next_keyframe.fk_settings)
-        {
-            if let Some(k_chain_id) = &motion_path.target.k_chain_id {
-                let chain_bones = collect_chain_bones(part_data, k_chain_id);
+        //         // // Calculate the final rotation based on the direction to the end
+        //         // let pole_to_end = (end_pos - pole_pos).normalize();
+        //         // let default_up = Vector3::new(0.0, 1.0, 0.0);
+        //         // let end_rot = UnitQuaternion::rotation_between(&default_up, &pole_to_end)
+        //         //     .unwrap_or(UnitQuaternion::identity());
+        //     }
+        // } else if let (Some(prev_fk), Some(next_fk)) =
+        //     (&prev_keyframe.fk_settings, &next_keyframe.fk_settings)
+        // {
+        //     if let Some(k_chain_id) = &motion_path.target.k_chain_id {
+        //         let chain_bones = collect_chain_bones(part_data, k_chain_id);
 
-                if chain_bones.is_empty() {
-                    println!("Warning: No bones found for FK chain {}", k_chain_id);
-                    return transforms;
-                }
+        //         if chain_bones.is_empty() {
+        //             println!("Warning: No bones found for FK chain {}", k_chain_id);
+        //             return transforms;
+        //         }
 
-                // Interpolate rotations
-                let start_rotation = interpolate_quaternion(
-                    &prev_fk.start_joint_rotation,
-                    &next_fk.start_joint_rotation,
-                    t,
-                );
+        //         // Interpolate rotations
+        //         let start_rotation = interpolate_quaternion(
+        //             &prev_fk.start_joint_rotation,
+        //             &next_fk.start_joint_rotation,
+        //             t,
+        //         );
 
-                let pole_rotation = interpolate_quaternion(
-                    &prev_fk.pole_vector_rotation,
-                    &next_fk.pole_vector_rotation,
-                    t,
-                );
+        //         let pole_rotation = interpolate_quaternion(
+        //             &prev_fk.pole_vector_rotation,
+        //             &next_fk.pole_vector_rotation,
+        //             t,
+        //         );
 
-                let end_rotation = interpolate_quaternion(
-                    &prev_fk.end_joint_rotation,
-                    &next_fk.end_joint_rotation,
-                    t,
-                );
+        //         let end_rotation = interpolate_quaternion(
+        //             &prev_fk.end_joint_rotation,
+        //             &next_fk.end_joint_rotation,
+        //             t,
+        //         );
 
-                // Get base position from attachment transform
-                let base_position = part_data.attachment_transform.position;
+        //         // Get base position from attachment transform
+        //         let base_position = part_data.attachment_transform.position;
 
-                match chain_bones.as_slice() {
-                    [first, second] => {
-                        let mut current_pos = base_position;
-                        let mut accumulated_rotation = start_rotation;
+        //         match chain_bones.as_slice() {
+        //             [first, second] => {
+        //                 let mut current_pos = base_position;
+        //                 let mut accumulated_rotation = start_rotation;
 
-                        // First bone
-                        transforms
-                            .insert(first.start_joint_id.clone(), (current_pos, start_rotation));
+        //                 // First bone
+        //                 transforms
+        //                     .insert(first.start_joint_id.clone(), (current_pos, start_rotation));
 
-                        // Calculate first bone end position (pole position)
-                        let middle_offset =
-                            accumulated_rotation * Vector3::new(0.0, -first.length, 0.0);
-                        current_pos = Point3::from(current_pos.coords + middle_offset);
-                        accumulated_rotation = accumulated_rotation * pole_rotation;
+        //                 // Calculate first bone end position (pole position)
+        //                 let middle_offset =
+        //                     accumulated_rotation * Vector3::new(0.0, -first.length, 0.0);
+        //                 current_pos = Point3::from(current_pos.coords + middle_offset);
+        //                 accumulated_rotation = accumulated_rotation * pole_rotation;
 
-                        // Store pole position for both end of first bone and start of second
-                        transforms.insert(
-                            first.end_joint_id.clone(),
-                            (current_pos, accumulated_rotation),
-                        );
-                        transforms.insert(
-                            second.start_joint_id.clone(),
-                            (current_pos, accumulated_rotation),
-                        );
+        //                 // Store pole position for both end of first bone and start of second
+        //                 transforms.insert(
+        //                     first.end_joint_id.clone(),
+        //                     (current_pos, accumulated_rotation),
+        //                 );
+        //                 transforms.insert(
+        //                     second.start_joint_id.clone(),
+        //                     (current_pos, accumulated_rotation),
+        //                 );
 
-                        // Calculate second bone end position
-                        let end_offset =
-                            accumulated_rotation * Vector3::new(0.0, -second.length, 0.0);
-                        current_pos = Point3::from(current_pos.coords + end_offset);
-                        accumulated_rotation = accumulated_rotation * end_rotation;
+        //                 // Calculate second bone end position
+        //                 let end_offset =
+        //                     accumulated_rotation * Vector3::new(0.0, -second.length, 0.0);
+        //                 current_pos = Point3::from(current_pos.coords + end_offset);
+        //                 accumulated_rotation = accumulated_rotation * end_rotation;
 
-                        // Store final position and rotation
-                        transforms.insert(
-                            second.end_joint_id.clone(),
-                            (current_pos, accumulated_rotation),
-                        );
-                    }
-                    _ => {
-                        println!(
-                            "Warning: Expected exactly 2 bones in FK chain {}, found {}",
-                            k_chain_id,
-                            chain_bones.len()
-                        );
-                    }
-                }
-            }
-        }
+        //                 // Store final position and rotation
+        //                 transforms.insert(
+        //                     second.end_joint_id.clone(),
+        //                     (current_pos, accumulated_rotation),
+        //                 );
+        //             }
+        //             _ => {
+        //                 println!(
+        //                     "Warning: Expected exactly 2 bones in FK chain {}, found {}",
+        //                     k_chain_id,
+        //                     chain_bones.len()
+        //                 );
+        //             }
+        //         }
+        //     }
+        // }
 
         // println!("---^^^---Transforms: {:?}", transforms);
 

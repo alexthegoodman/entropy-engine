@@ -1,6 +1,6 @@
 use cgmath::{Matrix4, Point3, Vector2, Vector3, Rad, perspective, InnerSpace};
 
-use crate::core::{SimpleCamera::SimpleCamera, editor::{Point, WindowSize, size_to_normal}};
+use crate::core::{SimpleCamera::SimpleCamera, editor::{Point, WindowSize, WindowSizeShader, size_to_normal}};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Camera {
@@ -324,6 +324,7 @@ use cgmath::SquareMatrix;
 pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
     view_pos: [f32; 4],
+    window_size: WindowSizeShader
 }
 
 impl CameraUniform {
@@ -331,6 +332,7 @@ impl CameraUniform {
         Self {
             view_proj: Matrix4::identity().into(),
             view_pos: [0.0; 4],
+            window_size: WindowSizeShader { width: 1.0, height: 1.0 }
         }
     }
 
@@ -345,6 +347,7 @@ impl CameraUniform {
     pub fn update_view_proj_3d(&mut self, camera: &SimpleCamera) {
         self.view_proj = camera.view_projection_matrix.into();
         self.view_pos = camera.position.to_homogeneous().into();
+        self.window_size = WindowSizeShader { width: camera.viewport.width, height: camera.viewport.height }
     }
 }
 

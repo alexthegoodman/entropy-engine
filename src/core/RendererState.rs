@@ -28,7 +28,14 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
+
+
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
+
 use transform_gizmo::{enum_set, Gizmo, GizmoConfig, GizmoMode, GizmoOrientation, GizmoVisuals, Rect};
 use transform_gizmo::mint::RowMatrix4;
 
@@ -154,6 +161,7 @@ pub struct RendererState {
 
     pub last_movement_time: Option<Instant>,
     pub last_frame_time: Option<Instant>,
+
     pub current_mouse_position: Option<EntropyPosition>,
     pub last_mouse_position: Option<EntropyPosition>,
 
@@ -379,7 +387,7 @@ impl RendererState {
             },
             camera_pitch: 0.0,
             camera_yaw: 0.0,
-            last_mouse_position_time: std::time::Instant::now(),
+            last_mouse_position_time: Instant::now(),
             gizmo,
         }
     }
@@ -387,7 +395,7 @@ impl RendererState {
     pub fn set_mouse_position(&mut self, new_position: EntropyPosition) {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
-        self.last_mouse_position_time = std::time::Instant::now();
+        self.last_mouse_position_time = Instant::now();
     }
 
     pub fn is_player_grounded(
@@ -445,20 +453,27 @@ impl RendererState {
 
     pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, camera_binding: &mut CameraBinding, camera: &mut SimpleCamera) {
         // Calculate delta time
-        let now = std::time::Instant::now();
+        let now = Instant::now();
         let dt = if let Some(last_time) = self.last_frame_time {
             (now - last_time).as_secs_f32()
         } else {
             0.0
         };
 
-        let near_future = self.last_mouse_position_time.checked_add(Duration::from_millis(100));
+        let near_future = self.last_mouse_position_time.elapsed().as_secs_f64();
 
-        if let Some(future) = near_future {
-            if future < now {
-                self.last_mouse_position = None;
-                self.current_mouse_position =  None;
-            }
+        // if let Some(future) = near_future {
+        #[cfg(target_os = "windows")]
+        if near_future < now {
+            self.last_mouse_position = None;
+            self.current_mouse_position =  None;
+        }
+        // }
+
+        #[cfg(target_arch = "wasm32")]
+        if near_future < js_sys::Date::now() {
+            self.last_mouse_position = None;
+            self.current_mouse_position =  None;
         }
         
         self.last_frame_time = Some(now);

@@ -5,7 +5,13 @@ use rapier3d::prelude::{Collider, ColliderBuilder, RigidBody, RigidBodyBuilder};
 use std::num::NonZeroU32;
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::time::Instant;
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
+
 use util::BufferInitDescriptor;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;

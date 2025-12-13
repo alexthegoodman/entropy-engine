@@ -12,7 +12,6 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::Instant;
 use std::{cell::RefCell, collections::HashMap};
 use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
