@@ -1,5 +1,7 @@
 use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 
+#[cfg(target_arch = "wasm32")]
+use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures}, editor::Editor}, 
     handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_model, handle_add_trees, handle_add_water_plane}, 
@@ -12,7 +14,7 @@ pub async fn load_project(editor: &mut Editor, project_id: &str) {
     // let editor = self.export_editor.as_mut().unwrap();
     match utilities::load_project_state(project_id).await {
         Ok(loaded_state) => {
-            place_project(editor, project_id, loaded_state);
+            place_project(editor, project_id, loaded_state).await;
             }
         Err(e) => {
             println!("Failed to load project: {}", e);
@@ -20,7 +22,7 @@ pub async fn load_project(editor: &mut Editor, project_id: &str) {
     }
 }
 
-pub fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
+pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
 editor.saved_state = Some(loaded_state);
             
             let renderer_state = editor.renderer_state.as_mut().unwrap();
@@ -49,7 +51,7 @@ editor.saved_state = Some(loaded_state);
                                                     heightmap.fileName.clone(),
                                                     component.generic_properties.position,
                                                     camera,
-                                                );
+                                                ).await;
 
                                                 // Existing texture loading for regular textures (optional, can be removed if fully PBR)
                                                 if let Some(textures) = &saved_state.textures {
@@ -106,7 +108,7 @@ editor.saved_state = Some(loaded_state);
                                                                 component.asset_id.clone(),
                                                                 rock_mask.fileName.clone(),
                                                                 LandscapeTextureKinds::Rockmap,
-                                                            );
+                                                            ).await;
                                                             landscape_obj.update_texture(
                                                                 &gpu_resources.device, 
                                                                 &gpu_resources.queue, 
@@ -123,7 +125,7 @@ editor.saved_state = Some(loaded_state);
                                                                 component.asset_id.clone(),
                                                                 soil_mask.fileName.clone(),
                                                                 LandscapeTextureKinds::Soil,
-                                                            );
+                                                            ).await;
                                                             landscape_obj.update_texture(
                                                                 &gpu_resources.device, 
                                                                 &gpu_resources.queue, 
@@ -135,83 +137,12 @@ editor.saved_state = Some(loaded_state);
                                                             );
                                                         }
 
-                                                        // // Primary PBR Texture
-                                                        // this is not likely to get set, as the other textures should cover the whole landscape
-                                                        // if let Some(pbr_texture_id) = &landscape_properties.primary_pbr_texture_id { 
-                                                        //     if let Some(pbr_data) = pbr_textures.iter().find(|p| &p.id == pbr_texture_id) {
-                                                        //         // Load diffuse (albedo)
-                                                        //         if let Some(diff_file) = &pbr_data.diff {
-                                                        //             if let Ok(bytes) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), diff_file.fileName.clone()) {
-                                                        //                 if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, diff_file.fileName.clone(), false) {
-                                                        //                     landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Primary, &texture);
-                                                        //                 }
-                                                        //             } else {
-                                                        //                 println!("Failed to load texture!");
-                                                        //             }
-                                                        //         }
-                                                        //         // Load normal
-                                                        //         if let Some(nor_gl_file) = &pbr_data.nor_gl {
-                                                        //             if let Ok(bytes) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), nor_gl_file.fileName.clone()) {
-                                                        //                 if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, nor_gl_file.fileName.clone(), false) {
-                                                        //                     landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Primary, &texture);
-                                                        //                 }
-                                                        //             } else {
-                                                        //                 println!("Failed to load texture!");
-                                                        //             }
-                                                        //         }
-                                                        //         // Load roughness/metallic/AO (packed into pbr_params_texture)
-                                                        //         let mut pbr_params_data = vec![0u8; 4]; // r=roughness, g=metallic, b=ao
-                                                        //         if let Some(rough_file) = &pbr_data.rough {
-                                                        //             if let Ok(bytes) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()) {
-                                                        //                 if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, rough_file.fileName.clone(), false) {
-                                                        //                     // For simplicity, taking the red channel of roughness
-                                                        //                     // A more robust solution would involve proper image processing
-                                                        //                     // or dedicated metallic/ao maps.
-                                                        //                     if !texture.data.is_empty() {
-                                                        //                         pbr_params_data[0] = texture.data[0]; // Roughness (red channel)
-                                                        //                     }
-                                                        //                 }
-                                                        //             } else {
-                                                        //                 println!("Failed to load texture!");
-                                                        //             }
-                                                        //         }
-                                                        //         if let Some(metallic_file) = &pbr_data.metallic { // Assuming 'metallic' field exists in PBRTextureData
-                                                        //             if let Ok(bytes) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()) {
-                                                        //                 if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, metallic_file.fileName.clone(), false) {
-                                                        //                     if !texture.data.is_empty() {
-                                                        //                         pbr_params_data[1] = texture.data[0]; // Metallic (red channel)
-                                                        //                     }
-                                                        //                 }
-                                                        //             } else {
-                                                        //                 println!("Failed to load texture!");
-                                                        //             }
-                                                        //         }
-                                                        //         if let Some(ao_file) = &pbr_data.ao { // Assuming 'ao' field exists in PBRTextureData
-                                                        //             if let Ok(bytes) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()) {
-                                                        //                 if let Ok(texture) = Texture::from_bytes(&gpu_resources.device, &gpu_resources.queue, &bytes, ao_file.fileName.clone(), false) {
-                                                        //                     if !texture.data.is_empty() {
-                                                        //                         pbr_params_data[2] = texture.data[0]; // AO (red channel)
-                                                        //                     }
-                                                        //                 }
-                                                        //             } else {
-                                                        //                 println!("Failed to load texture!");
-                                                        //             }
-                                                        //         }
-
-                                                        //         // Create packed PBR params texture
-                                                        //         let pbr_params_texture = Texture::from_bytes_1x1(&gpu_resources.device, &gpu_resources.queue, &pbr_params_data, "packed_pbr_params", false);
-                                                        //         if let Ok(texture) = pbr_params_texture {
-                                                        //             landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::MetallicRoughnessAO, PBRMaterialType::Primary, &texture);
-                                                        //         }
-                                                        //     }
-                                                        // }
-
                                                         // Rockmap PBR Texture (similar logic as primary)
                                                         if let Some(pbr_texture_id) = &landscape_properties.rockmap_pbr_texture_id {
                                                             if let Some(pbr_data) = pbr_textures.iter().find(|p| &p.id == pbr_texture_id) {
                                                                 // Load diffuse (albedo)
                                                                 if let Some(diff_file) = &pbr_data.diff {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), diff_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), diff_file.fileName.clone()).await {
                                                                         if let texture = Texture::new(data.0, data.1, data.2) {
                                                                             landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Rockmap, &texture);
                                                                         } else {
@@ -223,7 +154,7 @@ editor.saved_state = Some(loaded_state);
                                                                 }
                                                                 // Load normal
                                                                 if let Some(nor_gl_file) = &pbr_data.nor_gl {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), nor_gl_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), nor_gl_file.fileName.clone()).await {
                                                                         if let texture = Texture::new(data.0, data.1, data.2) {
                                                                             landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Rockmap, &texture);
                                                                         } else {
@@ -241,21 +172,21 @@ editor.saved_state = Some(loaded_state);
                                                                 // Load roughness/metallic/AO
                                                                 // let mut pbr_params_data = vec![0u8; 4];
                                                                 if let Some(rough_file) = &pbr_data.rough {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()).await {
                                                                         rough_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
                                                                     }
                                                                 }
                                                                 if let Some(metallic_file) = &pbr_data.metallic {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()).await {
                                                                         metallic_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
                                                                     }
                                                                 }
                                                                 if let Some(ao_file) = &pbr_data.ao {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()).await {
                                                                         ao_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
@@ -278,7 +209,7 @@ editor.saved_state = Some(loaded_state);
                                                             if let Some(pbr_data) = pbr_textures.iter().find(|p| &p.id == pbr_texture_id) {
                                                                 // Load diffuse (albedo)
                                                                 if let Some(diff_file) = &pbr_data.diff {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), diff_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), diff_file.fileName.clone()).await {
                                                                         if let texture = Texture::new(data.0, data.1, data.2) {
                                                                             landscape_obj.update_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, LandscapeTextureKinds::Soil, &texture);
                                                                         } else {
@@ -290,7 +221,7 @@ editor.saved_state = Some(loaded_state);
                                                                 }
                                                                 // Load normal
                                                                 if let Some(nor_gl_file) = &pbr_data.nor_gl {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), nor_gl_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), nor_gl_file.fileName.clone()).await {
                                                                         if let texture = Texture::new(data.0, data.1, data.2) {
                                                                             landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::Normal, PBRMaterialType::Soil, &texture);
                                                                         } else {
@@ -344,21 +275,21 @@ editor.saved_state = Some(loaded_state);
                                                                 // Load roughness/metallic/AO
                                                                 // let mut pbr_params_data = vec![0u8; 4];
                                                                 if let Some(rough_file) = &pbr_data.rough {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()).await {
                                                                         rough_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
                                                                     }
                                                                 }
                                                                 if let Some(metallic_file) = &pbr_data.metallic {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()).await {
                                                                         metallic_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
                                                                     }
                                                                 }
                                                                 if let Some(ao_file) = &pbr_data.ao {
-                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()) {
+                                                                    if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()).await {
                                                                         ao_tex = Some(Texture::new(data.0, data.1, data.2));
                                                                     } else {
                                                                         println!("Failed to load texture!");
@@ -377,8 +308,11 @@ editor.saved_state = Some(loaded_state);
                                                     }
                                                 }
 
-
+                                                #[cfg(target_os = "windows")]
                                                 let heightmap_texture = read_landscape_heightmap_as_texture(project_id.to_string(), landscape_data.id.clone(), heightmap.fileName.clone());
+
+                                                #[cfg(target_arch = "wasm32")]
+                                                let heightmap_texture = read_landscape_heightmap_as_texture_wasm(project_id.to_string(), landscape_data.id.clone(), heightmap.fileName.clone()).await;
 
                                                 if let Some(texture) = heightmap_texture.ok() {
                                                     // TODO: only load in when in saved state / data, and with the desireed configuration (ex. grass color)

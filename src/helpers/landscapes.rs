@@ -7,6 +7,8 @@ use tiff::decoder::{Decoder, DecodingResult};
 use nalgebra as na;
 
 use crate::helpers::saved_data::LandscapeTextureKinds;
+#[cfg(target_arch = "wasm32")]
+use crate::helpers::wasm_loaders::read_texture_bytes_wasm;
 
 use super::utilities::get_common_os_dir;
 
@@ -323,7 +325,27 @@ pub fn read_landscape_mask(
     })
 }
 
-pub fn read_texture_bytes(
+pub async fn read_texture_bytes(
+    project_id: String,
+    asset_id: String, // This could be landscapeId or pbr_texture_id
+    file_name: String,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    #[cfg(target_os = "windows")]
+    return read_texture_bytes_local(
+        project_id,
+        asset_id,
+        file_name
+    );
+
+    #[cfg(target_arch = "wasm32")]
+    read_texture_bytes_wasm(
+        project_id,
+        asset_id,
+        file_name
+    ).await
+}
+
+pub fn read_texture_bytes_local(
     project_id: String,
     asset_id: String, // This could be landscapeId or pbr_texture_id
     file_name: String,

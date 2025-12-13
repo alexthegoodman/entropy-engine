@@ -13,7 +13,7 @@ use exr::image::read as exr_read;
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_project_state_wasm(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
-    let url = format!("asset://midpoint/projects/{}/midpoint.json", project_id);
+    let url = format!("http://asset.localhost/midpoint/projects/{}/midpoint.json", project_id);
     let json_content = reqwest::get(&url).await?.text().await?;
     let state: SavedState = serde_json::from_str(&json_content)?;
     Ok(state)
@@ -136,7 +136,7 @@ pub async fn get_landscape_pixels_wasm(
     landscape_filename: String,
 ) -> LandscapePixelData {
     let url = format!(
-        "asset://midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
         project_id, landscape_asset_id, landscape_filename
     );
 
@@ -174,7 +174,7 @@ pub async fn read_landscape_heightmap_as_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "asset://midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
         project_id, landscape_id, texture_filename
     );
 
@@ -232,7 +232,7 @@ pub async fn read_landscape_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "asset://midpoint/projects/{}/textures/{}.png",
+        "http://asset.localhost/midpoint/projects/{}/textures/{}.png",
         project_id, texture_filename
     );
     load_image_from_url(&url)
@@ -256,7 +256,7 @@ pub async fn read_landscape_mask_wasm(
     };
 
     let url = format!(
-        "asset://midpoint/projects/{}/landscapes/{}/{}/{}",
+        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/{}/{}",
         project_id, landscape_id, kind_slug, mask_filename
     );
 
@@ -273,7 +273,7 @@ pub async fn read_texture_bytes_wasm(
 ) -> Result<(Vec<u8>, u32, u32), String> {
     // Determine the base directory based on asset_id type
     let url = format!(
-        "asset://midpoint/projects/{}/textures/{}",
+        "http://asset.localhost/midpoint/projects/{}/textures/{}",
         project_id, file_name
     );
 

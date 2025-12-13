@@ -22,6 +22,8 @@ use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::ComponentKind;
+#[cfg(target_arch = "wasm32")]
+use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
@@ -291,7 +293,7 @@ pub struct PixelData {
     pub tex_coords: [f32; 2],
 }
 
-pub fn handle_add_landscape(
+pub async fn handle_add_landscape(
     state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -303,7 +305,12 @@ pub fn handle_add_landscape(
     camera: &mut SimpleCamera
 ) {
     // w/o quadtree
+    #[cfg(target_os = "windows")]
     let data = get_landscape_pixels(projectId, landscapeAssetId, landscapeFilename);
+
+    #[cfg(target_arch = "wasm32")]
+    let data = get_landscape_pixels_wasm(projectId, landscapeAssetId, landscapeFilename).await;
+
     state.add_landscape(device, queue, &landscapeComponentId, &data, position, camera);
     state.add_collider(landscapeComponentId, ComponentKind::Landscape);
 
@@ -357,7 +364,7 @@ pub fn handle_add_skeleton_part(
     resume_rendering();
 }
 
-pub fn handle_add_landscape_texture(
+pub async fn handle_add_landscape_texture(
     state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -382,13 +389,13 @@ pub fn handle_add_landscape_texture(
         landscape_asset_id.clone(),
         texture_filename,
         // texture_kind.clone(),
-    );
+    ).await;
     let mask = fetch_mask_data(
         project_id.clone(),
         landscape_asset_id.clone(),
         mask_filename,
         texture_kind.clone(),
-    );
+    ).await;
 
     let maskKind = match texture_kind_clone {
         LandscapeTextureKinds::Primary => LandscapeTextureKinds::PrimaryMask,
@@ -410,25 +417,36 @@ pub fn handle_add_landscape_texture(
     );
 }
 
-pub fn fetch_texture_data(
+pub async fn fetch_texture_data(
     project_id: String,
     landscape_id: String,
     texture_filename: String,
 ) -> Texture {
+    #[cfg(target_os = "windows")]
     let texture_data =
-        read_landscape_texture(project_id, landscape_id, texture_filename)
+            read_landscape_texture(project_id, landscape_id, texture_filename)
+                .expect("Couldn't get texture data");
+
+    #[cfg(target_arch = "wasm32")]
+    let texture_data =
+        read_landscape_texture_wasm(project_id, landscape_id, texture_filename).await
             .expect("Couldn't get texture data");
 
     Texture::new(texture_data.bytes, texture_data.width, texture_data.height)
 }
 
-pub fn fetch_mask_data(
+pub async fn fetch_mask_data(
     project_id: String,
     landscape_id: String,
     mask_filename: String,
     mask_kind: LandscapeTextureKinds,
 ) -> Texture {
+    #[cfg(target_os = "windows")]
     let mask_data = read_landscape_mask(project_id, landscape_id, mask_filename, mask_kind)
+        .expect("Couldn't get mask data");
+
+    #[cfg(target_arch = "wasm32")]
+    let mask_data = read_landscape_mask_wasm(project_id, landscape_id, mask_filename, mask_kind).await
         .expect("Couldn't get mask data");
 
     Texture::new(mask_data.bytes, mask_data.width, mask_data.height)
