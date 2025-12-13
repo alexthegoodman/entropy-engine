@@ -1404,6 +1404,8 @@ impl ExportPipeline {
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
 
+            let clear_color = wgpu::Color::BLACK;
+
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Geometry Pass"),
                 color_attachments: &[
@@ -1411,7 +1413,7 @@ impl ExportPipeline {
                         view: gbuffer_position_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None
@@ -1420,7 +1422,7 @@ impl ExportPipeline {
                         view: gbuffer_normal_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None
@@ -1429,7 +1431,7 @@ impl ExportPipeline {
                         view: gbuffer_albedo_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None
@@ -1438,7 +1440,7 @@ impl ExportPipeline {
                         view: gbuffer_pbr_material_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load: wgpu::LoadOp::Clear(clear_color),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None
