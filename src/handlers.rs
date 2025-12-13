@@ -23,7 +23,7 @@ use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::ComponentKind;
 #[cfg(target_arch = "wasm32")]
-use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm};
+use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
@@ -242,7 +242,7 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
     renderer_state.gizmo.update_config(config.clone());
 }
 
-pub fn handle_add_model(
+pub async fn handle_add_model(
     state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -254,13 +254,17 @@ pub fn handle_add_model(
     scale: Vector3<f32>,
     camera: &SimpleCamera
 ) {
+    #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
-pub fn handle_add_npc(
+pub async fn handle_add_npc(
     state: &mut RendererState,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -272,7 +276,11 @@ pub fn handle_add_npc(
     scale: Vector3<f32>,
     camera: &SimpleCamera
 ) {
+    #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
 

@@ -361,7 +361,7 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera
-                                            );
+                                            ).await;
                                         }
                                     }
 

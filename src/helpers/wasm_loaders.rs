@@ -383,3 +383,24 @@ pub async fn read_texture_bytes_wasm(
 
     Ok((bytes, width, height))
 }
+
+pub async fn read_model_wasm(
+    projectId: String,
+    modelFilename: String,
+) -> Result<Vec<u8>, String> {
+    let url = format!(
+        "http://asset.localhost/midpoint/projects/{}/models/{}",
+        projectId, modelFilename
+    );
+
+    println!("Attempting to read texture from URL: {:?}", url);
+
+    let response_bytes = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch texture: {}", e))?
+        .bytes()
+        .await
+        .map_err(|e| format!("Failed to get texture bytes: {}", e))?;
+
+    Ok(response_bytes.to_vec())
+}
