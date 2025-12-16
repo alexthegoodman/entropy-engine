@@ -166,7 +166,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             renderer_state.apply_player_movement(movement_direction);
         } else {
             // Free camera mode - directly update position with full 3D movement
-            let diff = movement_direction * 0.1;
+            let diff = movement_direction * 0.5;
             camera.position += diff;
             camera.update();
             camera_binding.update_3d(&gpu_resources.queue, &camera);

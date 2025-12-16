@@ -40,7 +40,7 @@ anyhow = "1.0"
 raw-window-handle = "0.6.2"
 nalgebra = { version = "0.32.5", features = ["mint"] }
 nalgebra-glm = "0.18.0"
-tokio = "1.41.0"
+tokio = { version = "1.41.0", features = ["fs", "full"] }
 base64 = "0.22.1"
 tiff = "0.9.1"
 reqwest = { version = "0.12.4", features = ["json"] }

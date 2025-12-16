@@ -54,4 +54,4 @@ Example Game:
 - `cargo run --bin game --release` (need the game files to run)
 
 Level Editor: 
-- `cargo run --bin entropy-engine --release`
+- `cargo run --bin editor --release`

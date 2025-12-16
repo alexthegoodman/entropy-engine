@@ -4,7 +4,8 @@ use entropy_engine::startup;
 use std::error::Error;
 use std::env;
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let project_id = Some("5fa6dd47-4355-4de5-b5a3-a7f61e979fcc".to_string());
     
     #[cfg(target_os = "windows")]

@@ -9,6 +9,7 @@ use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use uuid::Uuid;
+use pollster; // For pollster::block_on
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
@@ -1952,7 +1953,8 @@ impl ExportPipeline {
                 for project_id in &self.projects {
                     if ui.button(project_id).clicked() {
 
-                        load_project(editor, project_id); // await needed?
+                        // load_project(editor, project_id); // await needed?
+                        pollster::block_on(load_project(editor, project_id));
                     }
                 }
             });

@@ -1,35 +1,3 @@
-// use winit::{
-//     event::{Event, WindowEvent},
-//     event_loop::{ControlFlow, EventLoop},
-//     window::WindowBuilder,
-// };
-
-// pub fn run() {
-//     env_logger::init();
-//     let event_loop = EventLoop::new();
-//     let window = WindowBuilder::new()
-//         .with_title("Entropy Engine Examples")
-//         .with_inner_size(winit::dpi::LogicalSize::new(1024, 768))
-//         .build(&event_loop)
-//         .unwrap();
-
-//     event_loop.run(move |event, _, control_flow| {
-//         *control_flow = ControlFlow::Poll;
-
-//         match event {
-//             Event::WindowEvent {
-//                 event: WindowEvent::CloseRequested,
-//                 ..
-//             } => {
-//                 *control_flow = ControlFlow::wait_duration(0);
-//             }
-//             _ => (),
-//         }
-//     });
-// }
-
-//! Simple winit application.
-
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
@@ -658,7 +626,7 @@ impl ApplicationHandler<UserEvent> for Application {
             if let Some(project_id) = &self.project_id {
                 if let Some(window) = self.windows.values_mut().next() {
                     if let Some(editor) = window.pipeline.export_editor.as_mut() {
-                        load_project(editor, project_id);
+                        pollster::block_on(load_project(editor, project_id));
                         self.project_loaded = true;
                     }
                 }
