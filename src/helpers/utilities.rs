@@ -103,23 +103,45 @@ pub fn get_models_dir(project_id: &str) -> Option<PathBuf> {
     Some(models_dir)
 }
 
+// #[cfg(not(target_arch = "wasm32"))]
+// pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
+//     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+//     let project_dir = sync_dir.join("midpoint/projects").join(project_id);
+//     let json_path = project_dir.join("midpoint.json");
+
+//     // Check if the project directory and json file exist
+//     if !project_dir.exists() {
+//         return Err(format!("Project directory '{}' not found", project_id).into());
+//     }
+//     if !json_path.exists() {
+//         return Err(format!("midpoint.json not found in project '{}'", project_id).into());
+//     }
+
+//     // Read and parse the JSON file
+//     let json_content = fs::read_to_string(json_path)?;
+//     let state: SavedState = serde_json::from_str(&json_content)?;
+
+//     Ok(state)
+// }
+
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
+pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error + Send>> {
     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
     let project_dir = sync_dir.join("midpoint/projects").join(project_id);
     let json_path = project_dir.join("midpoint.json");
 
     // Check if the project directory and json file exist
-    if !project_dir.exists() {
-        return Err(format!("Project directory '{}' not found", project_id).into());
-    }
-    if !json_path.exists() {
-        return Err(format!("midpoint.json not found in project '{}'", project_id).into());
-    }
+    // if !project_dir.exists() {
+    //     return Err(format!("Project directory '{}' not found", project_id).into());
+    // }
+    // if !json_path.exists() {
+    //     return Err(format!("midpoint.json not found in project '{}'", project_id).into());
+    // }
 
-    // Read and parse the JSON file
-    let json_content = fs::read_to_string(json_path)?;
-    let state: SavedState = serde_json::from_str(&json_content)?;
+    // Read and parse the JSON file - now using tokio::fs
+    let json_content = tokio::fs::read_to_string(json_path).await;
+    let json_content = json_content.as_ref().expect("Couldn't get json");
+    let state: SavedState = serde_json::from_str(&json_content).expect("Couldn't get state");
 
     Ok(state)
 }
@@ -134,7 +156,7 @@ pub fn update_project_state_component(project_id: &str, component: &ComponentDat
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
     let json_path = project_dir.join("midpoint.json");
 
-    let mut existing_state = pollster::block_on(load_project_state(project_id))?;
+    let mut existing_state = pollster::block_on(load_project_state(project_id)).expect("Couldn't load saved state!");
 
     let level = existing_state.levels.as_mut().expect("Couldn't get levels");
 
