@@ -23,6 +23,7 @@ Powering a unified OS inspired by MCP.
 
 TBD:
 
+- Game Saves for players
 - Skybox Pipeline
 - Parallax Mapping
 - Tessellation
@@ -44,6 +45,10 @@ TBD:
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
+- Heightmap creation with erosion noise (also specify x,z and height of mountain or start and end points and depth for canyon)
+- Procedural models for characters and objects
+- Animation creation for Models (FK + IK)
+- Texture creation (using noise and colors)
 
 ## Run
 

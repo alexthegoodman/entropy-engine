@@ -33,6 +33,27 @@ struct WaterConfig {
     subsurface_multiplier: f32,
     fresnel_power: f32,
     fresnel_multiplier: f32,
+    
+    // Wave 1 parameters
+    wave1_amplitude: f32,
+    wave1_frequency: f32,
+    wave1_speed: f32,
+    wave1_steepness: f32,
+    wave1_direction: vec2<f32>,
+    
+    // Wave 2 parameters
+    wave2_amplitude: f32,
+    wave2_frequency: f32,
+    wave2_speed: f32,
+    wave2_steepness: f32,
+    wave2_direction: vec2<f32>,
+    
+    // Wave 3 parameters
+    wave3_amplitude: f32,
+    wave3_frequency: f32,
+    wave3_speed: f32,
+    wave3_steepness: f32,
+    wave3_direction: vec2<f32>,
 }
 @group(3) @binding(0)
 var<uniform> water_config: WaterConfig;
@@ -177,25 +198,26 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var normal = vec3<f32>(0.0, 1.0, 0.0);
     var velocity = vec2<f32>(0.0, 0.0);
 
-    let dir1 = normalize(vec2<f32>(1.0, 0.5));
-    let dir2 = normalize(vec2<f32>(-0.7, 1.0));
-    let dir3 = normalize(vec2<f32>(0.8, -0.6));
+    // Normalize wave directions from config
+    let dir1 = normalize(water_config.wave1_direction);
+    let dir2 = normalize(water_config.wave2_direction);
+    let dir3 = normalize(water_config.wave3_direction);
 
-    // Large Gerstner Waves
-    let wave1 = gerstner_wave(pos.xz, dir1, 0.3, 1.5, 0.08, 0.8);
-    let wave2 = gerstner_wave(pos.xz, dir2, 0.3, 1.2, 0.09, 1.2);
-    let wave3 = gerstner_wave(pos.xz, dir3, 0.25, 0.8, 0.12, 1.5);
+    // Large Gerstner Waves (using configurable parameters)
+    let wave1 = gerstner_wave(pos.xz, dir1, water_config.wave1_steepness, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
+    let wave2 = gerstner_wave(pos.xz, dir2, water_config.wave2_steepness, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
+    let wave3 = gerstner_wave(pos.xz, dir3, water_config.wave3_steepness, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
     
     pos += wave1 + wave2 + wave3;
 
-    velocity += gerstner_wave_velocity(pos.xz, dir1, 1.5, 0.08, 0.8);
-    velocity += gerstner_wave_velocity(pos.xz, dir2, 1.2, 0.09, 1.2);
-    velocity += gerstner_wave_velocity(pos.xz, dir3, 0.8, 0.12, 1.5);
+    velocity += gerstner_wave_velocity(pos.xz, dir1, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
+    velocity += gerstner_wave_velocity(pos.xz, dir2, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
+    velocity += gerstner_wave_velocity(pos.xz, dir3, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
 
     // Calculate normals
-    let n_wave1 = gerstner_wave_normal(pos.xz, dir1, 0.3, 1.5, 0.08, 0.8);
-    let n_wave2 = gerstner_wave_normal(pos.xz, dir2, 0.3, 1.2, 0.09, 1.2);
-    let n_wave3 = gerstner_wave_normal(pos.xz, dir3, 0.25, 0.8, 0.12, 1.5);
+    let n_wave1 = gerstner_wave_normal(pos.xz, dir1, water_config.wave1_steepness, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
+    let n_wave2 = gerstner_wave_normal(pos.xz, dir2, water_config.wave2_steepness, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
+    let n_wave3 = gerstner_wave_normal(pos.xz, dir3, water_config.wave3_steepness, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
     
     normal.x = -(n_wave1.x + n_wave2.x + n_wave3.x);
     normal.z = -(n_wave1.z + n_wave2.z + n_wave3.z);
@@ -208,8 +230,8 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     // Player Interaction Ripples
     let dist_to_player = distance(pos.xz, water_config.player_pos.xz);
-    if (dist_to_player < 50.0) {
-        let ripple_amplitude = water_config.ripple_amplitude_multiplier * (1.0 - dist_to_player / 50.0);
+    if (dist_to_player < 10.0) {
+        let ripple_amplitude = water_config.ripple_amplitude_multiplier * (1.0 - dist_to_player / 10.0);
         let ripple_offset = ripple_amplitude * sin(dist_to_player * water_config.ripple_freq - u_time.time * water_config.ripple_speed);
         pos.y += ripple_offset;
         

@@ -250,48 +250,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     
     // Height factor for effects (0 at base, 1 at tip)
     let height_factor = in.position.y;
-    
-    // // ===== WIND WITH BROWNIAN MOTION =====
-    // let wind_coord = blade_pos.xz * 0.1 + uniforms.time * uniforms.wind_speed * 0.1;
-    // let wind_fbm = fbm(wind_coord);
-    
-    // // Multi-octave wind for more natural movement
-    // let wind_main = snoise(wind_coord * 0.5);
-    // let wind_detail = snoise(wind_coord * 2.0) * 0.3;
-    // let combined_wind = (wind_main + wind_detail + wind_fbm * 0.5) * uniforms.wind_strength;
-    
-    // // Apply wind displacement with Brownian motion
-    // let wind_disp = vec3<f32>(
-    //     combined_wind * cos(uniforms.time * 0.5 + blade_seed * 6.28),
-    //     0.0,
-    //     combined_wind * sin(uniforms.time * 0.5 + blade_seed * 6.28)
-    // );
-    
-    // // ===== BROWNIAN FORCE (Natural random motion) =====
-    // let brownian_time = uniforms.time * 2.0 + blade_seed * 10.0;
-    // let brownian_x = snoise(vec2<f32>(brownian_time, blade_seed * 100.0)) * uniforms.brownian_strength;
-    // let brownian_z = snoise(vec2<f32>(brownian_time + 50.0, blade_seed * 100.0)) * uniforms.brownian_strength;
-    // let brownian_disp = vec3<f32>(brownian_x, 0.0, brownian_z);
 
     // ===== WIND WITH BROWNIAN MOTION =====
     var wind_disp = vec3<f32>(0.0);
 
     if (uniforms.wind_strength > 0.001) {
-        // let wind_coord = blade_pos.xz * 0.1 + uniforms.time * uniforms.wind_speed * 0.1;
-        // let wind_fbm = fbm(wind_coord);
-        
-        // // Multi-octave wind for more natural movement
-        // let wind_main = snoise(wind_coord * 0.5);
-        // let wind_detail = snoise(wind_coord * 2.0) * 0.3;
-        // let combined_wind = (wind_main + wind_detail + wind_fbm * 0.5) * uniforms.wind_strength;
-        
-        // // Apply wind displacement with Brownian motion
-        // wind_disp = vec3<f32>(
-        //     combined_wind * cos(uniforms.time * 0.5 + blade_seed * 6.28),
-        //     0.0,
-        //     combined_wind * sin(uniforms.time * 0.5 + blade_seed * 6.28)
-        // );
-
         // Spatial wind (slow-changing wind direction per blade)
         let wind_coord_spatial = blade_pos.xz * 0.05;
         let wind_direction = fbm(wind_coord_spatial);

@@ -8,18 +8,46 @@ pub struct WaterConfig {
     pub medium_color: [f32; 4],
     pub deep_color: [f32; 4],
     pub player_pos: [f32; 4],
+
     pub ripple_amplitude_multiplier: f32,
     pub ripple_freq: f32,
     pub ripple_speed: f32,
     pub shoreline_foam_range: f32,
+
     pub crest_foam_min: f32,
     pub crest_foam_max: f32,
     pub sparkle_intensity: f32,
     pub sparkle_threshold: f32,
+
     pub subsurface_multiplier: f32,
     pub fresnel_power: f32,
     pub fresnel_multiplier: f32,
-    pub _padding: [f32; 1],
+
+    // Wave 1 - primary wave
+    pub wave1_amplitude: f32,
+
+    pub wave1_frequency: f32,
+    pub wave1_speed: f32,
+    pub wave1_steepness: f32,
+    pub wave1_direction: [f32; 2],
+
+    // Wave 2 - secondary wave
+    pub wave2_amplitude: f32,
+    pub wave2_frequency: f32,
+    pub wave2_speed: f32,
+    pub wave2_steepness: f32,
+
+    pub wave2_direction: [f32; 2],
+
+    // Wave 3 - tertiary wave
+    pub wave3_amplitude: f32,
+    pub wave3_frequency: f32,
+    pub wave3_speed: f32,
+
+    pub wave3_steepness: f32,
+    pub wave3_direction: [f32; 2],
+
+    pub _padding: [f32; 2],
 }
 
 impl Default for WaterConfig {
@@ -40,7 +68,29 @@ impl Default for WaterConfig {
             subsurface_multiplier: 0.35,
             fresnel_power: 2.5,
             fresnel_multiplier: 0.6,
-            _padding: [0.0],
+
+            // Wave 1 - primary wave
+            wave1_amplitude: 1.5,
+            wave1_frequency: 0.08,
+            wave1_speed: 0.8,
+            wave1_steepness: 0.3,
+            wave1_direction: [1.0, 0.5],
+
+            // Wave 2 - secondary wave
+            wave2_amplitude: 1.2,
+            wave2_frequency: 0.09,
+            wave2_speed: 1.2,
+            wave2_steepness: 0.3,
+            wave2_direction: [-0.7, 1.0],
+
+            // Wave 3 - tertiary wave
+            wave3_amplitude: 0.8,
+            wave3_frequency: 0.12,
+            wave3_speed: 1.5,
+            wave3_steepness: 0.25,
+            wave3_direction: [0.8, -0.6],
+
+            _padding: [0.0, 0.0],
         }
     }
 }
