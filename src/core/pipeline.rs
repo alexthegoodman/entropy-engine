@@ -53,11 +53,7 @@ pub struct ExportPipeline {
     new_project_name: String,
     projects: Vec<String>,
 
-    #[cfg(target_os = "windows")]
     start_time: Instant,
-
-    #[cfg(target_arch = "wasm32")]
-    start_time: f64,
 
     // G-Buffer textures
     pub g_buffer_position_texture: Option<wgpu::Texture>,
@@ -103,11 +99,7 @@ impl ExportPipeline {
             new_project_name: String::new(),
             projects: Vec::new(),
             
-            #[cfg(target_os = "windows")]
             start_time: Instant::now(),
-            
-            #[cfg(target_arch = "wasm32")]
-            start_time: js_sys::Date::now(),
 
             g_buffer_position_texture: None,
             g_buffer_position_view: None,
@@ -1575,11 +1567,7 @@ impl ExportPipeline {
             }
 
             // draw grass
-            #[cfg(target_os = "windows")]
             let time = self.start_time.elapsed().as_secs_f32();
-            
-            #[cfg(target_arch = "wasm32")]
-            let time = js_sys::Date::now() - self.start_time;
 
             for grass in &renderer_state.grasses {
                 if let Some(sphere) = &renderer_state.player_character.sphere {
