@@ -1612,13 +1612,11 @@ impl ExportPipeline {
             }
 
             // draw water
-            // let time = self.start_time.elapsed().as_secs_f32();
-            for water_plane in &renderer_state.water_planes {
+            for water_plane in &mut renderer_state.water_planes {
                 if let Some(sphere) = &renderer_state.player_character.sphere {
                     let player_pos = sphere.transform.position;
-                    queue.write_buffer(&water_plane.time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
-                    queue.write_buffer(&water_plane.player_pos_buffer, 0, bytemuck::cast_slice(&[player_pos.x, player_pos.y, player_pos.z, 1.0]));
-                    render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.player_pos_bind_group, &water_plane.config_bind_group);
+                    water_plane.update_buffers(queue, time as f32, player_pos);
+                    render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
                 }
             }
 

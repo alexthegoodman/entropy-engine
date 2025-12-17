@@ -1,5 +1,5 @@
 use wgpu::{util::DeviceExt, PipelineCompilationOptions};
-
+use nalgebra::Point3;
 use crate::{heightfield_landscapes::Landscape::Landscape, water_plane::config::WaterConfig};
 
 pub struct WaterPlane {
@@ -9,8 +9,6 @@ pub struct WaterPlane {
     pub num_indices: u32,
     pub time_buffer: wgpu::Buffer,
     pub time_bind_group: wgpu::BindGroup,
-    pub player_pos_buffer: wgpu::Buffer,
-    pub player_pos_bind_group: wgpu::BindGroup,
     pub landscape_bind_group: wgpu::BindGroup,
     pub config: WaterConfig,
     pub config_buffer: wgpu::Buffer,
@@ -75,7 +73,7 @@ impl WaterPlane {
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -100,10 +98,6 @@ impl WaterPlane {
         let half_size = size / 2.0;
         let y = -300.0;
 
-        // Adjust these for performance vs quality tradeoff
-        // let grid_resolution = 256; // 256x256 = 65,536 vertices (good quality)
-        // For even better quality: 384 (147k verts) or 512 (262k verts)
-        // For performance: 128 (16k verts) or 192 (37k verts)
         let grid_resolution = 128;
 
         let (vertices, indices) = Self::generate_grid_mesh(size, half_size, y, grid_resolution);
@@ -122,37 +116,6 @@ impl WaterPlane {
 
         let num_indices = indices.len() as u32;
 
-        let player_pos_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Player Pos Buffer"),
-            size: std::mem::size_of::<[f32; 4]>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let player_pos_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-                label: Some("player_pos_bind_group_layout"),
-            });
-
-        let player_pos_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &player_pos_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: player_pos_buffer.as_entire_binding(),
-            }],
-            label: Some("player_pos_bind_group"),
-        });
-
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Water Pipeline Layout"),
             bind_group_layouts: &[
@@ -161,8 +124,7 @@ impl WaterPlane {
                 &landscape
                     .particle_bind_group_layout
                     .as_ref()
-                    .expect("Couldn't get landscape layout"), // Add landscape bind group
-                &player_pos_bind_group_layout,
+                    .expect("Couldn't get landscape layout"),
                 &config_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -201,8 +163,8 @@ impl WaterPlane {
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                     Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
-                        blend: None, // Water PBR material is likely opaque
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
@@ -240,14 +202,18 @@ impl WaterPlane {
             num_indices,
             time_buffer,
             time_bind_group,
-            player_pos_buffer,
-            player_pos_bind_group,
             landscape_bind_group,
             config,
             config_buffer,
             config_bind_group,
             config_bind_group_layout,
         }
+    }
+
+    pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
+        queue.write_buffer(&self.time_buffer, 0, bytemuck::cast_slice(&[time]));
+        self.config.player_pos = [player_pos.x, player_pos.y, player_pos.z, 1.0];
+        queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[self.config]));
     }
 
     pub fn update_config(&mut self, queue: &wgpu::Queue, config: WaterConfig) {
@@ -266,7 +232,6 @@ impl WaterPlane {
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
 
-        // Generate vertices
         for row in 0..=resolution {
             for col in 0..=resolution {
                 let x = -half_size + (col as f32 / resolution as f32) * size;
@@ -278,7 +243,6 @@ impl WaterPlane {
             }
         }
 
-        // Generate indices (two triangles per grid cell)
         for row in 0..resolution {
             for col in 0..resolution {
                 let top_left = (row * (resolution + 1) + col) as u32;
@@ -286,12 +250,10 @@ impl WaterPlane {
                 let bottom_left = ((row + 1) * (resolution + 1) + col) as u32;
                 let bottom_right = bottom_left + 1;
 
-                // First triangle
                 indices.push(top_left);
                 indices.push(bottom_left);
                 indices.push(top_right);
 
-                // Second triangle
                 indices.push(top_right);
                 indices.push(bottom_left);
                 indices.push(bottom_right);
@@ -309,7 +271,6 @@ pub trait DrawWater<'a> {
         camera_bind_group: &'a wgpu::BindGroup,
         time_bind_group: &'a wgpu::BindGroup,
         landscape_bind_group: &'a wgpu::BindGroup,
-        player_pos_bind_group: &'a wgpu::BindGroup,
         config_bind_group: &'a wgpu::BindGroup,
     );
 }
@@ -324,15 +285,13 @@ where
         camera_bind_group: &'a wgpu::BindGroup,
         time_bind_group: &'a wgpu::BindGroup,
         landscape_bind_group: &'a wgpu::BindGroup,
-        player_pos_bind_group: &'a wgpu::BindGroup,
         config_bind_group: &'a wgpu::BindGroup,
     ) {
         self.set_pipeline(&water_plane.pipeline);
         self.set_bind_group(0, camera_bind_group, &[]);
         self.set_bind_group(1, time_bind_group, &[]);
         self.set_bind_group(2, landscape_bind_group, &[]);
-        self.set_bind_group(3, player_pos_bind_group, &[]);
-        self.set_bind_group(4, config_bind_group, &[]);
+        self.set_bind_group(3, config_bind_group, &[]);
         self.set_vertex_buffer(0, water_plane.vertex_buffer.slice(..));
         self.set_index_buffer(water_plane.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
         self.draw_indexed(0..water_plane.num_indices, 0, 0..1);
