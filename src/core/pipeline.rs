@@ -1615,7 +1615,7 @@ impl ExportPipeline {
             for water_plane in &mut renderer_state.water_planes {
                 if let Some(sphere) = &renderer_state.player_character.sphere {
                     let player_pos = sphere.transform.position;
-                    water_plane.update_buffers(queue, time as f32, player_pos);
+                    water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
                     render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
                 }
             }

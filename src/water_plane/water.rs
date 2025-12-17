@@ -210,9 +210,9 @@ impl WaterPlane {
         }
     }
 
-    pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
+    pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: [f32; 3]) {
         queue.write_buffer(&self.time_buffer, 0, bytemuck::cast_slice(&[time]));
-        self.config.player_pos = [player_pos.x, player_pos.y, player_pos.z, 1.0];
+        self.config.player_pos = [player_pos[0], player_pos[1], player_pos[2], 1.0];
         queue.write_buffer(&self.config_buffer, 0, bytemuck::cast_slice(&[self.config]));
     }
 
