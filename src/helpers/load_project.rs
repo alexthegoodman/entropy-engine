@@ -4,10 +4,11 @@ use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures}, editor::Editor}, 
-    handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_model, handle_add_trees, handle_add_water_plane}, 
+    handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_model, handle_add_trees, handle_add_water_plane, handle_add_house}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
-    saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities}
+    saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
+    procedural_models::House::HouseConfig
 };
 
 pub async fn load_project(editor: &mut Editor, project_id: &str) {
@@ -388,4 +389,16 @@ editor.saved_state = Some(loaded_state);
                 }
             }
         
+            let house_config = HouseConfig::default();
+            let house_position = Translation3::new(10.0, 0.0, 10.0);
+            let house_rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+            let house_iso = Isometry3::from_parts(house_position, house_rotation);
+            handle_add_house(
+                renderer_state,
+                &gpu_resources.device,
+                &gpu_resources.queue,
+                "test_house".to_string(),
+                &house_config,
+                house_iso,
+            ).await;
 }

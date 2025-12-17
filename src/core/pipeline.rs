@@ -1550,6 +1550,21 @@ impl ExportPipeline {
                 }
             }
 
+            for house in &renderer_state.procedural_houses {
+                for mesh in &house.meshes {
+                    mesh.transform.update_uniform_buffer(&gpu_resources.queue);
+                    render_pass.set_bind_group(1, &mesh.bind_group, &[]);
+                    // render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        mesh.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+
+                    render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                }
+            }
+
             for (poly_index, landscape) in renderer_state.landscapes.iter().enumerate() {
                 // if !polygon.hidden {
                     landscape

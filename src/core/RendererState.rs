@@ -40,6 +40,7 @@ use transform_gizmo::{enum_set, Gizmo, GizmoConfig, GizmoMode, GizmoOrientation,
 use transform_gizmo::mint::RowMatrix4;
 
 
+use crate::procedural_models::House::{House, HouseConfig};
 use crate::{
     helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
     heightfield_landscapes::Landscape::Landscape,
@@ -109,6 +110,7 @@ pub struct RendererState {
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
     pub models: Vec<Model>, // must add a Model in order to add an NPC
+    pub procedural_houses: Vec<House>,
     pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
@@ -211,6 +213,7 @@ impl RendererState {
         let mut pyramids = Vec::new();
 
         let mut models = Vec::new();
+        let mut procedural_houses = Vec::new();
 
         let mut landscapes = Vec::new();
         let mut grasses = Vec::new();
@@ -311,6 +314,7 @@ impl RendererState {
             pyramids,
             grids,
             models,
+            procedural_houses,
             landscapes,
             grasses,
             water_planes,
@@ -1085,6 +1089,39 @@ impl RendererState {
 
         self.models.push(model);
     }
+
+    pub fn add_house(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        house_component_id: &String,
+        config: &HouseConfig,
+        isometry: Isometry3<f32>,
+    ) {
+        let mut house = House::new(
+            house_component_id,
+            device,
+            queue,
+            &self.model_bind_group_layout,
+            config,
+            isometry,
+        );
+
+        for mesh in &mut house.meshes {
+            let rigid_body_handle = self.rigid_body_set.insert(mesh.rigid_body.clone());
+            mesh.rigid_body_handle = Some(rigid_body_handle);
+
+            let collider_handle = self.collider_set.insert_with_parent(
+                mesh.collider.clone(),
+                rigid_body_handle,
+                &mut self.rigid_body_set,
+            );
+            mesh.collider_handle = Some(collider_handle);
+        }
+
+        self.procedural_houses.push(house);
+    }
+
 
     pub fn add_landscape(
         &mut self,

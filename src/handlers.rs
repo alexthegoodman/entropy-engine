@@ -1,6 +1,7 @@
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
 use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
+use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
 use transform_gizmo::math::Transform;
 use transform_gizmo::{GizmoConfig, GizmoInteraction};
@@ -241,6 +242,19 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
     config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
     // config.projection_matrix = to_row_major_f64(&&camera.get_projection());
     renderer_state.gizmo.update_config(config.clone());
+}
+
+pub async fn handle_add_house(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    house_component_id: String,
+    config: &HouseConfig,
+    isometry: Isometry3<f32>,
+) {
+    state.add_house(device, queue, &house_component_id, config, isometry);
+    // Houses are static and don't have their own colliders added in the same way as dynamic models.
+    // The collider is created and managed within the House::new function.
 }
 
 pub async fn handle_add_model(
