@@ -1054,7 +1054,8 @@ impl RendererState {
                 });
             },
             ComponentKind::NPC => return,
-            ComponentKind::PointLight => return
+            ComponentKind::PointLight => return,
+            ComponentKind::WaterPlane => return,
         }
     }
 

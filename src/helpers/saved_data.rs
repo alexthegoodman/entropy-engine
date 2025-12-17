@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{helpers::timelines::SavedTimelineStateConfig, kinematic_animations::{
     motion_path::SkeletonMotionPath,
     skeleton::{SkeletonAssemblyConfig, SkeletonPart},
-}, vector_animations::animations::Sequence};
+}, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct ScatterSettings {
@@ -33,7 +33,8 @@ pub enum ComponentKind {
     Model, // sometimes active alone
     NPC, // only active alongside a corresponding Model component
     Landscape,
-    PointLight
+    PointLight,
+    WaterPlane
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -92,6 +93,7 @@ pub struct ComponentData {
     pub model_properties: Option<ModelProperties>,
     pub npc_properties: Option<NPCProperties>,
     pub light_properties: Option<LightProperties>,
+    pub water_properties: Option<WaterConfig>,
     #[serde(default)]
     pub scatter: Option<ScatterSettings>,
 }
