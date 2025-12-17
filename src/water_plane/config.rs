@@ -35,19 +35,19 @@ pub struct WaterConfig {
     pub wave2_amplitude: f32,
     pub wave2_frequency: f32,
     pub wave2_speed: f32,
-    pub wave2_steepness: f32,
 
+    pub wave2_steepness: f32,
     pub wave2_direction: [f32; 2],
 
     // Wave 3 - tertiary wave
     pub wave3_amplitude: f32,
+
     pub wave3_frequency: f32,
     pub wave3_speed: f32,
-
     pub wave3_steepness: f32,
     pub wave3_direction: [f32; 2],
 
-    pub _padding: [f32; 2],
+    pub _padding: [f32; 3],
 }
 
 impl Default for WaterConfig {
@@ -90,7 +90,7 @@ impl Default for WaterConfig {
             wave3_steepness: 0.25,
             wave3_direction: [0.8, -0.6],
 
-            _padding: [0.0, 0.0],
+            _padding: [0.0, 0.0, 0.0],
         }
     }
 }
