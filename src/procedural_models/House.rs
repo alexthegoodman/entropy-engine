@@ -264,7 +264,10 @@ fn create_default_textures_and_sampler(
         wgpu::util::TextureDataOrder::LayerMajor,
         &[255, 255, 255, 255], // White
     );
-    let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let default_albedo_view = default_albedo_texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
 
     let default_normal_texture = device.create_texture_with_data(
         queue,
@@ -281,7 +284,10 @@ fn create_default_textures_and_sampler(
         wgpu::util::TextureDataOrder::LayerMajor,
         &[128, 128, 255, 255], // Flat normal (0,0,1)
     );
-    let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let default_normal_view = default_normal_texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
 
     let default_pbr_params_texture = device.create_texture_with_data(
         queue,
@@ -298,7 +304,10 @@ fn create_default_textures_and_sampler(
         wgpu::util::TextureDataOrder::LayerMajor,
         &[0, 255, 255, 255], // Metallic=0, Roughness=1, AO=1
     );
-    let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let default_pbr_params_view = default_pbr_params_texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
 
     (default_sampler, default_albedo_view, default_normal_view, default_pbr_params_view)
 }
