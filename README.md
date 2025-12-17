@@ -4,6 +4,8 @@ Is it a game engine? A video engine? Entropy can do many things.
 
 Powering a unified OS inspired by MCP.
 
+### Current Features:
+
 - Quadtree landscapes with texture maps
 - Point lighting
 - Game behaviors
@@ -21,7 +23,7 @@ Powering a unified OS inspired by MCP.
 - Procedural trees (somewhat)
 - and more!
 
-TBD:
+### TBD Features:
 
 - Game Saves for players
 - Skybox Pipeline
@@ -32,7 +34,7 @@ TBD:
 - Reflections
 - Dynamic clouds
 - Volumetric Fog
-- Air based particle effects (ex. dust, smoke)
+- Air based particle effects (ex. dust, smoke, rain)
 - Fire (light procedural grass on fire, it burns for 15 seconds)
 - Water (initialy just rivers and streams, later submersion) (may require bouyancy forces)
 - Maps for procedural grass (determine where it exists, variations)
@@ -49,6 +51,55 @@ TBD:
 - Procedural models for characters and objects
 - Animation creation for Models (FK + IK)
 - Texture creation (using noise and colors)
+- Landscape Simple Chunking (for casual use instead of quadtree)
+
+### TBD Procedural Models:
+
+- Human
+- Monster
+- Animal
+- House
+- TVs / Monitors
+- Coffee maker
+- Desk
+- Bed
+- Chair
+- Couch
+- Car
+- Stairs
+- Rocks
+
+### TBD Game Mechanics:
+
+- Interactive Objects
+- Attachments
+- Score / Experience Points
+- Skill Points
+- Skill trees
+- Dialogue
+- Status Bars (ex. Health, Sim’s)
+- GTA-style Phone Calls
+- Eating
+- Inspecting
+- Opening (cupboard, chest, etc)
+- Aiming and reloading
+- “Mini Games”
+- Sneaking
+- Climbing
+- Sprinting/Stamina
+- Wall-running
+- Combo systems
+- Dodge/roll
+- Crafting
+- Inventory (weapon, item, armor)
+- Currency systems
+- Trading/Bartering
+- Quests (and logs/tracking)
+- Reputation systems
+
+### Other Needs:
+
+- Documentation (including on publishing and distribution)
 
 ## Run
 
