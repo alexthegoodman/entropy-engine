@@ -28,6 +28,7 @@ use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
+use crate::water_plane::config::WaterConfig;
 use rand::{Rng, random};
 use crate::{
     kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
@@ -501,7 +502,8 @@ pub fn handle_add_water_plane(
     component_id: String
 ) {
     if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == component_id) {
-        let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj);
+        let config = WaterConfig::default();
+        let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj, config);
         state.water_planes.push(water_plane);
     }
 }
@@ -538,5 +540,15 @@ pub fn handle_add_trees(
         );
 
         renderer_state.procedural_trees.push(trees);
+    }
+}
+
+pub fn handle_configure_water_plane(
+    state: &mut RendererState,
+    queue: &wgpu::Queue,
+    config: WaterConfig,
+) {
+    if let Some(water_plane) = state.water_planes.get_mut(0) {
+        water_plane.update_config(queue, config);
     }
 }

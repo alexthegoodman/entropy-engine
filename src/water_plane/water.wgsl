@@ -211,6 +211,14 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
+struct WaterConfig {
+    shallow_color: vec4<f32>,
+    medium_color: vec4<f32>,
+    deep_color: vec4<f32>,
+}
+@group(4) @binding(0)
+var<uniform> water_config: WaterConfig;
+
 struct GbufferOutput {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
@@ -266,9 +274,9 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let fresnel = pow(1.0 - ndotv, 2.5);
     
     // Depth-based colors
-    let shallow_color = vec3<f32>(0.2, 0.85, 0.95);
-    let medium_color = vec3<f32>(0.0, 0.55, 0.75);
-    let deep_color = vec3<f32>(0.0, 0.25, 0.45);
+    let shallow_color = water_config.shallow_color.xyz;
+    let medium_color = water_config.medium_color.xyz;
+    let deep_color = water_config.deep_color.xyz;
     let sky_reflection = vec3<f32>(0.6, 0.8, 1.0);
     
     var water_color: vec3<f32>;
