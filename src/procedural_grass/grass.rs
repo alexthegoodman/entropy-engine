@@ -233,10 +233,10 @@ impl Grass {
             render_distance: self.render_distance,
             wind_strength: 2.5,
             player_pos: [player_pos.x, player_pos.y, player_pos.z, 0.0],
-            wind_speed: 0.1, // slow
+            wind_speed: 0.3, // slow
             blade_height: 2.75,
             blade_width: 0.03, // thin
-            brownian_strength: 0.003,
+            brownian_strength: 0.03,
             blade_density: self.blade_density as f32,
             _pad0: [0.0; 3],
 

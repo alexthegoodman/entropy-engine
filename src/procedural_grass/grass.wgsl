@@ -16,7 +16,7 @@ struct GrassUniforms {
     blade_height: f32,
     blade_width: f32,
     brownian_strength: f32,
-    blade_density: f32, // NEW
+    blade_density: f32,
 }
 @group(1) @binding(0)
 var<uniform> uniforms: GrassUniforms;
@@ -27,10 +27,8 @@ var landscape_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var landscape_sampler: sampler;
 
-// Which layer in the texture array contains height data
-// Based on your LandscapeTextureKinds enum:
 // 0: Primary, 1: PrimaryMask, 2: Rockmap, 3: RockmapMask, 4: Soil, 5: SoilMask
-const HEIGHTMAP_LAYER: i32 = 0; // Change this to whichever layer has your height data
+const HEIGHTMAP_LAYER: i32 = 0;
 
 struct VertexInput {
     @builtin(vertex_index) vertex_index: u32,
@@ -55,11 +53,10 @@ struct VertexOutput {
 fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     // return -5.0;
 
-    // Your terrain dimensions from Rust code:
     // square_size = 1024.0 * 4.0 = 4096.0
     // square_height = 150.0 * 4.0 = 600.0
-    let landscape_size = 4096.0; // Match your square_size
-    let max_height = 600.0; // Match your square_height
+    let landscape_size = 4096.0;
+    let max_height = 600.0;
     
     // World coordinates are centered, so normalize to 0-1 UV space
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
@@ -71,7 +68,7 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     // let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, HEIGHTMAP_LAYER, 0.0);
     let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
     
-    // Your heightmap is normalized (0-1), so scale to actual height
+    // Heightmap is normalized (0-1), so scale to actual height
     // The R channel contains the normalized height value
     return (height_sample.r * max_height) - 400.0; // hardcoded landscape offset from generic properties!
 }
@@ -276,13 +273,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // ===== BROWNIAN FORCE (Natural random motion) =====
     var brownian_disp = vec3<f32>(0.0);
 
-    if (uniforms.brownian_strength > 0.001) {
-        let brownian_time = uniforms.time * 2.0 + blade_seed * 10.0;
-        let brownian_x = snoise(vec2<f32>(brownian_time, blade_seed * 100.0)) * uniforms.brownian_strength;
-        let brownian_z = snoise(vec2<f32>(brownian_time + 50.0, blade_seed * 100.0)) * uniforms.brownian_strength;
-        brownian_disp = vec3<f32>(brownian_x, 0.0, brownian_z);
-    }
-    
     // ===== PLAYER INTERACTION =====
     let interaction_radius = 4.0;
     let dist_to_player_3d = distance(blade_pos, uniforms.player_pos.xyz);

@@ -98,7 +98,8 @@ impl WaterPlane {
         let half_size = size / 2.0;
         let y = -300.0;
 
-        let grid_resolution = 128;
+        let grid_resolution = 256; // ~60k vertices (1024x1024 landscape is 1 million vertices)
+        // let grid_resolution = 128; // ~15k vertices
 
         let (vertices, indices) = Self::generate_grid_mesh(size, half_size, y, grid_resolution);
 

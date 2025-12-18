@@ -23,6 +23,8 @@ Real designers should use chat in a precise and granular way, so they don't have
 - PBR Materials
 - Shadow Mapping
 - Procedural trees (somewhat)
+- Procedural houses (for prototyping)
+- Water Planes
 - and more!
 
 ### TBD Features:
@@ -49,27 +51,8 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
-- Heightmap creation with erosion noise (also specify x,z and height of mountain or start and end points and depth for canyon)
-- Procedural models for characters and objects
-- Animation creation for Models (FK + IK)
-- Texture creation (using noise and colors)
 - Landscape Simple Chunking (for casual use instead of quadtree)
-
-### TBD Procedural Models:
-
-- Human
-- Monster
-- Animal
-- House
-- TVs / Monitors
-- Coffee maker
-- Desk
-- Bed
-- Chair
-- Couch
-- Car
-- Stairs
-- Rocks
+- Play and blend imported animations from glb / gltf
 
 ### TBD Game Mechanics:
 
@@ -78,7 +61,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Score / Experience Points
 - Skill Points
 - Skill trees
-- Dialogue
+- Dialogue (integrates with UI)
 - Status Bars (ex. Health, Sim’s)
 - GTA-style Phone Calls
 - Eating
@@ -98,6 +81,29 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Trading/Bartering
 - Quests (and logs/tracking)
 - Reputation systems
+- Improve existing mechanics
+
+### TBD Procedural Models:
+
+- Human
+- Monster
+- Animal
+- TVs / Monitors
+- Coffee maker
+- Desk
+- Bed
+- Chair
+- Couch
+- Car
+- Stairs
+- Rocks
+
+### Maybe:
+
+- Heightmap creation with erosion noise (also specify x,z and height of mountain or start and end points and depth for canyon)
+- Procedural models for characters and objects
+- Animation creation for Models (FK + IK)
+- Texture creation (using noise and colors)
 
 ### Other Needs:
 
