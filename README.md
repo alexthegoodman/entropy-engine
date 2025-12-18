@@ -1,8 +1,10 @@
 # Entropy Engine
 
-Is it a game engine? A video engine? Entropy can do many things.
+Create beautiful games easily.
 
-Powering a unified OS inspired by MCP.
+Powering <a href="https://github.com/alexthegoodman/entropy-tauri" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
+
+Real designers should use chat in a precise and granular way, so they don't have to make a dozen clicks for a single preview change. They can be creative, rather than technical.
 
 ### Current Features:
 
