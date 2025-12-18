@@ -390,7 +390,7 @@ editor.saved_state = Some(loaded_state);
             }
         
             let house_config = HouseConfig::default();
-            let house_position = Translation3::new(10.0, 0.0, 10.0);
+            let house_position = Translation3::new(10.0, -20.0, 10.0);
             let house_rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
             let house_iso = Isometry3::from_parts(house_position, house_rotation);
             handle_add_house(
