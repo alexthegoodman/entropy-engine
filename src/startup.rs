@@ -480,17 +480,20 @@ impl ApplicationHandler<UserEvent> for Application {
 
                 
             },
-            WindowEvent::MouseInput { button, state, .. } => {
+            WindowEvent::MouseInput { button, state: element_state, .. } => {
                 let mods = window.modifiers;
 
-                if state.is_pressed() {
+                if element_state.is_pressed() {
                     self.mouse_pressed = true;
                 } else {
                     self.mouse_pressed = false;
                 }
 
-                if let Some(action) =
-                    state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
+                if window.game_mode {
+                    let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
+                    crate::handlers::handle_mouse_input(editor, button, element_state);
+                } else if let Some(action) =
+                    element_state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
                 {
                     self.handle_action(event_loop, window_id, action);
                 }

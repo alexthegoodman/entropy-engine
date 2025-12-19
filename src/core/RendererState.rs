@@ -668,8 +668,7 @@ impl RendererState {
                     });
 
                     if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                        let current_stamina = 100.0;
-                        instance_npc_data.test_behavior.update(
+                        let damage_dealt = instance_npc_data.test_behavior.update(
                             &mut self.rigid_body_set,
                             &self.collider_set,
                             &self.query_pipeline,
@@ -681,9 +680,13 @@ impl RendererState {
                                 .expect("Couldn't get rigid body handle"),
                             &first_mesh.rapier_collider,
                             &mut first_mesh.transform,
-                            current_stamina,
+                            instance_npc_data.stats.stamina, // Use NPC's actual stamina
                             dt,
                         );
+
+                        if let Some(damage) = damage_dealt {
+                            self.player_character.handle_incoming_damage(damage);
+                        }
 
                         let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
 

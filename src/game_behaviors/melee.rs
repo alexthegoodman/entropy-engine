@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
+use crate::core::PlayerCharacter::Stats;
 
 use super::chase::ChaseBehavior;
 
@@ -386,10 +387,25 @@ impl MeleeCombatBehavior {
     }
 
     // Called when receiving damage
-    pub fn handle_incoming_damage(&mut self, damage: f32, current_stamina: f32) -> (f32, f32) {
+    pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut Stats) {
         self.state_machine = CombatState::Defending;
         self.last_state_change = Instant::now();
-        self.defense.try_block(damage, current_stamina)
+        let (damage_taken, stamina_used) = self.defense.try_block(damage, stats.stamina);
+
+        stats.health -= damage_taken;
+        stats.stamina -= stamina_used;
+
+        if stats.health < 0.0 {
+            stats.health = 0.0;
+        }
+        if stats.stamina < 0.0 {
+            stats.stamina = 0.0;
+        }
+
+        println!(
+            "NPC Health: {:.2}, Stamina: {:.2}",
+            stats.health, stats.stamina
+        );
     }
 
     pub fn get_animation_name(&self) -> &str {

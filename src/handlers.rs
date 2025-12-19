@@ -31,6 +31,7 @@ use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
 use crate::water_plane::config::WaterConfig;
 use rand::{Rng, random};
+use winit::event::{MouseButton, ElementState};
 use crate::{
     core::SimpleCamera::SimpleCamera,
     helpers::landscapes::read_landscape_texture,
@@ -181,6 +182,30 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 }
 
+pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state: ElementState) {
+    let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+
+    if renderer_state.game_mode && element_state == ElementState::Pressed {
+        match button {
+            MouseButton::Left => {
+                renderer_state.player_character.attack(
+                    &renderer_state.rigid_body_set,
+                    &renderer_state.collider_set,
+                    &mut renderer_state.query_pipeline,
+                    &mut renderer_state.npcs,
+                );
+                println!("Left mouse button pressed - Player Attack!");
+            }
+            MouseButton::Right => {
+                renderer_state.player_character.defend();
+                println!("Right mouse button pressed - Player Defend!");
+            }
+            _ => {}
+        }
+    }
+}
+
+
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
@@ -298,8 +323,18 @@ pub async fn handle_add_npc(
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
 
-    state.npcs.push(NPC::new(modelComponentId.clone()));
-    state.add_collider(modelComponentId, ComponentKind::NPC);
+    state.add_collider(modelComponentId.clone(), ComponentKind::NPC);
+
+    // Retrieve the rigid_body_handle after the collider has been added
+    let npc_rigid_body_handle = state
+        .models
+        .iter()
+        .find(|m| m.id == modelComponentId)
+        .and_then(|m| m.meshes.get(0))
+        .and_then(|mesh| mesh.rigid_body_handle)
+        .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
+
+    state.npcs.push(NPC::new(modelComponentId.clone(), npc_rigid_body_handle));
 }
 
 #[derive(Serialize, Deserialize)]
