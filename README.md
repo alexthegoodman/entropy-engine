@@ -20,7 +20,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Quadtree landscapes with texture maps
 - Skybox Pipeline
 - Point lighting
-- Game behaviors
+- Basic game behaviors (melee, chase, etc)
 - Rendered images and videos
 - Rendered text with fonts
 - Screen capture
@@ -30,36 +30,48 @@ Real designers should use chat in a precise and granular way, so they don't have
 
 ### TBD Features:
 
+#### Priority
+
+- More game logic and mechanics (ex. inventory, as defined below)
+- Modernize in-game UI choices
+- Mini-Map
+- Volumetric Fog
+- Dynamic clouds
 - Game Saves for players
-- Configurable Controller Input -> Action Mapping
+- Configurable Controller Input -> Action Mapping (currently has default key mapping)
+
+#### Secondary
+
 - Parallax Mapping
 - Tessellation
 - Displacement Mapping
 - God rays
 - Reflections
-- Dynamic clouds
-- Volumetric Fog
 - Air based particle effects (ex. dust, smoke, rain)
 - Fire (light procedural grass on fire, it burns for 15 seconds)
-- Water (initialy just rivers and streams, later submersion) (may require bouyancy forces)
+- River water (currently only have ocean water)
 - Maps for procedural grass (determine where it exists, variations)
 - Vehicles (cars, planes, helicopters, motorcycles, tanks, mechs)
 - Destruction
-- More game logic and mechanics (ex. inventory)
-- Mini-Map
-- Modernize in-game UI choices
 - Enhanced native editor experience with stellar transform gizmo (for now using egui inputs)
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
-- Landscape Simple Chunking (for casual use instead of quadtree) `HashMap<(x, y), Chunk>` for fast radius checks
+- Landscape Simple Chunking (for practical use instead of quadtree) `HashMap<(x, y), Chunk>` for fast radius checks
 - Animation blending and responsiveness
 
 ### TBD Game Mechanics:
 
-- Interactive Objects
+#### Priority
+
+- Inventory (weapon, item, armor)
+- Score / Experience Points + Levels
+- Quests (and logs/tracking)
+
+#### Secondary
+
+- Interactive Objects (physics-based)
 - Attachments
-- Score / Experience Points
 - Skill Points
 - Skill trees
 - Dialogue (integrates with UI)
@@ -77,10 +89,8 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Combo systems
 - Dodge/roll
 - Crafting
-- Inventory (weapon, item, armor)
 - Currency systems
 - Trading/Bartering
-- Quests (and logs/tracking)
 - Reputation systems
 - Improve existing mechanics
 
