@@ -4,7 +4,7 @@ use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures}, editor::Editor}, 
-    handlers::{fetch_mask_data, handle_add_grass, handle_add_landscape, handle_add_model, handle_add_trees, handle_add_water_plane, handle_add_house}, 
+    handlers::{fetch_mask_data, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
     saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
@@ -365,6 +365,28 @@ editor.saved_state = Some(loaded_state);
                                             ).await;
                                         }
                                     }
+                                    if let Some(ComponentKind::NPC) = component.kind {
+                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                        let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
+                                        let model_iso = Isometry3::from_parts(model_position, model_rotation);
+                                        let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
+
+                                        if let Some(asset_item) = asset {
+                                            handle_add_npc(
+                                                renderer_state,  
+                                                &gpu_resources.device,
+                                                &gpu_resources.queue, 
+                                                project_id.to_string(), 
+                                                asset_item.id.clone(), 
+                                                component.id.clone(), 
+                                                asset_item.fileName.clone(), 
+                                                model_iso, 
+                                                model_scale,
+                                                camera
+                                            ).await;
+                                        }
+                                    }
 
                                     if let Some(crate::helpers::saved_data::ComponentKind::PointLight) = component.kind {
                                         if let Some(light_props) = component.light_properties.as_ref() {
@@ -388,17 +410,18 @@ editor.saved_state = Some(loaded_state);
                     }
                 }
             }
-        
-            let house_config = HouseConfig::default();
-            let house_position = Translation3::new(10.0, -20.0, 10.0);
-            let house_rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
-            let house_iso = Isometry3::from_parts(house_position, house_rotation);
-            handle_add_house(
-                renderer_state,
-                &gpu_resources.device,
-                &gpu_resources.queue,
-                "test_house".to_string(),
-                &house_config,
-                house_iso,
-            ).await;
+            
+            // just for testing:
+            // let house_config = HouseConfig::default();
+            // let house_position = Translation3::new(10.0, -20.0, 10.0);
+            // let house_rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+            // let house_iso = Isometry3::from_parts(house_position, house_rotation);
+            // handle_add_house(
+            //     renderer_state,
+            //     &gpu_resources.device,
+            //     &gpu_resources.queue,
+            //     "test_house".to_string(),
+            //     &house_config,
+            //     house_iso,
+            // ).await;
 }
