@@ -2,14 +2,22 @@ use nalgebra::{Vector3, UnitQuaternion, Quaternion, Matrix4};
 
 use crate::art_assets::Model::{AnimationChannel, AnimationValues, Model, Node};
 use crate::core::AnimationState::AnimationState;
+use crate::core::PlayerCharacter::NPC;
 
 pub fn update_animations(
-    models: &mut [&mut Model],
-    animation_states: &mut [&mut AnimationState],
+    // models: &mut [&mut Model],
+    // animation_states: &mut [&mut AnimationState],
+    models: &mut [Model],
+    npcs: &mut [NPC],
+    pairs: &[(usize, usize)],
     delta_time: f32,
     queue: &wgpu::Queue,
 ) {
-    for (model, anim_state) in models.iter_mut().zip(animation_states.iter_mut()) {
+    // for (model, anim_state) in models.iter_mut().zip(animation_states.iter_mut()) {
+    for &(model_idx, npc_idx) in pairs {
+        let model = &mut models[model_idx];
+        let anim_state = &mut npcs[npc_idx].animation_state;
+        
         if !anim_state.is_playing {
             continue;
         }

@@ -726,25 +726,42 @@ impl RendererState {
             // }
         }
 
-        // Collect mutable references to models and animation states for animation update
-        let mut models_to_animate: Vec<&mut Model> = Vec::new();
-        let mut anim_states_to_update: Vec<&mut AnimationState> = Vec::new();
+        // // Collect mutable references to models and animation states for animation update
+        // let mut models_to_animate: Vec<&mut Model> = Vec::new();
+        // let mut anim_states_to_update: Vec<&mut AnimationState> = Vec::new();
 
-        for model in self.models.iter_mut() {
-            if let Some(npc) = self.npcs.iter_mut().find(|n| n.model_id == model.id) {
-                models_to_animate.push(model);
-                anim_states_to_update.push(&mut npc.animation_state);
+        // for model in self.models.iter_mut() {
+        //     if let Some(npc) = self.npcs.iter_mut().find(|n| n.model_id == model.id) {
+        //         models_to_animate.push(model);
+        //         anim_states_to_update.push(&mut npc.animation_state);
+        //     }
+        // }
+
+        // // Now call the update function with the collected references
+        // crate::core::animation_system::update_animations(
+        //     &mut models_to_animate,
+        //     &mut anim_states_to_update,
+        //     dt,
+        //     queue,
+        // );
+
+        // Collect matching indices only
+        let mut matching_pairs: Vec<(usize, usize)> = Vec::new();
+        for (model_idx, model) in self.models.iter().enumerate() {
+            if let Some(npc_idx) = self.npcs.iter().position(|n| n.model_id == model.id) {
+                matching_pairs.push((model_idx, npc_idx));
             }
         }
 
-        // Now call the update function with the collected references
+        // Pass the whole collections and indices to the animation system
         crate::core::animation_system::update_animations(
-            &mut models_to_animate,
-            &mut anim_states_to_update,
+            &mut self.models,
+            &mut self.npcs,
+            &matching_pairs,
             dt,
             queue,
         );
-        
+
 
         let physics_update_duration = physics_update_time.elapsed();
         // println!("  physics_update_duration: {:?}", physics_update_duration);
