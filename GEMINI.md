@@ -17,8 +17,10 @@ Within /src/, there are several directories:
 /helpers/ will include data regarding the saved state (saved_data.rs)
 /physics/ offers a simple custom physics implementation, but it is not used here. Instead, we use Rapier.
 /procedural_grass/ is a powerful interactive hair particle system featuring grass with wind and its own render pipeline and shader
+/water_plane/ has the water shader and pipeline creation
+/procedural_models/ contains models like House which have dynamic numbers of rooms, roof type, etc
+/procedural_trees/ is the tree pipeline and shader designed to give realistic looking tree variations
 /renderer_images/ is just for rendering raw images in the scene (uncommon in games)
-/renderer_lighting/ has some unused lighting code
 /renderer_text/ is used for rendering raw text in the scene (uncommon in games, although maybe for UI if UI is integrated)
 /renderer_videos/ is used for rendering raw videos in the scene
 /shape_primitives/ offers a number of simple shapes to render in the scene
