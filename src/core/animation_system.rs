@@ -89,6 +89,19 @@ pub fn update_animations(
         
         update_global_transforms(model);
 
+        // If the model is skinned, update the joint matrices buffer
+        if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
+            if let Some(skin) = model.skins.first() { // Assuming one skin per model for now
+                let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
+                for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
+                    let joint_node = &model.nodes[*joint_node_index];
+                    let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
+                    joint_transforms.push(skinning_matrix.transpose().as_slice().try_into().unwrap());
+                }
+                queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
+            }
+        }
+        
         for node in &model.nodes {
             let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform.transpose());
             queue.write_buffer(&node.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));

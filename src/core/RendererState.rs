@@ -1159,9 +1159,10 @@ impl RendererState {
             const MAX_JOINTS: usize = 256; 
 
             if let Some(skinned_pipeline) = &self.skinned_pipeline {
+                // let identity_array: [f32; 16] = *nalgebra::Matrix4::<f32>::identity().transpose().as_slice();
                 let joint_matrices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Joint Matrices Buffer"),
-                    contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; MAX_JOINTS]), // Initialize with identity matrices
+                    contents: bytemuck::cast_slice(&[[0.0f32; 16]; MAX_JOINTS]),
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 });
 
