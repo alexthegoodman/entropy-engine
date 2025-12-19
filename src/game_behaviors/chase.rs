@@ -118,7 +118,7 @@ impl ChaseBehavior {
         // Calculate distance to target
         let distance = current_pos.metric_distance(&target_pos);
 
-        println!("Chase update distance to target: {:?}", distance);
+        // println!("Chase update distance to target: {:?}", distance);
 
         // Only move if we're outside the minimum distance
         if distance > self.min_distance {
