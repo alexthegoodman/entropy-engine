@@ -32,6 +32,7 @@ use std::sync::{
     Arc, Mutex,
 };
 use wgpu::util::DeviceExt;
+use std::str::FromStr;
 
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
@@ -672,41 +673,41 @@ impl RendererState {
                 });
 
                 // Handle NPC updates
-                if let Some(instance_npc_data) = self
-                    .npcs
-                    .iter_mut()
-                    .find(|m| m.model_id == component_id.to_string())
-                {
-                    if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                        let current_stamina = 100.0;
-                        instance_npc_data.test_behavior.update(
-                            &mut self.rigid_body_set,
-                            &self.collider_set,
-                            &self.query_pipeline,
-                            first_mesh
-                                .rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            self.player_character
-                                .movement_rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            &first_mesh.rapier_collider,
-                            &mut first_mesh.transform,
-                            current_stamina,
-                            dt,
-                        );
+                // if let Some(instance_npc_data) = self
+                //     .npcs
+                //     .iter_mut()
+                //     .find(|m| m.model_id == component_id.to_string())
+                // {
+                //     if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
+                //         let current_stamina = 100.0;
+                //         instance_npc_data.test_behavior.update(
+                //             &mut self.rigid_body_set,
+                //             &self.collider_set,
+                //             &self.query_pipeline,
+                //             first_mesh
+                //                 .rigid_body_handle
+                //                 .expect("Couldn't get rigid body handle"),
+                //             self.player_character
+                //                 .movement_rigid_body_handle
+                //                 .expect("Couldn't get rigid body handle"),
+                //             &first_mesh.rapier_collider,
+                //             &mut first_mesh.transform,
+                //             current_stamina,
+                //             dt,
+                //         );
 
-                        let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+                //         let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
 
-                        // Find the animation index in the model
-                        if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
-                            // If the animation is not already playing, switch to it
-                            if instance_npc_data.animation_state.animation_index != animation_index {
-                                instance_npc_data.animation_state.animation_index = animation_index;
-                                instance_npc_data.animation_state.current_time = 0.0; // Reset time
-                            }
-                        }
-                    }
-                }
+                //         // Find the animation index in the model
+                //         if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                //             // If the animation is not already playing, switch to it
+                //             if instance_npc_data.animation_state.animation_index != animation_index {
+                //                 instance_npc_data.animation_state.animation_index = animation_index;
+                //                 instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                //             }
+                //         }
+                //     }
+                // }
             }
 
             // Update landscapes
@@ -1072,7 +1073,56 @@ impl RendererState {
                     mesh.collider_handle = Some(collider_handle);
                 });
             },
-            ComponentKind::NPC => return,
+            ComponentKind::NPC => {
+                let renderer_model = self
+                    .models
+                    .iter_mut()
+                    .find(|l| l.id == component_id.clone())
+                    .expect("Couldn't get Renderer Model");
+
+                renderer_model.meshes.iter_mut().for_each(|mesh| {
+                    let existing_iso = mesh.rapier_rigidbody.position().clone();
+
+                    let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+                        // .expect("Couldn't create trimesh")
+                        .friction(0.7)
+                        .restitution(0.0)
+                        .density(1.0)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    let dynamic_body = RigidBodyBuilder::dynamic()
+                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
+                        .linear_damping(0.1)
+                        .position(existing_iso)
+                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    mesh.rapier_collider = rapier_collider;
+                    mesh.rapier_rigidbody = dynamic_body;
+
+                    let rigid_body_handle =
+                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                    mesh.rigid_body_handle = Some(rigid_body_handle);
+
+                    // now associate rigidbody with collider
+                    let collider_handle = self.collider_set.insert_with_parent(
+                        mesh.rapier_collider.clone(),
+                        rigid_body_handle,
+                        &mut self.rigid_body_set,
+                    );
+                    mesh.collider_handle = Some(collider_handle);
+                });
+            },
             ComponentKind::PointLight => return,
             ComponentKind::WaterPlane => return,
         }

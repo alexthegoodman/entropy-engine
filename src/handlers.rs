@@ -300,6 +300,7 @@ pub async fn handle_add_npc(
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
 
     state.npcs.push(NPC::new(modelComponentId.clone()));
+    state.add_collider(modelComponentId, ComponentKind::NPC);
 }
 
 #[derive(Serialize, Deserialize)]

@@ -22,6 +22,13 @@ pub fn update_animations(
             continue;
         }
 
+        // DEBUG: Print which animation is playing
+        // if model.animations.len() > anim_state.animation_index {
+        //     println!("Playing animation: {} (index {})", 
+        //              model.animations[anim_state.animation_index].name,
+        //              anim_state.animation_index);
+        // }
+
         anim_state.update(delta_time);
 
         if model.animations.is_empty() {
