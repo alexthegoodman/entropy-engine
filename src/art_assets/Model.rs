@@ -418,6 +418,20 @@ impl Model {
                     })
                     .collect();
 
+                let geo_vertices: Vec<Vertex> = scaled_positions.iter()
+                    .zip(normals.iter())
+                    .zip(tex_coords.iter())
+                    .zip(colors.iter())
+                    .zip(joints.iter())
+                    .zip(weights.iter())
+                    .map(|(((((p, n), t), c), j), w)| Vertex {
+                        position: *p,
+                        normal: *n,
+                        tex_coords: *t,
+                        color: [c[0], c[1], c[2], 1.0],
+                    })
+                    .collect();
+
                 let rapier_points: Vec<Point<f32>> = vertices
                     .iter()
                     .map(|vertex| {
@@ -453,11 +467,17 @@ impl Model {
                 println!("Model vertices: {:?}", vertices.len());
                 println!("Model indices: {:?}", indices_u32.len());
 
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Model GLB Vertex Buffer"),
+                let vertex_buffer = if skin_index.is_some() { device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Model Animated GLB Vertex Buffer"),
                     contents: bytemuck::cast_slice(&vertices),
                     usage: wgpu::BufferUsages::VERTEX,
-                });
+                }) } else {
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Model Non-Animated GLB Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&geo_vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    })
+                };
 
                 let index_buffer: wgpu::Buffer =
                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

@@ -1753,6 +1753,7 @@ impl ExportPipeline {
                         render_pass.set_pipeline(&geometry_pipeline);
                     }
 
+                    // Need to use the regular vertex buffer with regular Vertex if using geometry pipeline
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         mesh.index_buffer.slice(..),

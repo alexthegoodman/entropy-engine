@@ -1,6 +1,6 @@
 use wgpu::{PipelineCompilationOptions, util::DeviceExt};
 
-use crate::core::vertex::Vertex;
+use crate::core::vertex::{ModelVertex, Vertex};
 
 pub struct SkinnedPipeline {
     pub render_pipeline: wgpu::RenderPipeline,
@@ -52,7 +52,7 @@ impl SkinnedPipeline {
             vertex: wgpu::VertexState {
                 module: &shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
+                buffers: &[ModelVertex::desc()],
                 compilation_options: PipelineCompilationOptions::default()
             },
             fragment: Some(wgpu::FragmentState {
