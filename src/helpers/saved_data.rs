@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{helpers::timelines::SavedTimelineStateConfig, kinematic_animations::{
-    motion_path::SkeletonMotionPath,
-    skeleton::{SkeletonAssemblyConfig, SkeletonPart},
-}, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
+use crate::{helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct ScatterSettings {
@@ -153,9 +150,6 @@ pub struct SavedState {
     pub textures: Option<Vec<File>>, // counts as Assets
     pub pbr_textures: Option<Vec<PBRTextureData>>, // counts as Assets
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
-    pub skeleton_parts: Vec<SkeletonPart>,
-    pub skeletons: Vec<SkeletonAssemblyConfig>,
-    pub motion_paths: Vec<SkeletonMotionPath>,
     // videos
     pub id: Option<String>,
     pub sequences: Option<Vec<Sequence>>,

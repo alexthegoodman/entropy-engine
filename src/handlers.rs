@@ -32,7 +32,6 @@ use crate::water_plane::water::WaterPlane;
 use crate::water_plane::config::WaterConfig;
 use rand::{Rng, random};
 use crate::{
-    kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection},
     core::SimpleCamera::SimpleCamera,
     helpers::landscapes::read_landscape_texture,
 };
@@ -349,43 +348,6 @@ pub async fn handle_add_landscape(
     //     position,
     //     camera
     // );
-}
-
-pub fn handle_add_skeleton_part(
-    state: Arc<Mutex<RendererState>>,
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    partComponentId: String,
-    position: [f32; 3],
-    joints: Vec<Joint>,
-    k_chains: Vec<KinematicChain>,
-    attach_points: Vec<AttachPoint>,
-    joint_positions: &HashMap<String, Point3<f32>>,
-    // joint_rotations: &HashMap<String, Vector3<f32>>,
-    connection: Option<PartConnection>,
-    camera: &mut SimpleCamera
-) {
-    pause_rendering();
-
-    let mut state_guard = state.lock().unwrap();
-
-    state_guard.add_skeleton_part(
-        device,
-        queue,
-        &partComponentId,
-        position,
-        joints,
-        k_chains,
-        attach_points,
-        joint_positions,
-        // joint_rotations,
-        connection,
-        camera
-    );
-
-    drop(state_guard);
-
-    resume_rendering();
 }
 
 pub async fn handle_add_landscape_texture(

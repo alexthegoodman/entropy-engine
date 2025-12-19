@@ -7,7 +7,6 @@ pub mod art_assets;
 pub mod game_behaviors;
 pub mod heightfield_landscapes;
 pub mod helpers;
-pub mod kinematic_animations;
 pub mod renderer_images;
 pub mod renderer_text;
 pub mod renderer_videos;

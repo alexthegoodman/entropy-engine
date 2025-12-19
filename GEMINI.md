@@ -15,7 +15,6 @@ Within /src/, there are several directories:
 /game_behaviors/ is for in-game AI and mechanics
 /heightfield_landscapes/ contains two landscape implementations (a quadtree version and a normal version). We are currently using the normal version in Landscape.rs
 /helpers/ will include data regarding the saved state (saved_data.rs)
-/kinematic_animations/ was a half-complete skeletal animation setup, but should probably not be used as-is
 /physics/ offers a simple custom physics implementation, but it is not used here. Instead, we use Rapier.
 /procedural_grass/ is a powerful interactive hair particle system featuring grass with wind and its own render pipeline and shader
 /renderer_images/ is just for rendering raw images in the scene (uncommon in games)

@@ -202,9 +202,9 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
         textures: Some(Vec::new()),
         pbr_textures: Some(Vec::new()),
         levels: Some(levels),
-        skeleton_parts: Vec::new(),
-        skeletons: Vec::new(),
-        motion_paths: Vec::new(),
+        // skeleton_parts: Vec::new(),
+        // skeletons: Vec::new(),
+        // motion_paths: Vec::new(),
         id: None,
         sequences: None,
         timeline_state: None

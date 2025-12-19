@@ -15,9 +15,6 @@ use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::GameSettings;
-use crate::kinematic_animations::motion_path::AnimationPlayback;
-use crate::kinematic_animations::render_skeleton::SkeletonRenderPart;
-use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, PartConnection};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::shape_primitives::Sphere::Sphere;
@@ -114,7 +111,7 @@ pub struct RendererState {
     pub grids: Vec<Grid>,
     pub models: Vec<Model>, // must add a Model in order to add an NPC
     pub procedural_houses: Vec<House>,
-    pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
+    // pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
     pub grasses: Vec<Grass>,
@@ -123,7 +120,7 @@ pub struct RendererState {
     pub point_lights: Vec<PointLight>,
 
     // animations
-    pub active_animations: Vec<AnimationPlayback>,
+    // pub active_animations: Vec<AnimationPlayback>,
 
     // wgpu
     pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
@@ -227,8 +224,6 @@ impl RendererState {
 
         let mut terrain_managers = Vec::new();
 
-        let mut skeleton_parts = Vec::new();
-
         let integration_parameters = IntegrationParameters::default();
         let physics_pipeline = PhysicsPipeline::new();
         let island_manager = IslandManager::new();
@@ -309,9 +304,9 @@ impl RendererState {
             grasses,
             water_planes,
             procedural_trees,
-            skeleton_parts,
+            // skeleton_parts,
             terrain_managers,
-            active_animations: Vec::new(),
+            // active_animations: Vec::new(),
             point_lights: Vec::new(),
             // light_state,
 
@@ -436,14 +431,6 @@ impl RendererState {
 
         // No hit, player is not grounded
         false
-    }
-
-    pub fn step_animations_pipeline(&mut self, queue: &wgpu::Queue) {
-        for animation in &mut self.active_animations {
-            // TODO: pass only relevant parts
-            // update_skeleton_animation(&mut self.skeleton_parts, animation, queue);
-            animation.update(&mut self.skeleton_parts, queue);
-        }
     }
 
     pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, camera_binding: &mut CameraBinding, camera: &mut SimpleCamera) {
@@ -1413,40 +1400,6 @@ impl RendererState {
         //         &mask,
         //     );
         // }
-    }
-
-    pub fn add_skeleton_part(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        partComponentId: &String,
-        position: [f32; 3],
-        joints: Vec<Joint>,
-        k_chains: Vec<KinematicChain>,
-        attach_points: Vec<AttachPoint>,
-        joint_positions: &HashMap<String, Point3<f32>>,
-        // joint_rotations: &HashMap<String, Vector3<f32>>,
-        connection: Option<PartConnection>,
-        camera: &SimpleCamera
-    ) {
-        let mut skeleton_part = SkeletonRenderPart::new(partComponentId.to_string());
-        skeleton_part.create_bone_segments(
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            &self.group_bind_group_layout,
-            &self.texture_render_mode_buffer,
-            camera,
-            joints,
-            k_chains,
-            attach_points,
-            joint_positions,
-            // joint_rotations,
-            position,
-            connection,
-        );
-
-        self.skeleton_parts.push(skeleton_part);
     }
 }
 
