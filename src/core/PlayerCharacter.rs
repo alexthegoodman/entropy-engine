@@ -12,7 +12,8 @@ use rapier3d::prelude::{QueryPipeline, Shape};
 
 use crate::{
     game_behaviors::{
-        melee::{AttackStats, MeleeCombatBehavior},
+        melee::{MeleeCombatBehavior},
+        attack::AttackStats,
         wander::WanderBehavior,
     },
     art_assets::Model::Model,
