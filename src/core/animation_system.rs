@@ -13,7 +13,6 @@ pub fn update_animations(
     delta_time: f32,
     queue: &wgpu::Queue,
 ) {
-    // for (model, anim_state) in models.iter_mut().zip(animation_states.iter_mut()) {
     for &(model_idx, npc_idx) in pairs {
         let model = &mut models[model_idx];
         let anim_state = &mut npcs[npc_idx].animation_state;

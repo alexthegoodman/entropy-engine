@@ -666,48 +666,57 @@ impl RendererState {
                 .iter_mut()
                 .find(|m| m.id == component_id.to_string())
             {
-                instance_model_data.meshes.iter_mut().for_each(|mesh| {
-                    mesh.transform
-                        .update_position([position.x, position.y, position.z]);
-                    mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
-                });
+                
 
                 // Handle NPC updates
-                // if let Some(instance_npc_data) = self
-                //     .npcs
-                //     .iter_mut()
-                //     .find(|m| m.model_id == component_id.to_string())
-                // {
-                //     if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                //         let current_stamina = 100.0;
-                //         instance_npc_data.test_behavior.update(
-                //             &mut self.rigid_body_set,
-                //             &self.collider_set,
-                //             &self.query_pipeline,
-                //             first_mesh
-                //                 .rigid_body_handle
-                //                 .expect("Couldn't get rigid body handle"),
-                //             self.player_character
-                //                 .movement_rigid_body_handle
-                //                 .expect("Couldn't get rigid body handle"),
-                //             &first_mesh.rapier_collider,
-                //             &mut first_mesh.transform,
-                //             current_stamina,
-                //             dt,
-                //         );
+                if let Some(instance_npc_data) = self
+                    .npcs
+                    .iter_mut()
+                    .find(|m| m.model_id == component_id.to_string())
+                {
+                    instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                        mesh.transform
+                            .update_position([position.x, position.y, position.z]);
+                        // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
+                    });
 
-                //         let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+                    if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
+                        let current_stamina = 100.0;
+                        instance_npc_data.test_behavior.update(
+                            &mut self.rigid_body_set,
+                            &self.collider_set,
+                            &self.query_pipeline,
+                            first_mesh
+                                .rigid_body_handle
+                                .expect("Couldn't get rigid body handle"),
+                            self.player_character
+                                .movement_rigid_body_handle
+                                .expect("Couldn't get rigid body handle"),
+                            &first_mesh.rapier_collider,
+                            &mut first_mesh.transform,
+                            current_stamina,
+                            dt,
+                        );
 
-                //         // Find the animation index in the model
-                //         if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
-                //             // If the animation is not already playing, switch to it
-                //             if instance_npc_data.animation_state.animation_index != animation_index {
-                //                 instance_npc_data.animation_state.animation_index = animation_index;
-                //                 instance_npc_data.animation_state.current_time = 0.0; // Reset time
-                //             }
-                //         }
-                //     }
-                // }
+                        let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+
+                        // Find the animation index in the model
+                        if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                            // If the animation is not already playing, switch to it
+                            if instance_npc_data.animation_state.animation_index != animation_index {
+                                instance_npc_data.animation_state.animation_index = animation_index;
+                                instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                            }
+                        }
+                    }
+                } else {
+                    instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                        mesh.transform
+                            .update_position([position.x, position.y, position.z]);
+                        // rotation for interactive models (non NPC)
+                        mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
+                    });
+                }
             }
 
             // Update landscapes
