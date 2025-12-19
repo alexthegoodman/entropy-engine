@@ -1,7 +1,7 @@
 use crate::{
-    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::CameraBinding, editor::{
+    core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -14,6 +14,7 @@ use pollster; // For pollster::block_on
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
 use wgpu::{Limits, RenderPipeline, util::DeviceExt};
+use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 
 #[cfg(target_os = "windows")]
 use winit::window::Window;
@@ -35,6 +36,39 @@ use crate::helpers::load_project::load_project;
 
 // use super::chat::Chat;
 
+// Procedural Sky Uniform struct (Rust mirror of WGSL)
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ProceduralSkyUniform {
+    horizon_color: [f32; 3],
+    _padding0: f32, // Pad to 16 bytes for alignment
+    zenith_color: [f32; 3],
+    _padding1: f32,
+    sun_direction: [f32; 3],
+    _padding2: f32,
+    sun_color: [f32; 3],
+    _padding3: f32,
+    sun_intensity: f32,
+    _padding4: [f32; 3], // Pad to 16 bytes
+}
+
+impl Default for ProceduralSkyUniform {
+    fn default() -> Self {
+        Self {
+            horizon_color: [0.7, 0.8, 1.0], // Light blue
+            _padding0: 0.0,
+            zenith_color: [0.2, 0.3, 0.6], // Darker blue
+            _padding1: 0.0,
+            sun_direction: [0.0, 1.0, 0.0], // Directly overhead
+            _padding2: 0.0,
+            sun_color: [1.0, 0.9, 0.7],    // Warm yellow
+            _padding3: 0.0,
+            sun_intensity: 5.0,
+            _padding4: [0.0; 3],
+        }
+    }
+}
+
 pub struct ExportPipeline {
     // pub device: Option<wgpu::Device>,
     // pub queue: Option<wgpu::Queue>,
@@ -43,6 +77,9 @@ pub struct ExportPipeline {
     pub camera_binding: Option<CameraBinding>,
     pub geometry_pipeline: Option<RenderPipeline>,
     pub lighting_pipeline: Option<RenderPipeline>,
+    pub procedural_sky_pipeline: Option<RenderPipeline>, // New field for procedural sky
+    pub procedural_sky_bind_group: Option<wgpu::BindGroup>, // New field for procedural sky bind group
+    pub procedural_sky_uniform_buffer: Option<wgpu::Buffer>, // New field for procedural sky uniform buffer
     pub texture: Option<Arc<wgpu::Texture>>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
@@ -117,6 +154,9 @@ impl ExportPipeline {
             g_buffer_sampler: None,
             shadow_pipeline_data: None,
             gizmo_pipeline: None,
+            procedural_sky_pipeline: None,
+            procedural_sky_bind_group: None,
+            procedural_sky_uniform_buffer: None,
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
         }
@@ -975,6 +1015,128 @@ impl ExportPipeline {
             cache: None,
         });
 
+        // --- Procedural Sky Setup ---
+        let procedural_sky_config_from_level = export_editor
+            .saved_state
+            .as_ref()
+            .and_then(|state| state.levels.as_ref())
+            .and_then(|levels| levels.get(0)) // Assuming we always work with the first level
+            .and_then(|level| level.procedural_sky.clone())
+            .unwrap_or_default(); // Get from saved_data, or use defaults
+
+        let procedural_sky_uniform_data = ProceduralSkyUniform {
+            horizon_color: procedural_sky_config_from_level.horizon_color,
+            zenith_color: procedural_sky_config_from_level.zenith_color,
+            sun_direction: procedural_sky_config_from_level.sun_direction,
+            sun_color: procedural_sky_config_from_level.sun_color,
+            sun_intensity: procedural_sky_config_from_level.sun_intensity,
+            ..Default::default()
+        };
+
+        let procedural_sky_uniform_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Procedural Sky Uniform Buffer"),
+                contents: bytemuck::cast_slice(&[procedural_sky_uniform_data]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+
+        let procedural_sky_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Procedural Sky Bind Group Layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(std::num::NonZeroU64::new(std::mem::size_of::<camera::CameraUniform>() as u64).unwrap()),
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: Some(std::num::NonZeroU64::new(std::mem::size_of::<ProceduralSkyUniform>() as u64).unwrap()),
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        
+        let procedural_sky_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Procedural Sky Bind Group"),
+            layout: &procedural_sky_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera_binding.buffer.as_entire_binding(), // Re-use camera_binding's buffer
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: procedural_sky_uniform_buffer.as_entire_binding(),
+                },
+            ],
+        });
+
+        let shader_module_sky =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Procedural Sky Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sky.wgsl").into()),
+            });
+
+        let procedural_sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Procedural Sky Pipeline Layout"),
+            bind_group_layouts: &[&procedural_sky_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let procedural_sky_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Procedural Sky Pipeline"),
+            layout: Some(&procedural_sky_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_module_sky,
+                entry_point: Some("vs_main"),
+                buffers: &[], // No vertex buffers, generates full screen triangle from vertex_index
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module_sky,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: swapchain_format, // Use the main swapchain format
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back), // Cull back faces (since we're rendering from inside)
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            // IMPORTANT: For skybox, we need to pass depth test if depth is 1.0 (far plane) and disable depth write
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus, // Match the depth buffer format
+                depth_write_enabled: false, // Don't write to depth buffer
+                depth_compare: wgpu::CompareFunction::LessEqual, // Draw only where no geometry (depth is 1.0)
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        // --- End Procedural Sky Setup ---
+
         println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
@@ -1082,6 +1244,8 @@ impl ExportPipeline {
         export_editor.start_playing_time = Some(now);
         export_editor.is_playing = true;
 
+        
+
         export_editor.camera_binding = Some(camera_binding);
 
         // self.device = Some(device);
@@ -1093,6 +1257,9 @@ impl ExportPipeline {
         self.gpu_resources = export_editor.gpu_resources.clone();
         self.geometry_pipeline = Some(geometry_pipeline);
         self.lighting_pipeline = Some(lighting_pipeline);
+        self.procedural_sky_pipeline = Some(procedural_sky_pipeline);
+        self.procedural_sky_bind_group = Some(procedural_sky_bind_group);
+        self.procedural_sky_uniform_buffer = Some(procedural_sky_uniform_buffer);
         self.texture = Some(texture);
         self.view = Some(view);
         self.depth_view = Some(depth_view);
@@ -1353,6 +1520,30 @@ impl ExportPipeline {
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
+            // Update procedural sky uniform buffer if config is present
+            let current_procedural_sky_config = editor
+                .saved_state
+                .as_ref()
+                .and_then(|state| state.levels.as_ref())
+                .and_then(|levels| levels.get(0))
+                .and_then(|level| level.procedural_sky.clone());
+
+            if let Some(config) = current_procedural_sky_config {
+                let procedural_sky_uniform_data = ProceduralSkyUniform {
+                    horizon_color: config.horizon_color,
+                    zenith_color: config.zenith_color,
+                    sun_direction: config.sun_direction,
+                    sun_color: config.sun_color,
+                    sun_intensity: config.sun_intensity,
+                    ..Default::default()
+                };
+                queue.write_buffer(
+                    self.procedural_sky_uniform_buffer.as_ref().unwrap(),
+                    0,
+                    bytemuck::cast_slice(&[procedural_sky_uniform_data]),
+                );
+            }
+
             // Shadow Pass
             {
                 let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
@@ -1773,6 +1964,40 @@ impl ExportPipeline {
                 // lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
                 lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
                 lighting_pass.draw(0..3, 0..1);
+            }
+
+            // Procedural Sky Render Pass
+            {
+                if let Some(procedural_sky_pipeline) = self.procedural_sky_pipeline.as_ref() {
+                    if let Some(procedural_sky_bind_group) = self.procedural_sky_bind_group.as_ref() {
+                        let mut sky_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                            label: Some("Procedural Sky Pass"),
+                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                                view: &view,
+                                resolve_target: None,
+                                ops: wgpu::Operations {
+                                    load: wgpu::LoadOp::Load, // Load existing color (from lighting pass)
+                                    store: wgpu::StoreOp::Store,
+                                },
+                                depth_slice: None,
+                            })],
+                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                                view: &depth_view, // Use the same depth view as geometry pass
+                                depth_ops: Some(wgpu::Operations {
+                                    load: wgpu::LoadOp::Load, // Load existing depth values
+                                    store: wgpu::StoreOp::Store,
+                                }),
+                                stencil_ops: None,
+                            }),
+                            timestamp_writes: None,
+                            occlusion_query_set: None,
+                        });
+
+                        sky_render_pass.set_pipeline(procedural_sky_pipeline);
+                        sky_render_pass.set_bind_group(0, procedural_sky_bind_group, &[]);
+                        sky_render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
+                    }
+                }
             }
 
             // hiding for now, opting for object selection and property updates via egui inputs for simplcity

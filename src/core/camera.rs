@@ -325,6 +325,8 @@ pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
     view_pos: [f32; 4],
     window_size: WindowSizeShader,
+    inverse_view: [[f32; 4]; 4],
+    inverse_projection: [[f32; 4]; 4],
     _pad: [f32; 2]
 }
 
@@ -334,6 +336,8 @@ impl CameraUniform {
             view_proj: Matrix4::identity().into(),
             view_pos: [0.0; 4],
             window_size: WindowSizeShader { width: 1.0, height: 1.0 },
+            inverse_view: Matrix4::identity().into(),
+            inverse_projection: Matrix4::identity().into(),
             _pad: [0.0, 0.0]
         }
     }
@@ -342,14 +346,12 @@ impl CameraUniform {
         self.view_proj = camera.get_view_projection_matrix().into();
     }
 
-    // pub fn update_view_proj_3d(&mut self, camera: &Camera3D) {
-    //     self.view_proj = camera.get_view_projection_matrix().into();
-    // }
-
     pub fn update_view_proj_3d(&mut self, camera: &SimpleCamera) {
         self.view_proj = camera.view_projection_matrix.into();
         self.view_pos = camera.position.to_homogeneous().into();
         self.window_size = WindowSizeShader { width: camera.viewport.width, height: camera.viewport.height };
+        self.inverse_view = camera.inverse_view_matrix.into();
+        self.inverse_projection = camera.inverse_projection_matrix.into();
     }
 }
 

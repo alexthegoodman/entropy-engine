@@ -12,6 +12,8 @@ pub struct SimpleCamera {
     pub znear: f32,
     pub zfar: f32,
     pub view_projection_matrix: Matrix4<f32>,
+    pub inverse_view_matrix: Matrix4<f32>,
+    pub inverse_projection_matrix: Matrix4<f32>,
     pub viewport: Viewport
 }
 
@@ -36,6 +38,8 @@ impl SimpleCamera {
             znear,
             zfar,
             view_projection_matrix: Matrix4::identity(),
+            inverse_view_matrix: Matrix4::identity(),
+            inverse_projection_matrix: Matrix4::identity(),
             viewport: Viewport::new(windowWidth, windowHeight)
         }
     }
@@ -72,6 +76,12 @@ impl SimpleCamera {
         let projection_matrix = self.get_projection();
 
         self.view_projection_matrix = projection_matrix * view_matrix;
+        self.inverse_view_matrix = view_matrix
+            .try_inverse()
+            .expect("Could not invert view matrix!");
+        self.inverse_projection_matrix = projection_matrix
+            .try_inverse()
+            .expect("Could not invert projection matrix!");
     }
 
     pub fn update(&mut self) {

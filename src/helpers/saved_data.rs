@@ -99,9 +99,20 @@ pub struct ComponentData {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ProceduralSkyConfig {
+    pub horizon_color: [f32; 3],
+    pub zenith_color: [f32; 3],
+    pub sun_direction: [f32; 3], // Normalized direction vector
+    pub sun_color: [f32; 3],
+    pub sun_intensity: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct LevelData {
     pub id: String,
     pub components: Option<Vec<ComponentData>>,
+    #[serde(default)]
+    pub procedural_sky: Option<ProceduralSkyConfig>,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]

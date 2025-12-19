@@ -105,7 +105,6 @@ pub struct ObjectConfig {
 
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
-    pub skybox: Sphere, // perhaps more advanced version later
     pub cubes: Vec<Cube>,
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
@@ -295,21 +294,7 @@ impl RendererState {
         // );
         // player_character.collider_handle = Some(collider_handle);
 
-        let skybox_sphere = Sphere::new(
-            device,
-            queue,
-            &model_bind_group_layout,
-            &group_bind_group_layout,
-            &color_render_mode_buffer,
-            camera,
-            2048.0,
-            32,
-            16,
-            [0.1, 0.1, 0.8]
-        );
-
         Self {
-            skybox: skybox_sphere,
             cubes,
             pyramids,
             grids,

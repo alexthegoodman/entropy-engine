@@ -4,7 +4,7 @@ use directories::{BaseDirs, UserDirs};
 use nalgebra::Matrix4;
 use uuid::Uuid;
 
-use crate::helpers::saved_data::ComponentData;
+use crate::helpers::saved_data::{ComponentData, ProceduralSkyConfig};
 
 use super::saved_data::{LevelData, SavedState};
 #[cfg(target_arch = "wasm32")]
@@ -188,6 +188,7 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
     let empty_level = LevelData {
         id: Uuid::new_v4().to_string(),
         components: Some(Vec::new()),
+        procedural_sky: Some(ProceduralSkyConfig::default())
     };
 
     let mut levels = Vec::new();
