@@ -8,16 +8,8 @@ Real designers should use chat in a precise and granular way, so they don't have
 
 ### Current Features:
 
-- Quadtree landscapes with texture maps
-- Point lighting
-- Game behaviors
-- Kinematic animations
-- Rendered images and videos
-- Rendered text with fonts
-- Screen capture
-- Vector animations
-- Video export
-- GLB Import
+- GLB (gltf) Import
+- GLB (gltf) animations
 - Interactive, windy, procedural grass blades
 - Deferred rendering / lighting
 - PBR Materials
@@ -25,12 +17,21 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Procedural trees (somewhat)
 - Procedural houses (for prototyping)
 - Water Planes
+- Quadtree landscapes with texture maps
+- Skybox Pipeline
+- Point lighting
+- Game behaviors
+- Rendered images and videos
+- Rendered text with fonts
+- Screen capture
+- Vector animations
+- Video export
 - and more!
 
 ### TBD Features:
 
 - Game Saves for players
-- Skybox Pipeline
+- Configurable Controller Input -> Action Mapping
 - Parallax Mapping
 - Tessellation
 - Displacement Mapping
@@ -47,12 +48,12 @@ Real designers should use chat in a precise and granular way, so they don't have
 - More game logic and mechanics (ex. inventory)
 - Mini-Map
 - Modernize in-game UI choices
-- Enhanced editor experience with stellar transform gizmo (for now using egui inputs)
+- Enhanced native editor experience with stellar transform gizmo (for now using egui inputs)
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
-- Landscape Simple Chunking (for casual use instead of quadtree)
-- Play and blend imported animations from glb / gltf
+- Landscape Simple Chunking (for casual use instead of quadtree) `HashMap<(x, y), Chunk>` for fast radius checks
+- Animation blending and responsiveness
 
 ### TBD Game Mechanics:
 
