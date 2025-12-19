@@ -1729,18 +1729,35 @@ impl ExportPipeline {
             }
 
             for model in &renderer_state.models {
-                // render_pass.set_bind_group(3, &model.group_bind_group, &[]); // NOTE: better to create separate controllable Model instances for each Mesh in a GLB
-
                 for mesh in &model.meshes {
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
-                    render_pass.set_bind_group(1, &mesh.bind_group, &[]);
-                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+
+                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
+                    render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
+                    // render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size is not needed for skinned shader
+                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+
+                    // Conditional rendering based on skinning
+                    if let Some(skin_bind_group) = &model.skin_bind_group {
+                        // Use the skinned pipeline and bind its specific bind group
+                        if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
+                            render_pass.set_pipeline(&pipeline_instance.render_pipeline);
+                            // Bind skin uniform at group 2 (as defined in skinned_pipeline.rs)
+                            render_pass.set_bind_group(2, skin_bind_group, &[]);
+                        } else {
+                             // Fallback to geometry_pipeline if skinned_pipeline is None (should not happen if initialized correctly)
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+                    } else {
+                        // Use the regular geometry pipeline for non-skinned meshes
+                        render_pass.set_pipeline(&geometry_pipeline);
+                    }
+
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         mesh.index_buffer.slice(..),
                         wgpu::IndexFormat::Uint32,
                     );
-
                     render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
                 }
             }

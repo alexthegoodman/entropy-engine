@@ -1083,7 +1083,7 @@ impl RendererState {
         scale: Vector3<f32>,
         camera: &SimpleCamera
     ) {
-        let model = Model::from_glb(
+        let mut model = Model::from_glb(
             model_component_id,
             bytes,
             device,
@@ -1097,6 +1097,34 @@ impl RendererState {
             camera
         );
 
+        // Check if the model has skins and create the necessary GPU resources
+        if !model.skins.is_empty() {
+            // MAX_JOINTS should be defined in animation_system.rs and imported or defined globally.
+            // For now, defining it locally for self-containment.
+            const MAX_JOINTS: usize = 256; 
+
+            if let Some(skinned_pipeline) = &self.skinned_pipeline {
+                let joint_matrices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Joint Matrices Buffer"),
+                    contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; MAX_JOINTS]), // Initialize with identity matrices
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let skin_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Skin Bind Group"),
+                    layout: &skinned_pipeline.skin_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: joint_matrices_buffer.as_entire_binding(),
+                    }],
+                });
+                
+                model.joint_matrices_buffer = Some(joint_matrices_buffer);
+                model.skin_bind_group = Some(skin_bind_group);
+            } else {
+                eprintln!("Warning: Model has skins but skinned_pipeline is not initialized in RendererState.");
+            }
+        }
         self.models.push(model);
     }
 
