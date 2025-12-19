@@ -1,4 +1,4 @@
-use wgpu::util::DeviceExt;
+use wgpu::{PipelineCompilationOptions, util::DeviceExt};
 
 use crate::core::vertex::Vertex;
 
@@ -51,17 +51,19 @@ impl SkinnedPipeline {
             layout: Some(&render_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[Vertex::desc()],
+                compilation_options: PipelineCompilationOptions::default()
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: swapchain_format,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
+                compilation_options: PipelineCompilationOptions::default()
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -83,6 +85,7 @@ impl SkinnedPipeline {
                 alpha_to_coverage_enabled: false,
             },
             multiview: None,
+            cache: None
         });
 
         Self {

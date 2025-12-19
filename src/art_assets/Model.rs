@@ -19,7 +19,7 @@ use image;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};
 use crate::core::transform::create_empty_group_transform;
-use crate::core::vertex::Vertex;
+use crate::core::vertex::{ModelVertex, Vertex};
 use crate::helpers::utilities::get_common_os_dir;
 use crate::core::editor::WindowSize;
 
@@ -48,8 +48,6 @@ pub struct Animation {
     pub name: String,
     pub channels: Vec<AnimationChannel>,
 }
-
-use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
 
 #[derive(Debug)]
 pub struct Skin {
@@ -404,13 +402,13 @@ impl Model {
                     .map(|p| [p[0] * scale.x, p[1] * scale.y, p[2] * scale.z])
                     .collect();
 
-                let vertices: Vec<Vertex> = scaled_positions.iter()
+                let vertices: Vec<ModelVertex> = scaled_positions.iter()
                     .zip(normals.iter())
                     .zip(tex_coords.iter())
                     .zip(colors.iter())
                     .zip(joints.iter())
                     .zip(weights.iter())
-                    .map(|(((((p, n), t), c), j), w)| Vertex {
+                    .map(|(((((p, n), t), c), j), w)| ModelVertex {
                         position: *p,
                         normal: *n,
                         tex_coords: *t,
@@ -705,6 +703,8 @@ impl Model {
                 children,
                 transform,
                 global_transform: Matrix4::identity(),
+                mesh: None, // TODO: double check
+                skin: None // TODO: double check
             });
         }
 

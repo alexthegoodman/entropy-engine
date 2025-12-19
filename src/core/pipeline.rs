@@ -1138,6 +1138,8 @@ impl ExportPipeline {
         });
         // --- End Procedural Sky Setup ---
 
+        let skinned_pipeline = SkinnedPipeline::new(&device, &camera_binding.bind_group_layout, &model_bind_group_layout, swapchain_format, wgpu::TextureFormat::Depth24Plus);
+
         println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
@@ -1149,7 +1151,8 @@ impl ExportPipeline {
             texture_render_mode_buffer.clone(),
             color_render_mode_buffer,
             regular_texture_render_mode_buffer,
-            game_mode
+            game_mode,
+            skinned_pipeline
         );
 
         let mut grids = Vec::new();

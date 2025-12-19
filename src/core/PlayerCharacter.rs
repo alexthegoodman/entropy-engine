@@ -15,6 +15,7 @@ use crate::{
         wander::WanderBehavior,
     },
     art_assets::Model::Model,
+    core::AnimationState::AnimationState,
 };
 
 use super::{RendererState::RendererState, SimpleCamera::SimpleCamera};
@@ -23,6 +24,7 @@ pub struct NPC {
     pub id: Uuid,
     pub model_id: String,
     pub test_behavior: MeleeCombatBehavior,
+    pub animation_state: AnimationState,
 }
 
 impl NPC {
@@ -48,6 +50,7 @@ impl NPC {
             id: Uuid::new_v4(),
             model_id,
             test_behavior: melee_combat,
+            animation_state: AnimationState::new(0),
         }
     }
 }

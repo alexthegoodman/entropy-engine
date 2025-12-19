@@ -8,6 +8,8 @@ use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
 
+use crate::core::AnimationState::AnimationState;
+use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
@@ -203,7 +205,8 @@ impl RendererState {
         // window_height: u32,
         // camera_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        game_mode: bool
+        game_mode: bool,
+        skinned_pipeline: SkinnedPipeline
     ) -> Self {
         // create the utility grid(s)
         let mut grids = Vec::new();
@@ -321,6 +324,7 @@ impl RendererState {
             regular_texture_render_mode_buffer,
             texture_render_mode_buffer,
             color_render_mode_buffer,
+            skinned_pipeline: Some(skinned_pipeline),
             // camera_uniform_buffer,
             // camera_bind_group,
             // light_bind_group_layout,
@@ -710,6 +714,26 @@ impl RendererState {
             //         .update_rotation([euler.0, euler.1, euler.2]);
             // }
         }
+
+        // Collect mutable references to models and animation states for animation update
+        let mut models_to_animate: Vec<&mut Model> = Vec::new();
+        let mut anim_states_to_update: Vec<&mut AnimationState> = Vec::new();
+
+        for model in self.models.iter_mut() {
+            if let Some(npc) = self.npcs.iter_mut().find(|n| n.model_id == model.id) {
+                models_to_animate.push(model);
+                anim_states_to_update.push(&mut npc.animation_state);
+            }
+        }
+
+        // Now call the update function with the collected references
+        crate::core::animation_system::update_animations(
+            &mut models_to_animate,
+            &mut anim_states_to_update,
+            dt,
+            queue,
+        );
+        
 
         let physics_update_duration = physics_update_time.elapsed();
         // println!("  physics_update_duration: {:?}", physics_update_duration);

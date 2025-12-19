@@ -3,6 +3,7 @@ use wgpu::util::DeviceExt;
 
 use crate::core::vertex::Vertex;
 
+#[derive(Debug)]
 pub struct Transform {
     pub position: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>,
