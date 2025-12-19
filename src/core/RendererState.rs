@@ -19,6 +19,7 @@ use crate::kinematic_animations::skeleton::{AttachPoint, Joint, KinematicChain, 
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::shape_primitives::Sphere::Sphere;
+use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::{
     core::Texture::Texture,
     helpers::saved_data::{ComponentData, ComponentKind},
@@ -127,6 +128,7 @@ pub struct RendererState {
     pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
+    pub skinned_pipeline: Option<SkinnedPipeline>,
 
     // state
     pub project_selected: Option<Uuid>,
@@ -271,7 +273,6 @@ impl RendererState {
             view_matrix,
             projection_matrix: proj_matrix,
             viewport,
-            // modes: enum_set!(GizmoMode::RotateX | GizmoMode::RotateY | GizmoMode::RotateZ | GizmoMode::ScaleX | GizmoMode::ScaleY | GizmoMode::ScaleZ | GizmoMode::TranslateX | GizmoMode::TranslateY | GizmoMode::TranslateZ),
             // orientation: GizmoOrientation::Local,
             // pivot_point: TransformPivotPoint::MedianPoint,
             // snapping: false,

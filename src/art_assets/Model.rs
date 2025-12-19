@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
 use rapier3d::math::Point;
 use rapier3d::prelude::ColliderBuilder;
 use rapier3d::prelude::*;
@@ -23,6 +23,49 @@ use crate::core::vertex::Vertex;
 use crate::helpers::utilities::get_common_os_dir;
 use crate::core::editor::WindowSize;
 
+#[derive(Debug)]
+pub enum AnimationValues {
+    Translation(Vec<[f32; 3]>),
+    Rotation(Vec<[f32; 4]>),
+    Scale(Vec<[f32; 3]>),
+}
+
+#[derive(Debug)]
+pub struct AnimationSampler {
+    pub times: Vec<f32>,
+    pub values: AnimationValues,
+}
+
+#[derive(Debug)]
+pub struct AnimationChannel {
+    pub target_node: usize,
+    pub target_property: String, // "translation", "rotation", "scale"
+    pub sampler: AnimationSampler,
+}
+
+#[derive(Debug)]
+pub struct Animation {
+    pub name: String,
+    pub channels: Vec<AnimationChannel>,
+}
+
+use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
+
+#[derive(Debug)]
+pub struct Skin {
+    pub joints: Vec<usize>,
+    pub inverse_bind_matrices: Vec<Matrix4<f32>>,
+}
+
+#[derive(Debug)]
+pub struct Node {
+    pub children: Vec<usize>,
+    pub transform: Transform,
+    pub global_transform: Matrix4<f32>,
+    pub mesh: Option<usize>,
+    pub skin: Option<usize>,
+}
+
 pub struct Mesh {
     // pub transform: Matrix4<f32>,
     pub transform: Transform,
@@ -44,6 +87,12 @@ pub struct Mesh {
 pub struct Model {
     pub id: String,
     pub meshes: Vec<Mesh>,
+    pub animations: Vec<Animation>,
+    pub nodes: Vec<Node>,
+    pub root_nodes: Vec<usize>,
+    pub skins: Vec<Skin>,
+    pub joint_matrices_buffer: Option<wgpu::Buffer>,
+    pub skin_bind_group: Option<wgpu::BindGroup>,
     // pub transform: Transform,
 }
 
@@ -170,6 +219,24 @@ impl Model {
             Some(bin) => bin,
             None => panic!("No binary data found in GLB file"),
         };
+
+        let mut skins = Vec::new();
+        for skin in gltf.skins() {
+            let reader = skin.reader(|buffer| Some(&buffer_data));
+            let inverse_bind_matrices = reader.read_inverse_bind_matrices().unwrap().map(|m| Matrix4::from(m)).collect();
+            let joints = skin.joints().map(|j| j.index()).collect();
+            skins.push(Skin {
+                joints,
+                inverse_bind_matrices,
+            });
+        }
+
+        let mut mesh_to_skin: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
+        for node in gltf.nodes() {
+            if let (Some(mesh), Some(skin)) = (node.mesh(), node.skin()) {
+                mesh_to_skin.insert(mesh.index(), skin.index());
+            }
+        }
 
         let mut loaded_textures: Vec<(Arc<wgpu::Texture>, Arc<wgpu::TextureView>)> = Vec::new();
 
@@ -313,6 +380,16 @@ impl Model {
                     .map(|v| v.into_f32().collect())
                     .unwrap_or_else(|| vec![[0.0, 0.0]; positions.len()]);
 
+                let skin_index = mesh_to_skin.get(&mesh.index());
+
+                let (joints, weights): (Vec<[u16; 4]>, Vec<[f32; 4]>) = if skin_index.is_some() {
+                    let joints_iter = reader.read_joints(0).unwrap().into_u16();
+                    let weights_iter = reader.read_weights(0).unwrap().into_f32();
+                    (joints_iter.collect(), weights_iter.collect())
+                } else {
+                    (vec![[0, 0, 0, 0]; positions.len()], vec![[1.0, 0.0, 0.0, 0.0]; positions.len()])
+                };
+
                 println!(
                     "first 5 tex_coords {:?}",
                     tex_coords[0],
@@ -331,11 +408,15 @@ impl Model {
                     .zip(normals.iter())
                     .zip(tex_coords.iter())
                     .zip(colors.iter())
-                    .map(|(((p, n), t), c)| Vertex {
+                    .zip(joints.iter())
+                    .zip(weights.iter())
+                    .map(|(((((p, n), t), c), j), w)| Vertex {
                         position: *p,
                         normal: *n,
                         tex_coords: *t,
                         color: [c[0], c[1], c[2], 1.0],
+                        joint_indices: *j,
+                        joint_weights: *w,
                     })
                     .collect();
 
@@ -599,9 +680,100 @@ impl Model {
             }
         }
 
+        let mut nodes = Vec::new();
+        for node in gltf.nodes() {
+            let (translation, rotation, scale) = node.transform().decomposed();
+
+            let uniform_buffer = device.create_buffer_init(
+                &wgpu::util::BufferInitDescriptor {
+                    label: Some("Node Uniform Buffer"),
+                    contents: bytemuck::cast_slice(&matrix4_to_raw_array(&Matrix4::identity())),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                }
+            );
+
+            let transform = Transform::new_with_quat(
+                Vector3::new(translation[0], translation[1], translation[2]),
+                UnitQuaternion::from_quaternion(Quaternion::new(rotation[3], rotation[0], rotation[1], rotation[2])),
+                Vector3::new(scale[0], scale[1], scale[2]),
+                uniform_buffer,
+            );
+
+            let children = node.children().map(|c| c.index()).collect();
+
+            nodes.push(Node {
+                children,
+                transform,
+                global_transform: Matrix4::identity(),
+            });
+        }
+
+        let mut animations = Vec::new();
+        for animation in gltf.animations() {
+            let mut channels = Vec::new();
+            let name = animation.name().unwrap_or(&format!("animation_{}", animation.index())).to_string();
+            println!("Loading animation: {}", name);
+
+            for channel in animation.channels() {
+                let reader = channel.reader(|buffer| Some(&buffer_data));
+                let target_node = channel.target().node().index();
+                let target_property = channel.target().property();
+
+                let property_str = match target_property {
+                    gltf::animation::Property::Translation => "translation".to_string(),
+                    gltf::animation::Property::Rotation => "rotation".to_string(),
+                    gltf::animation::Property::Scale => "scale".to_string(),
+                    _ => "morph".to_string(), // we don't support morph targets yet
+                };
+
+                if property_str == "morph" {
+                    continue;
+                }
+
+                let sampler = channel.sampler();
+                let input = reader.read_inputs().unwrap().collect::<Vec<_>>();
+                let output = reader.read_outputs().unwrap();
+
+                let values = match output {
+                    gltf::animation::util::ReadOutputs::Translations(translations) => {
+                        AnimationValues::Translation(translations.collect())
+                    }
+                    gltf::animation::util::ReadOutputs::Rotations(rotations) => {
+                        AnimationValues::Rotation(rotations.into_f32().collect())
+                    }
+                    gltf::animation::util::ReadOutputs::Scales(scales) => {
+                        AnimationValues::Scale(scales.collect())
+                    }
+                    _ => continue, // Morph targets
+                };
+
+                channels.push(AnimationChannel {
+                    target_node,
+                    target_property: property_str,
+                    sampler: AnimationSampler {
+                        times: input,
+                        values,
+                    },
+                });
+            }
+
+            animations.push(Animation {
+                name,
+                channels,
+            });
+        }
+
+        let root_nodes: Vec<usize> = gltf.scenes().flat_map(|scene| scene.nodes().map(|node| node.index())).collect();
+
         Model {
             id: model_component_id.to_string(),
             meshes,
+            animations,
+            nodes,
+            root_nodes,
+            skins,
+            joint_matrices_buffer: None,
+            skin_bind_group: None,
         }
     }
 }

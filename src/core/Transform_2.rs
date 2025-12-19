@@ -27,6 +27,20 @@ impl Transform {
         }
     }
 
+    pub fn new_with_quat(
+        position: Vector3<f32>,
+        rotation: UnitQuaternion<f32>,
+        scale: Vector3<f32>,
+        uniform_buffer: wgpu::Buffer,
+    ) -> Self {
+        Self {
+            position,
+            rotation,
+            scale,
+            uniform_buffer,
+        }
+    }
+
     pub fn update_transform(&self) -> Matrix4<f32> {
         let translation = Matrix4::new_translation(&self.position);
         let rotation = self.rotation.to_homogeneous();

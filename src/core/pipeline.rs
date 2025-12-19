@@ -1,3 +1,4 @@
+use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
