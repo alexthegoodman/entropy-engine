@@ -1730,13 +1730,6 @@ impl ExportPipeline {
 
             for model in &renderer_state.models {
                 for mesh in &model.meshes {
-                    mesh.transform.update_uniform_buffer(&gpu_resources.queue);
-
-                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
-                    render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
-                    // render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size is not needed for skinned shader
-                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
-
                     // Conditional rendering based on skinning
                     if let Some(skin_bind_group) = &model.skin_bind_group {
                         // Use the skinned pipeline and bind its specific bind group
@@ -1753,6 +1746,13 @@ impl ExportPipeline {
                         render_pass.set_pipeline(&geometry_pipeline);
                     }
 
+                    mesh.transform.update_uniform_buffer(&gpu_resources.queue);
+
+                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
+                    render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
+                    // render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size is not needed for skinned shader
+                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+
                     // Need to use the regular vertex buffer with regular Vertex if using geometry pipeline
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
@@ -1765,6 +1765,7 @@ impl ExportPipeline {
 
             for house in &renderer_state.procedural_houses {
                 for mesh in &house.meshes {
+                    render_pass.set_pipeline(&geometry_pipeline);
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
                     render_pass.set_bind_group(1, &mesh.bind_group, &[]);
                     // render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
@@ -1780,6 +1781,7 @@ impl ExportPipeline {
 
             for (poly_index, landscape) in renderer_state.landscapes.iter().enumerate() {
                 // if !polygon.hidden {
+                    render_pass.set_pipeline(&geometry_pipeline);
                     landscape
                         .transform
                         .update_uniform_buffer(&queue); // probably unnecessary

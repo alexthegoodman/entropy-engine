@@ -783,6 +783,8 @@ impl Model {
             });
         }
 
+        println!("Loaded animations {}", animations.len());
+
         let root_nodes: Vec<usize> = gltf.scenes().flat_map(|scene| scene.nodes().map(|node| node.index())).collect();
 
         Model {
