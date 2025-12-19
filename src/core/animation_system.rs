@@ -41,6 +41,13 @@ pub fn update_animations(
         for channel in &animation.channels {
             let node = &mut model.nodes[channel.target_node];
 
+            // Check if this is a root node
+            let is_root = model.root_nodes.contains(&channel.target_node);
+            
+            if is_root && channel.target_property == "rotation" {
+                continue; // Skip root rotation
+            }
+
             // Find the two keyframes to interpolate between
             let (key1, key2) = find_keyframes(&channel.sampler.times, time);
             
@@ -96,14 +103,15 @@ pub fn update_animations(
                 for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
                     let joint_node = &model.nodes[*joint_node_index];
                     let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
-                    joint_transforms.push(skinning_matrix.transpose().as_slice().try_into().unwrap());
+                    joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
                 }
                 queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
             }
         }
         
         for node in &model.nodes {
-            let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform.transpose());
+            // let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform.transpose());
+            let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform);
             queue.write_buffer(&node.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
         }
     }

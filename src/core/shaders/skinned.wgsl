@@ -68,8 +68,10 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 
     // The mesh.transform is the object's world transform.
     // Skinning should be applied first in model space, then transformed to world space.
-    let skinned_position = skin_matrix * vec4<f32>(in.position, 1.0);
-    let world_position = mesh.transform * skinned_position;
+    // let skinned_position = skin_matrix * vec4<f32>(in.position, 1.0);
+    // let world_position = mesh.transform * skinned_position;
+
+    let world_position = (mesh.transform * skin_matrix) * vec4<f32>(in.position, 1.0);
     
     // The normal should also be skinned and then transformed to world space.
     // We use the inverse transpose of the skinning matrix for normals.
