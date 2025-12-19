@@ -31,7 +31,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc, Mutex,
 };
-
+use wgpu::util::DeviceExt;
 
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
@@ -694,6 +694,17 @@ impl RendererState {
                             current_stamina,
                             dt,
                         );
+
+                        let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+
+                        // Find the animation index in the model
+                        if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                            // If the animation is not already playing, switch to it
+                            if instance_npc_data.animation_state.animation_index != animation_index {
+                                instance_npc_data.animation_state.animation_index = animation_index;
+                                instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                            }
+                        }
                     }
                 }
             }

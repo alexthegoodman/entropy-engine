@@ -391,4 +391,13 @@ impl MeleeCombatBehavior {
         self.last_state_change = Instant::now();
         self.defense.try_block(damage, current_stamina)
     }
+
+    pub fn get_animation_name(&self) -> &str {
+        match self.state_machine {
+            CombatState::Chasing => "Walking", // Or "Running"
+            CombatState::Attacking => "Attack",
+            CombatState::Evading => "Evade", // Or some dodge/roll animation
+            CombatState::Defending => "Defend", // Or "Block"
+        }
+    }
 }
