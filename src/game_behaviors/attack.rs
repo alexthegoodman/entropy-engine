@@ -10,19 +10,12 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
-use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
+use crate::helpers::saved_data::AttackStats;
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 
 use super::chase::ChaseBehavior;
 
 // Basic attack configuration
-#[derive(Clone)]
-pub struct AttackStats {
-    pub damage: f32,
-    pub range: f32,
-    pub cooldown: f32,
-    pub wind_up_time: f32,
-    pub recovery_time: f32,
-}
 
 // Reusable attack state tracking
 #[derive(PartialEq)]

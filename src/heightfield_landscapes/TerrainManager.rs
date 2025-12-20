@@ -17,7 +17,7 @@ use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::*;
 
-use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
 use crate::core::Transform_2::{matrix4_to_raw_array, Transform};

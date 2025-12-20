@@ -10,8 +10,9 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
-use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
-use crate::game_behaviors::attack::{AttackStats, MeleeAttackBehavior};
+use crate::helpers::saved_data::{AttackStats, CharacterStats};
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
+use crate::game_behaviors::attack::{MeleeAttackBehavior};
 use crate::game_behaviors::defense::DefenseBehavior;
 use crate::game_behaviors::evade::EvadeBehavior;
 
@@ -159,7 +160,7 @@ impl MeleeCombatBehavior {
     }
 
     // Called when receiving damage
-    pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut Stats) {
+    pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {
         self.state_machine = CombatState::Defending;
         self.last_state_change = Instant::now();
         let (damage_taken, stamina_used) = self.defense.try_block(damage, stats.stamina);

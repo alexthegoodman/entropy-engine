@@ -11,12 +11,13 @@ use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
 
 use crate::core::SimpleCamera::SimpleCamera;
-use crate::model_components::NPC::{NPC, Stats};
+use crate::helpers::saved_data::{AttackStats, CharacterStats};
+use crate::model_components::NPC::{NPC};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},
-        attack::AttackStats,
         wander::WanderBehavior,
+        inventory::Inventory,
     },
     art_assets::Model::Model,
     core::AnimationState::AnimationState,
@@ -39,10 +40,11 @@ pub struct PlayerCharacter {
     pub movement_speed: f32,
     pub mouse_sensitivity: f32,
 
-    pub stats: Stats,
+    pub stats: CharacterStats,
     pub attack_stats: AttackStats,
     pub attack_timer: Instant,
     pub is_defending: bool,
+    pub inventory: Inventory,
 }
 
 impl PlayerCharacter {
@@ -117,7 +119,7 @@ impl PlayerCharacter {
             movement_shape,
             movement_speed: 50.0,
             mouse_sensitivity: 0.003,
-            stats: Stats {
+            stats: CharacterStats {
                 health: 100.0,
                 stamina: 100.0,
             },
@@ -130,6 +132,7 @@ impl PlayerCharacter {
             },
             attack_timer: Instant::now(),
             is_defending: false,
+            inventory: Inventory::new(),
         }
     }
 

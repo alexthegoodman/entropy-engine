@@ -155,14 +155,33 @@ pub struct GameSettings {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub struct AttackStats {
+    pub damage: f32,
+    pub range: f32,
+    pub cooldown: f32,
+    pub wind_up_time: f32,
+    pub recovery_time: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub struct DefenseStats {
+    pub block_chance: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub struct CharacterStats {
+    pub health: f32,
+    pub stamina: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub struct StatData {
     pub id: String,
     pub name: String,
     // stats can be be positive or negative and indicate the change either when consumed, used, or when in possession
-    pub health: Option<f32>,
-    pub stamina: Option<f32>,
-    pub damage: Option<f32>,
-    pub defense: Option<f32>,
+    pub character: Option<CharacterStats>,
+    pub attack: Option<AttackStats>,
+    pub defense: Option<DefenseStats>,
     pub weight: Option<f32>,
 }
 

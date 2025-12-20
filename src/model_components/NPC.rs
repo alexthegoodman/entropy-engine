@@ -10,20 +10,18 @@ use rapier3d::{
 use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
 
+use crate::helpers::saved_data::{AttackStats, CharacterStats};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},
-        attack::AttackStats,
         wander::WanderBehavior,
+        inventory::Inventory,
     },
     art_assets::Model::Model,
     core::AnimationState::AnimationState,
 };
 
-pub struct Stats {
-    pub health: f32,
-    pub stamina: f32,
-}
+
 
 pub struct NPC {
     pub id: Uuid,
@@ -31,7 +29,8 @@ pub struct NPC {
     pub rigid_body_handle: RigidBodyHandle,
     pub test_behavior: MeleeCombatBehavior,
     pub animation_state: AnimationState,
-    pub stats: Stats,
+    pub stats: CharacterStats,
+    pub inventory: Inventory,
 }
 
 impl NPC {
@@ -59,10 +58,11 @@ impl NPC {
             rigid_body_handle,
             test_behavior: melee_combat,
             animation_state: AnimationState::new(0),
-            stats: Stats {
+            stats: CharacterStats {
                 health: 100.0,
                 stamina: 100.0,
             },
+            inventory: Inventory::new(),
         }
     }
 }
