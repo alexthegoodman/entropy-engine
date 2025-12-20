@@ -32,10 +32,15 @@ pub enum ComponentKind {
     Landscape,
     PointLight,
     WaterPlane,
-    CollectableItem,
-    CollectableWeapon,
-    CollectableArmor,
+    Collectable,
     PlayerCharacter
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+pub enum CollectableType {
+    Item,
+    Weapon,
+    Armor
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -77,6 +82,7 @@ pub struct ModelProperties {
 pub struct CollectableProperties {
     // fallback to sphere
     pub model_id: Option<String>,
+    pub collectable_type: Option<CollectableType>,
     // this allows for reuable Health Potion stat, separate from the component instance.
     // chose reusable stat over reusable collectable so other things could have stat values or changes as well 
     pub stat_id: Option<String>, 

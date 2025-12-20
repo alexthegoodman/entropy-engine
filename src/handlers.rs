@@ -1,6 +1,7 @@
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
 use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
+use crate::model_components::Collectable::Collectable;
 use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
 use transform_gizmo::math::Transform;
@@ -22,7 +23,7 @@ use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
-use crate::helpers::saved_data::ComponentKind;
+use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentKind};
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
@@ -369,6 +370,43 @@ pub async fn handle_add_npc(
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
     state.npcs.push(NPC::new(modelComponentId.clone(), npc_rigid_body_handle));
+}
+
+pub async fn handle_add_collectable(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    projectId: String,
+    modelAssetId: String, // model is added to stored library as an asset
+    modelComponentId: String, // model is added from library to scene as an active component
+    modelFilename: String,
+    isometry: Isometry3<f32>,
+    scale: Vector3<f32>,
+    camera: &SimpleCamera,
+    collectable_properties: &CollectableProperties
+) {
+    #[cfg(target_os = "windows")]
+    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
+
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
+
+    state.add_collider(modelComponentId.clone(), ComponentKind::Collectable);
+
+    // Retrieve the rigid_body_handle after the collider has been added
+    let npc_rigid_body_handle = state
+        .models
+        .iter()
+        .find(|m| m.id == modelComponentId)
+        .and_then(|m| m.meshes.get(0))
+        .and_then(|mesh| mesh.rigid_body_handle)
+        .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
+
+    let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
+
+    state.collectables.push(Collectable::new(modelComponentId.clone(), collectable_type.clone(), npc_rigid_body_handle));
 }
 
 #[derive(Serialize, Deserialize)]

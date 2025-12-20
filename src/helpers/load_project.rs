@@ -4,7 +4,7 @@ use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures}, editor::Editor}, 
-    handlers::{fetch_mask_data, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_player, handle_add_trees, handle_add_water_plane}, 
+    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_player, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
     saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
@@ -406,6 +406,31 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera
+                                            ).await;
+                                        }
+                                    }
+                                    if let Some(ComponentKind::Collectable) = component.kind {
+                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                        let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
+                                        let model_iso = Isometry3::from_parts(model_position, model_rotation);
+                                        let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
+
+                                        let collectable_properties = component.collectable_properties.as_ref().expect("Couldn't find collectable properties");
+
+                                        if let Some(asset_item) = asset {
+                                            handle_add_collectable(
+                                                renderer_state,  
+                                                &gpu_resources.device,
+                                                &gpu_resources.queue, 
+                                                project_id.to_string(), 
+                                                asset_item.id.clone(), 
+                                                component.id.clone(), 
+                                                asset_item.fileName.clone(), 
+                                                model_iso, 
+                                                model_scale,
+                                                camera,
+                                                collectable_properties
                                             ).await;
                                         }
                                     }

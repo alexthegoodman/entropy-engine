@@ -17,6 +17,7 @@ use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::GameSettings;
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
+use crate::model_components::Collectable::Collectable;
 use crate::shape_primitives::Sphere::Sphere;
 use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::{
@@ -151,9 +152,10 @@ pub struct RendererState {
     pub rigid_body_set: RigidBodySet,
     pub collider_set: ColliderSet,
 
-    // characters
+    // model components
     pub player_character: Option<PlayerCharacter>,
     pub npcs: Vec<NPC>,
+    pub collectables: Vec<Collectable>,
 
     // pub current_modifiers: ModifiersState,
     pub mouse_state: MouseState,
@@ -309,6 +311,7 @@ impl RendererState {
             // active_animations: Vec::new(),
             point_lights: Vec::new(),
             // light_state,
+            collectables: Vec::new(),
 
             // device,
             // queue,
@@ -1073,6 +1076,27 @@ impl RendererState {
                 landscape.collider_handle = Some(collider_handle);
             }
             ComponentKind::Model => {
+                let renderer_model = self
+                    .models
+                    .iter_mut()
+                    .find(|l| l.id == component_id.clone())
+                    .expect("Couldn't get Renderer Model");
+
+                renderer_model.meshes.iter_mut().for_each(|mesh| {
+                    let rigid_body_handle =
+                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                    mesh.rigid_body_handle = Some(rigid_body_handle);
+
+                    // now associate rigidbody with collider
+                    let collider_handle = self.collider_set.insert_with_parent(
+                        mesh.rapier_collider.clone(),
+                        rigid_body_handle,
+                        &mut self.rigid_body_set,
+                    );
+                    mesh.collider_handle = Some(collider_handle);
+                });
+            },
+            ComponentKind::Collectable => {
                 let renderer_model = self
                     .models
                     .iter_mut()
