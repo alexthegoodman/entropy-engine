@@ -196,18 +196,20 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
 
     let empty_saved_state = SavedState {
         project_name: project_id.to_string(), // Initialize the new project_name field
-        concepts: Vec::new(),
-        models: Vec::new(),
-        landscapes: Some(Vec::new()),
-        textures: Some(Vec::new()),
-        pbr_textures: Some(Vec::new()),
+        id: Some(project_id.to_string()),
         levels: Some(levels),
-        // skeleton_parts: Vec::new(),
-        // skeletons: Vec::new(),
-        // motion_paths: Vec::new(),
-        id: None,
-        sequences: None,
-        timeline_state: None
+        // concepts: Vec::new(),
+        // models: Vec::new(),
+        // landscapes: Some(Vec::new()),
+        // textures: Some(Vec::new()),
+        // pbr_textures: Some(Vec::new()),
+        // stats: Some(Vec::new()),
+        // // skeleton_parts: Vec::new(),
+        // // skeletons: Vec::new(),
+        // // motion_paths: Vec::new(),
+        // sequences: None,
+        // timeline_state: None
+        ..Default::default()
     };
 
     let json = serde_json::to_string_pretty(&empty_saved_state)?;

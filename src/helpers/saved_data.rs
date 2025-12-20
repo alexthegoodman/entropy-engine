@@ -75,7 +75,11 @@ pub struct ModelProperties {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct CollectableProperties {
-    pub model_id: Option<String>, // fallback to sphere
+    // fallback to sphere
+    pub model_id: Option<String>,
+    // this allows for reuable Health Potion stat, separate from the component instance.
+    // chose reusable stat over reusable collectable so other things could have stat values or changes as well 
+    pub stat_id: Option<String>, 
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -128,23 +132,35 @@ pub struct LevelData {
     pub procedural_sky: Option<ProceduralSkyConfig>,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
 pub struct ProjectData {
     pub project_id: String,
     pub project_name: String,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
 pub struct ProjectsDataFile {
     pub projects: Vec<ProjectData>,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
 pub struct GameSettings {
     pub third_person: bool,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub struct StatData {
+    pub id: String,
+    pub name: String,
+    // stats can be be positive or negative and indicate the change either when consumed, used, or when in possession
+    pub health: Option<f32>,
+    pub stamina: Option<f32>,
+    pub damage: Option<f32>,
+    pub defense: Option<f32>,
+    pub weight: Option<f32>,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
 pub struct PBRTextureData {
     pub id: String,
     // from PolyHaven for now
@@ -156,7 +172,7 @@ pub struct PBRTextureData {
     pub ao: Option<File>, // will be an .exr for now
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub struct SavedState {
     pub id: Option<String>,
     pub project_name: String,
@@ -166,6 +182,7 @@ pub struct SavedState {
     pub landscapes: Option<Vec<LandscapeData>>, // counts as Assets
     pub textures: Option<Vec<File>>, // counts as Assets
     pub pbr_textures: Option<Vec<PBRTextureData>>, // counts as Assets
+    pub stats: Option<Vec<StatData>>, // Stats can be used to record a value or change tied to whatever references it
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     // videos
     pub sequences: Option<Vec<Sequence>>,
