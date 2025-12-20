@@ -31,7 +31,11 @@ pub enum ComponentKind {
     NPC, // only active alongside a corresponding Model component
     Landscape,
     PointLight,
-    WaterPlane
+    WaterPlane,
+    CollectableItem,
+    CollectableWeapon,
+    CollectableArmor,
+    PlayerCharacter
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -70,8 +74,18 @@ pub struct ModelProperties {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct CollectableProperties {
+    pub model_id: Option<String>, // fallback to sphere
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct NPCProperties {
     pub model_id: String,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct PlayerProperties {
+    pub model_id: Option<String>, // fallback to sphere
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -91,6 +105,8 @@ pub struct ComponentData {
     pub npc_properties: Option<NPCProperties>,
     pub light_properties: Option<LightProperties>,
     pub water_properties: Option<WaterConfig>,
+    pub collectable_properties: Option<CollectableProperties>,
+    pub player_properties: Option<PlayerProperties>,
     #[serde(default)]
     pub scatter: Option<ScatterSettings>,
 }
@@ -142,6 +158,7 @@ pub struct PBRTextureData {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct SavedState {
+    pub id: Option<String>,
     pub project_name: String,
     // games
     pub concepts: Vec<File>, // counts as Assets
@@ -151,7 +168,6 @@ pub struct SavedState {
     pub pbr_textures: Option<Vec<PBRTextureData>>, // counts as Assets
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     // videos
-    pub id: Option<String>,
     pub sequences: Option<Vec<Sequence>>,
     pub timeline_state: Option<SavedTimelineStateConfig>,
 }

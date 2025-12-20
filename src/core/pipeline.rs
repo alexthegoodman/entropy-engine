@@ -1679,20 +1679,22 @@ impl ExportPipeline {
             // }
 
             // draw player character sphere
-            if let Some(sphere) = &mut renderer_state.player_character.sphere {
-                if let Some(rb_handle) = renderer_state.player_character.movement_rigid_body_handle {
-                    if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                        let pos = rb.translation();
-                        sphere.transform.update_position([pos.x, pos.y, pos.z]);
+            if let Some(player_character) = &mut renderer_state.player_character {
+                if let Some(sphere) = &mut player_character.sphere {
+                    if let Some(rb_handle) = player_character.movement_rigid_body_handle {
+                        if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                            let pos = rb.translation();
+                            sphere.transform.update_position([pos.x, pos.y, pos.z]);
+                        }
                     }
-                }
 
-                sphere.transform.update_uniform_buffer(&queue);
-                render_pass.set_bind_group(1, &sphere.bind_group, &[]);
-                render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
+                    sphere.transform.update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &sphere.bind_group, &[]);
+                    render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                    render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
+                }
             }
 
             // // draw cubes
@@ -1800,11 +1802,16 @@ impl ExportPipeline {
             let time = self.start_time.elapsed().as_secs_f32();
 
             for grass in &renderer_state.grasses {
-                if let Some(sphere) = &renderer_state.player_character.sphere {
-                    grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                if let Some(player_character) = &renderer_state.player_character {
+                    if let Some(sphere) = &player_character.sphere {
+                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                    } else {
+                        grass.update_uniforms(&queue, time as f32, camera.position);
+                    }
                 } else {
                     grass.update_uniforms(&queue, time as f32, camera.position);
                 }
+
                 render_pass.set_pipeline(&grass.render_pipeline);
                 render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                 render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
@@ -1831,10 +1838,12 @@ impl ExportPipeline {
 
             // draw water
             for water_plane in &mut renderer_state.water_planes {
-                if let Some(sphere) = &renderer_state.player_character.sphere {
-                    let player_pos = sphere.transform.position;
-                    water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
-                    render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
+                if let Some(player_character) = &renderer_state.player_character {
+                    if let Some(sphere) = &player_character.sphere {
+                        let player_pos = sphere.transform.position;
+                        water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
+                        render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
+                    }
                 }
             }
 

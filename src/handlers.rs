@@ -17,7 +17,7 @@ use std::{cell::RefCell, collections::HashMap};
 use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
 
-use crate::core::PlayerCharacter::NPC;
+use crate::core::PlayerCharacter::{NPC, PlayerCharacter};
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
@@ -100,6 +100,33 @@ static mut CAMERA: Option<SimpleCamera> = None;
 
 thread_local! {
     static CAMERA_INIT: std::cell::Cell<bool> = std::cell::Cell::new(false);
+}
+
+pub async fn handle_add_player(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    projectId: String,
+    modelAssetId: String, // model is added to stored library as an asset
+    modelComponentId: String, // model is added from library to scene as an active component
+    modelFilename: String,
+    isometry: Isometry3<f32>,
+    scale: Vector3<f32>,
+    camera: &SimpleCamera
+) {
+    // TODO: provide model info for Player model and isometry for player position
+    let mut player_character = PlayerCharacter::new(
+        &mut state.rigid_body_set,
+        &mut state.collider_set,
+        &device,
+        &queue,
+        &state.model_bind_group_layout,
+        &state.group_bind_group_layout,
+        &state.texture_render_mode_buffer,
+        camera,
+    );
+
+    state.player_character = Some(player_character);
 }
 
 pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
@@ -188,17 +215,21 @@ pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state
     if renderer_state.game_mode && element_state == ElementState::Pressed {
         match button {
             MouseButton::Left => {
-                renderer_state.player_character.attack(
-                    &renderer_state.rigid_body_set,
-                    &renderer_state.collider_set,
-                    &mut renderer_state.query_pipeline,
-                    &mut renderer_state.npcs,
-                );
-                println!("Left mouse button pressed - Player Attack!");
+                if let Some(player_character) = &mut renderer_state.player_character {
+                    player_character.attack(
+                        &renderer_state.rigid_body_set,
+                        &renderer_state.collider_set,
+                        &mut renderer_state.query_pipeline,
+                        &mut renderer_state.npcs,
+                    );
+                    println!("Left mouse button pressed - Player Attack!");
+                }
             }
             MouseButton::Right => {
-                renderer_state.player_character.defend();
-                println!("Right mouse button pressed - Player Defend!");
+                if let Some(player_character) = &mut renderer_state.player_character {
+                    player_character.defend();
+                    println!("Right mouse button pressed - Player Defend!");
+                }
             }
             _ => {}
         }
@@ -209,37 +240,40 @@ pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-    let test_sphere = renderer_state.player_character.sphere.as_ref().expect("Couldn't get sphere");
+    if let Some(player_character) = &renderer_state.player_character {
 
-    let mut transforms = vec![
-        Transform::from_scale_rotation_translation(
-            MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
-            Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
-            MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
-        )
-    ];
+        let test_sphere = player_character.sphere.as_ref().expect("Couldn't get sphere");
 
-    let interaction = GizmoInteraction {
-        cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
-        ..Default::default()
-        // hovered,
-        // drag_started,
-        // dragging: mousePressed
-     };
-    
-    //  println!("mouse move");
+        let mut transforms = vec![
+            Transform::from_scale_rotation_translation(
+                MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
+                Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
+                MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
+            )
+        ];
 
-    if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
-        // println!("subgizmo dragged");
+        let interaction = GizmoInteraction {
+            cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
+            ..Default::default()
+            // hovered,
+            // drag_started,
+            // dragging: mousePressed
+        };
+        
+        //  println!("mouse move");
 
-        for (new_transform, transform) in
-         // Update transforms
-         new_transforms.iter().zip(&mut transforms)
-         {    
-             *transform = *new_transform;
-             
-         }
-     }
+        if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
+            // println!("subgizmo dragged");
+
+            for (new_transform, transform) in
+            // Update transforms
+            new_transforms.iter().zip(&mut transforms)
+            {    
+                *transform = *new_transform;
+                
+            }
+        }
+    }
 }
 
 pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {

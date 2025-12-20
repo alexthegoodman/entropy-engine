@@ -152,7 +152,7 @@ pub struct RendererState {
     pub collider_set: ColliderSet,
 
     // characters
-    pub player_character: PlayerCharacter,
+    pub player_character: Option<PlayerCharacter>,
     pub npcs: Vec<NPC>,
 
     // pub current_modifiers: ModifiersState,
@@ -236,16 +236,16 @@ impl RendererState {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-                let mut player_character = PlayerCharacter::new(
-            &mut rigid_body_set,
-            &mut collider_set,
-            device,
-            queue,
-            &model_bind_group_layout,
-            &group_bind_group_layout,
-            &texture_render_mode_buffer,
-            camera,
-        );
+        //         let mut player_character = PlayerCharacter::new(
+        //     &mut rigid_body_set,
+        //     &mut collider_set,
+        //     device,
+        //     queue,
+        //     &model_bind_group_layout,
+        //     &group_bind_group_layout,
+        //     &texture_render_mode_buffer,
+        //     camera,
+        // );
 
         // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
         // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
@@ -348,7 +348,7 @@ impl RendererState {
             query_pipeline,
             rigid_body_set,
             collider_set,
-            player_character,
+            player_character: None,
 
             // current_modifiers: ModifiersState::empty(),
             mouse_state: MouseState {
@@ -513,134 +513,139 @@ impl RendererState {
 
         // Update camera position if needed
         if self.game_mode {
-            if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
-                if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                    if self.game_settings.third_person {
-                        // // third-person / 3rd person camera
-                        // Retrieve player position
-                        let pos = rb.translation(); // nalgebra::Vector3<f32>
+            if let Some(player_character) = &self.player_character {
+                if let Some(rb_handle) = player_character.movement_rigid_body_handle {
+                    if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+                        if self.game_settings.third_person {
+                            // // third-person / 3rd person camera
+                            // Retrieve player position
+                            let pos = rb.translation(); // nalgebra::Vector3<f32>
 
-                        // --- Mouse Input and Angle Update ---
-                        if let (Some(current), Some(last)) = (
-                            self.current_mouse_position,
-                            self.last_mouse_position
-                        ) {
-                            let mouse_sensitivity: f32 = 0.005; 
-                            
-                            // Calculate difference (delta) in screen coordinates
-                            let delta_x = current.x - last.x;
-                            let delta_y = current.y - last.y;
-                            
-                            // 1. Update Yaw (Left/Right rotation)
-                            // Positive delta_x (mouse moved right) should typically decrease yaw 
-                            // to swing the camera left (assuming a right-hand coordinate system)
-                            // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
-                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+                            // --- Mouse Input and Angle Update ---
+                            if let (Some(current), Some(last)) = (
+                                self.current_mouse_position,
+                                self.last_mouse_position
+                            ) {
+                                let mouse_sensitivity: f32 = 0.005; 
+                                
+                                // Calculate difference (delta) in screen coordinates
+                                let delta_x = current.x - last.x;
+                                let delta_y = current.y - last.y;
+                                
+                                // 1. Update Yaw (Left/Right rotation)
+                                // Positive delta_x (mouse moved right) should typically decrease yaw 
+                                // to swing the camera left (assuming a right-hand coordinate system)
+                                // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
+                                self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                            // 2. Update Pitch (Up/Down rotation)
-                            // Positive delta_y (mouse moved down) should increase pitch
-                            self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
-                            // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
-                            
-                            // 3. Clamp Pitch to prevent the camera from flipping over
-                            // 1.55 radians is approximately 89 degrees
-                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
-                            
-                            // You should update self.last_mouse_position *after* calculating delta, 
-                            // typically in your event loop, but often set here for simplicity if needed.
-                            // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
+                                // 2. Update Pitch (Up/Down rotation)
+                                // Positive delta_y (mouse moved down) should increase pitch
+                                self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
+                                // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
+                                
+                                // 3. Clamp Pitch to prevent the camera from flipping over
+                                // 1.55 radians is approximately 89 degrees
+                                self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                                
+                                // You should update self.last_mouse_position *after* calculating delta, 
+                                // typically in your event loop, but often set here for simplicity if needed.
+                                // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
+                            }
+
+                            // --- Camera Variables ---
+                            let radius: f32 = 25.0; // The fixed distance from the player
+
+                            // --- Calculate New Camera Position using Spherical Coordinates ---
+
+                            // Calculate horizontal component of the offset (projection onto XZ plane)
+                            let horizontal_distance = radius * self.camera_pitch.cos();
+
+                            // Calculate the offsets
+                            // Note: Assuming your Y-axis is UP (standard for many game engines)
+                            let x_offset = horizontal_distance * self.camera_yaw.sin();
+                            let y_offset = radius * self.camera_pitch.sin();
+                            let z_offset = horizontal_distance * self.camera_yaw.cos(); 
+
+                            // Create the new camera position (Point3 from nalgebra)
+                            // The offsets are added to the player's position
+                            let comfort_elevation = 2.0;
+                            let camera_pos = Point3::new(
+                                pos.x + x_offset,
+                                pos.y + y_offset + comfort_elevation, 
+                                pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
+                            );
+                            camera.position = camera_pos;
+
+                            // Set direction to look back at the player's center
+                            // The .coords property converts Point3 to Vector3 for the subtraction
+                            let direction = (pos - camera_pos.coords).normalize(); 
+                            camera.direction = direction;
+
+                            camera.update();
+                            camera_binding.update_3d(&queue, &camera);
+
+                        } else {
+                            // first / 1st person camera with lookaround
+                            // Retrieve player position
+                            let pos = rb.translation();
+
+                            // --- Mouse Input and Angle Update ---
+                            if let (Some(current), Some(last)) = (
+                                self.current_mouse_position,
+                                self.last_mouse_position
+                            ) {
+                                let mouse_sensitivity: f32 = 0.005; 
+                                
+                                // Calculate difference (delta) in screen coordinates
+                                let delta_x = current.x - last.x;
+                                let delta_y = current.y - last.y;
+                                
+                                // Update Yaw (Left/Right rotation)
+                                self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+
+                                // Update Pitch (Up/Down rotation)
+                                self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
+                                
+                                // Clamp Pitch to prevent camera flipping
+                                self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                            }
+
+                            // --- Position camera at player's eye level ---
+                            let eye_height: f32 = 1.7; // Adjust based on your player model
+                            let camera_pos = Point3::new(
+                                pos.x,
+                                pos.y + eye_height,
+                                pos.z
+                            );
+                            camera.position = camera_pos;
+
+                            // --- Calculate look direction from yaw and pitch ---
+                            // Convert spherical angles to a direction vector
+                            let direction = Vector3::new(
+                                self.camera_yaw.cos() * self.camera_pitch.cos(),
+                                self.camera_pitch.sin(),
+                                self.camera_yaw.sin() * self.camera_pitch.cos()
+                            ).normalize();
+
+                            camera.direction = direction;
+
+                            camera.update();
+                            camera_binding.update_3d(&queue, &camera);
                         }
-
-                        // --- Camera Variables ---
-                        let radius: f32 = 25.0; // The fixed distance from the player
-
-                        // --- Calculate New Camera Position using Spherical Coordinates ---
-
-                        // Calculate horizontal component of the offset (projection onto XZ plane)
-                        let horizontal_distance = radius * self.camera_pitch.cos();
-
-                        // Calculate the offsets
-                        // Note: Assuming your Y-axis is UP (standard for many game engines)
-                        let x_offset = horizontal_distance * self.camera_yaw.sin();
-                        let y_offset = radius * self.camera_pitch.sin();
-                        let z_offset = horizontal_distance * self.camera_yaw.cos(); 
-
-                        // Create the new camera position (Point3 from nalgebra)
-                        // The offsets are added to the player's position
-                        let comfort_elevation = 2.0;
-                        let camera_pos = Point3::new(
-                            pos.x + x_offset,
-                            pos.y + y_offset + comfort_elevation, 
-                            pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
-                        );
-                        camera.position = camera_pos;
-
-                        // Set direction to look back at the player's center
-                        // The .coords property converts Point3 to Vector3 for the subtraction
-                        let direction = (pos - camera_pos.coords).normalize(); 
-                        camera.direction = direction;
-
-                        camera.update();
-                        camera_binding.update_3d(&queue, &camera);
-
-                    } else {
-                        // first / 1st person camera with lookaround
-                        // Retrieve player position
+                    }
+                }
+            } 
+        }
+        else {
+            if let Some(player_character) = &self.player_character {
+                if let Some(rb_handle) = player_character.movement_rigid_body_handle {
+                    if let Some(rb) = self.rigid_body_set.get(rb_handle) {
                         let pos = rb.translation();
-
-                        // --- Mouse Input and Angle Update ---
-                        if let (Some(current), Some(last)) = (
-                            self.current_mouse_position,
-                            self.last_mouse_position
-                        ) {
-                            let mouse_sensitivity: f32 = 0.005; 
-                            
-                            // Calculate difference (delta) in screen coordinates
-                            let delta_x = current.x - last.x;
-                            let delta_y = current.y - last.y;
-                            
-                            // Update Yaw (Left/Right rotation)
-                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
-
-                            // Update Pitch (Up/Down rotation)
-                            self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
-                            
-                            // Clamp Pitch to prevent camera flipping
-                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
-                        }
-
-                        // --- Position camera at player's eye level ---
-                        let eye_height: f32 = 1.7; // Adjust based on your player model
-                        let camera_pos = Point3::new(
-                            pos.x,
-                            pos.y + eye_height,
-                            pos.z
-                        );
-                        camera.position = camera_pos;
-
-                        // --- Calculate look direction from yaw and pitch ---
-                        // Convert spherical angles to a direction vector
-                        let direction = Vector3::new(
-                            self.camera_yaw.cos() * self.camera_pitch.cos(),
-                            self.camera_pitch.sin(),
-                            self.camera_yaw.sin() * self.camera_pitch.cos()
-                        ).normalize();
-
-                        camera.direction = direction;
+                        camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
 
                         camera.update();
                         camera_binding.update_3d(&queue, &camera);
                     }
-                }
-            }
-        } else {
-            if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
-                if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                    let pos = rb.translation();
-                    camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
-
-                    camera.update();
-                    camera_binding.update_3d(&queue, &camera);
                 }
             }
         }
@@ -667,35 +672,37 @@ impl RendererState {
                         // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
                     });
 
-                    if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                        let damage_dealt = instance_npc_data.test_behavior.update(
-                            &mut self.rigid_body_set,
-                            &self.collider_set,
-                            &self.query_pipeline,
-                            first_mesh
-                                .rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            self.player_character
-                                .movement_rigid_body_handle
-                                .expect("Couldn't get rigid body handle"),
-                            &first_mesh.rapier_collider,
-                            &mut first_mesh.transform,
-                            instance_npc_data.stats.stamina, // Use NPC's actual stamina
-                            dt,
-                        );
+                    if let Some(player_character) = &mut self.player_character {
+                        if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
+                            let damage_dealt = instance_npc_data.test_behavior.update(
+                                &mut self.rigid_body_set,
+                                &self.collider_set,
+                                &self.query_pipeline,
+                                first_mesh
+                                    .rigid_body_handle
+                                    .expect("Couldn't get rigid body handle"),
+                                player_character
+                                    .movement_rigid_body_handle
+                                    .expect("Couldn't get rigid body handle"),
+                                &first_mesh.rapier_collider,
+                                &mut first_mesh.transform,
+                                instance_npc_data.stats.stamina, // Use NPC's actual stamina
+                                dt,
+                            );
 
-                        if let Some(damage) = damage_dealt {
-                            self.player_character.handle_incoming_damage(damage);
-                        }
+                            if let Some(damage) = damage_dealt {
+                                player_character.handle_incoming_damage(damage);
+                            }
 
-                        let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+                            let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
 
-                        // Find the animation index in the model
-                        if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
-                            // If the animation is not already playing, switch to it
-                            if instance_npc_data.animation_state.animation_index != animation_index {
-                                instance_npc_data.animation_state.animation_index = animation_index;
-                                instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                            // Find the animation index in the model
+                            if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                                // If the animation is not already playing, switch to it
+                                if instance_npc_data.animation_state.animation_index != animation_index {
+                                    instance_npc_data.animation_state.animation_index = animation_index;
+                                    instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                                }
                             }
                         }
                     }
@@ -833,49 +840,51 @@ impl RendererState {
     }
 
     pub fn update_player_character_position(&mut self, translation: Vector3<f32>, delta_time: f32, camera: &mut SimpleCamera) {
-        // let mut camera = get_camera();
-        // Collision filter (typically you want to collide with everything except other characters)
-        let filter = QueryFilter::default()
-            .exclude_rigid_body(
-                self.player_character
-                    .movement_rigid_body_handle
-                    .expect("Couldn't get rigid body handle"),
-            )
-            .exclude_collider(
-                self.player_character
-                    .collider_handle
-                    .expect("Couldn't get collider handle"),
-            )
-            .exclude_sensors(); // Typically don't collide with trigger volumes
+        if let Some(player_character) = &mut self.player_character {
+            // let mut camera = get_camera();
+            // Collision filter (typically you want to collide with everything except other characters)
+            let filter = QueryFilter::default()
+                .exclude_rigid_body(
+                    player_character
+                        .movement_rigid_body_handle
+                        .expect("Couldn't get rigid body handle"),
+                )
+                .exclude_collider(
+                    player_character
+                        .collider_handle
+                        .expect("Couldn't get collider handle"),
+                )
+                .exclude_sensors(); // Typically don't collide with trigger volumes
 
-        // Current character position
-        let character_pos = Isometry3::translation(
-            camera.position.x,
-            camera.position.y - 0.9, // Offset by half height to put camera at top
-            camera.position.z,
-        );
+            // Current character position
+            let character_pos = Isometry3::translation(
+                camera.position.x,
+                camera.position.y - 0.9, // Offset by half height to put camera at top
+                camera.position.z,
+            );
 
-        self.player_character.character_controller.move_shape(
-            delta_time,
-            &self.rigid_body_set,
-            &self.collider_set,
-            &self.query_pipeline,
-            self.player_character.movement_shape.shape(),
-            &character_pos,
-            translation,
-            filter,
-            |collision| { 
-                // println!("Collision detected (a) {:?}", collision.character_pos)
-            },
-        );
+            player_character.character_controller.move_shape(
+                delta_time,
+                &self.rigid_body_set,
+                &self.collider_set,
+                &self.query_pipeline,
+                player_character.movement_shape.shape(),
+                &character_pos,
+                translation,
+                filter,
+                |collision| { 
+                    // println!("Collision detected (a) {:?}", collision.character_pos)
+                },
+            );
 
-        camera.position = Point3::new(
-            camera.position.x + translation.x,
-            camera.position.y - 0.9 + translation.y,
-            camera.position.z + translation.z,
-        );
+            camera.position = Point3::new(
+                camera.position.x + translation.x,
+                camera.position.y - 0.9 + translation.y,
+                camera.position.z + translation.z,
+            );
 
-        // TODO: update collider with handle?
+            // TODO: update collider with handle?
+        }
     }
 
     pub fn update_player_collider_position(
@@ -883,18 +892,21 @@ impl RendererState {
         //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
-        // Create translation vector based on the arrow's axis
-        let translation = vector![position[0], position[1], position[2]];
+        if let Some(player_character) = &mut self.player_character {
 
-        let isometry =
-            nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
+            // Create translation vector based on the arrow's axis
+            let translation = vector![position[0], position[1], position[2]];
 
-        if let Some(collider) = self.collider_set.get_mut(
-            self.player_character
-                .collider_handle
-                .expect("Couldn't get mesh collider handle"),
-        ) {
-            collider.set_position(isometry);
+            let isometry =
+                nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
+
+            if let Some(collider) = self.collider_set.get_mut(
+                player_character
+                    .collider_handle
+                    .expect("Couldn't get mesh collider handle"),
+            ) {
+                collider.set_position(isometry);
+            }
         }
     }
 
@@ -922,38 +934,44 @@ impl RendererState {
     }
 
     pub fn apply_player_movement(&mut self, direction: Vector3<f32>) {
-        if let Some(rigidbody) = self.rigid_body_set.get_mut(
-            self.player_character
-                .movement_rigid_body_handle
-                .expect("Couldn't get mesh rigidbody handle"),
-        ) {
-            // Get current velocity to preserve Y component (gravity)
-            let current_velocity = rigidbody.linvel();
-            
-            // Set horizontal velocity while keeping vertical velocity
-            // let movement_speed = 5.0; // Adjust this to your desired speed
-            let movement_speed = 2.5;
-            let new_velocity = vector![
-                direction.x * movement_speed,
-                current_velocity.y, // Preserve gravity/jumping
-                direction.z * movement_speed
-            ];
-            
-            rigidbody.set_linvel(new_velocity, true);
+        if let Some(player_character) = &mut self.player_character {
+
+            if let Some(rigidbody) = self.rigid_body_set.get_mut(
+                player_character
+                    .movement_rigid_body_handle
+                    .expect("Couldn't get mesh rigidbody handle"),
+            ) {
+                // Get current velocity to preserve Y component (gravity)
+                let current_velocity = rigidbody.linvel();
+                
+                // Set horizontal velocity while keeping vertical velocity
+                // let movement_speed = 5.0; // Adjust this to your desired speed
+                let movement_speed = 2.5;
+                let new_velocity = vector![
+                    direction.x * movement_speed,
+                    current_velocity.y, // Preserve gravity/jumping
+                    direction.z * movement_speed
+                ];
+                
+                rigidbody.set_linvel(new_velocity, true);
+            }
         }
     }
 
     pub fn apply_jump_impulse(&mut self) {
-        if let Some(rigidbody) = self.rigid_body_set.get_mut(
-            self.player_character
-                .movement_rigid_body_handle
-                .expect("Couldn't get mesh rigidbody handle"),
-        ) {
-            // Only jump if on ground (check if vertical velocity is near zero)
-            let velocity = rigidbody.linvel();
-            if velocity.y.abs() < 0.1 {
-                let jump_force = 8.0; // Adjust for desired jump height
-                rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+        if let Some(player_character) = &mut self.player_character {
+
+            if let Some(rigidbody) = self.rigid_body_set.get_mut(
+                player_character
+                    .movement_rigid_body_handle
+                    .expect("Couldn't get mesh rigidbody handle"),
+            ) {
+                // Only jump if on ground (check if vertical velocity is near zero)
+                let velocity = rigidbody.linvel();
+                if velocity.y.abs() < 0.1 {
+                    let jump_force = 8.0; // Adjust for desired jump height
+                    rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+                }
             }
         }
     }
@@ -963,18 +981,21 @@ impl RendererState {
         //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
-        // Create translation vector based on the arrow's axis
-        let translation = vector![position[0], position[1], position[2]];
+        if let Some(player_character) = &mut self.player_character {
 
-        let isometry =
-            nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
+            // Create translation vector based on the arrow's axis
+            let translation = vector![position[0], position[1], position[2]];
 
-        if let Some(rigidbody) = self.rigid_body_set.get_mut(
-            self.player_character
-                .movement_rigid_body_handle
-                .expect("Couldn't get mesh rigidbody handle"),
-        ) {
-            rigidbody.set_position(isometry, true);
+            let isometry =
+                nalgebra::Isometry3::translation(translation.x, translation.y, translation.z);
+
+            if let Some(rigidbody) = self.rigid_body_set.get_mut(
+                player_character
+                    .movement_rigid_body_handle
+                    .expect("Couldn't get mesh rigidbody handle"),
+            ) {
+                rigidbody.set_position(isometry, true);
+            }
         }
     }
 
@@ -1124,6 +1145,7 @@ impl RendererState {
             },
             ComponentKind::PointLight => return,
             ComponentKind::WaterPlane => return,
+            _ => return,
         }
     }
 
