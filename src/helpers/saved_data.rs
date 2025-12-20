@@ -97,8 +97,9 @@ pub struct NPCProperties {
 pub struct PlayerProperties {
     pub model_id: Option<String>,
     // default weapon is already hidden from the level / world. 
-    // TODO: ready to be mounted on a Model armature (LowerArm.r to start with)
-    pub default_weapon_id: Option<String>,
+    // TODO: ready to be mounted on a Model armature (LowerArm.r to start with) 
+    // (will need to set as equipped weapon in inventory as well)
+    pub default_weapon_id: Option<String>, // Component id of the Collectable (Weapon type)
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

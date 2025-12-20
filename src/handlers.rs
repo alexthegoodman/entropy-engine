@@ -113,7 +113,8 @@ pub async fn handle_add_player(
     modelFilename: String,
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
-    camera: &SimpleCamera
+    camera: &SimpleCamera,
+    default_weapon_id: Option<String>
 ) {
     // TODO: provide model info for Player model and isometry for player position
     let mut player_character = PlayerCharacter::new(
@@ -126,7 +127,8 @@ pub async fn handle_add_player(
         &state.texture_render_mode_buffer,
         camera,
         isometry,
-        scale
+        scale,
+        default_weapon_id
     );
 
     player_character.model_id = Some(modelComponentId); // may want to be an optional model later

@@ -45,6 +45,8 @@ pub struct PlayerCharacter {
     pub attack_timer: Instant,
     pub is_defending: bool,
     pub inventory: Inventory,
+
+    pub default_weapon_id: Option<String>,
 }
 
 impl PlayerCharacter {
@@ -59,6 +61,7 @@ impl PlayerCharacter {
         camera: &SimpleCamera,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
+        default_weapon_id: Option<String>
     ) -> Self {
         let id = Uuid::new_v4();
 
@@ -136,6 +139,7 @@ impl PlayerCharacter {
             attack_timer: Instant::now(),
             is_defending: false,
             inventory: Inventory::new(),
+            default_weapon_id
         }
     }
 

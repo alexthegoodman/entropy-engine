@@ -372,6 +372,12 @@ editor.saved_state = Some(loaded_state);
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
+                                        let mut default_weapon_id = None;
+
+                                        if let Some(data) = &component.player_properties {
+                                            default_weapon_id = data.default_weapon_id.clone();
+                                        }
+
                                         if let Some(asset_item) = asset {
                                             handle_add_player(
                                                 renderer_state,  
@@ -383,7 +389,8 @@ editor.saved_state = Some(loaded_state);
                                                 asset_item.fileName.clone(), 
                                                 model_iso, 
                                                 model_scale,
-                                                camera
+                                                camera,
+                                                default_weapon_id
                                             ).await;
                                         }
                                     }
@@ -428,11 +435,11 @@ editor.saved_state = Some(loaded_state);
 
                                         if let Some(character) = character {
                                             if let Some(data) = &character.player_properties {
-                                            if let Some(default_weapon_id) = data.default_weapon_id.clone() {
-                                                if default_weapon_id == component.id {
-                                                    hide_in_world = true;
+                                                if let Some(default_weapon_id) = data.default_weapon_id.clone() {
+                                                    if default_weapon_id == component.id {
+                                                        hide_in_world = true;
+                                                    }
                                                 }
-                                            }
                                             }
                                         }
 

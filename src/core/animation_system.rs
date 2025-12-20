@@ -1,14 +1,45 @@
 use nalgebra::{Vector3, UnitQuaternion, Quaternion, Matrix4};
 
-use crate::art_assets::Model::{AnimationChannel, AnimationValues, Model, Node};
+use crate::{art_assets::Model::{AnimationChannel, AnimationValues, Model, Node}, model_components::PlayerCharacter::PlayerCharacter};
 use crate::core::AnimationState::AnimationState;
 use crate::model_components::NPC::NPC;
+
+fn attach_weapon_to_bone(
+    models: &mut [Model],
+    player_model_index: usize,
+    weapon_model_id: &str,
+    bone_name: &str,
+    queue: &wgpu::Queue,
+) {
+    // Find the bone index in the player model
+    let bone_index = models[player_model_index]
+        .nodes
+        .iter()
+        .position(|node| node.name == bone_name);
+
+    if let Some(bone_index) = bone_index {
+        // Get the bone's global transform
+        let bone_transform = models[player_model_index].nodes[bone_index].global_transform;
+
+        // Find the weapon model and update its transform
+        if let Some(weapon_model) = models
+            .iter_mut()
+            .find(|model| model.id == weapon_model_id)
+        {
+            for mesh in &mut weapon_model.meshes {
+                let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&bone_transform.transpose());
+                queue.write_buffer(&mesh.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
+            }
+        }
+    }
+}
 
 pub fn update_animations(
     // models: &mut [&mut Model],
     // animation_states: &mut [&mut AnimationState],
     models: &mut [Model],
     npcs: &mut [NPC],
+    player_character: &Option<PlayerCharacter>,
     pairs: &[(usize, usize)],
     delta_time: f32,
     queue: &wgpu::Queue,
@@ -112,6 +143,18 @@ pub fn update_animations(
             // let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform.transpose());
             let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform);
             queue.write_buffer(&node.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
+        }
+    }
+
+    if let Some(player) = player_character {
+        if let Some(player_model_id) = &player.model_id {
+            if let Some(player_model_index) = models.iter().position(|m| &m.id == player_model_id) {
+                if let Some(weapon_id) = &player.default_weapon_id {
+                    // Find the component for the weapon
+                    // This is a bit of a stretch, assuming the weapon component ID is the model ID
+                    attach_weapon_to_bone(models, player_model_index, weapon_id, "LowerArm.r", queue);
+                }
+            }
         }
     }
 }

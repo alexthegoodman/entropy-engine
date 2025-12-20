@@ -57,6 +57,7 @@ pub struct Skin {
 
 #[derive(Debug)]
 pub struct Node {
+    pub name: String,
     pub children: Vec<usize>,
     pub transform: Transform,
     pub global_transform: Matrix4<f32>,
@@ -719,7 +720,13 @@ impl Model {
 
             let children = node.children().map(|c| c.index()).collect();
 
+            let mut name = "DefaultName";
+            if let Some(node_name) = node.name().clone() {
+                name = node_name;
+            }
+
             nodes.push(Node {
+                name: name.to_string(),
                 children,
                 transform,
                 global_transform: Matrix4::identity(),

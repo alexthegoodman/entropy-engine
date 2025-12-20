@@ -738,6 +738,7 @@ impl RendererState {
         crate::core::animation_system::update_animations(
             &mut self.models,
             &mut self.npcs,
+            &self.player_character,
             &matching_pairs,
             dt,
             queue,
