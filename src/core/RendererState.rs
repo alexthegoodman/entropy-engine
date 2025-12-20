@@ -643,7 +643,7 @@ impl RendererState {
                 if let Some(character) = &self
                     .player_character
                 {
-                    if let Some(model_id) = character.model_id.clone() {
+                    if let Some(model_id) = character.model_id.clone() { // character.model_id is the component id of the PlayerCharacter
                         if model_id == component_id.to_string() {
                             instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                 mesh.transform
@@ -1199,35 +1199,6 @@ impl RendererState {
                     .expect("Couldn't get Renderer Model");
 
                 renderer_model.meshes.iter_mut().for_each(|mesh| {
-                    let existing_iso = mesh.rapier_rigidbody.position().clone();
-
-                    let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
-                        // .expect("Couldn't create trimesh")
-                        .friction(0.7)
-                        .restitution(0.0)
-                        .density(1.0)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
-
-                    let dynamic_body = RigidBodyBuilder::dynamic()
-                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
-                        .linear_damping(0.1)
-                        .position(existing_iso)
-                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
-
-                    mesh.rapier_collider = rapier_collider;
-                    mesh.rapier_rigidbody = dynamic_body;
-
                     let rigid_body_handle =
                         self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
                     mesh.rigid_body_handle = Some(rigid_body_handle);
@@ -1240,6 +1211,57 @@ impl RendererState {
                     );
                     mesh.collider_handle = Some(collider_handle);
                 });
+                
+                // no collider here as it is set up in PlayerCharacter.rs
+
+                // let renderer_model = self
+                //     .models
+                //     .iter_mut()
+                //     .find(|l| l.id == component_id.clone())
+                //     .expect("Couldn't get Renderer Model");
+
+                // renderer_model.meshes.iter_mut().for_each(|mesh| {
+                //     let existing_iso = mesh.rapier_rigidbody.position().clone();
+
+                //     let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+                //         // .expect("Couldn't create trimesh")
+                //         .friction(0.7)
+                //         .restitution(0.0)
+                //         .density(1.0)
+                //         .user_data(
+                //             Uuid::from_str(&component_id.clone())
+                //                 .expect("Couldn't extract uuid")
+                //                 .as_u128(),
+                //         )
+                //         .build();
+
+                //     let dynamic_body = RigidBodyBuilder::dynamic()
+                //         .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
+                //         .linear_damping(0.1)
+                //         .position(existing_iso)
+                //         .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                //         .user_data(
+                //             Uuid::from_str(&component_id.clone())
+                //                 .expect("Couldn't extract uuid")
+                //                 .as_u128(),
+                //         )
+                //         .build();
+
+                //     mesh.rapier_collider = rapier_collider;
+                //     mesh.rapier_rigidbody = dynamic_body;
+
+                //     let rigid_body_handle =
+                //         self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                //     mesh.rigid_body_handle = Some(rigid_body_handle);
+
+                //     // now associate rigidbody with collider
+                //     let collider_handle = self.collider_set.insert_with_parent(
+                //         mesh.rapier_collider.clone(),
+                //         rigid_body_handle,
+                //         &mut self.rigid_body_set,
+                //     );
+                //     mesh.collider_handle = Some(collider_handle);
+                // });
             },
             ComponentKind::PointLight => return,
             ComponentKind::WaterPlane => return,

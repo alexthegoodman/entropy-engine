@@ -1807,7 +1807,13 @@ impl ExportPipeline {
 
             for grass in &renderer_state.grasses {
                 if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(sphere) = &player_character.sphere {
+                    if let Some(model_id) = &player_character.model_id {
+                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        let player_model = player_model.as_ref().expect("Couldn't find related model");
+                        let model_mesh = player_model.meshes.get(0);
+                        let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
+                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                    } else if let Some(sphere) = &player_character.sphere {
                         grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                     } else {
                         grass.update_uniforms(&queue, time as f32, camera.position);
@@ -1843,7 +1849,14 @@ impl ExportPipeline {
             // draw water
             for water_plane in &mut renderer_state.water_planes {
                 if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(sphere) = &player_character.sphere {
+                    if let Some(model_id) = &player_character.model_id {
+                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        let player_model = player_model.as_ref().expect("Couldn't find related model");
+                        let model_mesh = player_model.meshes.get(0);
+                        let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
+                        water_plane.update_uniforms(queue, time as f32, [model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z]);
+                        render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
+                    } else if let Some(sphere) = &player_character.sphere {
                         let player_pos = sphere.transform.position;
                         water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
                         render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);

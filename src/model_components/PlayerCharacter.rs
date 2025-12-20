@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
 
@@ -26,7 +27,7 @@ use crate::{
 use crate::shape_primitives::Sphere::Sphere;
 
 pub struct PlayerCharacter {
-    pub id: Uuid,
+    pub id: String,
     pub model_id: Option<String>,
     pub sphere: Option<Sphere>,
 
@@ -51,6 +52,7 @@ pub struct PlayerCharacter {
 
 impl PlayerCharacter {
     pub fn new(
+        id: String,
         rigid_body_set: &mut RigidBodySet,
         collider_set: &mut ColliderSet,
         device: &wgpu::Device,
@@ -63,13 +65,15 @@ impl PlayerCharacter {
         scale: Vector3<f32>,
         default_weapon_id: Option<String>
     ) -> Self {
-        let id = Uuid::new_v4();
+        // let id = Uuid::new_v4();
+        let uuid = Uuid::from_str(&id);
+        let uuid = uuid.as_ref().expect("Couldn't convert uuid");
 
         let movement_collider = ColliderBuilder::capsule_y(0.5, 1.0)
             .friction(0.7) // Add significant friction (was 0.0)
             .restitution(0.0)
             .density(1.0)
-            .user_data(id.as_u128())
+            .user_data(uuid.as_u128())
             .active_collision_types(ActiveCollisionTypes::all())
             .build();
 
@@ -81,7 +85,7 @@ impl PlayerCharacter {
             .angular_damping(0.9) // Add angular damping to prevent excessive rotation
             .ccd_enabled(true) // Enable Continuous Collision Detection for fast movement
             .lock_rotations() // Prevent character from tipping over
-            .user_data(id.as_u128())
+            .user_data(uuid.as_u128())
             .position(isometry)
             .build();
 

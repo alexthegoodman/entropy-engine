@@ -128,6 +128,7 @@ pub async fn handle_add_player(
 
     // TODO: provide model info for Player model and isometry for player position
     let mut player_character = PlayerCharacter::new(
+        modelComponentId.clone(),
         &mut state.rigid_body_set,
         &mut state.collider_set,
         &device,
