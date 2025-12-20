@@ -1,11 +1,12 @@
-use nalgebra::{Vector3, UnitQuaternion, Quaternion, Matrix4};
+use nalgebra::{Vector3, UnitQuaternion, Quaternion, Matrix4, Matrix3};
 
-use crate::{art_assets::Model::{AnimationChannel, AnimationValues, Model, Node}, model_components::PlayerCharacter::PlayerCharacter};
+use crate::{art_assets::Model::{AnimationChannel, AnimationValues, Model, Node}, model_components::{Collectable::Collectable, PlayerCharacter::PlayerCharacter}};
 use crate::core::AnimationState::AnimationState;
 use crate::model_components::NPC::NPC;
 
 fn attach_weapon_to_bone(
     models: &mut [Model],
+    collectables: &mut [Collectable],
     player_model_index: usize,
     weapon_model_id: &str,
     bone_name: &str,
@@ -18,17 +19,57 @@ fn attach_weapon_to_bone(
         .position(|node| node.name == bone_name);
 
     if let Some(bone_index) = bone_index {
-        // Get the bone's global transform
-        let bone_transform = models[player_model_index].nodes[bone_index].global_transform;
+        // Get the bone's global transform (which is local to the model)
+        let bone_local_transform = models[player_model_index].nodes[bone_index].global_transform;
+
+        // Get the player model's world transform from its first mesh
+        let player_model_transform = if let Some(player_mesh) = models[player_model_index].meshes.get(0) {
+            player_mesh.transform.update_transform() // This gets the matrix
+        } else {
+            nalgebra::Matrix4::identity()
+        };
+
+        let final_transform = player_model_transform * bone_local_transform;
+
+        // Decompose the final transform matrix
+        let translation = final_transform.column(3).xyz();
+
+        let col0 = final_transform.column(0).xyz();
+        let col1 = final_transform.column(1).xyz();
+        let col2 = final_transform.column(2).xyz();
+
+        let scale_x = col0.magnitude();
+        let scale_y = col1.magnitude();
+        let scale_z = col2.magnitude();
+        let scale = nalgebra::Vector3::new(scale_x, scale_y, scale_z);
+
+        let inv_scale_x = if scale_x == 0.0 { 0.0 } else { 1.0 / scale_x };
+        let inv_scale_y = if scale_y == 0.0 { 0.0 } else { 1.0 / scale_y };
+        let inv_scale_z = if scale_z == 0.0 { 0.0 } else { 1.0 / scale_z };
+
+        let rotation_matrix = nalgebra::Matrix3::from_columns(&[
+            col0 * inv_scale_x,
+            col1 * inv_scale_y,
+            col2 * inv_scale_z,
+        ]);
+        let rotation = nalgebra::UnitQuaternion::from_matrix(&rotation_matrix);
 
         // Find the weapon model and update its transform
-        if let Some(weapon_model) = models
+        if let Some(weapon_collectable) = collectables
             .iter_mut()
             .find(|model| model.id == weapon_model_id)
         {
-            for mesh in &mut weapon_model.meshes {
-                let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&bone_transform.transpose());
-                queue.write_buffer(&mesh.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
+            if let Some(weapon_model) = models
+                .iter_mut()
+                .find(|model| model.id == weapon_collectable.model_id)
+            {
+                for mesh in &mut weapon_model.meshes {
+                    mesh.transform.position = translation.into();
+                    mesh.transform.rotation = rotation;
+                    mesh.transform.scale = scale.into();
+                    // println!("Update mesh uniform {:?} {:?} {:?}", weapon_model.id, weapon_model.hide_from_world, mesh.transform.position);
+                    mesh.transform.update_uniform_buffer(queue);
+                }
             }
         }
     }
@@ -39,6 +80,7 @@ pub fn update_animations(
     // animation_states: &mut [&mut AnimationState],
     models: &mut [Model],
     npcs: &mut [NPC],
+    collectables: &mut [Collectable],
     player_character: &Option<PlayerCharacter>,
     pairs: &[(usize, usize)],
     delta_time: f32,
@@ -152,7 +194,7 @@ pub fn update_animations(
                 if let Some(weapon_id) = &player.default_weapon_id {
                     // Find the component for the weapon
                     // This is a bit of a stretch, assuming the weapon component ID is the model ID
-                    attach_weapon_to_bone(models, player_model_index, weapon_id, "LowerArm.r", queue);
+                    attach_weapon_to_bone(models, collectables, player_model_index, weapon_id, "LowerArm.r", queue);
                 }
             }
         }

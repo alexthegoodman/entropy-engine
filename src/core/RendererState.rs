@@ -701,12 +701,13 @@ impl RendererState {
                         }
                     }
                 } else {
-                    instance_model_data.meshes.iter_mut().for_each(|mesh| {
-                        mesh.transform
-                            .update_position([position.x, position.y, position.z]);
-                        // rotation for interactive models (non NPC)
-                        mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
-                    });
+                    // have a dynamic models vector?
+                    // instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                    //     mesh.transform
+                    //         .update_position([position.x, position.y, position.z]);
+                    //     // rotation for interactive models (non NPC)
+                    //     mesh.transform.update_rotation([euler.0, euler.1, euler.2]);
+                    // });
                 }
             }
 
@@ -739,6 +740,7 @@ impl RendererState {
         crate::core::animation_system::update_animations(
             &mut self.models,
             &mut self.npcs,
+            &mut self.collectables,
             &self.player_character,
             &matching_pairs,
             dt,
@@ -1089,13 +1091,43 @@ impl RendererState {
                 });
             },
             ComponentKind::Collectable => {
-                let renderer_model = self
+                 let renderer_model = self
                     .models
                     .iter_mut()
                     .find(|l| l.id == component_id.clone())
                     .expect("Couldn't get Renderer Model");
 
                 renderer_model.meshes.iter_mut().for_each(|mesh| {
+                    let existing_iso = mesh.rapier_rigidbody.position().clone();
+
+                    let rapier_collider = ColliderBuilder::ball(0.5)
+                        // .expect("Couldn't create trimesh")
+                        .sensor(true)
+                        .friction(0.7)
+                        .restitution(0.0)
+                        .density(1.0)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    let dynamic_body = RigidBodyBuilder::fixed()
+                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
+                        .linear_damping(0.1)
+                        .position(existing_iso)
+                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    mesh.rapier_collider = rapier_collider;
+                    mesh.rapier_rigidbody = dynamic_body;
+
                     let rigid_body_handle =
                         self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
                     mesh.rigid_body_handle = Some(rigid_body_handle);

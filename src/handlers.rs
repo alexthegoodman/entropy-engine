@@ -409,22 +409,22 @@ pub async fn handle_add_collectable(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, hide_in_world);
+    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world);
 
-    state.add_collider(modelComponentId.clone(), ComponentKind::Collectable);
+    state.add_collider(modelAssetId.clone(), ComponentKind::Collectable);
 
     // Retrieve the rigid_body_handle after the collider has been added
     let npc_rigid_body_handle = state
         .models
         .iter()
-        .find(|m| m.id == modelComponentId)
+        .find(|m| m.id == modelAssetId)
         .and_then(|m| m.meshes.get(0))
         .and_then(|mesh| mesh.rigid_body_handle)
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
     let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
 
-    state.collectables.push(Collectable::new(modelComponentId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle));
+    state.collectables.push(Collectable::new(modelComponentId.clone(), modelAssetId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle));
 }
 
 #[derive(Serialize, Deserialize)]

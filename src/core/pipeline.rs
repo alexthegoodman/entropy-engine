@@ -1748,6 +1748,10 @@ impl ExportPipeline {
                         render_pass.set_pipeline(&geometry_pipeline);
                     }
 
+                    // if model.hide_from_world {
+                    //     println!("Render mesh uniform {:?}", mesh.transform.position);
+                    // }
+
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
 
                     render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera

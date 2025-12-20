@@ -12,9 +12,9 @@ pub struct Collectable {
 }
 
 impl Collectable {
-    pub fn new(model_id: String, collectable_type: CollectableType, collectable_stats: StatData, rigid_body_handle: RigidBodyHandle) -> Self {
+    pub fn new(component_id: String, model_id: String, collectable_type: CollectableType, collectable_stats: StatData, rigid_body_handle: RigidBodyHandle) -> Self {
         Collectable {
-            id: Uuid::new_v4().to_string(),
+            id: component_id,
             collectable_type,
             collectable_stats,
             model_id,
