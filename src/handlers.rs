@@ -125,7 +125,11 @@ pub async fn handle_add_player(
         &state.group_bind_group_layout,
         &state.texture_render_mode_buffer,
         camera,
+        isometry,
+        scale
     );
+
+    player_character.model_id = Some(modelComponentId); // may want to be an optional model later
 
     state.player_character = Some(player_character);
 }
@@ -334,7 +338,7 @@ pub async fn handle_add_model(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
@@ -356,7 +360,7 @@ pub async fn handle_add_npc(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::NPC);
 
@@ -384,7 +388,8 @@ pub async fn handle_add_collectable(
     scale: Vector3<f32>,
     camera: &SimpleCamera,
     collectable_properties: &CollectableProperties,
-    related_stat: &StatData
+    related_stat: &StatData,
+    hide_in_world: bool
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -392,7 +397,7 @@ pub async fn handle_add_collectable(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, hide_in_world);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::Collectable);
 
@@ -406,7 +411,6 @@ pub async fn handle_add_collectable(
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
     let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
-    
 
     state.collectables.push(Collectable::new(modelComponentId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle));
 }

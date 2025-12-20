@@ -238,28 +238,6 @@ impl RendererState {
         let mut rigid_body_set = RigidBodySet::new();
         let mut collider_set = ColliderSet::new();
 
-        //         let mut player_character = PlayerCharacter::new(
-        //     &mut rigid_body_set,
-        //     &mut collider_set,
-        //     device,
-        //     queue,
-        //     &model_bind_group_layout,
-        //     &group_bind_group_layout,
-        //     &texture_render_mode_buffer,
-        //     camera,
-        // );
-
-        // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
-        // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
-
-        // // now associate rigidbody with collider
-        // let collider_handle = collider_set.insert_with_parent(
-        //     player_character.movement_collider,
-        //     rigid_body_handle,
-        //     &mut rigid_body_set,
-        // );
-        // player_character.collider_handle = Some(collider_handle);
-
         let window_size = camera.viewport.window_size;
         let viewport = Rect {
             min: (0.0, 0.0).into(),
@@ -661,7 +639,19 @@ impl RendererState {
                 .iter_mut()
                 .find(|m| m.id == component_id.to_string())
             {
-                
+                if let Some(character) = &self
+                    .player_character
+                {
+                    if let Some(model_id) = character.model_id.clone() {
+                        if model_id == component_id.to_string() {
+                            instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                                mesh.transform
+                                    .update_position([position.x, position.y, position.z]);
+                                // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
+                            });
+                        }
+                    }
+                }
 
                 // Handle NPC updates
                 if let Some(instance_npc_data) = self
@@ -1181,7 +1171,8 @@ impl RendererState {
         bytes: &Vec<u8>,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
-        camera: &SimpleCamera
+        camera: &SimpleCamera,
+        hide_in_world: bool
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1196,6 +1187,8 @@ impl RendererState {
             scale,
             camera
         );
+
+        model.hide_from_world = hide_in_world;
 
         // Check if the model has skins and create the necessary GPU resources
         if !model.skins.is_empty() {

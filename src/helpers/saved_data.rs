@@ -95,7 +95,10 @@ pub struct NPCProperties {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct PlayerProperties {
-    pub model_id: Option<String>, // fallback to sphere
+    pub model_id: Option<String>,
+    // default weapon is already hidden from the level / world. 
+    // TODO: ready to be mounted on a Model armature (LowerArm.r to start with)
+    pub default_weapon_id: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

@@ -91,7 +91,7 @@ pub struct Model {
     pub skins: Vec<Skin>,
     pub joint_matrices_buffer: Option<wgpu::Buffer>,
     pub skin_bind_group: Option<wgpu::BindGroup>,
-    // pub transform: Transform,
+    pub hide_from_world: bool,
 }
 
 impl Model {
@@ -796,6 +796,7 @@ impl Model {
             skins,
             joint_matrices_buffer: None,
             skin_bind_group: None,
+            hide_from_world: false
         }
     }
 }

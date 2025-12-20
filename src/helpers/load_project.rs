@@ -422,6 +422,22 @@ editor.saved_state = Some(loaded_state);
                                         let related_stat = stats.iter().find(|s| s.id == stat_id.clone());
                                         let related_stat = related_stat.as_ref().expect("Couldn't get related stat");
 
+                                        let character = components.iter().find(|c| c.kind == Some(ComponentKind::PlayerCharacter));
+
+                                        let mut hide_in_world = false;
+
+                                        if let Some(character) = character {
+                                            if let Some(data) = &character.player_properties {
+                                            if let Some(default_weapon_id) = data.default_weapon_id.clone() {
+                                                if default_weapon_id == component.id {
+                                                    hide_in_world = true;
+                                                }
+                                            }
+                                            }
+                                        }
+
+                                        println!("Adding collectale. Hidden in world: {:?}", hide_in_world);
+
                                         if let Some(asset_item) = asset {
                                             handle_add_collectable(
                                                 renderer_state,  
@@ -435,7 +451,8 @@ editor.saved_state = Some(loaded_state);
                                                 model_scale,
                                                 camera,
                                                 collectable_properties,
-                                                related_stat
+                                                related_stat,
+                                                hide_in_world
                                             ).await;
                                         }
                                     }

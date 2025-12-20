@@ -27,7 +27,7 @@ use crate::shape_primitives::Sphere::Sphere;
 
 pub struct PlayerCharacter {
     pub id: Uuid,
-    pub model: Option<Model>,
+    pub model_id: Option<String>,
     pub sphere: Option<Sphere>,
 
     // Physics components
@@ -57,6 +57,8 @@ impl PlayerCharacter {
         group_bind_group_layout: &wgpu::BindGroupLayout,
         texture_render_mode_buffer: &wgpu::Buffer,
         camera: &SimpleCamera,
+        isometry: Isometry3<f32>,
+        scale: Vector3<f32>,
     ) -> Self {
         let id = Uuid::new_v4();
 
@@ -77,6 +79,7 @@ impl PlayerCharacter {
             .ccd_enabled(true) // Enable Continuous Collision Detection for fast movement
             .lock_rotations() // Prevent character from tipping over
             .user_data(id.as_u128())
+            .position(isometry)
             .build();
 
         let rigid_body_handle = rigid_body_set.insert(dynamic_body);
@@ -103,7 +106,7 @@ impl PlayerCharacter {
 
         Self {
             id,
-            model: None,
+            model_id: None,
             sphere: Some(sphere),
             character_controller: KinematicCharacterController {
                 autostep: Some(CharacterAutostep {
