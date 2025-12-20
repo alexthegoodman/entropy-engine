@@ -289,7 +289,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, l
                     cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
                     dragging: current_is_dragging,
                     drag_started: drag_started,
-                    hovered: renderer_state.mouse_state.hovered_gizmo, // This will be determined by the gizmo's update call
+                    hovered: true, // This will be determined by the gizmo's update call
                     ..Default::default()
                 };
                 
