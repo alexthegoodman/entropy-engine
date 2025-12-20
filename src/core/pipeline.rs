@@ -9,8 +9,10 @@ use crate::core::shadow_pipeline::ShadowPipelineData;
 use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
+use transform_gizmo::math::{DMat4, DVec3, DVec4};
 use uuid::Uuid;
 use pollster; // For pollster::block_on
+use transform_gizmo::math::Vec4Swizzles;
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
@@ -2050,67 +2052,124 @@ impl ExportPipeline {
                 }
             }
 
-            // hiding for now, opting for object selection and property updates via egui inputs for simplcity
-            // // Draw the gizmo
-            // let gizmo_draw_data = renderer_state.gizmo.draw();
-            // if !gizmo_draw_data.vertices.is_empty() {
-            //     // DEBUG: Print first few vertices and viewport info
-            //     // println!("=== GIZMO DEBUG ===");
-            //     // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
-            //     // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
-            //     // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
-            //     // println!("First 5 vertices:");
-            //     // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
-            //     //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
-            //     // }
-            //     // println!("Index count: {}", gizmo_draw_data.indices.len());
-            //     // println!("==================");
+            renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {
+                view_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_view()),
+                projection_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_projection()),
+                viewport: transform_gizmo::Rect {
+                    min: (0.0, 0.0).into(),
+                    max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
+                },
+                ..renderer_state.gizmo.config().clone()
+            });
 
-            //     // println!("Rendering gizmo");
-            //     let gizmo_vertex_buffer =
-            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //             label: Some("Gizmo Vertex Buffer"),
-            //             contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
-            //             usage: wgpu::BufferUsages::VERTEX,
-            //         });
 
-            //     let gizmo_color_buffer =
-            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //             label: Some("Gizmo Color Buffer"),
-            //             contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
-            //             usage: wgpu::BufferUsages::VERTEX,
-            //         });
+// DEBUG:
+// let gizmo_draw_data = renderer_state.gizmo.draw();
+// if !gizmo_draw_data.vertices.is_empty() {
+    
+// // let player_world_pos = DVec3::new(0.0, 0.0, 0.0); // or get from your transform
 
-            //     let gizmo_index_buffer =
-            //         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            //             label: Some("Gizmo Index Buffer"),
-            //             contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
-            //             usage: wgpu::BufferUsages::INDEX,
-            //         });
+// // Manually calculate what screen position (0,0,0) should be at
+// let viewx = DMat4::from(renderer_state.gizmo.config().view_matrix);
+// let proj = DMat4::from(renderer_state.gizmo.config().projection_matrix);
+// let vp = proj * viewx;
 
-            //     let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            //         label: Some("Gizmo Pass"),
-            //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            //             view: &view,
-            //             resolve_target: None,
-            //             ops: wgpu::Operations {
-            //                 load: wgpu::LoadOp::Load,
-            //                 store: wgpu::StoreOp::Store,
-            //             },
-            //             depth_slice: None,
-            //         })],
-            //         depth_stencil_attachment: None,
-            //         timestamp_writes: None,
-            //         occlusion_query_set: None,
-            //     });
+// // Project to clip space
+// let clip = vp * DVec4::new(0.0, 0.0, 0.0, 1.0);
+// let ndc = clip.xyz() / clip.w;
 
-            //     gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
-            //     gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
-            //     gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
-            //     gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
-            //     gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            //     gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
-            // }
+// // Convert to screen space (matching transform-gizmo's logic)
+// let viewport = renderer_state.gizmo.config().viewport;
+// let screen_x = (ndc.x + 1.0) * 0.5 * viewport.width() as f64;
+// let screen_y = (1.0 - ndc.y) * 0.5 * viewport.height() as f64;
+
+// println!("=== GIZMO POSITION DEBUG ===");
+// println!("Player world position: (0, 0, 0)");
+// println!("View matrix first row: {:?}", [viewx.x_axis.x, viewx.x_axis.y, viewx.x_axis.z, viewx.x_axis.w]);
+// println!("Projection matrix first row: {:?}", [proj.x_axis.x, proj.x_axis.y, proj.x_axis.z, proj.x_axis.w]);
+// println!("Clip space: {:?}", clip);
+// println!("NDC: {:?}", ndc);
+// println!("Screen position: ({:.1}, {:.1})", screen_x, screen_y);
+// println!("Viewport: min=({:.1}, {:.1}), max=({:.1}, {:.1})", 
+//     viewport.min.x, viewport.min.y, viewport.max.x, viewport.max.y);
+
+//     println!("First gizmo vertex: ({:.1}, {:.1})", 
+//         gizmo_draw_data.vertices[0][0], 
+//         gizmo_draw_data.vertices[0][1]);
+    
+//     // Calculate center of all vertices to see where gizmo thinks it is
+//     let mut sum_x = 0.0;
+//     let mut sum_y = 0.0;
+//     for v in &gizmo_draw_data.vertices {
+//         sum_x += v[0];
+//         sum_y += v[1];
+//     }
+//     let center_x = sum_x / gizmo_draw_data.vertices.len() as f32;
+//     let center_y = sum_y / gizmo_draw_data.vertices.len() as f32;
+//     println!("Gizmo vertex center: ({:.1}, {:.1})", center_x, center_y);
+//     println!("===========================");
+// }
+
+
+            let gizmo_draw_data = renderer_state.gizmo.draw();
+            if !game_mode && !gizmo_draw_data.vertices.is_empty() {
+                // DEBUG: Print first few vertices and viewport info
+                // println!("=== GIZMO DEBUG ===");
+                // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
+                // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
+                // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
+                // println!("First 5 vertices:");
+                // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
+                //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
+                // }
+                // println!("Index count: {}", gizmo_draw_data.indices.len());
+                // println!("==================");
+
+                // println!("Rendering gizmo");
+                let gizmo_vertex_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Vertex Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                let gizmo_color_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Color Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+
+                let gizmo_index_buffer =
+                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("Gizmo Index Buffer"),
+                        contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
+
+                let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Gizmo Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
+                gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
+                gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
+                gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
+                gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
+            }
 
             if self.frame_buffer.is_some() {
                 let frame_buffer = self

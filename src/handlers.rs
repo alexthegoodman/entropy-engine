@@ -220,8 +220,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
             let mut config = renderer_state.gizmo.config().clone();
             config.view_matrix = to_row_major_f64(&camera.get_view());
-            config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
-            // config.projection_matrix = to_row_major_f64(&&camera.get_projection());
+            config.projection_matrix = to_row_major_f64(&camera.get_projection());
             renderer_state.gizmo.update_config(config);
         }
     }
@@ -258,37 +257,53 @@ pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
+    let current_is_dragging = mousePressed;
+    let drag_started = current_is_dragging && !renderer_state.mouse_state.is_dragging;
+
+    renderer_state.mouse_state.is_dragging = current_is_dragging;
+    renderer_state.mouse_state.drag_started = drag_started;
+
     if let Some(player_character) = &renderer_state.player_character {
 
-        let test_sphere = player_character.sphere.as_ref().expect("Couldn't get sphere");
+        if let Some(model_id) = player_character.model_id.clone() {
+            if let Some(model) = renderer_state.models.iter().find(|m| m.id == model_id) {
+                let mesh = model.meshes.get(0);
+                let mesh = mesh.as_ref().expect("Couldn't get mesh");
+                let mut transforms = vec![
+                    Transform::from_scale_rotation_translation(
+                        MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]), 
+                        Quaternion::from([
+                            mesh.transform.rotation.quaternion().coords.x as f64, 
+                            mesh.transform.rotation.quaternion().coords.y as f64,
+                            mesh.transform.rotation.quaternion().coords.z as f64, 
+                            mesh.transform.rotation.quaternion().coords.w as f64
+                        ]),
+                        MintVector3::from([mesh.transform.position.x as f64, mesh.transform.position.y as f64, mesh.transform.position.z as f64])
+                    )
+                ];
 
-        let mut transforms = vec![
-            Transform::from_scale_rotation_translation(
-                MintVector3::from([test_sphere.transform.scale.x as f64, test_sphere.transform.scale.y as f64, test_sphere.transform.scale.z as f64]), 
-                Quaternion::from([test_sphere.transform.rotation.quaternion().coords.x as f64, test_sphere.transform.rotation.quaternion().coords.y as f64, test_sphere.transform.rotation.quaternion().coords.z as f64, test_sphere.transform.rotation.quaternion().coords.w as f64]),
-                MintVector3::from([test_sphere.transform.position.x as f64, test_sphere.transform.position.y as f64, test_sphere.transform.position.z as f64])
-            )
-        ];
+                // println!("currentPosition {:?} {:?}", currentPosition, mesh.transform.position);
 
-        let interaction = GizmoInteraction {
-            cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
-            ..Default::default()
-            // hovered,
-            // drag_started,
-            // dragging: mousePressed
-        };
-        
-        //  println!("mouse move");
-
-        if let Some((_result, new_transforms)) = renderer_state.gizmo.update(interaction, &transforms) {
-            // println!("subgizmo dragged");
-
-            for (new_transform, transform) in
-            // Update transforms
-            new_transforms.iter().zip(&mut transforms)
-            {    
-                *transform = *new_transform;
+                let interaction = GizmoInteraction {
+                    cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
+                    dragging: current_is_dragging,
+                    drag_started: drag_started,
+                    hovered: renderer_state.mouse_state.hovered_gizmo, // This will be determined by the gizmo's update call
+                    ..Default::default()
+                };
                 
+                //  println!("mouse move");
+
+                if let Some((gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
+                    renderer_state.mouse_state.hovered_gizmo = true;
+
+                    // Update transforms
+                    for (new_transform, transform) in new_transforms.iter().zip(&mut transforms) {
+                        *transform = *new_transform;
+                    }
+                } else {
+                    renderer_state.mouse_state.hovered_gizmo = false;
+                }
             }
         }
     }
@@ -315,8 +330,7 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
 
     let mut config = renderer_state.gizmo.config().clone();
     config.view_matrix = to_row_major_f64(&camera.get_view());
-    config.projection_matrix = to_row_major_f64(&camera.get_orthographic_projection());
-    // config.projection_matrix = to_row_major_f64(&&camera.get_projection());
+    config.projection_matrix = to_row_major_f64(&camera.get_projection());
     renderer_state.gizmo.update_config(config.clone());
 }
 
