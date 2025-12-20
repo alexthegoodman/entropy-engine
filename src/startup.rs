@@ -12,7 +12,7 @@ use raw_window_handle::{DisplayHandle, HasDisplayHandle};
 
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalPosition, PhysicalSize, Position};
-use winit::event::{DeviceEvent, DeviceId, Ime, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{DeviceEvent, DeviceId, ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{Key, ModifiersState};
 use winit::window::{
@@ -29,7 +29,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
+use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{ExportPipeline};
 use crate::helpers::load_project::load_project;
 use crate::core::editor::WindowSize;
@@ -491,7 +491,34 @@ impl ApplicationHandler<UserEvent> for Application {
 
                 if window.game_mode {
                     let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
-                    crate::handlers::handle_mouse_input(editor, button, element_state);
+
+                    let new_button = match button {
+                        MouseButton::Left => {
+                            EntropyMouseButton::Left
+                        }
+                        MouseButton::Right => {
+                            EntropyMouseButton::Right
+                        }
+                        MouseButton::Back => {
+                            EntropyMouseButton::Back
+                        }
+                        MouseButton::Forward => {
+                            EntropyMouseButton::Forward
+                        }
+                        MouseButton::Middle => {
+                            EntropyMouseButton::Middle
+                        }
+                        MouseButton::Other(int) => {
+                            EntropyMouseButton::Other(int)
+                        }
+                    };
+                    
+                    let mut new_element = EntropyElementState::Released;
+                    if element_state == ElementState::Pressed {
+                        new_element = EntropyElementState::Pressed;        
+                    }
+
+                    crate::handlers::handle_mouse_input(editor, new_button, new_element);
                 } else if let Some(action) =
                     element_state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
                 {

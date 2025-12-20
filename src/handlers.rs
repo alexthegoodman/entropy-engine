@@ -9,7 +9,6 @@ use transform_gizmo::{GizmoConfig, GizmoInteraction};
 use wgpu::util::DeviceExt;
 
 use bytemuck::{Pod, Zeroable};
-// use winit::dpi::PhysicalPosition;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -32,7 +31,6 @@ use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
 use crate::water_plane::config::WaterConfig;
 use rand::{Rng, random};
-use winit::event::{MouseButton, ElementState};
 use crate::{
     core::SimpleCamera::SimpleCamera,
     helpers::landscapes::read_landscape_texture,
@@ -67,6 +65,21 @@ pub struct EntropySize {
     pub height: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EntropyElementState {
+    Pressed,
+    Released,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum EntropyMouseButton {
+    Left,
+    Right,
+    Middle,
+    Back,
+    Forward,
+    Other(u16),
+}
 
 #[derive(Serialize)]
 pub struct ReadModelParams {
@@ -226,12 +239,12 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 }
 
-pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state: ElementState) {
+pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, element_state: EntropyElementState) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-    if renderer_state.game_mode && element_state == ElementState::Pressed {
+    if renderer_state.game_mode && element_state == EntropyElementState::Pressed {
         match button {
-            MouseButton::Left => {
+            EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     player_character.attack(
                         &renderer_state.rigid_body_set,
@@ -242,7 +255,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state
                     println!("Left mouse button pressed - Player Attack!");
                 }
             }
-            MouseButton::Right => {
+            EntropyMouseButton::Right => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     player_character.defend();
                     println!("Right mouse button pressed - Player Defend!");
