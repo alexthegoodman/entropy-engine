@@ -116,6 +116,16 @@ pub async fn handle_add_player(
     camera: &SimpleCamera,
     default_weapon_id: Option<String>
 ) {
+    #[cfg(target_os = "windows")]
+    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
+
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
+
+    state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter);
+
     // TODO: provide model info for Player model and isometry for player position
     let mut player_character = PlayerCharacter::new(
         &mut state.rigid_body_set,

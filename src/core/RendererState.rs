@@ -592,7 +592,8 @@ impl RendererState {
                             }
 
                             // --- Position camera at player's eye level ---
-                            let eye_height: f32 = 1.7; // Adjust based on your player model
+                            // let eye_height: f32 = 1.7; // Adjust based on your player model
+                            let eye_height: f32 = 4.0; // TODO: make configurable from saved state, where third person is, in GameSettings
                             let camera_pos = Point3::new(
                                 pos.x,
                                 pos.y + eye_height,
@@ -1109,6 +1110,56 @@ impl RendererState {
                 });
             },
             ComponentKind::NPC => {
+                let renderer_model = self
+                    .models
+                    .iter_mut()
+                    .find(|l| l.id == component_id.clone())
+                    .expect("Couldn't get Renderer Model");
+
+                renderer_model.meshes.iter_mut().for_each(|mesh| {
+                    let existing_iso = mesh.rapier_rigidbody.position().clone();
+
+                    let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+                        // .expect("Couldn't create trimesh")
+                        .friction(0.7)
+                        .restitution(0.0)
+                        .density(1.0)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    let dynamic_body = RigidBodyBuilder::dynamic()
+                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
+                        .linear_damping(0.1)
+                        .position(existing_iso)
+                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                        .user_data(
+                            Uuid::from_str(&component_id.clone())
+                                .expect("Couldn't extract uuid")
+                                .as_u128(),
+                        )
+                        .build();
+
+                    mesh.rapier_collider = rapier_collider;
+                    mesh.rapier_rigidbody = dynamic_body;
+
+                    let rigid_body_handle =
+                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                    mesh.rigid_body_handle = Some(rigid_body_handle);
+
+                    // now associate rigidbody with collider
+                    let collider_handle = self.collider_set.insert_with_parent(
+                        mesh.rapier_collider.clone(),
+                        rigid_body_handle,
+                        &mut self.rigid_body_set,
+                    );
+                    mesh.collider_handle = Some(collider_handle);
+                });
+            },
+            ComponentKind::PlayerCharacter => {
                 let renderer_model = self
                     .models
                     .iter_mut()
