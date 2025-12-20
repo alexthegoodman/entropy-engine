@@ -417,6 +417,10 @@ editor.saved_state = Some(loaded_state);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
                                         let collectable_properties = component.collectable_properties.as_ref().expect("Couldn't find collectable properties");
+                                        let stat_id = collectable_properties.stat_id.as_ref().expect("Couldn't get collectable type");
+                                        let stats = saved_state.stats.as_ref().expect("Couldn't find any stats");
+                                        let related_stat = stats.iter().find(|s| s.id == stat_id.clone());
+                                        let related_stat = related_stat.as_ref().expect("Couldn't get related stat");
 
                                         if let Some(asset_item) = asset {
                                             handle_add_collectable(
@@ -430,7 +434,8 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera,
-                                                collectable_properties
+                                                collectable_properties,
+                                                related_stat
                                             ).await;
                                         }
                                     }

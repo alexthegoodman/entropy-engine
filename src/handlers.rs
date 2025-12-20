@@ -23,7 +23,7 @@ use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
-use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentKind};
+use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentKind, StatData};
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
@@ -383,7 +383,8 @@ pub async fn handle_add_collectable(
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
     camera: &SimpleCamera,
-    collectable_properties: &CollectableProperties
+    collectable_properties: &CollectableProperties,
+    related_stat: &StatData
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -405,8 +406,9 @@ pub async fn handle_add_collectable(
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
     let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
+    
 
-    state.collectables.push(Collectable::new(modelComponentId.clone(), collectable_type.clone(), npc_rigid_body_handle));
+    state.collectables.push(Collectable::new(modelComponentId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle));
 }
 
 #[derive(Serialize, Deserialize)]
