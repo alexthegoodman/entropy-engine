@@ -53,7 +53,7 @@ use crate::{
 };
 
 use super::Grid::GridConfig;
-use super::PlayerCharacter::{PlayerCharacter, NPC};
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 use super::{
     Grid::Grid,
     Rays::{cast_ray_at_components, create_ray_from_mouse},

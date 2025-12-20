@@ -1,5 +1,4 @@
 pub mod Grid;
-pub mod PlayerCharacter;
 pub mod Rays;
 pub mod RendererState;
 pub mod SimpleCamera;

@@ -24,6 +24,7 @@ Within /src/, there are several directories:
 /renderer_text/ is used for rendering raw text in the scene (uncommon in games, although maybe for UI if UI is integrated)
 /renderer_videos/ is used for rendering raw videos in the scene
 /shape_primitives/ offers a number of simple shapes to render in the scene
+/model_components/ has components that are associated with models such as PlayerCharacter, NPC, and Collectables
 /vector_animations/ helps with 2D motion path animations
 /video_export/ leverages Media Foundation to power mp4 video export on Windows
 

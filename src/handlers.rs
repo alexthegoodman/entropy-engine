@@ -17,7 +17,7 @@ use std::{cell::RefCell, collections::HashMap};
 use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
 
-use crate::core::PlayerCharacter::{NPC, PlayerCharacter};
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;

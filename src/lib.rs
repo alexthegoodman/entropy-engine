@@ -19,6 +19,7 @@ pub mod procedural_grass;
 pub mod water_plane;
 pub mod procedural_trees;
 pub mod procedural_models;
+pub mod model_components;
 
 // I noticed that `pipeline.rs` has some dependencies that are not in the file system.
 // I'm adding them here so the compiler can find them.

@@ -2,7 +2,7 @@ use nalgebra::{Vector3, UnitQuaternion, Quaternion, Matrix4};
 
 use crate::art_assets::Model::{AnimationChannel, AnimationValues, Model, Node};
 use crate::core::AnimationState::AnimationState;
-use crate::core::PlayerCharacter::NPC;
+use crate::model_components::NPC::NPC;
 
 pub fn update_animations(
     // models: &mut [&mut Model],

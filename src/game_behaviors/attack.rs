@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
-use crate::core::PlayerCharacter::Stats;
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
 
 use super::chase::ChaseBehavior;
 

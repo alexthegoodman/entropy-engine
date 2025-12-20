@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::core::Transform_2::Transform;
-use crate::core::PlayerCharacter::Stats;
+use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::Stats, NPC::NPC};
 use crate::game_behaviors::attack::{AttackStats, MeleeAttackBehavior};
 use crate::game_behaviors::defense::DefenseBehavior;
 use crate::game_behaviors::evade::EvadeBehavior;
