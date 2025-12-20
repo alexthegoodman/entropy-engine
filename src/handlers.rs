@@ -256,6 +256,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: MouseButton, element_state
 
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+    let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
     let current_is_dragging = mousePressed;
     let drag_started = current_is_dragging && !renderer_state.mouse_state.is_dragging;
@@ -266,9 +267,9 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, l
     if let Some(player_character) = &renderer_state.player_character {
 
         if let Some(model_id) = player_character.model_id.clone() {
-            if let Some(model) = renderer_state.models.iter().find(|m| m.id == model_id) {
-                let mesh = model.meshes.get(0);
-                let mesh = mesh.as_ref().expect("Couldn't get mesh");
+            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == model_id) {
+                let mut mesh = model.meshes.get_mut(0);
+                let mesh = mesh.as_mut().expect("Couldn't get mesh");
                 let mut transforms = vec![
                     Transform::from_scale_rotation_translation(
                         MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]), 
@@ -299,6 +300,11 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, l
 
                     // Update transforms
                     for (new_transform, transform) in new_transforms.iter().zip(&mut transforms) {
+                        mesh.transform.update_position([new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32]);
+                        mesh.transform.update_rotation_quat([new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32, new_transform.rotation.s as f32]);
+                        mesh.transform.update_scale([new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32]);
+                        mesh.transform.update_uniform_buffer(&gpu_resources.queue);
+
                         *transform = *new_transform;
                     }
                 } else {
