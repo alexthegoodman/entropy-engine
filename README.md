@@ -20,7 +20,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Quadtree landscapes with texture maps
 - Skybox Pipeline
 - Point lighting
-- Basic game behaviors (melee, chase, etc)
+- Basic game behaviors (melee, chase, inventory, etc)
 - Rendered images and videos
 - Rendered text with fonts
 - Screen capture
@@ -32,13 +32,11 @@ Real designers should use chat in a precise and granular way, so they don't have
 
 #### Priority
 
-- More game logic and mechanics (ex. inventory, as defined below)
+- More game logic and mechanics
 - Modernize in-game UI choices
 - Mini-Map
 - Volumetric Fog
 - Dynamic clouds
-- Game Saves for players
-- Configurable Controller Input -> Action Mapping (currently has default key mapping)
 
 #### Secondary
 
@@ -64,7 +62,6 @@ Real designers should use chat in a precise and granular way, so they don't have
 
 #### Priority
 
-- Inventory (weapon, item, armor)
 - Score / Experience Points + Levels
 - Quests (and logs/tracking)
 
@@ -119,6 +116,8 @@ Real designers should use chat in a precise and granular way, so they don't have
 ### Other Needs:
 
 - Documentation (including on publishing and distribution)
+- Game Saves for players
+- Configurable Controller Input -> Action Mapping (currently has default key mapping)
 
 ## Run
 
