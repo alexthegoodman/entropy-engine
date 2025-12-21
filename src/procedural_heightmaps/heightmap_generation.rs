@@ -39,6 +39,10 @@ pub struct HeightmapGenerator {
     height: u32,
     scale: f64,           // Noise scale
     octaves: usize,       // Detail level
+    /// In Perlin noise, persistence is a multiplier that controls how much each successive "octave" (layer of detail) 
+    /// contributes to the final result, determining the noise's roughness or smoothness; a lower value (e.g., 0.25) 
+    /// makes noise smoother by reducing later octaves' impact, while a higher value (e.g., 0.75) makes it rougher 
+    /// with more detailed, spikier features by letting more detail layers influence the output
     persistence: f64,     // How much each octave contributes
     lacunarity: f64,      // Frequency multiplier per octave
     seed: u32,
@@ -147,6 +151,7 @@ impl HeightmapGenerator {
         
         // Setup noise generator
         let fbm = Fbm::<Perlin>::new(self.seed)
+            .set_frequency(0.005)
             .set_octaves(self.octaves)
             .set_persistence(self.persistence)
             .set_lacunarity(self.lacunarity);

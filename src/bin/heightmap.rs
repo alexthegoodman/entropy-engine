@@ -3,8 +3,8 @@ use entropy_engine::procedural_heightmaps::heightmap_generation::{FalloffType, F
 fn main() {
     // Example usage
     let mut generator = HeightmapGenerator::new(1024, 1024)
-        .with_scale(150.0)
-        .with_octaves(6)
+        .with_scale(1024.0) // for now, just set to size, till fixed
+        .with_octaves(8)
         .with_persistence(0.5)
         .with_seed(42);
 

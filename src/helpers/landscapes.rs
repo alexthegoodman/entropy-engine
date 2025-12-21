@@ -36,7 +36,108 @@ pub struct TextureData {
     pub height: u32,
 }
 
-pub fn read_tiff_heightmap(
+// pub fn read_tiff_heightmap(
+//     landscape_path: &str,
+//     target_width: f32,
+//     target_length: f32,
+//     target_height: f32,
+// ) -> (
+//     usize,
+//     usize,
+//     Vec<Vec<PixelData>>,
+//     na::DMatrix<f32>,
+//     Vec<f32>,
+//     f32,
+// ) {
+//     // Added DMatrix return
+//     let file = File::open(landscape_path).expect("Couldn't open tif file");
+//     let mut decoder = Decoder::new(file).expect("Couldn't decode tif file");
+
+//     let (width, height) = decoder.dimensions().expect("Couldn't get tif dimensions");
+
+//     let width = usize::try_from(width).unwrap();
+//     let height = usize::try_from(height).unwrap();
+
+//     let image = match decoder
+//         .read_image()
+//         .expect("Couldn't read image data from tif")
+//     {
+//         DecodingResult::F32(vec) => vec,
+//         DecodingResult::U16(vec) => {
+//             // Convert u16 to f32 if needed
+//             vec.into_iter().map(|v| v as f32).collect()
+//         }
+//         _ => return (0, 0, Vec::new(), na::DMatrix::zeros(0, 0), Vec::new(), 0.0),
+//     };
+
+//     println!("Continuing!");
+
+//     let mut pixel_data = Vec::new();
+//     let mut raw_heights = Vec::new();
+//     // Create the heights matrix for the collider
+//     let mut heights = na::DMatrix::zeros(height, width);
+
+//     // Calculate scaling factors
+//     let x_scale = target_width / width as f32;
+//     let y_scale = target_length / height as f32;
+//     let z_scale = target_height;
+
+//     let min_height = *image
+//         .iter()
+//         .min_by(|a, b| a.partial_cmp(b).unwrap())
+//         .unwrap();
+//     let max_height = *image
+//         .iter()
+//         .max_by(|a, b| a.partial_cmp(b).unwrap())
+//         .unwrap();
+//     let height_range = max_height - min_height;
+
+//     let mut max_height_actual: f32 = 0.0;
+
+//     for y in 0..height {
+//         let mut row = Vec::new();
+//         for x in 0..width {
+//             let idx = (y * width + x) as usize;
+//             let normalized_height = (image[idx] - min_height) / height_range;
+//             let height_value = normalized_height * z_scale;
+
+//             max_height_actual = max_height_actual.max(height_value);
+
+//             // Set the height in the DMatrix
+//             heights[(y, x)] = height_value;
+//             // heights[(x, y)] = height_value;
+//             raw_heights.push(height_value);
+
+//             let position = [
+//                 x as f32 * x_scale - target_width / 2.0,
+//                 height_value,
+//                 y as f32 * y_scale - target_length / 2.0,
+//             ];
+//             let tex_coords = [x as f32 / width as f32, y as f32 / height as f32];
+
+//             row.push(PixelData {
+//                 height_value,
+//                 position,
+//                 tex_coords,
+//             });
+//         }
+//         pixel_data.push(row);
+//     }
+
+//     println!("Tiff heightmap finished!");
+
+//     (
+//         width,
+//         height,
+//         pixel_data,
+//         heights,
+//         raw_heights,
+//         max_height_actual,
+//     )
+// }
+
+// Unified reader that handles both TIFF and PNG formats
+pub fn read_heightmap(
     landscape_path: &str,
     target_width: f32,
     target_length: f32,
@@ -49,64 +150,98 @@ pub fn read_tiff_heightmap(
     Vec<f32>,
     f32,
 ) {
-    // Added DMatrix return
-    let file = File::open(landscape_path).expect("Couldn't open tif file");
-    let mut decoder = Decoder::new(file).expect("Couldn't decode tif file");
+    use std::path::Path;
 
-    let (width, height) = decoder.dimensions().expect("Couldn't get tif dimensions");
+    let path = Path::new(landscape_path);
+    let extension = path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
 
-    let width = usize::try_from(width).unwrap();
-    let height = usize::try_from(height).unwrap();
+    let (width, height, image_data) = match extension.as_deref() {
+        Some("tif") | Some("tiff") => {
+            // Handle TIFF files
+            use std::fs::File;
+            // You'll need: tiff = "0.9" in Cargo.toml
+            // use tiff::decoder::{Decoder, DecodingResult};
+            
+            let file = File::open(landscape_path).expect("Couldn't open TIFF file");
+            let mut decoder = tiff::decoder::Decoder::new(file)
+                .expect("Couldn't decode TIFF file");
 
-    let image = match decoder
-        .read_image()
-        .expect("Couldn't read image data from tif")
-    {
-        DecodingResult::F32(vec) => vec,
-        DecodingResult::U16(vec) => {
-            // Convert u16 to f32 if needed
-            vec.into_iter().map(|v| v as f32).collect()
+            let (w, h) = decoder.dimensions().expect("Couldn't get TIFF dimensions");
+            let width = usize::try_from(w).unwrap();
+            let height = usize::try_from(h).unwrap();
+
+            let data = match decoder.read_image().expect("Couldn't read TIFF data") {
+                tiff::decoder::DecodingResult::F32(vec) => vec,
+                tiff::decoder::DecodingResult::U16(vec) => {
+                    vec.into_iter().map(|v| v as f32).collect()
+                }
+                tiff::decoder::DecodingResult::U8(vec) => {
+                    vec.into_iter().map(|v| v as f32).collect()
+                }
+                _ => panic!("Unsupported TIFF format"),
+            };
+
+            (width, height, data)
         }
-        _ => return (0, 0, Vec::new(), na::DMatrix::zeros(0, 0), Vec::new(), 0.0),
+        Some("png") | Some("jpg") | Some("jpeg") | Some("bmp") => {
+            // Handle PNG and other common image formats
+            use image::GenericImageView;
+
+            let img = image::open(landscape_path)
+                .expect("Couldn't open image file");
+            let (w, h) = img.dimensions();
+            let width = w as usize;
+            let height = h as usize;
+
+            // Convert to 16-bit grayscale for consistency
+            let gray_img = img.to_luma16();
+            let data: Vec<f32> = gray_img.as_raw()
+                .iter()
+                .map(|&v| v as f32)
+                .collect();
+
+            (width, height, data)
+        }
+        _ => panic!("Unsupported file format. Use .tif, .tiff, .png, .jpg, .jpeg, or .bmp"),
     };
 
-    println!("Continuing!");
-
+    // Process the image data (same for all formats)
     let mut pixel_data = Vec::new();
     let mut raw_heights = Vec::new();
-    // Create the heights matrix for the collider
-    let mut heights = na::DMatrix::zeros(height, width);
 
-    // Calculate scaling factors
     let x_scale = target_width / width as f32;
     let y_scale = target_length / height as f32;
     let z_scale = target_height;
 
-    let min_height = *image
+    let min_height = *image_data
         .iter()
         .min_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
-    let max_height = *image
+    let max_height = *image_data
         .iter()
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
     let height_range = max_height - min_height;
 
     let mut max_height_actual: f32 = 0.0;
+    let mut heights = na::DMatrix::zeros(height, width);
 
     for y in 0..height {
         let mut row = Vec::new();
         for x in 0..width {
-            let idx = (y * width + x) as usize;
-            let normalized_height = (image[idx] - min_height) / height_range;
+            let idx = y * width + x;
+            let normalized_height = if height_range > 0.0 {
+                (image_data[idx] - min_height) / height_range
+            } else {
+                0.5
+            };
             let height_value = normalized_height * z_scale;
 
             max_height_actual = max_height_actual.max(height_value);
-
-            // Set the height in the DMatrix
-            heights[(y, x)] = height_value;
-            // heights[(x, y)] = height_value;
             raw_heights.push(height_value);
+            heights[(y, x)] = height_value;
 
             let position = [
                 x as f32 * x_scale - target_width / 2.0,
@@ -124,16 +259,7 @@ pub fn read_tiff_heightmap(
         pixel_data.push(row);
     }
 
-    println!("Tiff heightmap finished!");
-
-    (
-        width,
-        height,
-        pixel_data,
-        heights,
-        raw_heights,
-        max_height_actual,
-    )
+    (width, height, pixel_data, heights, raw_heights, max_height_actual)
 }
 
 pub fn get_landscape_pixels(
@@ -163,7 +289,7 @@ pub fn get_landscape_pixels(
     // let square_height = 1858.0 * 10.0;
     let square_size = 1024.0 * 4.0;
     let square_height = 150.0 * 4.0;
-    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_tiff_heightmap(
+    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_heightmap(
         landscape_path
             .to_str()
             .expect("Couldn't form landscape string"),
