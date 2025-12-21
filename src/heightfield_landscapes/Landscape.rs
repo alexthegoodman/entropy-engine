@@ -54,7 +54,9 @@ pub struct Landscape {
     pub rigid_body_handle: Option<RigidBodyHandle>,
     pub heights: nalgebra::DMatrix<f32>,
     pub particle_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    pub particle_texture_view: Option<wgpu::TextureView>
+    pub particle_texture_view: Option<wgpu::TextureView>,
+    pub terrain_size: f32,
+    pub terrain_height: f32,
 }
 
 impl Landscape {
@@ -334,6 +336,8 @@ impl Landscape {
             index_buffer,
             bind_group,
             group_bind_group: tmp_group_bind_group,
+            terrain_size: square_size,
+            terrain_height: square_height,
             // texture_bind_group,
             transform: Transform::new(
                 Vector3::new(position[0], position[1], position[2]),

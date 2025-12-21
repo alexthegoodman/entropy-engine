@@ -54,6 +54,10 @@ struct WaterConfig {
     wave3_speed: f32,
     wave3_steepness: f32,
     wave3_direction: vec2<f32>,
+
+    landscape_height: f32,
+    landscape_size: f32,
+    landscape_y_offset: f32
 }
 @group(3) @binding(0)
 var<uniform> water_config: WaterConfig;
@@ -83,14 +87,14 @@ struct GbufferOutput {
 
 // ===== LANDSCAPE SAMPLING =====
 fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
-    let landscape_size = 4096.0;
-    let max_height = 600.0;
+    let landscape_size = water_config.landscape_size;
+    let max_height = water_config.landscape_height;
     
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
     
     let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
-    return (height_sample.r * max_height) - 400.0;
+    return (height_sample.r * max_height) + water_config.landscape_y_offset;
 }
 
 // ===== IMPROVED NOISE FUNCTIONS =====

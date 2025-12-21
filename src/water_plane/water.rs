@@ -27,6 +27,11 @@ impl WaterPlane {
         landscape.create_layout_for_particles(device);
         let landscape_bind_group = landscape.create_particle_bind_group(device);
 
+        let mut config = config.clone();
+        config.landscape_height = landscape.terrain_height;
+        config.landscape_size = landscape.terrain_size;
+        config.landscape_y_offset = landscape.transform.position.y;
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Water Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("water.wgsl").into()),

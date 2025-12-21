@@ -17,6 +17,9 @@ struct GrassUniforms {
     blade_width: f32,
     brownian_strength: f32,
     blade_density: f32,
+    landscape_size: f32,
+    landscape_height: f32,
+    landscape_y_offset: f32
 }
 @group(1) @binding(0)
 var<uniform> uniforms: GrassUniforms;
@@ -55,8 +58,11 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
 
     // square_size = 1024.0 * 4.0 = 4096.0
     // square_height = 150.0 * 4.0 = 600.0
-    let landscape_size = 4096.0;
-    let max_height = 600.0;
+    // let landscape_size = 4096.0;
+    // let max_height = 600.0;
+    let landscape_size = uniforms.landscape_size;
+    let max_height = uniforms.landscape_height;
+    let landscape_y_offset = uniforms.landscape_y_offset;
     
     // World coordinates are centered, so normalize to 0-1 UV space
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
@@ -70,7 +76,7 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     
     // Heightmap is normalized (0-1), so scale to actual height
     // The R channel contains the normalized height value
-    return (height_sample.r * max_height) - 400.0; // hardcoded landscape offset from generic properties!
+    return (height_sample.r * max_height) + landscape_y_offset; // hardcoded landscape offset from generic properties!
 }
 
 // Calculate terrain normal by sampling nearby heights

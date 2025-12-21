@@ -47,7 +47,11 @@ pub struct WaterConfig {
     pub wave3_steepness: f32,
     pub wave3_direction: [f32; 2],
 
-    pub _padding: [f32; 3],
+    pub landscape_height: f32,
+    pub landscape_size: f32,
+    pub landscape_y_offset: f32,
+
+    pub _padding: [f32; 4],
 }
 
 impl Default for WaterConfig {
@@ -90,7 +94,11 @@ impl Default for WaterConfig {
             wave3_steepness: 0.25,
             wave3_direction: [0.8, -0.6],
 
-            _padding: [0.0, 0.0, 0.0],
+            landscape_height: 100.0,
+            landscape_size: 100.0,
+            landscape_y_offset: 0.0,
+
+            _padding: [0.0, 0.0, 0.0, 0.0],
         }
     }
 }

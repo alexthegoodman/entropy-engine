@@ -17,8 +17,13 @@ struct GrassUniforms {
     blade_height: f32,
     blade_width: f32,
     brownian_strength: f32,
-    blade_density: f32, // NEW
-    _pad0: [f32; 3],   // <---- Add padding to reach 64 bytes total
+    blade_density: f32,
+
+    pub landscape_size: f32,
+    pub landscape_height: f32,
+    pub landscape_y_offset: f32,
+
+    _pad0: [f32; 2],
 }
 
 // Instead of per-blade instances, we'll use a simple grid vertex buffer
@@ -93,6 +98,10 @@ pub struct Grass {
     pub grid_size: f32,
     pub render_distance: f32,
     pub blade_density: u32, // Blades per grid cell
+    // cache landscape properties, will need to update as needed
+    pub landscape_size: f32,
+    pub landscape_height: f32,
+    pub landscape_y_offset: f32,
 }
 
 impl Grass {
@@ -223,6 +232,9 @@ impl Grass {
             grid_size,
             render_distance,
             blade_density,
+            landscape_height: landscape.terrain_height,
+            landscape_size: landscape.terrain_size,
+            landscape_y_offset: landscape.transform.position.y
         }
     }
 
@@ -238,8 +250,10 @@ impl Grass {
             blade_width: 0.03, // thin
             brownian_strength: 0.03,
             blade_density: self.blade_density as f32,
-            _pad0: [0.0; 3],
-
+            landscape_height: self.landscape_height,
+            landscape_size: self.landscape_size,
+            landscape_y_offset: self.landscape_y_offset,
+            _pad0: [0.0; 2],
         };
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
     }
