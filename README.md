@@ -129,3 +129,6 @@ Example Game:
 
 Level Editor: 
 - `cargo run --bin editor --release`
+
+Generate a Landscape Heightmap via CLI: 
+- `cargo run --bin heightmap --release`
