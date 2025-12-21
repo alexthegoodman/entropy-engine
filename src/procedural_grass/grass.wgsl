@@ -327,8 +327,8 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     // let tip_color = vec3<f32>(0.65, 0.58, 0.35);
 
     // // Ashy gray-brown
-    let base_color = vec3<f32>(0.25, 0.22, 0.18);
-    let tip_color = vec3<f32>(0.42, 0.38, 0.30);
+    // let base_color = vec3<f32>(0.25, 0.22, 0.18);
+    // let tip_color = vec3<f32>(0.42, 0.38, 0.30);
 
     // // Sickly yellow-gray
     // let base_color = vec3<f32>(0.35, 0.35, 0.25);
@@ -336,8 +336,8 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
 
     // Magical/Fantasy
     // // Bioluminescent cyan
-    // let base_color = vec3<f32>(0.1, 0.3, 0.35);
-    // let tip_color = vec3<f32>(0.2, 0.7, 0.8);
+    let base_color = vec3<f32>(0.1, 0.3, 0.35);
+    let tip_color = vec3<f32>(0.2, 0.7, 0.8);
 
     // // Purple twilight
     // let base_color = vec3<f32>(0.25, 0.15, 0.35);
