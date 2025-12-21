@@ -25,12 +25,39 @@ pub struct TerrainFeature {
     pub intensity: f64,            // Height multiplier
     pub falloff: FalloffType,
     pub feature_type: FeatureType,
+    pub flat_top_ratio: f64,       // 0.0-1.0, portion of radius that's completely flat
+    pub transition_ratio: f64,     // NEW: 0.0-1.0, additional ratio for smooth transition
 }
 
 impl TerrainFeature {
     pub fn new(center: (f64, f64), radius: f64, intensity: f64, 
                falloff: FalloffType, feature_type: FeatureType) -> Self {
-        Self { center, radius, intensity, falloff, feature_type }
+        Self { 
+            center, 
+            radius, 
+            intensity, 
+            falloff, 
+            feature_type,
+            flat_top_ratio: 0.0,
+            transition_ratio: 0.0,
+        }
+    }
+
+    /// Set the flat top ratio (0.0 = no flat area, 1.0 = entirely flat)
+    /// The flat area will have no noise applied to it
+    pub fn with_flat_top(mut self, ratio: f64) -> Self {
+        self.flat_top_ratio = ratio.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Set the transition ratio (additional zone where noise gradually blends in)
+    /// For example, flat_top=0.5 and transition=0.2 means:
+    /// - 0.0 to 0.5: completely flat (no noise)
+    /// - 0.5 to 0.7: gradual blend from no noise to full noise
+    /// - 0.7 to 1.0: full noise applied
+    pub fn with_transition(mut self, ratio: f64) -> Self {
+        self.transition_ratio = ratio.clamp(0.0, 1.0);
+        self
     }
 }
 
@@ -39,10 +66,6 @@ pub struct HeightmapGenerator {
     height: u32,
     scale: f64,           // Noise scale
     octaves: usize,       // Detail level
-    /// In Perlin noise, persistence is a multiplier that controls how much each successive "octave" (layer of detail) 
-    /// contributes to the final result, determining the noise's roughness or smoothness; a lower value (e.g., 0.25) 
-    /// makes noise smoother by reducing later octaves' impact, while a higher value (e.g., 0.75) makes it rougher 
-    /// with more detailed, spikier features by letting more detail layers influence the output
     persistence: f64,     // How much each octave contributes
     lacunarity: f64,      // Frequency multiplier per octave
     seed: u32,
@@ -146,6 +169,51 @@ impl HeightmapGenerator {
         }
     }
 
+    /// Calculate the noise blend factor for a given point (0.0 = no noise, 1.0 = full noise)
+    fn calculate_noise_blend(&self, x: f64, y: f64) -> f64 {
+        let mut min_blend: f64 = 1.0; // Start with full noise
+        
+        for feature in &self.features {
+            if feature.flat_top_ratio > 0.0 {
+                let dx = x - feature.center.0;
+                let dy = y - feature.center.1;
+                
+                let distance = match feature.feature_type {
+                    FeatureType::Ridge => dx.abs(),  // Ridge uses x-distance
+                    _ => (dx * dx + dy * dy).sqrt(), // Others use radial distance
+                };
+                
+                let flat_radius = feature.radius * feature.flat_top_ratio;
+                let transition_end = feature.radius * (feature.flat_top_ratio + feature.transition_ratio).min(1.0);
+                
+                let blend = if distance < flat_radius {
+                    // Inside flat region: no noise
+                    0.0
+                } else if distance < transition_end {
+                    // In transition zone: gradual blend using smoothstep
+                    let transition_distance = distance - flat_radius;
+                    let transition_width = transition_end - flat_radius;
+                    
+                    if transition_width > 0.0 {
+                        let t = (transition_distance / transition_width).clamp(0.0, 1.0);
+                        // Smoothstep for smooth transition
+                        t * t * (3.0 - 2.0 * t)
+                    } else {
+                        1.0
+                    }
+                } else {
+                    // Outside transition: full noise
+                    1.0
+                };
+                
+                // Use the minimum blend factor (most restrictive)
+                min_blend = min_blend.min(blend);
+            }
+        }
+        
+        min_blend
+    }
+
     pub fn generate(&self) -> ImageBuffer<Luma<u16>, Vec<u16>> {
         let mut img = ImageBuffer::new(self.width, self.height);
         
@@ -166,10 +234,14 @@ impl HeightmapGenerator {
                 let nx = x as f64 / self.width as f64;
                 let ny = y as f64 / self.height as f64;
 
-                // Base noise
+                // Calculate noise blend factor (0.0 = no noise, 1.0 = full noise)
+                let noise_blend = self.calculate_noise_blend(nx, ny);
+
+                // Base noise with blend factor applied
                 let noise_x = nx * self.scale;
                 let noise_y = ny * self.scale;
-                let mut height = fbm.get([noise_x, noise_y]);
+                let base_noise = fbm.get([noise_x, noise_y]);
+                let mut height = base_noise * noise_blend;
 
                 // Add features
                 for feature in &self.features {
@@ -212,4 +284,3 @@ impl HeightmapGenerator {
         img.save(path)
     }
 }
-
