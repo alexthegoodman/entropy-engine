@@ -1576,10 +1576,10 @@ impl ExportPipeline {
                 );
             }
 
-            if game_mode {
-                // update rapier collisions
-                renderer_state.update_rapier();
+            // update rapier collisions
+            renderer_state.update_rapier();
 
+            if game_mode {
                 // step through physics each frame
                 renderer_state.step_physics_pipeline(
                     &gpu_resources.device, 
