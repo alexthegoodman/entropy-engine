@@ -568,7 +568,8 @@ impl ApplicationHandler<UserEvent> for Application {
                         x: position.x as f32,
                         y: position.y as f32
                     }, 
-                    last_pos,
+                    (position.x - last_x) as f32,
+                    (position.y - last_y) as f32,
                     editor
                 );
 

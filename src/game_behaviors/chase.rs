@@ -1,7 +1,12 @@
 use std::{
     sync::{Arc, Mutex},
-    time::Instant,
 };
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use nalgebra::{vector, ComplexField, Vector3};
 use nalgebra_glm::Vec3;

@@ -267,7 +267,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 }
 
 
-pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, lastPosition: Option<EntropyPosition>, state: &mut Editor) {
+pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, dx: f32, dy: f32, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 

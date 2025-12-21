@@ -1,5 +1,10 @@
 use std::sync::MutexGuard;
+
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 use nalgebra::{Isometry3, Point3, Vector3};
 use rapier3d::{
