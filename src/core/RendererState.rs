@@ -138,6 +138,7 @@ pub struct RendererState {
     pub object_selected: Option<Uuid>,
     pub object_selected_kind: Option<ComponentKind>,
     pub object_selected_data: Option<ComponentData>,
+    pub selected_entity_id: Option<String>,
 
     // physics
     pub gravity: Vector<f32>,
@@ -311,6 +312,7 @@ impl RendererState {
             object_selected: None,
             object_selected_kind: None,
             object_selected_data: None,
+            selected_entity_id: None,
 
             // translation_gizmo,
             // rotation_gizmo,

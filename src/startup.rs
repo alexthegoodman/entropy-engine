@@ -489,7 +489,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     self.mouse_pressed = false;
                 }
 
-                if window.game_mode {
+                // if window.game_mode {
                     let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
 
                     let new_button = match button {
@@ -519,7 +519,8 @@ impl ApplicationHandler<UserEvent> for Application {
                     }
 
                     crate::handlers::handle_mouse_input(editor, new_button, new_element);
-                } else if let Some(action) =
+                // } else 
+                if let Some(action) =
                     element_state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
                 {
                     self.handle_action(event_loop, window_id, action);

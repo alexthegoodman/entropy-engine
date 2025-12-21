@@ -1,6 +1,7 @@
 use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
 use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 use crate::model_components::Collectable::Collectable;
 use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
@@ -241,8 +242,88 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
 pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, element_state: EntropyElementState) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
+    let camera = state.camera.as_ref().expect("Couldn't get camera");
+    let window_size = camera.viewport.window_size;
 
-    if renderer_state.game_mode && element_state == EntropyElementState::Pressed {
+    if !renderer_state.game_mode && element_state == EntropyElementState::Pressed {
+
+        match button {
+            EntropyMouseButton::Left => {
+                if let Some(mouse_pos) = renderer_state.current_mouse_position {
+                    println!("Check ray");
+
+                    // Perform raycast
+                    renderer_state.update_rays((mouse_pos.x, mouse_pos.y), &camera, window_size.width, window_size.height);
+
+                    if renderer_state.ray_intersecting {
+                        if let Some(ray_component_id) = renderer_state.ray_component_id {
+                            let mut found_selectable = false;
+                            let hit_uuid = ray_component_id.to_string();
+
+                            println!("hit {:?}", hit_uuid);
+
+                            // Check if a selectable model was hit
+                            for model in &renderer_state.models {
+                                if model.id == hit_uuid {
+                                    // Don't select the player character for now
+                                    if let Some(pc) = &renderer_state.player_character {
+                                        if pc.model_id.as_ref() == Some(&model.id) {
+                                            continue;
+                                        }
+                                    }
+                                    renderer_state.selected_entity_id = Some(model.id.clone());
+                                    found_selectable = true;
+                                    println!("Selected model: {:?}", model.id);
+                                    break;
+                                }
+                            }
+
+                            // Check if a house was hit
+                            if !found_selectable {
+                                for house in &renderer_state.procedural_houses {
+                                    if house.id == hit_uuid {
+                                        renderer_state.selected_entity_id = Some(house.id.clone());
+                                        found_selectable = true;
+                                        println!("Selected house: {:?}", house.id);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Check if a landscape was hit (and de-select)
+                            if !found_selectable {
+                                for landscape in &renderer_state.landscapes {
+                                    if landscape.id == hit_uuid {
+                                        // It's a landscape, so we clear the selection
+                                        renderer_state.selected_entity_id = None;
+                                        found_selectable = true; // Found, but action is to deselect.
+                                        println!("Deselected, hit landscape");
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            if !found_selectable {
+                                // hit something, but it's not selectable. clear selection.
+                                renderer_state.selected_entity_id = None;
+                                println!("Deselected, hit non-selectable");
+                            }
+
+                        } else {
+                            // Ray intersected but no component id? Clear selection.
+                            renderer_state.selected_entity_id = None;
+                            println!("Deselected, no component id");
+                        }
+                    } else {
+                        // Do nothing, we want the currently selected object to remain selected
+                    }
+                }
+            }
+            EntropyMouseButton::Right => {}
+            _ => {}
+        }
+        
+    } else if renderer_state.game_mode && element_state == EntropyElementState::Pressed {
         match button {
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
@@ -277,26 +358,25 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
     renderer_state.mouse_state.is_dragging = current_is_dragging;
     renderer_state.mouse_state.drag_started = drag_started;
 
-    if let Some(player_character) = &renderer_state.player_character {
+    if let Some(selected_id) = renderer_state.selected_entity_id.clone() {
+        let mut found_and_updated = false;
 
-        if let Some(model_id) = player_character.model_id.clone() {
-            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == model_id) {
-                let mut mesh = model.meshes.get_mut(0);
-                let mesh = mesh.as_mut().expect("Couldn't get mesh");
+        // Try to find and update a model
+        if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == selected_id) {
+            if let Some(mesh) = model.meshes.get_mut(0) {
+                
                 let mut transforms = vec![
                     Transform::from_scale_rotation_translation(
-                        MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]), 
+                        MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]),
                         Quaternion::from([
-                            mesh.transform.rotation.quaternion().coords.x as f64, 
+                            mesh.transform.rotation.quaternion().coords.x as f64,
                             mesh.transform.rotation.quaternion().coords.y as f64,
-                            mesh.transform.rotation.quaternion().coords.z as f64, 
+                            mesh.transform.rotation.quaternion().coords.z as f64,
                             mesh.transform.rotation.quaternion().coords.w as f64
                         ]),
                         MintVector3::from([mesh.transform.position.x as f64, mesh.transform.position.y as f64, mesh.transform.position.z as f64])
                     )
                 ];
-
-                // println!("currentPosition {:?} {:?}", currentPosition, mesh.transform.position);
 
                 let interaction = GizmoInteraction {
                     cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
@@ -305,26 +385,47 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
                     hovered: true, // This will be determined by the gizmo's update call
                     ..Default::default()
                 };
-                
-                //  println!("mouse move");
 
-                if let Some((gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
+                if let Some((_gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
                     renderer_state.mouse_state.hovered_gizmo = true;
 
                     // Update transforms
-                    for (new_transform, transform) in new_transforms.iter().zip(&mut transforms) {
+                    for (new_transform, _transform) in new_transforms.iter().zip(&mut transforms) {
                         mesh.transform.update_position([new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32]);
                         mesh.transform.update_rotation_quat([new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32, new_transform.rotation.s as f32]);
                         mesh.transform.update_scale([new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32]);
                         mesh.transform.update_uniform_buffer(&gpu_resources.queue);
 
-                        *transform = *new_transform;
+                        // also update rigidbody position
+                        if let Some(rb_handle) = mesh.rigid_body_handle {
+                            if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                                let new_iso = Isometry3::from_parts(
+                                    nalgebra::Translation3::new(new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32),
+                                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32))
+                                );
+                                rb.set_position(new_iso, true);
+                            }
+                        }
                     }
                 } else {
                     renderer_state.mouse_state.hovered_gizmo = false;
                 }
+                found_and_updated = true;
             }
         }
+
+        // If not found in models, try to find and update a procedural house
+        if !found_and_updated {
+            if let Some(house) = renderer_state.procedural_houses.iter_mut().find(|h| h.id == selected_id) {
+                // Similar logic for houses, assuming they have a transform
+                // For now, let's just log it
+                println!("Gizmo trying to move a house... (not implemented yet)");
+            }
+        }
+
+    } else {
+        // Nothing is selected, ensure gizmo is not considered hovered
+        renderer_state.mouse_state.hovered_gizmo = false;
     }
 }
 
