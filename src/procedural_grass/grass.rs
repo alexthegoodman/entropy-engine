@@ -112,9 +112,11 @@ impl Grass {
     ) -> Self {
         let blade = GrassBlade::new(device);
         let grid_size = 2.0; // Each grid cell is 2x2 units
-        let render_distance = 50.0;
-        let blade_density = 25; // 25 blades per grid cell
-        // let blade_density = 50; // 25 blades per grid cell
+        // let render_distance = 50.0; // a bit tight
+        // let blade_density = 25; // good thickness
+        // let blade_density = 50; // thick
+        let render_distance = 150.0; // moderate distance
+        let blade_density = 15; // somewhat sparse
 
         // -- Uniforms --
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {

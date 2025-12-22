@@ -280,7 +280,7 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var brownian_disp = vec3<f32>(0.0);
 
     // ===== PLAYER INTERACTION =====
-    let interaction_radius = 4.0;
+    let interaction_radius = 5.0;
     let dist_to_player_3d = distance(blade_pos, uniforms.player_pos.xyz);
     var interaction_disp = vec3<f32>(0.0);
     
