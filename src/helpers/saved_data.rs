@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::{helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
 
@@ -123,6 +124,8 @@ pub struct ComponentData {
     pub player_properties: Option<PlayerProperties>,
     #[serde(default)]
     pub scatter: Option<ScatterSettings>,
+    pub rhai_script_path: Option<String>,
+    pub script_state: Option<HashMap<String, String>>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -216,4 +219,5 @@ pub struct SavedState {
     // videos
     pub sequences: Option<Vec<Sequence>>,
     pub timeline_state: Option<SavedTimelineStateConfig>,
+    pub global_rhai_scripts: Option<Vec<String>>,
 }

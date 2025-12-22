@@ -100,6 +100,41 @@
       "id": "e940b015-4c69-4d82-b970-40bdc83530a1",
       "components": [
         {
+          "id": "e9323b0d-1e1b-40f4-8a7c-3f9c0e4b2d3c",
+          "kind": "Model",
+          "asset_id": "611e5ed2-572b-4850-9d18-61206d2c514b",
+          "generic_properties": {
+            "name": "Scripted Cube",
+            "position": [
+              -10.0,
+              10.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "landscape_properties": null,
+          "model_properties": null,
+          "npc_properties": null,
+          "light_properties": null,
+          "water_properties": null,
+          "collectable_properties": null,
+          "player_properties": null,
+          "scatter": null,
+          "rhai_script_path": "scripts/test_component.rhai",
+          "script_state": {
+            "initial_message": "Hello from Rhai!"
+          }
+        },
+        {
           "id": "3a3b276f-807c-4869-bf5d-6181b7cb627b",
           "kind": "PlayerCharacter",
           "asset_id": "611e5ed2-572b-4850-9d18-61206d2c514b",
@@ -336,5 +371,8 @@
     }
   ],
   "sequences": null,
-  "timeline_state": null
+  "timeline_state": null,
+  "global_rhai_scripts": [
+    "scripts/test_component.rhai"
+  ]
 }

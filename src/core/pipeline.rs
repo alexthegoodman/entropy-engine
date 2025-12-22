@@ -36,6 +36,7 @@ use wasm_timer::Instant;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
+use crate::rhai_engine::RhaiEngine;
 
 // use super::chat::Chat;
 
@@ -1581,18 +1582,33 @@ impl ExportPipeline {
 
             // perhaps counterproductive to avoid physics in the preview
             // but sometimes you dont want to mix physics when doing design (make this a setting)
-            if game_mode { 
-                // step through physics each frame
-                renderer_state.step_physics_pipeline(
-                    &gpu_resources.device, 
-                    &gpu_resources.queue, 
-                    camera_binding,
-                    camera
-                );
-            }
-
-            let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();
-            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
+                                                if game_mode {
+                                                    // step through physics each frame
+                                                    renderer_state.step_physics_pipeline(
+                                                        &gpu_resources.device,
+                                                        &gpu_resources.queue,
+                                                        camera_binding,
+                                                        camera
+                                                    );
+                                                }
+                                    
+                                                // Execute Rhai component scripts
+                                                if let Some(saved_state) = editor.saved_state.as_mut() {
+                                                    if let Some(levels) = saved_state.levels.as_mut() {
+                                                        if let Some(components) = levels.get_mut(0).and_then(|l| l.components.as_mut()) {
+                                                            for component in components.iter_mut() {
+                                                                if let Some(script_path) = &component.rhai_script_path {
+                                                                    editor.rhai_engine.execute_component_script(
+                                                                        component,
+                                                                        script_path,
+                                                                        "on_update",
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }                        
+                                    let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
 
@@ -2292,6 +2308,7 @@ impl ExportPipeline {
 
                         // load_project(editor, project_id); // await needed?
                         pollster::block_on(load_project(editor, project_id));
+                        editor.rhai_engine.load_global_scripts(&editor.saved_state.as_ref().unwrap().global_rhai_scripts);
                     }
                 }
             });

@@ -25,6 +25,7 @@ use crate::renderer_text::text_due::TextRenderer;
 use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
+use crate::rhai_engine::RhaiEngine;
 
 use cgmath::SquareMatrix;
 
@@ -314,11 +315,11 @@ pub struct Editor {
     // pub dragging_path_handle: Option<Uuid>,
     // pub dragging_path_object: Option<Uuid>,
     // pub dragging_path_keyframe: Option<Uuid>,
-    // pub dragging_path_assoc_path: Option<Uuid>,
     // pub cursor_dot: Option<RingDot>,
     // pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
     pub saved_state: Option<SavedState>,
+    pub rhai_engine: RhaiEngine,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -445,6 +446,7 @@ impl Editor {
         Editor {
             renderer_state: None,
             saved_state: None,
+            rhai_engine: RhaiEngine::new(),
             // st_capture,
             // exporter: None,
             // font_manager,
