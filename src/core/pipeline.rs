@@ -37,7 +37,6 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
-use crate::scripting_commands::Command;
 
 // use super::chat::Chat;
 
