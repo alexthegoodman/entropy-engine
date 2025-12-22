@@ -13,7 +13,7 @@ impl UiPipeline {
     pub fn new(
         device: &wgpu::Device,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
-        model_bind_group_layout: &wgpu::BindGroupLayout,
+        ui_model_bind_group_layout: &wgpu::BindGroupLayout,
         window_size_bind_group_layout: &wgpu::BindGroupLayout,
         group_bind_group_layout: &wgpu::BindGroupLayout,
         format: wgpu::TextureFormat,
@@ -27,7 +27,7 @@ impl UiPipeline {
             label: Some("UI Pipeline Layout"),
             bind_group_layouts: &[
                 camera_bind_group_layout,
-                model_bind_group_layout,
+                ui_model_bind_group_layout,
                 window_size_bind_group_layout,
                 group_bind_group_layout,
             ],
@@ -134,6 +134,25 @@ impl UiPipeline {
                 render_pass.set_index_buffer(image_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..image_item.indices.len() as u32, 0, 0..1);
             }
+        }
+
+        // Render health bar
+        if let Some(health_bar) = &editor.health_bar {
+            // Background
+            health_bar.background.transform.update_uniform_buffer(queue);
+            render_pass.set_bind_group(1, &health_bar.background.bind_group, &[]);
+            render_pass.set_bind_group(3, &health_bar.background.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, health_bar.background.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(health_bar.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..health_bar.background.indices.len() as u32, 0, 0..1);
+
+            // Bar
+            health_bar.bar.transform.update_uniform_buffer(queue);
+            render_pass.set_bind_group(1, &health_bar.bar.bind_group, &[]);
+            render_pass.set_bind_group(3, &health_bar.bar.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, health_bar.bar.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(health_bar.bar.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..health_bar.bar.indices.len() as u32, 0, 0..1);
         }
     }
 }

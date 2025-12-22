@@ -21,6 +21,7 @@ use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
+use crate::core::HealthBar::HealthBar;
 // use crate::renderer_videos::st_video::StVideo;
 use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
@@ -309,6 +310,7 @@ pub struct Editor {
     pub ui_textboxes: Vec<TextRenderer>,
     // pub dragging_text: Option<Uuid>,
     pub ui_images: Vec<StImage>,
+    pub health_bar: Option<HealthBar>,
     // pub dragging_image: Option<Uuid>,
     // pub font_manager: FontManager,
     // pub dragging_path: Option<Uuid>,
@@ -491,6 +493,7 @@ impl Editor {
             ui_textboxes: Vec::new(),
             // dragging_text: None,
             ui_images: Vec::new(),
+            health_bar: None,
             // dragging_image: None,
             video_is_playing: false,
             video_start_playing_time: None,

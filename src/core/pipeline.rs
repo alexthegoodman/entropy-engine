@@ -7,6 +7,8 @@ use crate::{
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
+use crate::core::HealthBar::HealthBar;
+use crate::core::editor::Point;
 use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
@@ -550,6 +552,44 @@ impl ExportPipeline {
 
         let group_bind_group_layout = Arc::new(group_bind_group_layout);
 
+        let ui_model_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    // Uniform buffer binding
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    // Texture binding (D2)
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    // Sampler binding
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("UI Model Bind Group Layout"),
+            });
+
+        let ui_model_bind_group_layout = Arc::new(ui_model_bind_group_layout);
+
         let window_size_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: None,
             contents: bytemuck::cast_slice(&[WindowSizeShader {
@@ -729,7 +769,7 @@ impl ExportPipeline {
         let ui_pipeline = UiPipeline::new(
             &device,
             &camera_binding.bind_group_layout,
-            &model_bind_group_layout,
+            &ui_model_bind_group_layout,
             &window_size_bind_group_layout,
             &group_bind_group_layout,
             swapchain_format,
@@ -1170,6 +1210,21 @@ impl ExportPipeline {
             skinned_pipeline
         );
 
+        if game_mode {
+            export_editor.health_bar = Some(HealthBar::new(
+                &device,
+                &queue,
+                &ui_model_bind_group_layout,
+                &group_bind_group_layout,
+                &camera,
+                &WindowSize { width: video_width, height: video_height },
+                Point { x: 150.0, y: 50.0 }, // Top-left area
+                200.0,
+                30.0,
+                100.0,
+            ));
+        }
+
         let mut grids = Vec::new();
 
         if !game_mode {
@@ -1537,6 +1592,12 @@ impl ExportPipeline {
         // let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
         let texture = self.texture.as_ref().expect("Couldn't get texture");
         
+        // Sync player health to UI
+        if let Some(player) = &renderer_state.player_character {
+            if let Some(health_bar) = &mut editor.health_bar {
+                health_bar.update_health(queue, player.stats.health);
+            }
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
