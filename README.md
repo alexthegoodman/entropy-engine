@@ -2,9 +2,11 @@
 
 Create beautiful games easily.
 
+Entropy Engine is all about energizing Rust + wgpu-based game development by providing you with out-of-the-box systems and mechanics which can be easily forked and extended. It is both an engine and a level editor.
+
 Powering <a href="https://github.com/alexthegoodman/entropy-tauri" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
 
-Real designers should use chat in a precise and granular way, so they don't have to make a dozen clicks for a single preview change. They can be creative, rather than technical.
+The purpose of Entropy Chat is simple. Real designers shouldn't have to make a dozen clicks for a single preview change. They should be creative, rather than technical. Check it out if you have a chance.
 
 ### Current Features:
 
@@ -21,6 +23,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Skybox Pipeline
 - Point lighting
 - Basic game behaviors (melee, chase, inventory, etc)
+- Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
 - Rendered text with fonts
 - Screen capture
@@ -51,7 +54,6 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Maps for procedural grass (determine where it exists, variations)
 - Vehicles (cars, planes, helicopters, motorcycles, tanks, mechs)
 - Destruction
-- Enhanced native editor experience with stellar transform gizmo (for now using egui inputs)
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
 - Procedural scattering of models
@@ -90,6 +92,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 - Trading/Bartering
 - Reputation systems
 - Improve existing mechanics
+- Lua based scripting system (for those who dont want to fork the engine or are using Entropy Chat)
 
 ### TBD Procedural Models:
 
@@ -116,7 +119,7 @@ Real designers should use chat in a precise and granular way, so they don't have
 ### Other Needs:
 
 - Documentation (including on publishing and distribution)
-- Game Saves for players
+- Game Saves for players (currently restart from beginning each time)
 - Configurable Controller Input -> Action Mapping (currently has default key mapping)
 
 ## Run
