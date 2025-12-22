@@ -6,6 +6,7 @@ use crate::{
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
+use crate::core::ui_pipeline::UiPipeline;
 use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
@@ -107,6 +108,7 @@ pub struct ExportPipeline {
     pub g_buffer_pbr_material_view: Option<wgpu::TextureView>,
     pub g_buffer_sampler: Option<wgpu::Sampler>,
     pub shadow_pipeline_data: Option<ShadowPipelineData>,
+    pub ui_pipeline: Option<UiPipeline>,
 
     // G-Buffer bind group
     pub g_buffer_bind_group_layout: Option<wgpu::BindGroupLayout>,
@@ -157,6 +159,7 @@ impl ExportPipeline {
             point_lights_buffer: None,
             g_buffer_sampler: None,
             shadow_pipeline_data: None,
+            ui_pipeline: None,
             gizmo_pipeline: None,
             procedural_sky_pipeline: None,
             procedural_sky_bind_group: None,
@@ -721,6 +724,15 @@ impl ExportPipeline {
             video_width,
             video_height,
             directional_light_position
+        );
+
+        let ui_pipeline = UiPipeline::new(
+            &device,
+            &camera_binding.bind_group_layout,
+            &model_bind_group_layout,
+            &window_size_bind_group_layout,
+            &group_bind_group_layout,
+            swapchain_format,
         );
 
         let geometry_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -1288,6 +1300,7 @@ impl ExportPipeline {
         self.point_lights_buffer = Some(point_lights_buffer);
         self.g_buffer_sampler = Some(g_buffer_sampler);
         self.shadow_pipeline_data = Some(shadow_pipeline_data);
+        self.ui_pipeline = Some(ui_pipeline);
         self.directional_light_position = directional_light_position;
     }
 
@@ -2097,6 +2110,7 @@ impl ExportPipeline {
                 }
             }
 
+            
             renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {
                 view_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_view()),
                 projection_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_projection()),
@@ -2214,6 +2228,48 @@ impl ExportPipeline {
                 gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
                 gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
+            }
+
+            // UI Render Pass
+            {
+                if let Some(ui_pipeline) = self.ui_pipeline.as_ref() {
+                    let camera_binding = editor.camera_binding.as_ref().unwrap();
+                    let window_size_bind_group = self
+                        .window_size_bind_group
+                        .as_ref()
+                        .expect("Couldn't get window size bind group");
+
+                    let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("UI Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    ui_pipeline.render(
+                        &mut ui_pass,
+                        editor,
+                        &camera_binding.bind_group,
+                        window_size_bind_group,
+                        queue,
+                    );
+                }
             }
 
             if self.frame_buffer.is_some() {

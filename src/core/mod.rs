@@ -13,6 +13,7 @@ pub mod camera;
 pub mod gpu_resources;
 pub mod pipeline;
 pub mod shadow_pipeline;
+pub mod ui_pipeline;
 pub mod animation_system;
 pub mod AnimationState;
 pub mod skinned_pipeline;
