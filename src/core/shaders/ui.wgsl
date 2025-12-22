@@ -38,9 +38,17 @@ struct VertexOutput {
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let model_position = model_uniforms.model * vec4<f32>(input.position, 1.0);
-    let world_position = group_uniforms.group * model_position;
-    output.position = camera_uniforms.view_projection * world_position;
+    
+    // Transform local vertex position to screen-space pixel coordinates using model and group transforms
+    let pos = model_uniforms.model * vec4<f32>(input.position, 1.0);
+    let world_pos = group_uniforms.group * pos;
+    
+    // Convert pixel coordinates [0, width], [0, height] to NDC [-1, 1], [1, -1]
+    // Screen (0,0) is top-left. NDC (0,0) is center, Y is up.
+    let x = (world_pos.x / window_size.width) * 2.0 - 1.0;
+    let y = 1.0 - (world_pos.y / window_size.height) * 2.0;
+    
+    output.position = vec4<f32>(x, y, 0.0, 1.0);
     output.tex_coords = input.tex_coords;
     output.color = input.color;
     return output;
