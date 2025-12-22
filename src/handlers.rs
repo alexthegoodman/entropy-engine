@@ -273,47 +273,33 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                         }
                                     }
                                     renderer_state.selected_entity_id = Some(model.id.clone());
+
+                                    // NOW FIND THE MATCHING COMPONENT ID
+                                    if let Some(saved_state) = &state.saved_state {
+                                        if let Some(levels) = &saved_state.levels {
+                                            if let Some(level) = levels.get(0) {
+                                                if let Some(components) = &level.components {
+                                                    // Find component where asset_id matches the model id
+                                                    if let Some(component) = components.iter().find(|c| c.asset_id == model.id) {
+                                                        renderer_state.selected_component_id = Some(component.id.clone());
+                                                        println!("Selected model: {:?}, component: {:?}", model.id, component.id);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
                                     found_selectable = true;
-                                    println!("Selected model: {:?}", model.id);
                                     break;
                                 }
                             }
 
-                            // Check if a house was hit
-                            if !found_selectable {
-                                for house in &renderer_state.procedural_houses {
-                                    if house.id == hit_uuid {
-                                        renderer_state.selected_entity_id = Some(house.id.clone());
-                                        found_selectable = true;
-                                        println!("Selected house: {:?}", house.id);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            // Check if a landscape was hit (and de-select)
-                            if !found_selectable {
-                                for landscape in &renderer_state.landscapes {
-                                    if landscape.id == hit_uuid {
-                                        // It's a landscape, so we clear the selection
-                                        renderer_state.selected_entity_id = None;
-                                        found_selectable = true; // Found, but action is to deselect.
-                                        println!("Deselected, hit landscape");
-                                        break;
-                                    }
-                                }
-                            }
-                            
-                            if !found_selectable {
-                                // hit something, but it's not selectable. clear selection.
-                                renderer_state.selected_entity_id = None;
-                                println!("Deselected, hit non-selectable");
-                            }
+                            // other things
 
                         } else {
                             // Ray intersected but no component id? Clear selection.
-                            renderer_state.selected_entity_id = None;
-                            println!("Deselected, no component id");
+                            // renderer_state.selected_entity_id = None;
+                            // println!("Deselected, no component id");
                         }
                     } else {
                         // Do nothing, we want the currently selected object to remain selected
@@ -360,107 +346,116 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
     renderer_state.mouse_state.is_dragging = current_is_dragging;
     renderer_state.mouse_state.drag_started = drag_started;
 
-    if let Some(selected_id) = renderer_state.selected_entity_id.clone() {
-        let mut found_and_updated = false;
+    if let Some(component_id) = &renderer_state.selected_component_id {
+        if let Some(selected_id) = renderer_state.selected_entity_id.clone() {
+            let mut found_and_updated = false;
 
-        // Try to find and update a model
-        if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == selected_id) {
-            if let Some(mesh) = model.meshes.get_mut(0) {
-                
-                let mut transforms = vec![
-                    Transform::from_scale_rotation_translation(
-                        MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]),
-                        Quaternion::from([
-                            mesh.transform.rotation.quaternion().coords.x as f64,
-                            mesh.transform.rotation.quaternion().coords.y as f64,
-                            mesh.transform.rotation.quaternion().coords.z as f64,
-                            mesh.transform.rotation.quaternion().coords.w as f64
-                        ]),
-                        MintVector3::from([mesh.transform.position.x as f64, mesh.transform.position.y as f64, mesh.transform.position.z as f64])
-                    )
-                ];
+            // Try to find and update a model
+            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == selected_id) {
+                if let Some(mesh) = model.meshes.get_mut(0) {
+                    
+                    let mut transforms = vec![
+                        Transform::from_scale_rotation_translation(
+                            MintVector3::from([mesh.transform.scale.x as f64, mesh.transform.scale.y as f64, mesh.transform.scale.z as f64]),
+                            Quaternion::from([
+                                mesh.transform.rotation.quaternion().coords.x as f64,
+                                mesh.transform.rotation.quaternion().coords.y as f64,
+                                mesh.transform.rotation.quaternion().coords.z as f64,
+                                mesh.transform.rotation.quaternion().coords.w as f64
+                            ]),
+                            MintVector3::from([mesh.transform.position.x as f64, mesh.transform.position.y as f64, mesh.transform.position.z as f64])
+                        )
+                    ];
 
-                let interaction = GizmoInteraction {
-                    cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
-                    dragging: current_is_dragging,
-                    drag_started: drag_started,
-                    hovered: true, // This will be determined by the gizmo's update call
-                    ..Default::default()
-                };
+                    let interaction = GizmoInteraction {
+                        cursor_pos: (currentPosition.x as f32, currentPosition.y as f32),
+                        dragging: current_is_dragging,
+                        drag_started: drag_started,
+                        hovered: true, // This will be determined by the gizmo's update call
+                        ..Default::default()
+                    };
 
-                if let Some((_gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
-                    renderer_state.mouse_state.hovered_gizmo = true;
+                    if let Some((_gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
+                        renderer_state.mouse_state.hovered_gizmo = true;
 
-                    // Update transforms
-                    for (new_transform, _transform) in new_transforms.iter().zip(&mut transforms) {
-                        mesh.transform.update_position([new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32]);
-                        mesh.transform.update_rotation_quat([new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32, new_transform.rotation.s as f32]);
-                        mesh.transform.update_scale([new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32]);
-                        mesh.transform.update_uniform_buffer(&gpu_resources.queue);
+                        // Update transforms
+                        for (new_transform, _transform) in new_transforms.iter().zip(&mut transforms) {
+                            mesh.transform.update_position([new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32]);
+                            mesh.transform.update_rotation_quat([new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32, new_transform.rotation.s as f32]);
+                            mesh.transform.update_scale([new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32]);
+                            mesh.transform.update_uniform_buffer(&gpu_resources.queue);
 
-                        // also update rigidbody position
-                        if let Some(rb_handle) = mesh.rigid_body_handle {
-                            if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                                let new_iso = Isometry3::from_parts(
-                                    nalgebra::Translation3::new(new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32),
-                                    nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32))
-                                );
-                                rb.set_position(new_iso, true);
+                            // also update rigidbody position
+                            if let Some(rb_handle) = mesh.rigid_body_handle {
+                                if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                                    let new_iso = Isometry3::from_parts(
+                                        nalgebra::Translation3::new(new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32),
+                                        nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32))
+                                    );
+                                    rb.set_position(new_iso, true);
+                                }
                             }
+
                         }
+                    } else {
+                        renderer_state.mouse_state.hovered_gizmo = false;
+                    }
 
-                        if drag_ended {
-                            if let Some(saved_state) = state.saved_state.as_mut() {
-                                if let Some(project_id) = &saved_state.id {
-                                    let mut component_updated = false;
-                                    if let Some(levels) = saved_state.levels.as_mut() {
-                                        if let Some(level) = levels.get_mut(0) {
-                                            if let Some(components) = level.components.as_mut() {
-                                                if let Some(component) = components.iter_mut().find(|c| c.id == selected_id) {
-                                                    let new_pos = [new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32];
-                                                    
-                                                    let new_rot_quat = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32));
-                                                    let euler_angles = new_rot_quat.euler_angles();
-                                                    let new_rot = [euler_angles.0.to_degrees(), euler_angles.1.to_degrees(), euler_angles.2.to_degrees()];
-                                                    
-                                                    let new_scale = [new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32];
+                    if drag_ended {
+                        if let Some(saved_state) = state.saved_state.as_mut() {
+                            if let Some(project_id) = &saved_state.id {
+                                let mut component_updated = false;
+                                if let Some(levels) = saved_state.levels.as_mut() {
+                                    if let Some(level) = levels.get_mut(0) {
+                                        if let Some(components) = level.components.as_mut() {
+                                            // if let Some(component) = components.iter_mut().find(|c| c.id == selected_id) {
+                                            if let Some(component) = components.iter_mut().find(|c| c.id == component_id.clone()) {
+                                                let new_pos = [mesh.transform.position.x as f32, mesh.transform.position.y as f32, mesh.transform.position.z as f32];
+                                                
+                                                let new_rot_quat = mesh.transform.rotation;
+                                                let euler_angles = new_rot_quat.euler_angles();
+                                                let new_rot = [euler_angles.0.to_degrees(), euler_angles.1.to_degrees(), euler_angles.2.to_degrees()];
+                                                
+                                                let new_scale = [mesh.transform.scale.x as f32, mesh.transform.scale.y as f32, mesh.transform.scale.z as f32];
 
-                                                    component.generic_properties.position = new_pos;
-                                                    component.generic_properties.rotation = new_rot;
-                                                    component.generic_properties.scale = new_scale;
-                                                    component_updated = true;
-                                                }
+                                                component.generic_properties.position = new_pos;
+                                                component.generic_properties.rotation = new_rot;
+                                                component.generic_properties.scale = new_scale;
+                                                component_updated = true;
                                             }
                                         }
                                     }
+                                }
 
-                                    if component_updated {
-                                        if let Err(e) = utilities::update_project_state(project_id, saved_state) {
-                                            println!("Failed to save project state: {}", e);
-                                        } else {
-                                            println!("Project state saved successfully after gizmo drag.");
-                                        }
+                                if component_updated {
+                                    // TODO: WASM version
+                                    if let Err(e) = utilities::update_project_state(project_id, saved_state) {
+                                        println!("Failed to save project state: {}", e);
+                                    } else {
+                                        println!("Project state saved successfully after gizmo drag.");
                                     }
                                 }
                             }
                         }
-                    }
-                } else {
-                    renderer_state.mouse_state.hovered_gizmo = false;
+                    } 
+
+                    found_and_updated = true;
                 }
-                found_and_updated = true;
             }
-        }
 
-        // If not found in models, try to find and update a procedural house
-        if !found_and_updated {
-            if let Some(house) = renderer_state.procedural_houses.iter_mut().find(|h| h.id == selected_id) {
-                // Similar logic for houses, assuming they have a transform
-                // For now, let's just log it
-                println!("Gizmo trying to move a house... (not implemented yet)");
+            // If not found in models, try to find and update a procedural house
+            if !found_and_updated {
+                if let Some(house) = renderer_state.procedural_houses.iter_mut().find(|h| h.id == selected_id) {
+                    // Similar logic for houses, assuming they have a transform
+                    // For now, let's just log it
+                    println!("Gizmo trying to move a house... (not implemented yet)");
+                }
             }
-        }
 
+        } else {
+            // Nothing is selected, ensure gizmo is not considered hovered
+            renderer_state.mouse_state.hovered_gizmo = false;
+        }
     } else {
         // Nothing is selected, ensure gizmo is not considered hovered
         renderer_state.mouse_state.hovered_gizmo = false;

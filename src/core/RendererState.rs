@@ -138,7 +138,8 @@ pub struct RendererState {
     pub object_selected: Option<Uuid>,
     pub object_selected_kind: Option<ComponentKind>,
     pub object_selected_data: Option<ComponentData>,
-    pub selected_entity_id: Option<String>,
+    pub selected_entity_id: Option<String>,  // The model/house/entity ID (for rendering)
+    pub selected_component_id: Option<String>,  // The component ID (for saving)
 
     // physics
     pub gravity: Vector<f32>,
@@ -313,6 +314,7 @@ impl RendererState {
             object_selected_kind: None,
             object_selected_data: None,
             selected_entity_id: None,
+            selected_component_id: None,
 
             // translation_gizmo,
             // rotation_gizmo,
@@ -622,17 +624,17 @@ impl RendererState {
             } 
         }
         else {
-            if let Some(player_character) = &self.player_character {
-                if let Some(rb_handle) = player_character.movement_rigid_body_handle {
-                    if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-                        let pos = rb.translation();
-                        camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
+            // if let Some(player_character) = &self.player_character {
+            //     if let Some(rb_handle) = player_character.movement_rigid_body_handle {
+            //         if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+            //             let pos = rb.translation();
+            //             camera.position = Point3::new(pos.x, pos.y + 0.9, pos.z);
 
-                        camera.update();
-                        camera_binding.update_3d(&queue, &camera);
-                    }
-                }
-            }
+            //             camera.update();
+            //             camera_binding.update_3d(&queue, &camera);
+            //         }
+            //     }
+            // }
         }
 
         // Now process all updates without borrowing rigid_body_set

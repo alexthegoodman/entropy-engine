@@ -166,6 +166,8 @@ pub fn update_project_state_component(project_id: &str, component: &ComponentDat
         }
     });
 
+    println!("update_project_state_component");
+
     let json = serde_json::to_string_pretty(&existing_state)?;
     fs::write(json_path, json)?;
 
@@ -175,6 +177,8 @@ pub fn update_project_state_component(project_id: &str, component: &ComponentDat
 pub fn update_project_state(project_id: &str, saved_state: &SavedState) -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
     let json_path = project_dir.join("midpoint.json");
+
+    println!("update_project_state");
 
     let json = serde_json::to_string_pretty(saved_state)?;
     fs::write(json_path, json)?;
@@ -211,6 +215,8 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
         // timeline_state: None
         ..Default::default()
     };
+
+    println!("create_project_state");
 
     let json = serde_json::to_string_pretty(&empty_saved_state)?;
     fs::write(project_dir.join("midpoint.json"), json)?;

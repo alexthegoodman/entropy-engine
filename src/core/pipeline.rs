@@ -1579,7 +1579,9 @@ impl ExportPipeline {
             // update rapier collisions
             renderer_state.update_rapier();
 
-            if game_mode {
+            // perhaps counterproductive to avoid physics in the preview
+            // but sometimes you dont want to mix physics when doing design (make this a setting)
+            if game_mode { 
                 // step through physics each frame
                 renderer_state.step_physics_pipeline(
                     &gpu_resources.device, 
