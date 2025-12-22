@@ -2,7 +2,7 @@
 
 Create beautiful games easily.
 
-Entropy Engine is all about energizing Rust + wgpu-based game development by providing you with out-of-the-box systems and mechanics which can be easily forked and extended. It is both an engine and a level editor.
+Entropy Engine is all about energizing Rust + wgpu-based game development by providing you with out-of-the-box systems and mechanics which can be easily forked and extended. It is both an engine and a level editor. Entropy Engine is focused on open-world (or smaller) game types at this time, but better support for something like RTS could come in the future.
 
 Powering <a href="https://github.com/alexthegoodman/entropy-tauri" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
 
