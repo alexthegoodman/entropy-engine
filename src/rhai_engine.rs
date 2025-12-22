@@ -1,18 +1,29 @@
-use rhai::{Engine, Scope, AST, Dynamic, Array, CustomType, TypeBuilder, Func, NativeCallContext};
+use rhai::{Engine, Scope, AST, Dynamic, Array, CustomType, TypeBuilder};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
 use nalgebra::Vector3;
 
 use crate::core::RendererState::RendererState;
-use crate::art_assets::Model::Model;
 use crate::helpers::saved_data::ComponentData;
-use crate::scripting_commands::Command;
 
 #[derive(Clone)]
 pub struct ModelWrapper {
     pub id: String,
     pub position: Vector3<f32>,
+    pub position_changed: bool,
+}
+
+impl ModelWrapper {
+    pub fn set_position(&mut self, pos: Array) {
+        if pos.len() == 3 {
+            self.position = Vector3::new(
+                pos[0].as_float().unwrap_or(0.0) as f32,
+                pos[1].as_float().unwrap_or(0.0) as f32,
+                pos[2].as_float().unwrap_or(0.0) as f32,
+            );
+            self.position_changed = true;
+        }
+    }
 }
 
 pub struct RhaiEngine {
@@ -28,23 +39,11 @@ impl RhaiEngine {
             println!("[RHAI] {}", text);
         });
 
-        // Register the Command enum
-        engine.build_type::<Command>();
-        
-        // Register a function to create Command::SetPosition
-        engine.register_fn("SetPosition", |component_id: String, position: Array| {
-            Command::SetPosition { component_id, position: [
-                    position[0].as_float().unwrap_or(0.0) as f32, 
-                    position[1].as_float().unwrap_or(0.0) as f32, 
-                    position[2].as_float().unwrap_or(0.0) as f32
-                ] 
-            }
-        });
-
-        // Register the ModelWrapper
+        // Register the ModelWrapper with mutation methods
         engine.register_type_with_name::<ModelWrapper>("ComponentModel")
             .register_get("id", |m: &mut ModelWrapper| m.id.clone())
-            .register_get("position", |m: &mut ModelWrapper| m.position);
+            .register_get("position", |m: &mut ModelWrapper| m.position)
+            .register_fn("set_position", ModelWrapper::set_position);
             
         // Register Vector3 for direct use in Rhai
         engine.register_type_with_name::<Vector3<f32>>("Vector3")
@@ -71,17 +70,17 @@ impl RhaiEngine {
 
     pub fn execute_component_script(
         &mut self,
-        renderer_state: &mut RendererState, // Now read-only
-        component: &ComponentData, // Mutably borrow to update script_state
+        renderer_state: &mut RendererState,
+        component: &ComponentData,
         script_path: &str,
         hook_name: &str,
-    ) -> Vec<Command> {
+    ) -> Option<ComponentChanges> {
         let ast = if let Some(ast) = self.ast_cache.get(script_path) {
             ast
         } else {
             if self.load_script(script_path).is_err() {
                 eprintln!("Failed to load Rhai script: {}", script_path);
-                return Vec::new();
+                return None;
             }
             self.ast_cache.get(script_path).unwrap()
         };
@@ -91,11 +90,13 @@ impl RhaiEngine {
         match component.kind.as_ref().unwrap() {
             crate::helpers::saved_data::ComponentKind::Model => {
                 if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == component.id) {
-                    let wrapper = ModelWrapper {
+                    let mut wrapper = ModelWrapper {
                         id: model.id.clone(),
                         position: model.meshes[0].transform.position,
+                        position_changed: false,
                     };
-                    // Prepare script_state to pass into Rhai. Convert HashMap<String, String> to rhai::Map
+                    
+                    // Prepare script_state
                     let mut rhai_script_state = rhai::Map::new();
                     if let Some(current_state) = &model.script_state {
                         for (key, value) in current_state {
@@ -103,33 +104,23 @@ impl RhaiEngine {
                         }
                     }
                     
-                    match self.engine.call_fn::<rhai::Array>(&mut scope, &ast, hook_name, (wrapper, rhai_script_state)) {
-                        Ok(mut result_array) => {
-                            // Expect the script to return an array: [commands_array, new_script_state_map]
-                            if result_array.len() == 2 {
-                                let commands_array = result_array.remove(0);
-                                let new_script_state_map = result_array.remove(0);
-
-                                // Update model.script_state with the live map
-                                if let Some(map) = new_script_state_map.try_cast::<rhai::Map>() {
-                                    let mut updated_hashmap = HashMap::new();
-                                    for (key, value) in map {
-                                        if let s_key = key.to_string() {
-                                            updated_hashmap.insert(s_key, value.to_string());
-                                        }
-                                    }
-                                    model.script_state = Some(updated_hashmap);
-                                } else {
-                                    eprintln!("Rhai script hook '{}' did not return a valid script_state map.", hook_name);
+                    match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), rhai_script_state)) {
+                        Ok(result) => {
+                            // Script returns just the updated script_state map
+                            if let Some(map) = result.try_cast::<rhai::Map>() {
+                                let mut updated_hashmap = HashMap::new();
+                                for (key, value) in map {
+                                    updated_hashmap.insert(key.to_string(), value.to_string());
                                 }
+                                model.script_state = Some(updated_hashmap);
+                            }
 
-                                if let Some(cmds_array) = commands_array.try_cast::<rhai::Array>() {
-                                    return cmds_array.into_iter().filter_map(|c| c.try_cast::<Command>()).collect();
-                                } else {
-                                    eprintln!("Rhai script hook '{}' did not return a valid commands array.", hook_name);
-                                }
-                            } else {
-                                eprintln!("Rhai script hook '{}' did not return expected array [commands_array, new_script_state_map].", hook_name);
+                            // Check if wrapper was mutated
+                            if wrapper.position_changed {
+                                return Some(ComponentChanges {
+                                    component_id: wrapper.id,
+                                    new_position: Some(wrapper.position),
+                                });
                             }
                         }
                         Err(e) => {
@@ -143,6 +134,12 @@ impl RhaiEngine {
             _ => {}
         }
         
-        Vec::new()
+        None
     }
+}
+
+// Simple struct to track what changed
+pub struct ComponentChanges {
+    pub component_id: String,
+    pub new_position: Option<Vector3<f32>>,
 }

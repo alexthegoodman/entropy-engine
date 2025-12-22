@@ -36,7 +36,7 @@ use wasm_timer::Instant;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
-use crate::rhai_engine::RhaiEngine;
+use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::scripting_commands::Command;
 
 // use super::chat::Chat;
@@ -1594,43 +1594,45 @@ impl ExportPipeline {
             }
 
             // Execute Rhai component scripts
-            let mut commands: Vec<Command> = Vec::new();
-            if let Some(saved_state) = editor.saved_state.as_ref() { // Note: saved_state is now read-only here
+            let mut changes: Vec<ComponentChanges> = Vec::new();
+            if let Some(saved_state) = editor.saved_state.as_ref() {
                 if let Some(levels) = saved_state.levels.as_ref() {
                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
-                        for component in components.iter() { // Iterate over immutable components
+                        for component in components.iter() {
                             if let Some(script_path) = &component.rhai_script_path {
-                                commands.extend(editor.rhai_engine.execute_component_script(
-                                    renderer_state, // Pass read-only renderer_state
+                                if let Some(change) = editor.rhai_engine.execute_component_script(
+                                    renderer_state,
                                     component,
                                     script_path,
                                     "on_update",
-                                ));
+                                ) {
+                                    changes.push(change);
+                                }
                             }
                         }
                     }
                 }
             }
 
-            // Execute collected commands
-            for command in commands {
-                match command {
-                    Command::SetPosition { component_id, position } => {
-                        if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == component_id) {
-                            // Update model's transform for rendering
-                            for mesh in &mut model.meshes {
-                                mesh.transform.update_position(position);
-                            }
-                            // Update rigidbody for physics
-                            if let Some(rb_handle) = model.meshes[0].rigid_body_handle {
-                                if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                                    let new_pos = nalgebra::Isometry3::translation(position[0], position[1], position[2]);
-                                    rb.set_position(new_pos, true);
-                                }
+            // Apply collected changes
+            for change in changes {
+                if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == change.component_id) {
+                    if let Some(new_pos) = change.new_position {
+                        let pos_array = [new_pos.x, new_pos.y, new_pos.z];
+                        
+                        // Update model's transform for rendering
+                        for mesh in &mut model.meshes {
+                            mesh.transform.update_position(pos_array);
+                        }
+                        
+                        // Update rigidbody for physics
+                        if let Some(rb_handle) = model.meshes[0].rigid_body_handle {
+                            if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                                let new_isometry = nalgebra::Isometry3::translation(new_pos.x, new_pos.y, new_pos.z);
+                                rb.set_position(new_isometry, true);
                             }
                         }
                     }
-                    // Handle other commands here
                 }
             }
 
