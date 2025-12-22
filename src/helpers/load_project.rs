@@ -361,7 +361,8 @@ editor.saved_state = Some(loaded_state);
                                                 asset_item.fileName.clone(), 
                                                 model_iso, 
                                                 model_scale,
-                                                camera
+                                                camera,
+                                                component.script_state.clone()
                                             ).await;
                                         }
                                     }
@@ -390,7 +391,8 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera,
-                                                default_weapon_id
+                                                default_weapon_id,
+                                                component.script_state.clone()
                                             ).await;
                                         }
                                     }
@@ -412,7 +414,8 @@ editor.saved_state = Some(loaded_state);
                                                 asset_item.fileName.clone(), 
                                                 model_iso, 
                                                 model_scale,
-                                                camera
+                                                camera,
+                                                component.script_state.clone()
                                             ).await;
                                         }
                                     }
@@ -459,7 +462,8 @@ editor.saved_state = Some(loaded_state);
                                                 camera,
                                                 collectable_properties,
                                                 related_stat,
-                                                hide_in_world
+                                                hide_in_world,
+                                                component.script_state.clone()
                                             ).await;
                                         }
                                     }

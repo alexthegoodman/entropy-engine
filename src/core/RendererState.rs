@@ -1283,7 +1283,8 @@ impl RendererState {
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
         camera: &SimpleCamera,
-        hide_in_world: bool
+        hide_in_world: bool,
+        script_state: Option<HashMap<String, String>>,
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1300,6 +1301,8 @@ impl RendererState {
         );
 
         model.hide_from_world = hide_in_world;
+
+        model.script_state = script_state;
 
         // Check if the model has skins and create the necessary GPU resources
         if !model.skins.is_empty() {

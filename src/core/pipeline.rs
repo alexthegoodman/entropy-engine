@@ -37,6 +37,7 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::RhaiEngine;
+use crate::scripting_commands::Command;
 
 // use super::chat::Chat;
 
@@ -1582,33 +1583,58 @@ impl ExportPipeline {
 
             // perhaps counterproductive to avoid physics in the preview
             // but sometimes you dont want to mix physics when doing design (make this a setting)
-                                                if game_mode {
-                                                    // step through physics each frame
-                                                    renderer_state.step_physics_pipeline(
-                                                        &gpu_resources.device,
-                                                        &gpu_resources.queue,
-                                                        camera_binding,
-                                                        camera
-                                                    );
-                                                }
-                                    
-                                                // Execute Rhai component scripts
-                                                if let Some(saved_state) = editor.saved_state.as_mut() {
-                                                    if let Some(levels) = saved_state.levels.as_mut() {
-                                                        if let Some(components) = levels.get_mut(0).and_then(|l| l.components.as_mut()) {
-                                                            for component in components.iter_mut() {
-                                                                if let Some(script_path) = &component.rhai_script_path {
-                                                                    editor.rhai_engine.execute_component_script(
-                                                                        component,
-                                                                        script_path,
-                                                                        "on_update",
-                                                                    );
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }                        
-                                    let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
+            if game_mode {
+                // step through physics each frame
+                renderer_state.step_physics_pipeline(
+                    &gpu_resources.device,
+                    &gpu_resources.queue,
+                    camera_binding,
+                    camera
+                );
+            }
+
+            // Execute Rhai component scripts
+            let mut commands: Vec<Command> = Vec::new();
+            if let Some(saved_state) = editor.saved_state.as_ref() { // Note: saved_state is now read-only here
+                if let Some(levels) = saved_state.levels.as_ref() {
+                    if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
+                        for component in components.iter() { // Iterate over immutable components
+                            if let Some(script_path) = &component.rhai_script_path {
+                                commands.extend(editor.rhai_engine.execute_component_script(
+                                    renderer_state, // Pass read-only renderer_state
+                                    component,
+                                    script_path,
+                                    "on_update",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Execute collected commands
+            for command in commands {
+                match command {
+                    Command::SetPosition { component_id, position } => {
+                        if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == component_id) {
+                            // Update model's transform for rendering
+                            for mesh in &mut model.meshes {
+                                mesh.transform.update_position(position);
+                            }
+                            // Update rigidbody for physics
+                            if let Some(rb_handle) = model.meshes[0].rigid_body_handle {
+                                if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                                    let new_pos = nalgebra::Isometry3::translation(position[0], position[1], position[2]);
+                                    rb.set_position(new_pos, true);
+                                }
+                            }
+                        }
+                    }
+                    // Handle other commands here
+                }
+            }
+
+            let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
 
@@ -2308,7 +2334,7 @@ impl ExportPipeline {
 
                         // load_project(editor, project_id); // await needed?
                         pollster::block_on(load_project(editor, project_id));
-                        editor.rhai_engine.load_global_scripts(&editor.saved_state.as_ref().unwrap().global_rhai_scripts);
+                        // editor.rhai_engine.load_global_scripts(&editor.saved_state.as_ref().unwrap().global_rhai_scripts);
                     }
                 }
             });

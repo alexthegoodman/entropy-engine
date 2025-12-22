@@ -129,7 +129,8 @@ pub async fn handle_add_player(
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
     camera: &SimpleCamera,
-    default_weapon_id: Option<String>
+    default_weapon_id: Option<String>,
+    script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -137,7 +138,7 @@ pub async fn handle_add_player(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter);
 
@@ -510,7 +511,8 @@ pub async fn handle_add_model(
     modelFilename: String,
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
-    camera: &SimpleCamera
+    camera: &SimpleCamera,
+    script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -518,7 +520,7 @@ pub async fn handle_add_model(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
@@ -532,7 +534,8 @@ pub async fn handle_add_npc(
     modelFilename: String,
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
-    camera: &SimpleCamera
+    camera: &SimpleCamera,
+    script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -540,7 +543,7 @@ pub async fn handle_add_npc(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::NPC);
 
@@ -569,7 +572,8 @@ pub async fn handle_add_collectable(
     camera: &SimpleCamera,
     collectable_properties: &CollectableProperties,
     related_stat: &StatData,
-    hide_in_world: bool
+    hide_in_world: bool,
+    script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -577,7 +581,7 @@ pub async fn handle_add_collectable(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world);
+    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state);
 
     state.add_collider(modelAssetId.clone(), ComponentKind::Collectable);
 

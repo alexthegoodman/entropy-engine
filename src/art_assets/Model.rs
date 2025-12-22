@@ -9,6 +9,7 @@ use gltf::buffer::{Source, View};
 use gltf::Glb;
 use gltf::Gltf;
 use wgpu::wgt::TextureDataOrder;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
@@ -23,39 +24,39 @@ use crate::core::vertex::{ModelVertex, Vertex};
 use crate::helpers::utilities::get_common_os_dir;
 use crate::core::editor::WindowSize;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum AnimationValues {
     Translation(Vec<[f32; 3]>),
     Rotation(Vec<[f32; 4]>),
     Scale(Vec<[f32; 3]>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnimationSampler {
     pub times: Vec<f32>,
     pub values: AnimationValues,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnimationChannel {
     pub target_node: usize,
     pub target_property: String, // "translation", "rotation", "scale"
     pub sampler: AnimationSampler,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Animation {
     pub name: String,
     pub channels: Vec<AnimationChannel>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Skin {
     pub joints: Vec<usize>,
     pub inverse_bind_matrices: Vec<Matrix4<f32>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Node {
     pub name: String,
     pub children: Vec<usize>,
@@ -65,6 +66,7 @@ pub struct Node {
     pub skin: Option<usize>,
 }
 
+#[derive(Clone)]
 pub struct Mesh {
     // pub transform: Matrix4<f32>,
     pub transform: Transform,
@@ -83,6 +85,7 @@ pub struct Mesh {
     pub rigid_body_handle: Option<RigidBodyHandle>,
 }
 
+#[derive(Clone)]
 pub struct Model {
     pub id: String,
     pub meshes: Vec<Mesh>,
@@ -93,6 +96,7 @@ pub struct Model {
     pub joint_matrices_buffer: Option<wgpu::Buffer>,
     pub skin_bind_group: Option<wgpu::BindGroup>,
     pub hide_from_world: bool,
+    pub script_state: Option<HashMap<String, String>>,
 }
 
 impl Model {
@@ -803,7 +807,8 @@ impl Model {
             skins,
             joint_matrices_buffer: None,
             skin_bind_group: None,
-            hide_from_world: false
+            hide_from_world: false,
+            script_state: None
         }
     }
 }
