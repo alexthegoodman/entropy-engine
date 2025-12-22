@@ -1,0 +1,340 @@
+{
+  "id": "5fa6dd47-4355-4de5-b5a3-a7f61e979fcc",
+  "project_name": "Example Project",
+  "concepts": [],
+  "models": [
+    {
+      "id": "611e5ed2-572b-4850-9d18-61206d2c514b",
+      "fileName": "Player.glb",
+      "cloudfrontUrl": "",
+      "normalFilePath": "C:\\Users\\alex\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\models\\Player.glb"
+    }
+  ],
+  "landscapes": [
+    {
+      "id": "0c180604-ec12-4960-a285-aea7fcafb8f9",
+      "heightmap": {
+        "id": "b492966e-1447-4b30-8370-59624a7b187c",
+        "fileName": "heightmap.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\landscapes\\0c180604-ec12-4960-a285-aea7fcafb8f9\\heightmaps\\heightmap.png"
+      },
+      "rockmap": {
+        "id": "91d0fb85-86a1-414b-b271-cb071fbe472c",
+        "fileName": "RockMap_Out.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\landscapes\\0c180604-ec12-4960-a285-aea7fcafb8f9\\rockmaps\\RockMap_Out.png"
+      },
+      "soil": {
+        "id": "bc3abb6d-99fc-4bfa-8a93-85e83dfb3737",
+        "fileName": "Soil_Out.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\landscapes\\0c180604-ec12-4960-a285-aea7fcafb8f9\\soils\\Soil_Out.png"
+      }
+    }
+  ],
+  "textures": [],
+  "pbr_textures": [
+    {
+      "id": "1dfd2aab-0bed-4cda-9560-a3f9de6ef1a1",
+      "diff": {
+        "id": "7e6d7626-2869-4d83-8352-9396833caccc",
+        "fileName": "dry_riverbed_rock_diff_1k.jpg",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\dry_riverbed_rock_diff_1k.jpg"
+      },
+      "disp": {
+        "id": "e7867981-f6fc-4a7d-b47c-bb6d5c14d36a",
+        "fileName": "dry_riverbed_rock_disp_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\dry_riverbed_rock_disp_1k.png"
+      },
+      "nor_gl": {
+        "id": "b7bbeff5-3e70-4e9e-a4d3-ee3d655b5ce4",
+        "fileName": "dry_riverbed_rock_nor_gl_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\dry_riverbed_rock_nor_gl_1k.png"
+      },
+      "rough": {
+        "id": "002dd9e3-74f3-43c8-bfcf-a986f016b72c",
+        "fileName": "dry_riverbed_rock_rough_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\dry_riverbed_rock_rough_1k.png"
+      },
+      "metallic": null,
+      "ao": null
+    },
+    {
+      "id": "aa9445b6-eb55-4080-b658-8fffafb064f5",
+      "diff": {
+        "id": "2c623653-17d3-4626-98b6-d3b78850989d",
+        "fileName": "rocky_terrain_diff_1k.jpg",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\rocky_terrain_diff_1k.jpg"
+      },
+      "disp": {
+        "id": "62c6615b-cd32-455b-a951-b2dc64b6073e",
+        "fileName": "rocky_terrain_disp_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\rocky_terrain_disp_1k.png"
+      },
+      "nor_gl": {
+        "id": "f81a73a6-82a9-470d-8186-d1a0171d8d50",
+        "fileName": "rocky_terrain_nor_gl_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\rocky_terrain_nor_gl_1k.png"
+      },
+      "rough": {
+        "id": "4dd48731-caf3-409a-87e6-7efeb4d233cb",
+        "fileName": "rocky_terrain_rough_1k.png",
+        "cloudfrontUrl": "",
+        "normalFilePath": "C:\\Users\\alext\\OneDrive\\Documents\\CommonOS\\midpoint/projects\\5fa6dd47-4355-4de5-b5a3-a7f61e979fcc\\textures\\rocky_terrain_rough_1k.png"
+      },
+      "metallic": null,
+      "ao": null
+    }
+  ],
+  "stats": [],
+  "levels": [
+    {
+      "id": "e940b015-4c69-4d82-b970-40bdc83530a1",
+      "components": [
+        {
+          "id": "3a3b276f-807c-4869-bf5d-6181b7cb627b",
+          "kind": "PlayerCharacter",
+          "asset_id": "611e5ed2-572b-4850-9d18-61206d2c514b",
+          "generic_properties": {
+            "name": "Main Player Character",
+            "position": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "landscape_properties": null,
+          "model_properties": null,
+          "npc_properties": null,
+          "light_properties": null,
+          "water_properties": null,
+          "collectable_properties": null,
+          "player_properties": {
+            "model_id": "611e5ed2-572b-4850-9d18-61206d2c514b"
+          },
+          "scatter": null
+        },
+        {
+          "id": "514bac57-06f3-423d-96d9-a21eda16537e",
+          "kind": "Landscape",
+          "asset_id": "0c180604-ec12-4960-a285-aea7fcafb8f9",
+          "generic_properties": {
+            "name": "New Landscape Component",
+            "position": [
+              0.0,
+              -550.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "landscape_properties": {
+            "primary_texture_id": null,
+            "rockmap_texture_id": null,
+            "soil_texture_id": null,
+            "primary_pbr_texture_id": null,
+            "rockmap_pbr_texture_id": "aa9445b6-eb55-4080-b658-8fffafb064f5",
+            "soil_pbr_texture_id": "1dfd2aab-0bed-4cda-9560-a3f9de6ef1a1"
+          },
+          "model_properties": null,
+          "npc_properties": null,
+          "light_properties": null,
+          "water_properties": null,
+          "collectable_properties": null,
+          "player_properties": null,
+          "scatter": null
+        },
+        {
+          "id": "a1922872-17d0-4be1-a7b2-0198b0d54f36",
+          "kind": "PointLight",
+          "asset_id": "",
+          "generic_properties": {
+            "name": "Point Light 1",
+            "position": [
+              -120.0,
+              250.0,
+              100.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "landscape_properties": null,
+          "model_properties": null,
+          "npc_properties": null,
+          "light_properties": {
+            "intensity": 15.0,
+            "color": [
+              0.8,
+              0.8,
+              0.8,
+              1.0
+            ]
+          },
+          "water_properties": null,
+          "collectable_properties": null,
+          "player_properties": null,
+          "scatter": null
+        },
+        {
+          "id": "b992690a-9819-4708-8957-b0c2db1492a7",
+          "kind": "WaterPlane",
+          "asset_id": "",
+          "generic_properties": {
+            "name": "Ocean",
+            "position": [
+              0.0,
+              -300.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "landscape_properties": null,
+          "model_properties": null,
+          "npc_properties": null,
+          "light_properties": null,
+          "water_properties": {
+            "shallow_color": [
+              0.2,
+              0.85,
+              0.95,
+              1.0
+            ],
+            "medium_color": [
+              0.0,
+              0.55,
+              0.75,
+              1.0
+            ],
+            "deep_color": [
+              0.0,
+              0.25,
+              0.45,
+              1.0
+            ],
+            "player_pos": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "ripple_amplitude_multiplier": 1.5,
+            "ripple_freq": 0.25,
+            "ripple_speed": 3.0,
+            "shoreline_foam_range": 2.5,
+            "crest_foam_min": 0.45,
+            "crest_foam_max": 0.75,
+            "sparkle_intensity": 0.8,
+            "sparkle_threshold": 0.7,
+            "subsurface_multiplier": 0.35,
+            "fresnel_power": 2.5,
+            "fresnel_multiplier": 0.6,
+            "wave1_amplitude": 1.5,
+            "wave1_frequency": 0.08,
+            "wave1_speed": 0.8,
+            "wave1_steepness": 0.3,
+            "wave1_direction": [
+              1.0,
+              0.5
+            ],
+            "wave2_amplitude": 1.2,
+            "wave2_frequency": 0.09,
+            "wave2_speed": 1.2,
+            "wave2_steepness": 0.3,
+            "wave2_direction": [
+              -0.7,
+              1.0
+            ],
+            "wave3_amplitude": 0.8,
+            "wave3_frequency": 0.12,
+            "wave3_speed": 1.5,
+            "wave3_steepness": 0.25,
+            "wave3_direction": [
+              0.8,
+              -0.6
+            ],
+            "landscape_height": 600.0,
+            "landscape_size": 4096.0,
+            "landscape_y_offset": -400.0,
+            "_padding": [
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ]
+          },
+          "collectable_properties": null,
+          "player_properties": null,
+          "scatter": null
+        }
+      ],
+      "procedural_sky": {
+        "horizon_color": [
+          0.6,
+          0.75,
+          0.9
+        ],
+        "zenith_color": [
+          0.2,
+          0.4,
+          0.8
+        ],
+        "sun_direction": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "sun_color": [
+          1.0,
+          0.95,
+          0.8
+        ],
+        "sun_intensity": 0.9
+      }
+    }
+  ],
+  "sequences": null,
+  "timeline_state": null
+}

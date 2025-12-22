@@ -8,6 +8,27 @@ Powering <a href="https://github.com/alexthegoodman/entropy-tauri" target="_blan
 
 The purpose of Entropy Chat is simple. Real designers shouldn't have to make a dozen clicks for a single preview change. They should be creative, rather than technical. Check it out if you have a chance.
 
+## Run
+
+My current recommendation is to fork this engine and customize it for each game that you do. 
+Some controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
+
+Example Saved State JSON file to get you started:
+<a href="./example_project.json" target="_blank">example_project.json</a>
+
+Generate a Landscape Heightmap via CLI:
+- `cargo run --bin heightmap --release`
+
+Note: For now, if you're just getting started, you can go ahead and use the heightmap.png for the soilmap and rockmap as well. Then for the PBR textures, just fetch them from somewhere like Poly Haven.
+
+Level Editor: 
+- `cargo run --bin editor --release`
+
+Example Game:
+- `cargo run --bin game --release` (needs your game files to run)
+
+## Features
+
 ### Current Features:
 
 - GLB (gltf) Import
@@ -121,17 +142,3 @@ The purpose of Entropy Chat is simple. Real designers shouldn't have to make a d
 - Documentation (including on publishing and distribution)
 - Game Saves for players (currently restart from beginning each time)
 - Configurable Controller Input -> Action Mapping (currently has default key mapping)
-
-## Run
-
-My current recommendation is to fork this engine and customize it for each game that you do. 
-Some controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
-
-Example Game:
-- `cargo run --bin game --release` (need the game files to run)
-
-Level Editor: 
-- `cargo run --bin editor --release`
-
-Generate a Landscape Heightmap via CLI: 
-- `cargo run --bin heightmap --release`
