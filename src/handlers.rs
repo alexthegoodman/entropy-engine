@@ -421,7 +421,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
                                                     
                                                     let new_rot_quat = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32));
                                                     let euler_angles = new_rot_quat.euler_angles();
-                                                    let new_rot = [euler_angles.0, euler_angles.1, euler_angles.2];
+                                                    let new_rot = [euler_angles.0.to_degrees(), euler_angles.1.to_degrees(), euler_angles.2.to_degrees()];
                                                     
                                                     let new_scale = [new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32];
 
