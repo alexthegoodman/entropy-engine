@@ -81,7 +81,7 @@ pub fn update_animations(
     models: &mut [Model],
     npcs: &mut [NPC],
     collectables: &mut [Collectable],
-    player_character: &Option<PlayerCharacter>,
+    player_character: &mut Option<PlayerCharacter>,
     pairs: &[(usize, usize)],
     delta_time: f32,
     queue: &wgpu::Queue,
@@ -101,103 +101,125 @@ pub fn update_animations(
         //              anim_state.animation_index);
         // }
 
-        anim_state.update(delta_time);
-
-        if model.animations.is_empty() {
-            continue;
-        }
-
-        let animation = &model.animations[anim_state.animation_index];
-        let time = anim_state.current_time % animation.channels.get(0).and_then(|c| c.sampler.times.last()).unwrap_or(&1.0);
-
-        for channel in &animation.channels {
-            let node = &mut model.nodes[channel.target_node];
-
-            // Check if this is a root node
-            let is_root = model.root_nodes.contains(&channel.target_node);
-            
-            if is_root && channel.target_property == "rotation" {
-                continue; // Skip root rotation
-            }
-
-            // Find the two keyframes to interpolate between
-            let (key1, key2) = find_keyframes(&channel.sampler.times, time);
-            
-            if key1 == key2 {
-                // No interpolation needed, just set the value
-                match &channel.sampler.values {
-                    AnimationValues::Translation(translations) => {
-                        node.transform.position = Vector3::from(translations[key1]);
-                    }
-                    AnimationValues::Rotation(rotations) => {
-                        let rot = rotations[key1];
-                        node.transform.rotation = UnitQuaternion::from_quaternion(Quaternion::new(rot[3], rot[0], rot[1], rot[2]));
-                    }
-                    AnimationValues::Scale(scales) => {
-                        node.transform.scale = Vector3::from(scales[key1]);
-                    }
-                }
-                continue;
-            }
-
-            let t = (time - channel.sampler.times[key1]) / (channel.sampler.times[key2] - channel.sampler.times[key1]);
-
-            match &channel.sampler.values {
-                AnimationValues::Translation(translations) => {
-                    let start = Vector3::from(translations[key1]);
-                    let end = Vector3::from(translations[key2]);
-                    let interpolated = start.lerp(&end, t);
-                    node.transform.position = interpolated;
-                }
-                AnimationValues::Rotation(rotations) => {
-                    let start_rot = rotations[key1];
-                    let end_rot = rotations[key2];
-                    let start = UnitQuaternion::from_quaternion(Quaternion::new(start_rot[3], start_rot[0], start_rot[1], start_rot[2]));
-                    let end = UnitQuaternion::from_quaternion(Quaternion::new(end_rot[3], end_rot[0], end_rot[1], end_rot[2]));
-                    let interpolated = start.slerp(&end, t);
-                    node.transform.rotation = interpolated;
-                }
-                AnimationValues::Scale(scales) => {
-                    let start = Vector3::from(scales[key1]);
-                    let end = Vector3::from(scales[key2]);
-                    let interpolated = start.lerp(&end, t);
-                    node.transform.scale = interpolated;
-                }
-            }
-        }
-        
-        update_global_transforms(model);
-
-        // If the model is skinned, update the joint matrices buffer
-        if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
-            if let Some(skin) = model.skins.first() { // Assuming one skin per model for now
-                let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
-                for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
-                    let joint_node = &model.nodes[*joint_node_index];
-                    let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
-                    joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
-                }
-                queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
-            }
-        }
-        
-        for node in &model.nodes {
-            // let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform.transpose());
-            let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform);
-            queue.write_buffer(&node.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
-        }
+        process_animation(model, anim_state, delta_time, queue);
     }
 
-    if let Some(player) = player_character {
+    // if let Some(player) = player_character {
+    //     if let Some(player_model_id) = &player.model_id {
+    //         if let Some(player_model_index) = models.iter().position(|m| &m.id == player_model_id) {
+    //             if let Some(weapon_id) = &player.default_weapon_id {
+    //                 // Find the component for the weapon
+    //                 // This is a bit of a stretch, assuming the weapon component ID is the model ID
+    //                 attach_weapon_to_bone(models, collectables, player_model_index, weapon_id, "LowerArm.r", queue);
+    //             }
+    //         }
+    //     }
+    // }
+    // Process player animation
+    if let Some(player) = player_character.as_mut() {
         if let Some(player_model_id) = &player.model_id {
             if let Some(player_model_index) = models.iter().position(|m| &m.id == player_model_id) {
+                let model = &mut models[player_model_index];
+                let anim_state = &mut player.animation_state;
+                
+                if anim_state.is_playing {
+                    // Same animation processing as NPCs
+                    process_animation(model, anim_state, delta_time, queue);
+                }
+
+                // Handle weapon attachment
                 if let Some(weapon_id) = &player.default_weapon_id {
-                    // Find the component for the weapon
-                    // This is a bit of a stretch, assuming the weapon component ID is the model ID
                     attach_weapon_to_bone(models, collectables, player_model_index, weapon_id, "LowerArm.r", queue);
                 }
             }
         }
+    }
+}
+
+fn process_animation(model: &mut Model, anim_state: &mut AnimationState, delta_time: f32, queue: &wgpu::Queue) {
+    anim_state.update(delta_time);
+
+    if model.animations.is_empty() {
+        return;
+    }
+
+    let animation = &model.animations[anim_state.animation_index];
+    let time = anim_state.current_time % animation.channels.get(0)
+        .and_then(|c| c.sampler.times.last())
+        .unwrap_or(&1.0);
+
+    for channel in &animation.channels {
+        let node = &mut model.nodes[channel.target_node];
+        let is_root = model.root_nodes.contains(&channel.target_node);
+        
+        if is_root && channel.target_property == "rotation" {
+            continue;
+        }
+
+        // Find the two keyframes to interpolate between
+        let (key1, key2) = find_keyframes(&channel.sampler.times, time);
+        
+        if key1 == key2 {
+            // No interpolation needed, just set the value
+            match &channel.sampler.values {
+                AnimationValues::Translation(translations) => {
+                    node.transform.position = Vector3::from(translations[key1]);
+                }
+                AnimationValues::Rotation(rotations) => {
+                    let rot = rotations[key1];
+                    node.transform.rotation = UnitQuaternion::from_quaternion(Quaternion::new(rot[3], rot[0], rot[1], rot[2]));
+                }
+                AnimationValues::Scale(scales) => {
+                    node.transform.scale = Vector3::from(scales[key1]);
+                }
+            }
+            continue;
+        }
+
+        let t = (time - channel.sampler.times[key1]) / (channel.sampler.times[key2] - channel.sampler.times[key1]);
+
+        match &channel.sampler.values {
+            AnimationValues::Translation(translations) => {
+                let start = Vector3::from(translations[key1]);
+                let end = Vector3::from(translations[key2]);
+                let interpolated = start.lerp(&end, t);
+                node.transform.position = interpolated;
+            }
+            AnimationValues::Rotation(rotations) => {
+                let start_rot = rotations[key1];
+                let end_rot = rotations[key2];
+                let start = UnitQuaternion::from_quaternion(Quaternion::new(start_rot[3], start_rot[0], start_rot[1], start_rot[2]));
+                let end = UnitQuaternion::from_quaternion(Quaternion::new(end_rot[3], end_rot[0], end_rot[1], end_rot[2]));
+                let interpolated = start.slerp(&end, t);
+                node.transform.rotation = interpolated;
+            }
+            AnimationValues::Scale(scales) => {
+                let start = Vector3::from(scales[key1]);
+                let end = Vector3::from(scales[key2]);
+                let interpolated = start.lerp(&end, t);
+                node.transform.scale = interpolated;
+            }
+        }
+    }
+    
+    update_global_transforms(model);
+
+    // Update skinning
+    if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
+        if let Some(skin) = model.skins.first() {
+            let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
+            for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
+                let joint_node = &model.nodes[*joint_node_index];
+                let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
+                joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
+            }
+            queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
+        }
+    }
+    
+    for node in &model.nodes {
+        let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&node.global_transform);
+        queue.write_buffer(&node.transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
     }
 }
 

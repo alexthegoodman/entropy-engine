@@ -746,7 +746,7 @@ impl RendererState {
             &mut self.models,
             &mut self.npcs,
             &mut self.collectables,
-            &self.player_character,
+            &mut self.player_character,
             &matching_pairs,
             dt,
             queue,

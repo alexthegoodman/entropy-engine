@@ -16,7 +16,7 @@ use rapier3d::{
 use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
 
-use crate::core::SimpleCamera::SimpleCamera;
+use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
 use crate::helpers::saved_data::{AttackStats, CharacterStats};
 use crate::model_components::NPC::{NPC};
 use crate::{
@@ -26,7 +26,6 @@ use crate::{
         inventory::Inventory,
     },
     art_assets::Model::Model,
-    core::AnimationState::AnimationState,
 };
 
 use crate::shape_primitives::Sphere::Sphere;
@@ -53,6 +52,8 @@ pub struct PlayerCharacter {
     pub inventory: Inventory,
 
     pub default_weapon_id: Option<String>,
+
+    pub animation_state: AnimationState,
 }
 
 impl PlayerCharacter {
@@ -148,7 +149,8 @@ impl PlayerCharacter {
             attack_timer: Instant::now(),
             is_defending: false,
             inventory: Inventory::new(),
-            default_weapon_id
+            default_weapon_id,
+            animation_state: AnimationState::new(0),
         }
     }
 
