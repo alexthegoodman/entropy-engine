@@ -22,6 +22,7 @@ use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
+use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
 use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentKind, StatData};
 #[cfg(target_arch = "wasm32")]
@@ -353,6 +354,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
     let current_is_dragging = mousePressed;
+    let drag_ended = !current_is_dragging && renderer_state.mouse_state.is_dragging;
     let drag_started = current_is_dragging && !renderer_state.mouse_state.is_dragging;
 
     renderer_state.mouse_state.is_dragging = current_is_dragging;
@@ -404,6 +406,42 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, d
                                     nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32))
                                 );
                                 rb.set_position(new_iso, true);
+                            }
+                        }
+
+                        if drag_ended {
+                            if let Some(saved_state) = state.saved_state.as_mut() {
+                                if let Some(project_id) = &saved_state.id {
+                                    let mut component_updated = false;
+                                    if let Some(levels) = saved_state.levels.as_mut() {
+                                        if let Some(level) = levels.get_mut(0) {
+                                            if let Some(components) = level.components.as_mut() {
+                                                if let Some(component) = components.iter_mut().find(|c| c.id == selected_id) {
+                                                    let new_pos = [new_transform.translation.x as f32, new_transform.translation.y as f32, new_transform.translation.z as f32];
+                                                    
+                                                    let new_rot_quat = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(new_transform.rotation.s as f32, new_transform.rotation.v.x as f32, new_transform.rotation.v.y as f32, new_transform.rotation.v.z as f32));
+                                                    let euler_angles = new_rot_quat.euler_angles();
+                                                    let new_rot = [euler_angles.0, euler_angles.1, euler_angles.2];
+                                                    
+                                                    let new_scale = [new_transform.scale.x as f32, new_transform.scale.y as f32, new_transform.scale.z as f32];
+
+                                                    component.generic_properties.position = new_pos;
+                                                    component.generic_properties.rotation = new_rot;
+                                                    component.generic_properties.scale = new_scale;
+                                                    component_updated = true;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if component_updated {
+                                        if let Err(e) = utilities::update_project_state(project_id, saved_state) {
+                                            println!("Failed to save project state: {}", e);
+                                        } else {
+                                            println!("Project state saved successfully after gizmo drag.");
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
