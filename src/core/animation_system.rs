@@ -119,11 +119,11 @@ pub fn update_animations(
                     }
 
                     //  DEBUG: Print which animation is playing
-                    if model.animations.len() > animation_index {
-                        println!("Playing character animation: {} (index {})", 
-                                 model.animations[animation_index].name,
-                                 animation_index);
-                    }
+                    // if model.animations.len() > animation_index {
+                    //     println!("Playing character animation: {} (index {})", 
+                    //              model.animations[animation_index].name,
+                    //              animation_index);
+                    // }
                 } else {
                     if player.animation_state.animation_index != 0 {
                         player.animation_state.animation_index = 0;
