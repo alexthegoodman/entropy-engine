@@ -106,9 +106,15 @@ pub struct ObjectConfig {
     pub position: (f32, f32, f32),
 }
 
+pub struct DebugRay {
+    pub cube: Cube,
+    pub expires_at: Instant,
+}
+
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
     pub cubes: Vec<Cube>,
+    pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
     pub models: Vec<Model>, // must add a Model in order to add an NPC
@@ -278,6 +284,7 @@ impl RendererState {
 
         Self {
             cubes,
+            debug_rays: Vec::new(),
             pyramids,
             grids,
             models,
@@ -359,7 +366,8 @@ impl RendererState {
             navigation_speed: 5.0,
             game_mode,
             game_settings: GameSettings {
-                third_person: false
+                third_person: false,
+                show_hitscan_line: true
             },
             camera_pitch: 0.0,
             camera_yaw: 0.0,
@@ -420,6 +428,9 @@ impl RendererState {
     }
 
     pub fn step_physics_pipeline(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, camera_binding: &mut CameraBinding, camera: &mut SimpleCamera) {
+        // Cleanup debug rays
+        self.debug_rays.retain(|ray| ray.expires_at > Instant::now());
+
         // Calculate delta time
         let now = Instant::now();
         let dt = if let Some(last_time) = self.last_frame_time {

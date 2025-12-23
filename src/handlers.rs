@@ -1,7 +1,8 @@
-use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix3, Matrix4, Point3, UnitQuaternion, Vector3};
 use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+use crate::core::RendererState::DebugRay;
 use crate::model_components::Collectable::Collectable;
 use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
@@ -54,6 +55,12 @@ use crate::{
     art_assets::Model::{Mesh, Model},
 };
 use crate::{art_assets::Model::read_model, shape_primitives::Pyramid::Pyramid};
+
+#[cfg(target_os = "windows")]
+use std::time::{Duration, Instant};
+
+#[cfg(target_arch = "wasm32")]
+use wasm_timer::Instant;
 
 #[derive(Debug, Clone, Copy)]
 pub struct EntropyPosition {
@@ -248,7 +255,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
     let window_size = camera.viewport.window_size;
 
     if !renderer_state.game_mode && element_state == EntropyElementState::Pressed {
-
+        // ... (existing code for selection)
         match button {
             EntropyMouseButton::Left => {
                 if let Some(mouse_pos) = renderer_state.current_mouse_position {
@@ -316,7 +323,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     if let Some(camera) = &state.camera {
-                        let attacked_npc_id = player_character.attack(
+                        let (attacked_npc_id, debug_line) = player_character.attack(
                             &renderer_state.rigid_body_set,
                             &renderer_state.collider_set,
                             &mut renderer_state.query_pipeline,
@@ -327,6 +334,42 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                         if let Some(id) = attacked_npc_id {
                             state.current_enemy_target = Some(id);
                             println!("Updated enemy target: {:?}", id);
+                        }
+
+                        // Handle debug hitscan line
+                        if renderer_state.game_settings.show_hitscan_line {
+                            if let Some((start, end)) = debug_line {
+                                let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
+                                let mut debug_cube = Cube::new(
+                                    &gpu_resources.device,
+                                    &gpu_resources.queue,
+                                    &renderer_state.model_bind_group_layout,
+                                    &renderer_state.group_bind_group_layout,
+                                    &renderer_state.texture_render_mode_buffer,
+                                    camera,
+                                );
+
+                                let dir = (end - start).normalize();
+                                let length = nalgebra::distance(&start, &end);
+                                
+                                debug_cube.transform.update_position([start.x, start.y, start.z]);
+                                debug_cube.transform.update_scale([0.02, 0.02, length]);
+                                
+                                let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
+                                debug_cube.transform.update_rotation_quat([
+                                    rotation.coords.x,
+                                    rotation.coords.y,
+                                    rotation.coords.z,
+                                    rotation.coords.w,
+                                ]);
+                                
+                                debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
+                                
+                                renderer_state.debug_rays.push(DebugRay {
+                                    cube: debug_cube,
+                                    expires_at: Instant::now() + Duration::from_millis(500),
+                                });
+                            }
                         }
 
                         println!("Left mouse button pressed - Player Attack!");
@@ -343,6 +386,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         }
     }
 }
+
 
 
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: EntropyPosition, dx: f32, dy: f32, state: &mut Editor) {

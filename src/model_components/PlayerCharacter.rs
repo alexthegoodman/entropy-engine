@@ -187,9 +187,9 @@ impl PlayerCharacter {
         query_pipeline: &QueryPipeline,
         npcs: &mut Vec<NPC>,
         camera: &SimpleCamera,
-    ) -> Option<Uuid> {
+    ) -> (Option<Uuid>, Option<(Point3<f32>, Point3<f32>)>) {
         if self.attack_timer.elapsed().as_secs_f32() < self.attack_stats.cooldown {
-            return None; // Attack is on cooldown
+            return (None, None); // Attack is on cooldown
         }
 
         // Reset the attack timer
@@ -200,10 +200,10 @@ impl PlayerCharacter {
             if let Some(rb) = rigid_body_set.get(rb_handle) {
                 rb.translation().xyz()
             } else {
-                return None;
+                return (None, None);
             }
         } else {
-            return None;
+            return (None, None);
         };
 
         // Determine attack type based on equipped weapon
@@ -238,6 +238,9 @@ impl PlayerCharacter {
                 filter = filter.exclude_rigid_body(rb_handle);
             }
 
+            let mut hit_point = origin + dir * max_toi;
+            let mut hit_id = None;
+
             if let Some((handle, toi)) = query_pipeline.cast_ray(
                 rigid_body_set,
                 collider_set,
@@ -246,6 +249,8 @@ impl PlayerCharacter {
                 solid,
                 filter
             ) {
+                hit_point = origin + dir * toi;
+
                 // Check if we hit an NPC
                 if let Some(collider) = collider_set.get(handle) {
                     if let Some(parent_handle) = collider.parent() {
@@ -253,13 +258,17 @@ impl PlayerCharacter {
                          if let Some(npc) = npcs.iter_mut().find(|n| n.rigid_body_handle == parent_handle) {
                              npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                              println!("Player shot NPC!");
-                             return Some(npc.id);
+                             hit_id = Some(npc.id);
                          }
                     }
                 }
             }
-            println!("Player shot air!");
-            return None;
+            
+            if hit_id.is_none() {
+                println!("Player shot air!");
+            }
+
+            return (hit_id, Some((origin, hit_point)));
 
         } else {
             // Melee Attack (Distance check)
@@ -285,11 +294,11 @@ impl PlayerCharacter {
                     .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                 
                 println!("Player attacked!"); // Debug print
-                return Some(npc.id);
+                return (Some(npc.id), None);
             }
 
             println!("Player attacked air!"); // Debug print
-            None
+            (None, None)
         }
     }
 

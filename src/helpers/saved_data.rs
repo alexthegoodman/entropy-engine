@@ -159,6 +159,7 @@ pub struct ProjectsDataFile {
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
 pub struct GameSettings {
     pub third_person: bool,
+    pub show_hitscan_line: bool,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]

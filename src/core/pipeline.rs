@@ -1864,6 +1864,19 @@ impl ExportPipeline {
                 // }
             }
 
+            // draw debug rays
+            for debug_ray in &renderer_state.debug_rays {
+                debug_ray.cube.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &debug_ray.cube.bind_group, &[]);
+                render_pass.set_bind_group(3, &debug_ray.cube.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, debug_ray.cube.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    debug_ray.cube.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..debug_ray.cube.index_count as u32, 0, 0..1);
+            }
+
             for (poly_index, grid) in renderer_state.grids.iter().enumerate() {
                 // if !polygon.hidden {
                     grid
