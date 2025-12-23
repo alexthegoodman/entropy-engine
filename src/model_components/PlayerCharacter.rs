@@ -54,6 +54,7 @@ pub struct PlayerCharacter {
     pub default_weapon_id: Option<String>,
 
     pub animation_state: AnimationState,
+    pub is_moving: bool,
 }
 
 impl PlayerCharacter {
@@ -151,6 +152,21 @@ impl PlayerCharacter {
             inventory: Inventory::new(),
             default_weapon_id,
             animation_state: AnimationState::new(0),
+            is_moving: false,
+        }
+    }
+
+    pub fn get_animation_name(&self) -> &str {
+        if self.attack_timer.elapsed().as_secs_f32()
+            < (self.attack_stats.wind_up_time + self.attack_stats.recovery_time)
+        {
+            "Attack"
+        } else if self.is_defending {
+            "Defend"
+        } else if self.is_moving {
+            "Walking"
+        } else {
+            "Idle"
         }
     }
 

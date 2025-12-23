@@ -645,11 +645,18 @@ impl RendererState {
                 .iter_mut()
                 .find(|m| m.id == component_id.to_string())
             {
-                if let Some(character) = &self
-                    .player_character
-                {
+                if let Some(character) = &mut self.player_character {
                     if let Some(model_id) = character.model_id.clone() { // character.model_id is the component id of the PlayerCharacter
                         if model_id == component_id.to_string() {
+                            // Update is_moving based on velocity
+                            if let Some(rb_handle) = character.movement_rigid_body_handle {
+                                if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+                                    let velocity = rb.linvel();
+                                    let horizontal_speed = (velocity.x * velocity.x + velocity.z * velocity.z).sqrt();
+                                    character.is_moving = horizontal_speed > 0.1;
+                                }
+                            }
+
                             instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                 mesh.transform
                                     .update_position([position.x, position.y, position.z]);

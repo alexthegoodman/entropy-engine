@@ -103,23 +103,22 @@ pub fn update_animations(
 
         process_animation(model, anim_state, delta_time, queue);
     }
-
-    // if let Some(player) = player_character {
-    //     if let Some(player_model_id) = &player.model_id {
-    //         if let Some(player_model_index) = models.iter().position(|m| &m.id == player_model_id) {
-    //             if let Some(weapon_id) = &player.default_weapon_id {
-    //                 // Find the component for the weapon
-    //                 // This is a bit of a stretch, assuming the weapon component ID is the model ID
-    //                 attach_weapon_to_bone(models, collectables, player_model_index, weapon_id, "LowerArm.r", queue);
-    //             }
-    //         }
-    //     }
-    // }
+    
     // Process player animation
     if let Some(player) = player_character.as_mut() {
         if let Some(player_model_id) = &player.model_id {
             if let Some(player_model_index) = models.iter().position(|m| &m.id == player_model_id) {
                 let model = &mut models[player_model_index];
+                
+                // Select animation based on player state
+                let desired_animation_name = player.get_animation_name();
+                if let Some(animation_index) = model.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                    if player.animation_state.animation_index != animation_index {
+                        player.animation_state.animation_index = animation_index;
+                        player.animation_state.current_time = 0.0;
+                    }
+                }
+
                 let anim_state = &mut player.animation_state;
                 
                 if anim_state.is_playing {
