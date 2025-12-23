@@ -7,6 +7,7 @@ use crate::{helpers::saved_data::CollectableType, model_components::Collectable:
 pub struct Inventory {
     pub items: Vec<String>,
     pub equipped_weapon: Option<String>,
+    pub equipped_weapon_type: Option<CollectableType>,
     pub equipped_armor: Option<String>,
 }
 
@@ -15,6 +16,7 @@ impl Inventory {
         Self {
             items: Vec::new(),
             equipped_weapon: None,
+            equipped_weapon_type: None,
             equipped_armor: None,
         }
     }
@@ -32,6 +34,7 @@ impl Inventory {
                         self.items.push(equipped_id);
                     }
                     self.equipped_weapon = Some(self.items.remove(item_index));
+                    self.equipped_weapon_type = Some(collectable.collectable_type.clone());
                 }
             }
         }

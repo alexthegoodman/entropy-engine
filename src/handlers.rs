@@ -315,19 +315,22 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         match button {
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
-                    let attacked_npc_id = player_character.attack(
-                        &renderer_state.rigid_body_set,
-                        &renderer_state.collider_set,
-                        &mut renderer_state.query_pipeline,
-                        &mut renderer_state.npcs,
-                    );
-                    
-                    if let Some(id) = attacked_npc_id {
-                        state.current_enemy_target = Some(id);
-                        println!("Updated enemy target: {:?}", id);
-                    }
+                    if let Some(camera) = &state.camera {
+                        let attacked_npc_id = player_character.attack(
+                            &renderer_state.rigid_body_set,
+                            &renderer_state.collider_set,
+                            &mut renderer_state.query_pipeline,
+                            &mut renderer_state.npcs,
+                            camera,
+                        );
+                        
+                        if let Some(id) = attacked_npc_id {
+                            state.current_enemy_target = Some(id);
+                            println!("Updated enemy target: {:?}", id);
+                        }
 
-                    println!("Left mouse button pressed - Player Attack!");
+                        println!("Left mouse button pressed - Player Attack!");
+                    }
                 }
             }
             EntropyMouseButton::Right => {

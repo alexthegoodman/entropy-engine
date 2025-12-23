@@ -14,10 +14,10 @@ use rapier3d::{
     }
 };
 use uuid::Uuid;
-use rapier3d::prelude::{QueryPipeline, Shape};
+use rapier3d::prelude::{QueryPipeline, Shape, Ray};
 
 use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
-use crate::helpers::saved_data::{AttackStats, CharacterStats};
+use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType};
 use crate::model_components::NPC::{NPC};
 use crate::{
     game_behaviors::{
@@ -186,6 +186,7 @@ impl PlayerCharacter {
         collider_set: &ColliderSet,
         query_pipeline: &QueryPipeline,
         npcs: &mut Vec<NPC>,
+        camera: &SimpleCamera,
     ) -> Option<Uuid> {
         if self.attack_timer.elapsed().as_secs_f32() < self.attack_stats.cooldown {
             return None; // Attack is on cooldown
@@ -194,7 +195,7 @@ impl PlayerCharacter {
         // Reset the attack timer
         self.attack_timer = Instant::now();
 
-        // Simplified targeting: Find the closest NPC within attack range
+        // Get player position
         let player_pos = if let Some(rb_handle) = self.movement_rigid_body_handle {
             if let Some(rb) = rigid_body_set.get(rb_handle) {
                 rb.translation().xyz()
@@ -205,34 +206,93 @@ impl PlayerCharacter {
             return None;
         };
 
-        let mut closest_npc_index: Option<usize> = None;
-        let mut min_distance = self.attack_stats.range;
+        // Determine attack type based on equipped weapon
+        let is_ranged = match &self.inventory.equipped_weapon_type {
+            Some(CollectableType::RangedWeapon) => true,
+            _ => false,
+        };
 
-        for (i, npc) in npcs.iter().enumerate() {
-            if let Some(npc_rb) = rigid_body_set.get(npc.rigid_body_handle) {
-                let npc_pos = npc_rb.translation().xyz();
-                let distance = nalgebra::distance(&player_pos.into(), &npc_pos.into());
+        if is_ranged {
+            // Ranged Attack (Raycast)
+            // Use camera direction as the attack direction
+            let dir = camera.direction.normalize();
+            
+            // Start ray slightly in front of the player/camera to avoid hitting self
+            // Or use an exclude filter
+            // Using camera position might be better for "crosshair" aiming, but player model might be offset.
+            // For 3rd person, usually we raycast from camera through crosshair.
+            // Let's use camera position + direction.
+            let origin = camera.position; 
+            
+            let ray = Ray::new(
+                Point3::new(origin.x, origin.y, origin.z),
+                Vector3::new(dir.x, dir.y, dir.z),
+            );
 
-                if distance <= min_distance {
-                    min_distance = distance;
-                    closest_npc_index = Some(i);
+            let max_toi = 100.0; // Long range for guns
+            let solid = true;
+            // Exclude player collider if possible. 
+            // We can exclude the player's rigid body.
+            let mut filter = QueryFilter::default();
+            if let Some(rb_handle) = self.movement_rigid_body_handle {
+                filter = filter.exclude_rigid_body(rb_handle);
+            }
+
+            if let Some((handle, toi)) = query_pipeline.cast_ray(
+                rigid_body_set,
+                collider_set,
+                &ray,
+                max_toi,
+                solid,
+                filter
+            ) {
+                // Check if we hit an NPC
+                if let Some(collider) = collider_set.get(handle) {
+                    if let Some(parent_handle) = collider.parent() {
+                         // Find which NPC has this rigid body handle
+                         if let Some(npc) = npcs.iter_mut().find(|n| n.rigid_body_handle == parent_handle) {
+                             npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
+                             println!("Player shot NPC!");
+                             return Some(npc.id);
+                         }
+                    }
                 }
             }
-        }
+            println!("Player shot air!");
+            return None;
 
-        if let Some(index) = closest_npc_index {
-            // Apply damage to the targeted NPC
-            let npc = &mut npcs[index];
-            npc.test_behavior
-                .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
-            
-            println!("Player attacked!"); // Debug print
-            return Some(npc.id);
-        }
+        } else {
+            // Melee Attack (Distance check)
+            let mut closest_npc_index: Option<usize> = None;
+            let mut min_distance = self.attack_stats.range;
 
-        println!("Player attacked air!"); // Debug print
-        None
+            for (i, npc) in npcs.iter().enumerate() {
+                if let Some(npc_rb) = rigid_body_set.get(npc.rigid_body_handle) {
+                    let npc_pos = npc_rb.translation().xyz();
+                    let distance = nalgebra::distance(&player_pos.into(), &npc_pos.into());
+
+                    if distance <= min_distance {
+                        min_distance = distance;
+                        closest_npc_index = Some(i);
+                    }
+                }
+            }
+
+            if let Some(index) = closest_npc_index {
+                // Apply damage to the targeted NPC
+                let npc = &mut npcs[index];
+                npc.test_behavior
+                    .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
+                
+                println!("Player attacked!"); // Debug print
+                return Some(npc.id);
+            }
+
+            println!("Player attacked air!"); // Debug print
+            None
+        }
     }
+
 
     pub fn defend(&mut self) {
         self.is_defending = true;

@@ -19,20 +19,79 @@ use crate::helpers::saved_data::{AttackStats, CharacterStats};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},
+        ranged::{RangedCombatBehavior},
         wander::WanderBehavior,
         inventory::Inventory,
     },
     art_assets::Model::Model,
     core::AnimationState::AnimationState,
 };
+use crate::core::Transform_2::Transform;
 
+pub enum NPCBehavior {
+    Melee(MeleeCombatBehavior),
+    Ranged(RangedCombatBehavior),
+}
 
+impl NPCBehavior {
+    pub fn update(
+        &mut self,
+        rigid_body_set: &mut RigidBodySet,
+        collider_set: &ColliderSet,
+        query_pipeline: &QueryPipeline,
+        entity_handle: RigidBodyHandle,
+        target_handle: RigidBodyHandle,
+        collider: &Collider,
+        transform: &mut Transform,
+        current_stamina: f32,
+        dt: f32,
+    ) -> Option<f32> {
+        match self {
+            NPCBehavior::Melee(behavior) => behavior.update(
+                rigid_body_set,
+                collider_set,
+                query_pipeline,
+                entity_handle,
+                target_handle,
+                collider,
+                transform,
+                current_stamina,
+                dt,
+            ),
+            NPCBehavior::Ranged(behavior) => behavior.update(
+                rigid_body_set,
+                collider_set,
+                query_pipeline,
+                entity_handle,
+                target_handle,
+                collider,
+                transform,
+                current_stamina,
+                dt,
+            ),
+        }
+    }
+
+    pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {
+        match self {
+            NPCBehavior::Melee(behavior) => behavior.handle_incoming_damage(damage, stats),
+            NPCBehavior::Ranged(behavior) => behavior.handle_incoming_damage(damage, stats),
+        }
+    }
+
+    pub fn get_animation_name(&self) -> &str {
+        match self {
+            NPCBehavior::Melee(behavior) => behavior.get_animation_name(),
+            NPCBehavior::Ranged(behavior) => behavior.get_animation_name(),
+        }
+    }
+}
 
 pub struct NPC {
     pub id: Uuid,
     pub model_id: String,
     pub rigid_body_handle: RigidBodyHandle,
-    pub test_behavior: MeleeCombatBehavior,
+    pub test_behavior: NPCBehavior,
     pub animation_state: AnimationState,
     pub stats: CharacterStats,
     pub inventory: Inventory,
@@ -61,7 +120,7 @@ impl NPC {
             id: Uuid::new_v4(),
             model_id,
             rigid_body_handle,
-            test_behavior: melee_combat,
+            test_behavior: NPCBehavior::Melee(melee_combat),
             animation_state: AnimationState::new(0),
             stats: CharacterStats {
                 health: 100.0,
