@@ -53,6 +53,7 @@ Example Game:
 - Rendered images and videos
 - Rendered text with fonts
 - In-Game UI Pipeline
+- Heightmap creation CLI (specify features and flat areas too)
 - Screen capture
 - Vector animations
 - Video export
@@ -138,10 +139,9 @@ Example Game:
 
 ### Maybe:
 
-- Heightmap creation with erosion noise (also specify x,z and height of mountain or start and end points and depth for canyon)
-- Procedural models for characters and objects
+- Procedural models for characters and more objects
 - Animation creation for Models (FK + IK)
-- Texture creation (using noise and colors)
+- Texture creation (using noise and colors) and texture colorization
 
 ### Other Needs:
 
