@@ -27,6 +27,11 @@ Level Editor:
 Example Game:
 - `cargo run --bin game --release` (needs your game files to run)
 
+### Development Notes
+
+- Export animations in your GLB files with semantic labels (like LowerArm.r for the bone armature, or Walking for an animation name) as this will hook up automatically
+- Rhai scripting is in active development to make extending the engine easier and less involved (see `/scripts`)
+
 ## Features
 
 ### Current Features:
@@ -47,6 +52,7 @@ Example Game:
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
 - Rendered text with fonts
+- In-Game UI Pipeline
 - Screen capture
 - Vector animations
 - Video export
