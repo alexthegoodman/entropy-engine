@@ -42,18 +42,18 @@ impl NPC {
     pub fn new(model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
         // let wander = WanderBehavior::new(50.0, 100.0);
         let attack_stats = AttackStats {
-            damage: 10.0,
-            range: 2.0,
-            cooldown: 1.0,
-            wind_up_time: 0.3,
-            recovery_time: 0.5,
+            damage: 15.0,
+            range: 3.0,
+            cooldown: 0.2,
+            wind_up_time: 0.1,
+            recovery_time: 0.1,
         };
 
         let melee_combat = MeleeCombatBehavior::new(
-            100.0, // chase_speed
+            200.0, // chase_speed
             50.0,  // detection_radius
             attack_stats,
-            50.0, // evade_speed
+            75.0, // evade_speed
             0.7,  // block_chance
         );
 
