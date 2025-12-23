@@ -25,31 +25,27 @@ impl Inventory {
         self.items.push(item_id);
     }
 
-    pub fn equip_weapon(&mut self, item_id_to_equip: String, all_collectables: &Vec<Collectable>) {
+    pub fn equip_weapon(&mut self, item_id_to_equip: String, collectable_type: CollectableType) {
         if let Some(item_index) = self.items.iter().position(|id| *id == item_id_to_equip) {
-            if let Some(collectable) = all_collectables.iter().find(|c| c.id == item_id_to_equip) {
-                if CollectableType::MeleeWeapon == collectable.collectable_type || CollectableType::RangedWeapon == collectable.collectable_type {
-                    // Unequip current weapon if any
-                    if let Some(equipped_id) = self.equipped_weapon.take() {
-                        self.items.push(equipped_id);
-                    }
-                    self.equipped_weapon = Some(self.items.remove(item_index));
-                    self.equipped_weapon_type = Some(collectable.collectable_type.clone());
+            if CollectableType::MeleeWeapon == collectable_type || CollectableType::RangedWeapon == collectable_type {
+                // Unequip current weapon if any
+                if let Some(equipped_id) = self.equipped_weapon.take() {
+                    self.items.push(equipped_id);
                 }
+                self.equipped_weapon = Some(self.items.remove(item_index));
+                self.equipped_weapon_type = Some(collectable_type.clone());
             }
         }
     }
 
-    pub fn equip_armor(&mut self, item_id_to_equip: String, all_collectables: &Vec<Collectable>) {
+    pub fn equip_armor(&mut self, item_id_to_equip: String, collectable_type: CollectableType) {
         if let Some(item_index) = self.items.iter().position(|id| *id == item_id_to_equip) {
-            if let Some(collectable) = all_collectables.iter().find(|c| c.id == item_id_to_equip) {
-                if CollectableType::MeleeWeapon == collectable.collectable_type || CollectableType::RangedWeapon == collectable.collectable_type {
-                    // Unequip current armor if any
-                    if let Some(equipped_id) = self.equipped_armor.take() {
-                        self.items.push(equipped_id);
-                    }
-                    self.equipped_armor = Some(self.items.remove(item_index));
+            if CollectableType::MeleeWeapon == collectable_type || CollectableType::RangedWeapon == collectable_type {
+                // Unequip current armor if any
+                if let Some(equipped_id) = self.equipped_armor.take() {
+                    self.items.push(equipped_id);
                 }
+                self.equipped_armor = Some(self.items.remove(item_index));
             }
         }
     }

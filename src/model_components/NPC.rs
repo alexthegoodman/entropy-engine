@@ -108,7 +108,17 @@ impl NPC {
             recovery_time: 0.1,
         };
 
-        let melee_combat = MeleeCombatBehavior::new(
+        // let melee_combat = MeleeCombatBehavior::new(
+        //     200.0, // chase_speed
+        //     50.0,  // detection_radius
+        //     attack_stats,
+        //     75.0, // evade_speed
+        //     0.7,  // block_chance
+        // );
+
+        // let test_behavior = NPCBehavior::Melee(melee_combat);
+
+        let melee_combat = RangedCombatBehavior::new(
             200.0, // chase_speed
             50.0,  // detection_radius
             attack_stats,
@@ -116,11 +126,13 @@ impl NPC {
             0.7,  // block_chance
         );
 
+        let test_behavior = NPCBehavior::Ranged(melee_combat);
+
         NPC {
             id: Uuid::new_v4(),
             model_id,
             rigid_body_handle,
-            test_behavior: NPCBehavior::Melee(melee_combat),
+            test_behavior,
             animation_state: AnimationState::new(0),
             stats: CharacterStats {
                 health: 100.0,

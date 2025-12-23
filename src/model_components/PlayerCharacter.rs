@@ -52,6 +52,7 @@ pub struct PlayerCharacter {
     pub inventory: Inventory,
 
     pub default_weapon_id: Option<String>,
+    pub default_weapon_type: Option<CollectableType>,
 
     pub animation_state: AnimationState,
     pub is_moving: bool,
@@ -70,7 +71,8 @@ impl PlayerCharacter {
         camera: &SimpleCamera,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
-        default_weapon_id: Option<String>
+        default_weapon_id: Option<String>,
+        default_weapon_type: Option<CollectableType>
     ) -> Self {
         // let id = Uuid::new_v4();
         let uuid = Uuid::from_str(&id);
@@ -118,6 +120,15 @@ impl PlayerCharacter {
             [1.0, 1.0, 1.0]
         );
 
+        let mut inventory = Inventory::new();
+
+        if let Some(default_weapon_id)  = default_weapon_id.clone() {
+            if let Some(default_weapon_type)  = default_weapon_type.clone() {
+                inventory.add_item(default_weapon_id.clone());
+                inventory.equip_weapon(default_weapon_id, default_weapon_type);
+            }
+        }
+
         Self {
             id,
             model_id: None,
@@ -149,8 +160,9 @@ impl PlayerCharacter {
             },
             attack_timer: Instant::now(),
             is_defending: false,
-            inventory: Inventory::new(),
+            inventory,
             default_weapon_id,
+            default_weapon_type,
             animation_state: AnimationState::new(0),
             is_moving: false,
         }
@@ -200,9 +212,11 @@ impl PlayerCharacter {
             if let Some(rb) = rigid_body_set.get(rb_handle) {
                 rb.translation().xyz()
             } else {
+                println!("Can't find player body");
                 return (None, None);
             }
         } else {
+            println!("Can't find player handle");
             return (None, None);
         };
 
@@ -222,7 +236,8 @@ impl PlayerCharacter {
             // Using camera position might be better for "crosshair" aiming, but player model might be offset.
             // For 3rd person, usually we raycast from camera through crosshair.
             // Let's use camera position + direction.
-            let origin = camera.position; 
+            // let origin = camera.position; 
+            let origin = camera.position + dir * 1.0; // Start 1 unit in front instead of at camera
             
             let ray = Ray::new(
                 Point3::new(origin.x, origin.y, origin.z),
@@ -236,6 +251,9 @@ impl PlayerCharacter {
             let mut filter = QueryFilter::default();
             if let Some(rb_handle) = self.movement_rigid_body_handle {
                 filter = filter.exclude_rigid_body(rb_handle);
+            }
+            if let Some(c_handle) = self.collider_handle {
+                filter = filter.exclude_collider(c_handle)
             }
 
             let mut hit_point = origin + dir * max_toi;
@@ -257,7 +275,7 @@ impl PlayerCharacter {
                          // Find which NPC has this rigid body handle
                          if let Some(npc) = npcs.iter_mut().find(|n| n.rigid_body_handle == parent_handle) {
                              npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
-                             println!("Player shot NPC!");
+                             println!("Player shot NPC! (ranged)");
                              hit_id = Some(npc.id);
                          }
                     }
@@ -265,7 +283,7 @@ impl PlayerCharacter {
             }
             
             if hit_id.is_none() {
-                println!("Player shot air!");
+                println!("Player shot air! (ranged)");
             }
 
             return (hit_id, Some((origin, hit_point)));
@@ -293,11 +311,11 @@ impl PlayerCharacter {
                 npc.test_behavior
                     .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                 
-                println!("Player attacked!"); // Debug print
+                println!("Player attacked (melee)!"); // Debug print
                 return (Some(npc.id), None);
             }
 
-            println!("Player attacked air!"); // Debug print
+            println!("Player attacked air (melee)!"); // Debug print
             (None, None)
         }
     }

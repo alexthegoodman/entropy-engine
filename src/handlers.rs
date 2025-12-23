@@ -137,6 +137,7 @@ pub async fn handle_add_player(
     scale: Vector3<f32>,
     camera: &SimpleCamera,
     default_weapon_id: Option<String>,
+    default_weapon_type: Option<CollectableType>,
     script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
@@ -162,7 +163,8 @@ pub async fn handle_add_player(
         camera,
         isometry,
         scale,
-        default_weapon_id
+        default_weapon_id,
+        default_weapon_type
     );
 
     player_character.model_id = Some(modelComponentId); // may want to be an optional model later
@@ -338,6 +340,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 
                         // Handle debug hitscan line
                         if renderer_state.game_settings.show_hitscan_line {
+                            println!("Aiming at enemy... {:?}", debug_line);
                             if let Some((start, end)) = debug_line {
                                 let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
                                 let mut debug_cube = Cube::new(
@@ -350,25 +353,38 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                 );
 
                                 let dir = (end - start).normalize();
-                                let length = nalgebra::distance(&start, &end);
+                                // Start a bit in front of the camera to avoid near plane clipping
+                                let offset_start = start + dir * 0.5;
+                                let length = nalgebra::distance(&offset_start, &end);
                                 
-                                debug_cube.transform.update_position([start.x, start.y, start.z]);
-                                debug_cube.transform.update_scale([0.02, 0.02, length]);
-                                
-                                let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
-                                debug_cube.transform.update_rotation_quat([
-                                    rotation.coords.x,
-                                    rotation.coords.y,
-                                    rotation.coords.z,
-                                    rotation.coords.w,
-                                ]);
-                                
-                                debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
-                                
-                                renderer_state.debug_rays.push(DebugRay {
-                                    cube: debug_cube,
-                                    expires_at: Instant::now() + Duration::from_millis(500),
-                                });
+                                // Check if target is behind the offset start (too close)
+                                if length > 0.0 && (end - start).dot(&dir) > 0.5 {
+                                    let scale = 0.02;
+
+                                    let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
+                                    
+                                    // Center the cube on the ray (cube is 0..1 in X/Y, we want -0.5..0.5)
+                                    // We rotate the offset vector
+                                    let center_offset = rotation * Vector3::new(scale * 0.5, scale * 0.5, 0.0);
+                                    let draw_pos = offset_start - center_offset;
+
+                                    debug_cube.transform.update_position([draw_pos.x, draw_pos.y, draw_pos.z]);
+                                    debug_cube.transform.update_scale([scale, scale, length]);
+                                    
+                                    debug_cube.transform.update_rotation_quat([
+                                        rotation.coords.x,
+                                        rotation.coords.y,
+                                        rotation.coords.z,
+                                        rotation.coords.w,
+                                    ]);
+                                    
+                                    debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    
+                                    renderer_state.debug_rays.push(DebugRay {
+                                        cube: debug_cube,
+                                        expires_at: Instant::now() + Duration::from_millis(500),
+                                    });
+                                }
                             }
                         }
 

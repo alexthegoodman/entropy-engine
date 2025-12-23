@@ -7,7 +7,7 @@ use crate::{
     handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_player, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
-    saved_data::{ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
+    saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
     procedural_models::House::HouseConfig
 };
 
@@ -374,9 +374,17 @@ editor.saved_state = Some(loaded_state);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
                                         let mut default_weapon_id = None;
+                                        let mut default_weapon_type = None;
 
                                         if let Some(data) = &component.player_properties {
                                             default_weapon_id = data.default_weapon_id.clone();
+
+                                            if let Some(default_weapon_id) = default_weapon_id.clone() {
+                                                let weapon = components.iter().find(|c| c.id == default_weapon_id);
+                                                let weapon = weapon.as_ref().expect("Couldn't find associated wepaon");
+                                                let props = weapon.collectable_properties.as_ref().expect("Couldn't find weapon properties");
+                                                default_weapon_type = props.collectable_type.clone();
+                                            }
                                         }
 
                                         if let Some(asset_item) = asset {
@@ -392,6 +400,7 @@ editor.saved_state = Some(loaded_state);
                                                 model_scale,
                                                 camera,
                                                 default_weapon_id,
+                                                default_weapon_type,
                                                 component.script_state.clone()
                                             ).await;
                                         }

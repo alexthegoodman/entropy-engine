@@ -1866,6 +1866,7 @@ impl ExportPipeline {
 
             // draw debug rays
             for debug_ray in &renderer_state.debug_rays {
+                // println!("display debug line");
                 debug_ray.cube.transform.update_uniform_buffer(&queue);
                 render_pass.set_bind_group(1, &debug_ray.cube.bind_group, &[]);
                 render_pass.set_bind_group(3, &debug_ray.cube.group_bind_group, &[]);
