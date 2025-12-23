@@ -186,9 +186,9 @@ impl PlayerCharacter {
         collider_set: &ColliderSet,
         query_pipeline: &QueryPipeline,
         npcs: &mut Vec<NPC>,
-    ) {
+    ) -> Option<Uuid> {
         if self.attack_timer.elapsed().as_secs_f32() < self.attack_stats.cooldown {
-            return; // Attack is on cooldown
+            return None; // Attack is on cooldown
         }
 
         // Reset the attack timer
@@ -199,10 +199,10 @@ impl PlayerCharacter {
             if let Some(rb) = rigid_body_set.get(rb_handle) {
                 rb.translation().xyz()
             } else {
-                return;
+                return None;
             }
         } else {
-            return;
+            return None;
         };
 
         let mut closest_npc_index: Option<usize> = None;
@@ -225,9 +225,13 @@ impl PlayerCharacter {
             let npc = &mut npcs[index];
             npc.test_behavior
                 .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
+            
+            println!("Player attacked!"); // Debug print
+            return Some(npc.id);
         }
 
-        println!("Player attacked!"); // Debug print
+        println!("Player attacked air!"); // Debug print
+        None
     }
 
     pub fn defend(&mut self) {

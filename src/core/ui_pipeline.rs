@@ -154,5 +154,24 @@ impl UiPipeline {
             render_pass.set_index_buffer(health_bar.bar.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
             render_pass.draw_indexed(0..health_bar.bar.indices.len() as u32, 0, 0..1);
         }
+
+        // Render enemy health bar
+        if let Some(enemy_health_bar) = &editor.enemy_health_bar {
+            // Background
+            enemy_health_bar.background.transform.update_uniform_buffer(queue);
+            render_pass.set_bind_group(1, &enemy_health_bar.background.bind_group, &[]);
+            render_pass.set_bind_group(3, &enemy_health_bar.background.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, enemy_health_bar.background.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(enemy_health_bar.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..enemy_health_bar.background.indices.len() as u32, 0, 0..1);
+
+            // Bar
+            enemy_health_bar.bar.transform.update_uniform_buffer(queue);
+            render_pass.set_bind_group(1, &enemy_health_bar.bar.bind_group, &[]);
+            render_pass.set_bind_group(3, &enemy_health_bar.bar.group_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, enemy_health_bar.bar.vertex_buffer.slice(..));
+            render_pass.set_index_buffer(enemy_health_bar.bar.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+            render_pass.draw_indexed(0..enemy_health_bar.bar.indices.len() as u32, 0, 0..1);
+        }
     }
 }

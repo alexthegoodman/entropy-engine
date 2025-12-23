@@ -1223,6 +1223,19 @@ impl ExportPipeline {
                 30.0,
                 100.0,
             ));
+
+            export_editor.enemy_health_bar = Some(HealthBar::new(
+                &device,
+                &queue,
+                &ui_model_bind_group_layout,
+                &group_bind_group_layout,
+                &camera,
+                &WindowSize { width: video_width, height: video_height },
+                Point { x: video_width as f32 - 150.0, y: 50.0 }, // Top-right area
+                200.0,
+                30.0,
+                100.0,
+            ));
         }
 
         let mut grids = Vec::new();
@@ -1542,6 +1555,13 @@ impl ExportPipeline {
                     camera.viewport.window_size.height = new_size.height;
                 }
             }
+
+            // resize ui elements
+            let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+            if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
+                enemy_health_bar.bar.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
+                enemy_health_bar.background.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
+            }
         }
     }
 
@@ -1596,6 +1616,15 @@ impl ExportPipeline {
         if let Some(player) = &renderer_state.player_character {
             if let Some(health_bar) = &mut editor.health_bar {
                 health_bar.update_health(queue, player.stats.health);
+            }
+        }
+
+        // Sync enemy health to UI
+        if let Some(target_id) = editor.current_enemy_target {
+            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
+                 if let Some(health_bar) = &mut editor.enemy_health_bar {
+                    health_bar.update_health(queue, npc.stats.health);
+                }
             }
         }
 
