@@ -596,15 +596,7 @@ impl RendererState {
                                 self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
                             }
 
-                            // --- Position camera at player's eye level ---
-                            // let eye_height: f32 = 1.7; // Adjust based on your player model
-                            let eye_height: f32 = 4.0; // TODO: make configurable from saved state, where third person is, in GameSettings
-                            let camera_pos = Point3::new(
-                                pos.x,
-                                pos.y + eye_height,
-                                pos.z
-                            );
-                            camera.position = camera_pos;
+                            
 
                             // --- Calculate look direction from yaw and pitch ---
                             // Convert spherical angles to a direction vector
@@ -613,6 +605,18 @@ impl RendererState {
                                 self.camera_pitch.sin(),
                                 self.camera_yaw.sin() * self.camera_pitch.cos()
                             ).normalize();
+
+                            // let in_front = direction * 0.25;
+
+                            // --- Position camera at player's eye level ---
+                            // let eye_height: f32 = 1.7; // Adjust based on your player model
+                            let eye_height: f32 = 3.5; // TODO: make configurable from saved state, where third person is, in GameSettings
+                            let camera_pos = Point3::new(
+                                pos.x,
+                                pos.y + eye_height,
+                                pos.z
+                            );
+                            camera.position = camera_pos;
 
                             camera.direction = direction;
 
@@ -660,7 +664,14 @@ impl RendererState {
                             instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                 mesh.transform
                                     .update_position([position.x, position.y, position.z]);
-                                // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
+                                
+                                if self.game_mode && !self.game_settings.third_person {
+                                    // In first-person mode, the player model should face the camera direction.
+                                    // We use -self.camera_yaw to align the model with the camera's horizontal rotation.
+                                    mesh.transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
+                                } else {
+                                    // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
+                                }
                             });
                         }
                     }
