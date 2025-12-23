@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::model_components::Collectable::Collectable;
+use crate::{helpers::saved_data::CollectableType, model_components::Collectable::Collectable};
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Inventory {
@@ -26,7 +26,7 @@ impl Inventory {
     pub fn equip_weapon(&mut self, item_id_to_equip: String, all_collectables: &Vec<Collectable>) {
         if let Some(item_index) = self.items.iter().position(|id| *id == item_id_to_equip) {
             if let Some(collectable) = all_collectables.iter().find(|c| c.id == item_id_to_equip) {
-                if let crate::helpers::saved_data::CollectableType::Weapon = collectable.collectable_type {
+                if CollectableType::MeleeWeapon == collectable.collectable_type || CollectableType::RangedWeapon == collectable.collectable_type {
                     // Unequip current weapon if any
                     if let Some(equipped_id) = self.equipped_weapon.take() {
                         self.items.push(equipped_id);
@@ -40,7 +40,7 @@ impl Inventory {
     pub fn equip_armor(&mut self, item_id_to_equip: String, all_collectables: &Vec<Collectable>) {
         if let Some(item_index) = self.items.iter().position(|id| *id == item_id_to_equip) {
             if let Some(collectable) = all_collectables.iter().find(|c| c.id == item_id_to_equip) {
-                if let crate::helpers::saved_data::CollectableType::Armor = collectable.collectable_type {
+                if CollectableType::MeleeWeapon == collectable.collectable_type || CollectableType::RangedWeapon == collectable.collectable_type {
                     // Unequip current armor if any
                     if let Some(equipped_id) = self.equipped_armor.take() {
                         self.items.push(equipped_id);
