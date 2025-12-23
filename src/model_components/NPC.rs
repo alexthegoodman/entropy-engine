@@ -45,7 +45,7 @@ impl NPCBehavior {
         transform: &mut Transform,
         current_stamina: f32,
         dt: f32,
-    ) -> Option<f32> {
+    ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
         match self {
             NPCBehavior::Melee(behavior) => behavior.update(
                 rigid_body_set,
@@ -57,7 +57,7 @@ impl NPCBehavior {
                 transform,
                 current_stamina,
                 dt,
-            ),
+            ).map(|damage| (damage, None)),
             NPCBehavior::Ranged(behavior) => behavior.update(
                 rigid_body_set,
                 collider_set,

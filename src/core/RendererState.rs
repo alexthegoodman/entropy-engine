@@ -1,6 +1,6 @@
 use gltf::json::camera;
 use mint::ColumnMatrix4;
-use nalgebra::{Isometry3, Point3, Vector3};
+use nalgebra::{Isometry3, Point3, UnitQuaternion, Vector3};
 use rapier3d::math::Point as RapierPoint;
 use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
@@ -702,7 +702,7 @@ impl RendererState {
 
                     if let Some(player_character) = &mut self.player_character {
                         if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
-                            let damage_dealt = instance_npc_data.test_behavior.update(
+                            let result = instance_npc_data.test_behavior.update(
                                 &mut self.rigid_body_set,
                                 &self.collider_set,
                                 &self.query_pipeline,
@@ -718,8 +718,44 @@ impl RendererState {
                                 dt,
                             );
 
-                            if let Some(damage) = damage_dealt {
-                                player_character.handle_incoming_damage(damage);
+                            if let Some((damage, debug_line)) = result {
+                                if damage > 0.0 {
+                                    player_character.handle_incoming_damage(damage);
+                                }
+
+                                if self.game_settings.show_hitscan_line {
+                                    if let Some((start, end)) = debug_line {
+                                        let mut debug_cube = Cube::new(
+                                            &device,
+                                            &queue,
+                                            &self.model_bind_group_layout,
+                                            &self.group_bind_group_layout,
+                                            &self.texture_render_mode_buffer,
+                                            camera,
+                                        );
+
+                                        let dir = (end - start).normalize();
+                                        let length = nalgebra::distance(&start, &end);
+                                        
+                                        debug_cube.transform.update_position([start.x, start.y, start.z]);
+                                        debug_cube.transform.update_scale([0.02, 0.02, length]);
+                                        
+                                        let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
+                                        debug_cube.transform.update_rotation_quat([
+                                            rotation.coords.x,
+                                            rotation.coords.y,
+                                            rotation.coords.z,
+                                            rotation.coords.w,
+                                        ]);
+                                        
+                                        debug_cube.transform.update_uniform_buffer(&queue);
+                                        
+                                        self.debug_rays.push(DebugRay {
+                                            cube: debug_cube,
+                                            expires_at: Instant::now() + Duration::from_millis(500),
+                                        });
+                                    }
+                                }
                             }
 
                             let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();

@@ -1,4 +1,4 @@
-use nalgebra::{vector, ComplexField, Vector3};
+use nalgebra::{ComplexField, Point3, Vector3, vector};
 use nalgebra_glm::Vec3;
 use rand::Rng;
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
@@ -65,8 +65,8 @@ impl RangedCombatBehavior {
         transform: &mut Transform,
         current_stamina: f32,
         dt: f32,
-    ) -> Option<f32> {
-        // Returns damage dealt if attack lands
+    ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
+        // Returns (damage, debug_line)
         let min_state_duration = 5.0; // Shorter state duration for ranged
         let state_duration = self.last_state_change.elapsed().as_secs_f32();
 
@@ -105,7 +105,7 @@ impl RangedCombatBehavior {
                 None
             }
             CombatState::Attacking => {
-                let damage = self.attack.update(
+                let result = self.attack.update(
                     rigid_body_set,
                     collider_set,
                     query_pipeline,
@@ -134,7 +134,7 @@ impl RangedCombatBehavior {
                         self.last_state_change = Instant::now();
                     }
                 }
-                damage
+                result
             }
             CombatState::Evading => {
                 let is_evading = self.evade.update(

@@ -229,7 +229,7 @@ impl PlayerCharacter {
                 Vector3::new(dir.x, dir.y, dir.z),
             );
 
-            let max_toi = 100.0; // Long range for guns
+            let max_toi = 1000.0; // Long range for guns
             let solid = true;
             // Exclude player collider if possible. 
             // We can exclude the player's rigid body.

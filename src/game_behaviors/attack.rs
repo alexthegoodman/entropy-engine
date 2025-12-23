@@ -126,8 +126,8 @@ impl RangedAttackBehavior {
         attacker_handle: RigidBodyHandle,
         target_handle: RigidBodyHandle,
         transform: &Transform,
-    ) -> Option<f32> {
-        // Returns damage dealt if attack lands
+    ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
+        // Returns (damage, debug_line)
         let current_pos = transform.position;
 
         // Get target position for distance check (optimization)
@@ -167,11 +167,10 @@ impl RangedAttackBehavior {
                     self.last_attack = Instant::now();
 
                     // Calculate direction to target
-                    // Note: In a real game, this might need to account for spread or aim error
-                    // For now, perfect aim at the target center
                     let dir = (target_pos - current_pos).normalize();
+                    let origin = Point3::new(current_pos.x, current_pos.y, current_pos.z);
                     let ray = Ray::new(
-                        Point3::new(current_pos.x, current_pos.y, current_pos.z),
+                        origin,
                         Vector3::new(dir.x, dir.y, dir.z),
                     );
 
@@ -179,6 +178,9 @@ impl RangedAttackBehavior {
                     let solid = true;
                     // Exclude the attacker from the raycast
                     let filter = QueryFilter::default().exclude_rigid_body(attacker_handle);
+
+                    let mut hit_point = origin + Vector3::new(dir.x, dir.y, dir.z) * max_toi;
+                    let mut damage = 0.0;
 
                     if let Some((handle, toi)) = query_pipeline.cast_ray(
                         rigid_body_set,
@@ -188,17 +190,18 @@ impl RangedAttackBehavior {
                         solid,
                         filter
                     ) {
+                        hit_point = origin + Vector3::new(dir.x, dir.y, dir.z) * toi;
                         // Check if we hit the target
                          if let Some(collider) = collider_set.get(handle) {
                              if let Some(parent_handle) = collider.parent() {
                                  if parent_handle == target_handle {
-                                      return Some(self.stats.damage);
+                                      damage = self.stats.damage;
                                  }
                              }
                          }
                     }
                     
-                    None
+                    Some((damage, Some((origin, hit_point))))
                 } else {
                     None
                 }
