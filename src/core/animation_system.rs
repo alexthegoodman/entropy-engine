@@ -103,7 +103,7 @@ pub fn update_animations(
 
         process_animation(model, anim_state, delta_time, queue);
     }
-    
+
     // Process player animation
     if let Some(player) = player_character.as_mut() {
         if let Some(player_model_id) = &player.model_id {
@@ -115,6 +115,18 @@ pub fn update_animations(
                 if let Some(animation_index) = model.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
                     if player.animation_state.animation_index != animation_index {
                         player.animation_state.animation_index = animation_index;
+                        player.animation_state.current_time = 0.0;
+                    }
+
+                    //  DEBUG: Print which animation is playing
+                    if model.animations.len() > animation_index {
+                        println!("Playing character animation: {} (index {})", 
+                                 model.animations[animation_index].name,
+                                 animation_index);
+                    }
+                } else {
+                    if player.animation_state.animation_index != 0 {
+                        player.animation_state.animation_index = 0;
                         player.animation_state.current_time = 0.0;
                     }
                 }
