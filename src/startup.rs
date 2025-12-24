@@ -460,7 +460,23 @@ impl ApplicationHandler<UserEvent> for Application {
 
                 // Dispatch actions only on press.
                 if event.state.is_pressed() {
-                    let action = if let Key::Character(ch) = event.logical_key.as_ref() {
+                    let key_str = match event.logical_key.as_ref() {
+                        Key::Character(ch) => Some(ch.as_str()),
+                        Key::Named(named_key) => {
+                            match named_key {
+                                winit::keyboard::NamedKey::Enter => Some("Enter"),
+                                winit::keyboard::NamedKey::ArrowUp => Some("ArrowUp"),
+                                winit::keyboard::NamedKey::ArrowDown => Some("ArrowDown"),
+                                winit::keyboard::NamedKey::ArrowLeft => Some("ArrowLeft"),
+                                winit::keyboard::NamedKey::ArrowRight => Some("ArrowRight"),
+                                winit::keyboard::NamedKey::Space => Some(" "),
+                                _ => None,
+                            }
+                        },
+                        _ => None,
+                    };
+
+                    let action = if let Some(ch) = key_str {
                         handle_key_press(
                             window.pipeline.export_editor.as_mut().expect("Couldn't fetch editor"), 
                             ch, 
