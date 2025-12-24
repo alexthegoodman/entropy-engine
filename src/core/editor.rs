@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use cgmath::{Point3, Vector3, Vector4};
+use wgpu::BindGroupLayout;
 use crate::core::Grid::Grid;
 use crate::core::RendererState::RendererState;
 // use nalgebra::{Point3, Vector3, Vector4};
@@ -313,6 +314,12 @@ pub struct Editor {
     pub health_bar: Option<HealthBar>,
     pub enemy_health_bar: Option<HealthBar>,
     pub current_enemy_target: Option<Uuid>,
+    
+    // Inventory UI
+    pub is_inventory_open: bool,
+    pub inventory_ui_ids: Vec<Uuid>,
+    pub font_manager: FontManager,
+
     // pub dragging_image: Option<Uuid>,
     // pub font_manager: FontManager,
     // pub dragging_path: Option<Uuid>,
@@ -394,6 +401,8 @@ pub struct Editor {
     pub generation_fade: bool,
 
     pub navigation_speed: f32,
+
+    pub ui_model_bind_group_layout: Option<Arc<BindGroupLayout>>,
 }
 
 
@@ -498,6 +507,9 @@ impl Editor {
             health_bar: None,
             enemy_health_bar: None,
             current_enemy_target: None,
+            is_inventory_open: false,
+            inventory_ui_ids: Vec::new(),
+            font_manager,
             // dragging_image: None,
             video_is_playing: false,
             video_start_playing_time: None,
@@ -542,7 +554,8 @@ impl Editor {
                     y: 750.0, // allow for 50.0 padding below and above the canvas
                 },
             },
-            navigation_speed: 5.0
+            navigation_speed: 5.0,
+            ui_model_bind_group_layout: None
         }
     }
 }

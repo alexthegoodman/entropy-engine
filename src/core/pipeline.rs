@@ -1330,7 +1330,7 @@ impl ExportPipeline {
         // also set motion path playing
         export_editor.start_playing_time = Some(now);
         export_editor.is_playing = true;
-
+        export_editor.ui_model_bind_group_layout = Some(ui_model_bind_group_layout);
         
 
         export_editor.camera_binding = Some(camera_binding);

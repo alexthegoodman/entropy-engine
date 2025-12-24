@@ -17,7 +17,7 @@ impl HealthBar {
     pub fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        ui_model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
         group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
         camera: &Camera,
         window_size: &WindowSize,
@@ -30,7 +30,7 @@ impl HealthBar {
             window_size,
             device,
             queue,
-            model_bind_group_layout,
+            ui_model_bind_group_layout,
             group_bind_group_layout,
             camera,
             vec![
@@ -58,7 +58,7 @@ impl HealthBar {
             window_size,
             device,
             queue,
-            model_bind_group_layout,
+            ui_model_bind_group_layout,
             group_bind_group_layout,
             camera,
             vec![
