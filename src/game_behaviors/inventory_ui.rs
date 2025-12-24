@@ -155,6 +155,104 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
 
                 editor.ui_textboxes.push(item_text);
              }
+
+             // Equipped Items Display
+             let equipped_section_x = bg_pos.x + 150.0;
+             let equipped_section_y = bg_pos.y + 80.0;
+             
+             // Weapon Label
+             let weapon_label_id = Uuid::new_v4();
+             editor.inventory_ui_ids.push(weapon_label_id);
+             let weapon_label_config = TextRendererConfig {
+                id: weapon_label_id,
+                name: "Equipped Weapon Label".to_string(),
+                text: "Equipped Weapon:".to_string(),
+                font_family: "Basic".to_string(),
+                font_size: 24,
+                dimensions: (450.0, 30.0),
+                position: Point { x: equipped_section_x, y: equipped_section_y },
+                layer: 201,
+                color: [255, 200, 100, 255], // Gold-ish color for label
+                background_fill: [0, 0, 0, 0],
+             };
+             let mut weapon_label = TextRenderer::new(
+                device, queue, ui_model_bind_group_layout, group_bind_group_layout,
+                font_bytes, &window_size, "Equipped Weapon:".to_string(),
+                weapon_label_config, weapon_label_id, Uuid::nil(), camera
+             );
+             weapon_label.render_text(device, queue);
+             editor.ui_textboxes.push(weapon_label);
+
+             // Weapon Value
+             let weapon_text = player.inventory.equipped_weapon.clone().unwrap_or_else(|| "None".to_string());
+             let weapon_val_id = Uuid::new_v4();
+             editor.inventory_ui_ids.push(weapon_val_id);
+             let weapon_val_config = TextRendererConfig {
+                id: weapon_val_id,
+                name: "Equipped Weapon Value".to_string(),
+                text: weapon_text.clone(),
+                font_family: "Basic".to_string(),
+                font_size: 24,
+                dimensions: (450.0, 30.0),
+                position: Point { x: equipped_section_x, y: equipped_section_y + 30.0 },
+                layer: 201,
+                color: [255, 255, 255, 255],
+                background_fill: [0, 0, 0, 0],
+             };
+             let mut weapon_val = TextRenderer::new(
+                device, queue, ui_model_bind_group_layout, group_bind_group_layout,
+                font_bytes, &window_size, weapon_text,
+                weapon_val_config, weapon_val_id, Uuid::nil(), camera
+             );
+             weapon_val.render_text(device, queue);
+             editor.ui_textboxes.push(weapon_val);
+
+             // Armor Label
+             let armor_label_id = Uuid::new_v4();
+             editor.inventory_ui_ids.push(armor_label_id);
+             let armor_label_config = TextRendererConfig {
+                id: armor_label_id,
+                name: "Equipped Armor Label".to_string(),
+                text: "Equipped Armor:".to_string(),
+                font_family: "Basic".to_string(),
+                font_size: 24,
+                dimensions: (450.0, 30.0),
+                position: Point { x: equipped_section_x, y: equipped_section_y + 80.0 },
+                layer: 201,
+                color: [255, 200, 100, 255],
+                background_fill: [0, 0, 0, 0],
+             };
+             let mut armor_label = TextRenderer::new(
+                device, queue, ui_model_bind_group_layout, group_bind_group_layout,
+                font_bytes, &window_size, "Equipped Armor:".to_string(),
+                armor_label_config, armor_label_id, Uuid::nil(), camera
+             );
+             armor_label.render_text(device, queue);
+             editor.ui_textboxes.push(armor_label);
+
+             // Armor Value
+             let armor_text = player.inventory.equipped_armor.clone().unwrap_or_else(|| "None".to_string());
+             let armor_val_id = Uuid::new_v4();
+             editor.inventory_ui_ids.push(armor_val_id);
+             let armor_val_config = TextRendererConfig {
+                id: armor_val_id,
+                name: "Equipped Armor Value".to_string(),
+                text: armor_text.clone(),
+                font_family: "Basic".to_string(),
+                font_size: 24,
+                dimensions: (450.0, 30.0),
+                position: Point { x: equipped_section_x, y: equipped_section_y + 110.0 },
+                layer: 201,
+                color: [255, 255, 255, 255],
+                background_fill: [0, 0, 0, 0],
+             };
+             let mut armor_val = TextRenderer::new(
+                device, queue, ui_model_bind_group_layout, group_bind_group_layout,
+                font_bytes, &window_size, armor_text,
+                armor_val_config, armor_val_id, Uuid::nil(), camera
+             );
+             armor_val.render_text(device, queue);
+             editor.ui_textboxes.push(armor_val);
         }
     }
 }
