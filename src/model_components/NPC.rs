@@ -102,6 +102,7 @@ pub struct NPC {
     pub animation_state: AnimationState,
     pub stats: CharacterStats,
     pub inventory: Inventory,
+    pub is_talking: bool,
 }
 
 impl NPC {
@@ -149,6 +150,7 @@ impl NPC {
                 stamina: 100.0,
             },
             inventory: Inventory::new(),
+            is_talking: false,
         }
     }
 }

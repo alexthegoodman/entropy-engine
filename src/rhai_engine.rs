@@ -187,10 +187,17 @@ impl RhaiEngine {
     
     pub fn execute_interaction_script(
         &mut self,
+        renderer_state: &mut RendererState,
         dialogue_state: &mut DialogueState,
+        // component: &ComponentData, // Potentially use this for persistent state later
         script_path: &str,
         hook_name: &str,
     ) {
+        // Set NPC is_talking to true
+        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
+             npc.is_talking = true;
+        }
+
         let ast = if let Some(ast) = self.ast_cache.get(script_path) {
             ast
         } else {
@@ -222,12 +229,21 @@ impl RhaiEngine {
                     dialogue_state.current_text = updated_wrapper.text;
                     dialogue_state.options = updated_wrapper.options;
                     dialogue_state.is_open = updated_wrapper.is_open;
-                    dialogue_state.npc_name = updated_wrapper.npc_name;
-                    dialogue_state.current_node = updated_wrapper.current_node;
-                    dialogue_state.ui_dirty = true;
-                }
-            },
-            Err(e) => {
+                                         dialogue_state.npc_name = updated_wrapper.npc_name;
+                                         dialogue_state.current_node = updated_wrapper.current_node;
+                                         // Keep existing selected_option_index and current_npc_id or reset?
+                                         // Reset index when options change?
+                                                              // For now, let's keep index unless options change length, but safer to reset 0.
+                                                              dialogue_state.selected_option_index = 0;
+                                                              dialogue_state.ui_dirty = true;
+                                                              
+                                                              if !dialogue_state.is_open {
+                                                                  if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
+                                                                      npc.is_talking = false;
+                                                                  }
+                                                              }
+                                                          }
+                                                      },            Err(e) => {
                 if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
                     eprintln!("Error executing hook '{}': {:?}", hook_name, e);
                 }

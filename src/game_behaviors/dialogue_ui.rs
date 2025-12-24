@@ -100,7 +100,7 @@ fn build_dialogue_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Q
             font_family: "Basic".to_string(),
             font_size: 24,
             dimensions: (panel_width - 40.0, 30.0),
-            position: Point { x: panel_x + 20.0, y: panel_y + 20.0 },
+            position: Point { x: panel_x + 120.0, y: panel_y + 20.0 },
             layer: 301,
             color: [255, 200, 100, 255], // Gold
             background_fill: [0, 0, 0, 0],
@@ -126,7 +126,7 @@ fn build_dialogue_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Q
         font_family: "Basic".to_string(),
         font_size: 20,
         dimensions: (panel_width - 40.0, 100.0),
-        position: Point { x: panel_x + 20.0, y: panel_y + 60.0 },
+        position: Point { x: panel_x + 120.0, y: panel_y + 60.0 },
         layer: 301,
         color: [255, 255, 255, 255],
         background_fill: [0, 0, 0, 0],
@@ -146,6 +146,12 @@ fn build_dialogue_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Q
         let opt_id = Uuid::new_v4();
         editor.dialogue_state.ui_ids.push(opt_id);
         
+        let color = if i == editor.dialogue_state.selected_option_index {
+            [100, 255, 100, 255] // Green for selected
+        } else {
+            [200, 200, 255, 255] // Light blue for others
+        };
+
         let opt_config = TextRendererConfig {
             id: opt_id,
             name: format!("Option {}", i),
@@ -153,9 +159,9 @@ fn build_dialogue_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Q
             font_family: "Basic".to_string(),
             font_size: 18,
             dimensions: (panel_width - 40.0, 25.0),
-            position: Point { x: panel_x + 40.0, y: option_start_y + (i as f32 * 30.0) },
+            position: Point { x: panel_x + 140.0, y: option_start_y + (i as f32 * 30.0) },
             layer: 301,
-            color: [200, 200, 255, 255], // Light blue
+            color,
             background_fill: [0, 0, 0, 0],
         };
         

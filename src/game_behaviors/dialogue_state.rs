@@ -14,6 +14,8 @@ pub struct DialogueState {
     pub options: Vec<DialogueOption>,
     pub npc_name: String,
     pub current_node: String,
+    pub current_npc_id: String,
+    pub selected_option_index: usize,
     #[serde(skip)]
     pub ui_ids: Vec<Uuid>,
     #[serde(skip)]
