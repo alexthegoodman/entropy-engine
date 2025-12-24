@@ -49,6 +49,7 @@ Example Game:
 - Skybox Pipeline
 - Point lighting
 - Basic game behaviors (melee, chase, inventory, etc)
+- Dialogue (integrates with UI and Rhai scripting)
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
 - Rendered text with fonts
@@ -103,7 +104,6 @@ Example Game:
 - Attachments
 - Skill Points
 - Skill trees
-- Dialogue (integrates with UI)
 - GTA-style Phone Calls
 - Eating
 - Inspecting
