@@ -9,7 +9,7 @@ The first character you play as is a rogue. He was raised by a surface mechanic 
 ## TODOs
 
 - DomeKit.blend for first map (in progress)
-- Inventory menu (equip, consume, drop)
+- Enhance inventory menu (equip, consume, drop) (first need to collect!)
 - Mini-Map with markers
 - Dialogue system and menus
 - Loot dead enemies and pick up Collectables

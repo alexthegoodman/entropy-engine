@@ -199,7 +199,7 @@ impl PlayerCharacter {
         query_pipeline: &QueryPipeline,
         npcs: &mut Vec<NPC>,
         camera: &SimpleCamera,
-    ) -> (Option<Uuid>, Option<(Point3<f32>, Point3<f32>)>) {
+    ) -> (Option<String>, Option<(Point3<f32>, Point3<f32>)>) {
         if self.attack_timer.elapsed().as_secs_f32() < self.attack_stats.cooldown {
             return (None, None); // Attack is on cooldown
         }
@@ -276,7 +276,7 @@ impl PlayerCharacter {
                          if let Some(npc) = npcs.iter_mut().find(|n| n.rigid_body_handle == parent_handle) {
                              npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                              println!("Player shot NPC! (ranged)");
-                             hit_id = Some(npc.id);
+                             hit_id = Some(npc.id.clone());
                          }
                     }
                 }
@@ -312,7 +312,7 @@ impl PlayerCharacter {
                     .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                 
                 println!("Player attacked (melee)!"); // Debug print
-                return (Some(npc.id), None);
+                return (Some(npc.id.clone()), None);
             }
 
             println!("Player attacked air (melee)!"); // Debug print

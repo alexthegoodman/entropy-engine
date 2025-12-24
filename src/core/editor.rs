@@ -28,6 +28,7 @@ use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 use crate::rhai_engine::RhaiEngine;
+use crate::game_behaviors::dialogue_state::DialogueState;
 
 use cgmath::SquareMatrix;
 
@@ -313,12 +314,15 @@ pub struct Editor {
     pub ui_images: Vec<StImage>,
     pub health_bar: Option<HealthBar>,
     pub enemy_health_bar: Option<HealthBar>,
-    pub current_enemy_target: Option<Uuid>,
+    pub current_enemy_target: Option<String>,
     
     // Inventory UI
     pub is_inventory_open: bool,
     pub inventory_ui_ids: Vec<Uuid>,
     pub font_manager: FontManager,
+
+    // Dialogue State
+    pub dialogue_state: DialogueState,
 
     // pub dragging_image: Option<Uuid>,
     // pub font_manager: FontManager,
@@ -510,6 +514,7 @@ impl Editor {
             is_inventory_open: false,
             inventory_ui_ids: Vec::new(),
             font_manager,
+            dialogue_state: DialogueState::default(),
             // dragging_image: None,
             video_is_playing: false,
             video_start_playing_time: None,

@@ -184,6 +184,14 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             }
         }
         return;
+    } else if key_code == "e" {
+        if is_pressed {
+            let game_mode = state.renderer_state.as_ref().map(|r| r.game_mode).unwrap_or(false);
+            if game_mode {
+                // Interaction
+                handle_npc_interaction(state);
+            }
+        }
     }
 
     let camera = state.camera.as_mut().expect("Couldn't get camera");
@@ -347,7 +355,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                         );
                         
                         if let Some(id) = attacked_npc_id {
-                            state.current_enemy_target = Some(id);
+                            state.current_enemy_target = Some(id.clone());
                             println!("Updated enemy target: {:?}", id);
                         }
 
@@ -612,7 +620,7 @@ pub async fn handle_add_npc(
     queue: &wgpu::Queue,
     projectId: String,
     modelAssetId: String, // model is added to stored library as an asset
-    modelComponentId: String, // model is added from library to scene as an active component
+    npcComponentId: String, // model is added from library to scene as an active component
     modelFilename: String,
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
@@ -625,20 +633,20 @@ pub async fn handle_add_npc(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
+    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state);
 
-    state.add_collider(modelComponentId.clone(), ComponentKind::NPC);
+    state.add_collider(npcComponentId.clone(), ComponentKind::NPC);
 
     // Retrieve the rigid_body_handle after the collider has been added
     let npc_rigid_body_handle = state
         .models
         .iter()
-        .find(|m| m.id == modelComponentId)
+        .find(|m| m.id == npcComponentId)
         .and_then(|m| m.meshes.get(0))
         .and_then(|mesh| mesh.rigid_body_handle)
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
-    state.npcs.push(NPC::new(modelComponentId.clone(), npc_rigid_body_handle));
+    state.npcs.push(NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle));
 }
 
 pub async fn handle_add_collectable(
@@ -906,5 +914,85 @@ pub fn handle_configure_water_plane(
 ) {
     if let Some(water_plane) = state.water_planes.get_mut(0) {
         water_plane.update_config(queue, config);
+    }
+}
+
+use crate::game_behaviors::dialogue_state::DialogueState;
+
+fn handle_npc_interaction(state: &mut Editor) {
+    println!("Checking interact...");
+
+    let renderer_state = match state.renderer_state.as_mut() {
+        Some(rs) => rs,
+        None => return,
+    };
+    
+    let player = match &renderer_state.player_character {
+        Some(p) => p,
+        None => return,
+    };
+    
+    let player_handle = player.movement_rigid_body_handle.as_ref().expect("Couldn't get player rigidbody");
+    let player_pos = if let Some(rb) = renderer_state.rigid_body_set.get(*player_handle) {
+        rb.translation().clone()
+    } else {
+        return;
+    };
+
+    let mut target_id = String::new();
+    
+    for npc in &renderer_state.npcs {
+        if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+            let npc_pos = rb.translation();
+            let dist = (npc_pos - player_pos).magnitude();
+            // Using 50.0 as interaction range
+            if dist < 10.0 {
+                target_id = npc.id.to_string().clone();
+                break;
+            }
+        }
+    }
+    
+    if target_id.is_empty() {
+        return;
+    }
+
+    println!("Running interact... {:?}", target_id);
+    
+    let mut target_script_path = None;
+    let mut target_npc_name = String::new();
+    
+    if let Some(saved_state) = &state.saved_state {
+        if let Some(levels) = &saved_state.levels {
+             if let Some(level) = levels.get(0) {
+                 if let Some(components) = &level.components {
+                     for comp in components {
+                         if let Some(kind) = &comp.kind {
+                             if let ComponentKind::NPC = kind {
+                                //  if let Some(props) = &comp.npc_properties {
+                                     if comp.id == target_id {
+                                         if let Some(script) = &comp.rhai_script_path {
+                                             target_script_path = Some(script.clone());
+                                             target_npc_name = comp.generic_properties.name.clone();
+                                         }
+                                     }
+                                //  }
+                             }
+                         }
+                     }
+                 }
+             }
+        }
+    }
+
+    println!("target_npc_name... {:?} {:?}", target_npc_name, target_script_path);
+    
+    if let Some(script) = target_script_path {
+        state.dialogue_state.npc_name = target_npc_name;
+        state.rhai_engine.execute_interaction_script(
+            &mut state.dialogue_state,
+            &script,
+            "interact"
+        );
     }
 }

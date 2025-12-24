@@ -40,6 +40,7 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
+use crate::game_behaviors::dialogue_ui;
 
 // use super::chat::Chat;
 
@@ -1620,8 +1621,8 @@ impl ExportPipeline {
         }
 
         // Sync enemy health to UI
-        if let Some(target_id) = editor.current_enemy_target {
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
+        if let Some(target_id) = &editor.current_enemy_target {
+            if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
                  if let Some(health_bar) = &mut editor.enemy_health_bar {
                     health_bar.update_health(queue, npc.stats.health);
                 }
@@ -2383,6 +2384,9 @@ impl ExportPipeline {
                     .expect("Couldn't get frame buffer");
                 frame_buffer.capture_frame(device, queue, texture, &mut encoder);
             }
+
+            // Update Dialogue UI
+            dialogue_ui::update_dialogue_ui(editor, device, queue);
 
             let command_buffer = encoder.finish();
             queue.submit(std::iter::once(command_buffer));

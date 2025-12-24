@@ -31,6 +31,7 @@ use crate::core::Transform_2::Transform;
 pub enum NPCBehavior {
     Melee(MeleeCombatBehavior),
     Ranged(RangedCombatBehavior),
+    Wander(WanderBehavior)
 }
 
 impl NPCBehavior {
@@ -69,6 +70,10 @@ impl NPCBehavior {
                 current_stamina,
                 dt,
             ),
+            NPCBehavior::Wander(behavior) => {
+                behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt);
+                None
+            },
         }
     }
 
@@ -76,6 +81,7 @@ impl NPCBehavior {
         match self {
             NPCBehavior::Melee(behavior) => behavior.handle_incoming_damage(damage, stats),
             NPCBehavior::Ranged(behavior) => behavior.handle_incoming_damage(damage, stats),
+            NPCBehavior::Wander(behavior) => return,
         }
     }
 
@@ -83,12 +89,13 @@ impl NPCBehavior {
         match self {
             NPCBehavior::Melee(behavior) => behavior.get_animation_name(),
             NPCBehavior::Ranged(behavior) => behavior.get_animation_name(),
+            NPCBehavior::Wander(behavior) => behavior.get_animation_name(),
         }
     }
 }
 
 pub struct NPC {
-    pub id: Uuid,
+    pub id: String,
     pub model_id: String,
     pub rigid_body_handle: RigidBodyHandle,
     pub test_behavior: NPCBehavior,
@@ -98,17 +105,30 @@ pub struct NPC {
 }
 
 impl NPC {
-    pub fn new(model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
-        // let wander = WanderBehavior::new(50.0, 100.0);
-        let attack_stats = AttackStats {
-            damage: 15.0,
-            range: 3.0,
-            cooldown: 0.2,
-            wind_up_time: 0.1,
-            recovery_time: 0.1,
-        };
+    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
+        let wander = WanderBehavior::new(50.0, 100.0);
 
-        // let melee_combat = MeleeCombatBehavior::new(
+        let test_behavior = NPCBehavior::Wander(wander);
+        
+        // let attack_stats = AttackStats {
+        //     damage: 15.0,
+        //     range: 3.0,
+        //     cooldown: 0.2,
+        //     wind_up_time: 0.1,
+        //     recovery_time: 0.1,
+        // };
+
+        // // let melee_combat = MeleeCombatBehavior::new(
+        // //     200.0, // chase_speed
+        // //     50.0,  // detection_radius
+        // //     attack_stats,
+        // //     75.0, // evade_speed
+        // //     0.7,  // block_chance
+        // // );
+
+        // // let test_behavior = NPCBehavior::Melee(melee_combat);
+
+        // let melee_combat = RangedCombatBehavior::new(
         //     200.0, // chase_speed
         //     50.0,  // detection_radius
         //     attack_stats,
@@ -116,20 +136,10 @@ impl NPC {
         //     0.7,  // block_chance
         // );
 
-        // let test_behavior = NPCBehavior::Melee(melee_combat);
-
-        let melee_combat = RangedCombatBehavior::new(
-            200.0, // chase_speed
-            50.0,  // detection_radius
-            attack_stats,
-            75.0, // evade_speed
-            0.7,  // block_chance
-        );
-
-        let test_behavior = NPCBehavior::Ranged(melee_combat);
+        // let test_behavior = NPCBehavior::Ranged(melee_combat);
 
         NPC {
-            id: Uuid::new_v4(),
+            id: component_id,
             model_id,
             rigid_body_handle,
             test_behavior,

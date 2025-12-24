@@ -213,4 +213,8 @@ impl WanderBehavior {
 
         self.target_position = current_pos;
     }
+
+    pub fn get_animation_name(&self) -> &str {
+        return "Walking"
+    }
 }

@@ -5,6 +5,7 @@ use nalgebra::Vector3;
 
 use crate::core::RendererState::RendererState;
 use crate::helpers::saved_data::ComponentData;
+use crate::game_behaviors::dialogue_state::{DialogueState, DialogueOption};
 
 #[derive(Clone)]
 pub struct ModelWrapper {
@@ -23,6 +24,44 @@ impl ModelWrapper {
             );
             self.position_changed = true;
         }
+    }
+}
+
+#[derive(Clone)]
+pub struct DialogueWrapper {
+    pub text: String,
+    pub options: Vec<DialogueOption>,
+    pub changed: bool,
+    pub is_open: bool,
+    pub npc_name: String,
+    pub current_node: String,
+}
+
+impl DialogueWrapper {
+    pub fn show(&mut self, text: String) {
+        self.text = text;
+        self.options.clear();
+        self.changed = true;
+        self.is_open = true;
+    }
+
+    pub fn add_option(&mut self, text: String, next_node: String) {
+        self.options.push(DialogueOption { text, next_node });
+        self.changed = true;
+    }
+
+    pub fn set_node(&mut self, node: String) {
+        self.current_node = node;
+        self.changed = true;
+    }
+
+    pub fn close(&mut self) {
+        self.is_open = false;
+        self.changed = true;
+    }
+
+    pub fn get_node(&mut self) -> String {
+        self.current_node.clone()
     }
 }
 
@@ -55,6 +94,14 @@ impl RhaiEngine {
             .register_get("z", |v: &mut Vector3<f32>| v.z)
             .register_set("z", |v: &mut Vector3<f32>, val: f32| v.z = val);
 
+        // Register DialogueWrapper
+        engine.register_type_with_name::<DialogueWrapper>("Dialogue")
+            .register_fn("show", DialogueWrapper::show)
+            .register_fn("add_option", DialogueWrapper::add_option)
+            .register_fn("set_node", DialogueWrapper::set_node)
+            .register_fn("get_node", DialogueWrapper::get_node)
+            .register_fn("close", DialogueWrapper::close);
+
         RhaiEngine {
             engine,
             ast_cache: HashMap::new(),
@@ -64,6 +111,7 @@ impl RhaiEngine {
     pub fn load_script(&mut self, path: &str) -> Result<(), Box<rhai::EvalAltResult>> {
         let script_content = fs::read_to_string(path).map_err(|e| e.to_string())?;
         let ast = self.engine.compile(script_content)?;
+        println!("load script");
         self.ast_cache.insert(path.to_string(), ast);
         Ok(())
     }
@@ -135,6 +183,56 @@ impl RhaiEngine {
         }
         
         None
+    }
+    
+    pub fn execute_interaction_script(
+        &mut self,
+        dialogue_state: &mut DialogueState,
+        script_path: &str,
+        hook_name: &str,
+    ) {
+        let ast = if let Some(ast) = self.ast_cache.get(script_path) {
+            ast
+        } else {
+            if self.load_script(script_path).is_err() {
+                eprintln!("Failed to load Rhai script: {}", script_path);
+                return;
+            }
+            self.ast_cache.get(script_path).unwrap()
+        };
+
+        let wrapper = DialogueWrapper {
+            text: dialogue_state.current_text.clone(),
+            options: dialogue_state.options.clone(),
+            changed: false,
+            is_open: dialogue_state.is_open,
+            npc_name: dialogue_state.npc_name.clone(),
+            current_node: dialogue_state.current_node.clone(),
+        };
+
+        let mut scope = Scope::new();
+
+        println!("Call fn! {:?} {:?}", wrapper.changed, wrapper.text);
+        
+        // Call the function, passing wrapper as argument
+        match self.engine.call_fn::<DialogueWrapper>(&mut scope, &ast, hook_name, (wrapper,)) {
+            Ok(updated_wrapper) => {
+                println!("Called fn {:?} {:?}", updated_wrapper.changed, updated_wrapper.text);
+                if updated_wrapper.changed {
+                    dialogue_state.current_text = updated_wrapper.text;
+                    dialogue_state.options = updated_wrapper.options;
+                    dialogue_state.is_open = updated_wrapper.is_open;
+                    dialogue_state.npc_name = updated_wrapper.npc_name;
+                    dialogue_state.current_node = updated_wrapper.current_node;
+                    dialogue_state.ui_dirty = true;
+                }
+            },
+            Err(e) => {
+                if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                    eprintln!("Error executing hook '{}': {:?}", hook_name, e);
+                }
+            }
+        }
     }
 }
 
