@@ -129,7 +129,7 @@
           "collectable_properties": null,
           "player_properties": null,
           "scatter": null,
-          "rhai_script_path": "scripts/test_component.rhai",
+          "rhai_script_path": "scripts/npc_dialogue.rhai",
           "script_state": {
             "initial_message": "Hello from Rhai!"
           }
