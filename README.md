@@ -87,6 +87,8 @@ Example Game:
 - Procedural scattering of models
 - Landscape Simple Chunking (for practical use instead of quadtree) `HashMap<(x, y), Chunk>` for fast radius checks
 - Animation blending and responsiveness
+- Virtualized geometry
+- Audio
 
 ### TBD Game Mechanics:
 
@@ -102,7 +104,6 @@ Example Game:
 - Skill Points
 - Skill trees
 - Dialogue (integrates with UI)
-- Status Bars (ex. Health, Sim’s)
 - GTA-style Phone Calls
 - Eating
 - Inspecting
@@ -120,7 +121,6 @@ Example Game:
 - Trading/Bartering
 - Reputation systems
 - Improve existing mechanics
-- Lua based scripting system (for those who dont want to fork the engine or are using Entropy Chat)
 
 ### TBD Procedural Models:
 
