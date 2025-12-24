@@ -461,7 +461,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 // Dispatch actions only on press.
                 if event.state.is_pressed() {
                     let key_str = match event.logical_key.as_ref() {
-                        Key::Character(ch) => Some(ch.as_str()),
+                        Key::Character(ch) => Some(ch),
                         Key::Named(named_key) => {
                             match named_key {
                                 winit::keyboard::NamedKey::Enter => Some("Enter"),
