@@ -44,7 +44,7 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         y: (window_size.height as f32 - bg_height) / 2.0 
     };
     // because it is positioned according to its center, not top-left
-    let bg_pos = Point { 
+    let poly_bg_pos = Point { 
         x: bg_pos.x + (bg_width / 2.0), 
         y: bg_pos.y + (bg_height / 2.0) 
     };
@@ -63,7 +63,7 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         camera,
         vec![Point{x:0.0, y:0.0}, Point{x:1.0, y:0.0}, Point{x:1.0, y:1.0}, Point{x:0.0, y:1.0}],
         (bg_width, bg_height),
-        bg_pos,
+        poly_bg_pos,
         (0.0, 0.0, 0.0),
         0.0,
         [0.1, 0.1, 0.1, 0.9], // Dark background
@@ -90,14 +90,14 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         text: "INVENTORY".to_string(),
         font_family: "Basic".to_string(),
         font_size: 48,
-        dimensions: (200.0, 50.0),
-        position: Point { x: bg_pos.x + 20.0, y: bg_pos.y + 20.0 },
+        dimensions: (300.0, 50.0),
+        position: Point { x: bg_pos.x + 120.0, y: bg_pos.y + 20.0 },
         layer: 201,
         color: [255, 255, 255, 255],
         background_fill: [0, 0, 0, 0],
     };
     
-    let title_text = TextRenderer::new(
+    let mut title_text = TextRenderer::new(
         device,
         queue,
         ui_model_bind_group_layout,
@@ -110,6 +110,9 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         Uuid::nil(),
         camera
     );
+
+    title_text.render_text(device, queue);
+
     editor.ui_textboxes.push(title_text);
     
     // Items
@@ -126,13 +129,13 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
                     font_family: "Basic".to_string(),
                     font_size: 24,
                     dimensions: (300.0, 30.0),
-                    position: Point { x: bg_pos.x + 30.0, y: bg_pos.y + 80.0 + (i as f32 * 40.0) },
+                    position: Point { x: bg_pos.x + 130.0, y: bg_pos.y + 80.0 + (i as f32 * 40.0) },
                     layer: 201,
                     color: [200, 200, 200, 255],
                     background_fill: [0, 0, 0, 0],
                 };
                 
-                let item_text = TextRenderer::new(
+                let mut item_text = TextRenderer::new(
                     device,
                     queue,
                     ui_model_bind_group_layout,
@@ -145,6 +148,11 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
                     Uuid::nil(),
                     camera
                 );
+
+                
+
+                item_text.render_text(device, queue);
+
                 editor.ui_textboxes.push(item_text);
              }
         }
