@@ -118,7 +118,8 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
     // Items
     if let Some(state) = &editor.renderer_state {
         if let Some(player) = &state.player_character {
-             for (i, item_id) in player.inventory.items.iter().enumerate() {
+             for (i, item) in player.inventory.items.iter().enumerate() {
+                let item_id = item.id.clone();
                 let item_ui_id = Uuid::new_v4();
                 editor.inventory_ui_ids.push(item_ui_id);
                 
@@ -184,7 +185,12 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
              editor.ui_textboxes.push(weapon_label);
 
              // Weapon Value
-             let weapon_text = player.inventory.equipped_weapon.clone().unwrap_or_else(|| "None".to_string());
+             let weapon_text = if let Some(weapon) = player.inventory.equipped_weapon.clone() {
+                weapon.generic_properties.name
+             } else {
+                "None".to_string()
+             };
+
              let weapon_val_id = Uuid::new_v4();
              editor.inventory_ui_ids.push(weapon_val_id);
              let weapon_val_config = TextRendererConfig {
@@ -231,7 +237,12 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
              editor.ui_textboxes.push(armor_label);
 
              // Armor Value
-             let armor_text = player.inventory.equipped_armor.clone().unwrap_or_else(|| "None".to_string());
+             let armor_text = if let Some(armor) = player.inventory.equipped_armor.clone() {
+                armor.generic_properties.name
+             } else {
+                "None".to_string()
+             };
+
              let armor_val_id = Uuid::new_v4();
              editor.inventory_ui_ids.push(armor_val_id);
              let armor_val_config = TextRendererConfig {

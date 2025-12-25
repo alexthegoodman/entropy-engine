@@ -373,17 +373,14 @@ editor.saved_state = Some(loaded_state);
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
-                                        let mut default_weapon_id = None;
-                                        let mut default_weapon_type = None;
+                                        let mut default_weapon = None;
 
                                         if let Some(data) = &component.player_properties {
-                                            default_weapon_id = data.default_weapon_id.clone();
-
-                                            if let Some(default_weapon_id) = default_weapon_id.clone() {
+                                            if let Some(default_weapon_id) = data.default_weapon_id.clone() {
                                                 let weapon = components.iter().find(|c| c.id == default_weapon_id);
                                                 let weapon = weapon.as_ref().expect("Couldn't find associated wepaon");
-                                                let props = weapon.collectable_properties.as_ref().expect("Couldn't find weapon properties");
-                                                default_weapon_type = props.collectable_type.clone();
+                                                // let props = weapon.collectable_properties.as_ref().expect("Couldn't find weapon properties");
+                                                default_weapon = Some(weapon.clone().clone());
                                             }
                                         }
 
@@ -399,8 +396,7 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera,
-                                                default_weapon_id,
-                                                default_weapon_type,
+                                                default_weapon,
                                                 component.script_state.clone()
                                             ).await;
                                         }

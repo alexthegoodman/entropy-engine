@@ -25,7 +25,7 @@ use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
-use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentKind, StatData};
+use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentData, ComponentKind, StatData};
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
@@ -138,8 +138,7 @@ pub async fn handle_add_player(
     isometry: Isometry3<f32>,
     scale: Vector3<f32>,
     camera: &SimpleCamera,
-    default_weapon_id: Option<String>,
-    default_weapon_type: Option<CollectableType>,
+    default_weapon: Option<ComponentData>,
     script_state: Option<HashMap<String, String>>,
 ) {
     #[cfg(target_os = "windows")]
@@ -165,8 +164,7 @@ pub async fn handle_add_player(
         camera,
         isometry,
         scale,
-        default_weapon_id,
-        default_weapon_type
+        default_weapon
     );
 
     player_character.model_id = Some(modelComponentId); // may want to be an optional model later

@@ -17,7 +17,7 @@ use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape, Ray};
 
 use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
-use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType};
+use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType, ComponentData};
 use crate::model_components::NPC::{NPC};
 use crate::{
     game_behaviors::{
@@ -51,8 +51,7 @@ pub struct PlayerCharacter {
     pub is_defending: bool,
     pub inventory: Inventory,
 
-    pub default_weapon_id: Option<String>,
-    pub default_weapon_type: Option<CollectableType>,
+    pub default_weapon: Option<ComponentData>,
 
     pub animation_state: AnimationState,
     pub is_moving: bool,
@@ -72,8 +71,7 @@ impl PlayerCharacter {
         camera: &SimpleCamera,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
-        default_weapon_id: Option<String>,
-        default_weapon_type: Option<CollectableType>
+        default_weapon: Option<ComponentData>
     ) -> Self {
         // let id = Uuid::new_v4();
         let uuid = Uuid::from_str(&id);
@@ -123,11 +121,9 @@ impl PlayerCharacter {
 
         let mut inventory = Inventory::new();
 
-        if let Some(default_weapon_id)  = default_weapon_id.clone() {
-            if let Some(default_weapon_type)  = default_weapon_type.clone() {
-                inventory.add_item(default_weapon_id.clone());
-                inventory.equip_weapon(default_weapon_id, default_weapon_type);
-            }
+        if let Some(default_weapon)  = default_weapon.clone() {
+            inventory.add_item(&default_weapon);
+            inventory.equip_weapon(&default_weapon);
         }
 
         Self {
@@ -162,8 +158,7 @@ impl PlayerCharacter {
             attack_timer: Instant::now(),
             is_defending: false,
             inventory,
-            default_weapon_id,
-            default_weapon_type,
+            default_weapon,
             animation_state: AnimationState::new(0),
             is_moving: false,
             script_state: None,
@@ -223,10 +218,15 @@ impl PlayerCharacter {
         };
 
         // Determine attack type based on equipped weapon
-        let is_ranged = match &self.inventory.equipped_weapon_type {
-            Some(CollectableType::RangedWeapon) => true,
-            _ => false,
-        };
+        let mut is_ranged = false;
+
+        if let Some(weapon) = &self.inventory.equipped_weapon {
+            if let Some(props) = &weapon.collectable_properties {
+                if props.collectable_type == Some(CollectableType::RangedWeapon) {
+                    is_ranged = true;
+                }
+            }
+        }
 
         if is_ranged {
             // Ranged Attack (Raycast)

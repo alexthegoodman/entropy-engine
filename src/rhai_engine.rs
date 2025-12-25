@@ -280,8 +280,8 @@ impl RhaiEngine {
                     // We need a wrapper for player
                     let wrapper = PlayerWrapper {
                         id: component.id.clone(),
-                        equipped_weapon_id: if let Some(weapon_id) = &player.inventory.equipped_weapon {
-                            weapon_id.clone()
+                        equipped_weapon_id: if let Some(weapon) = &player.inventory.equipped_weapon {
+                            weapon.id.clone()
                         } else {
                             "".to_string()
                         },

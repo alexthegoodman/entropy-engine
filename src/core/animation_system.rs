@@ -139,8 +139,8 @@ pub fn update_animations(
                 }
 
                 // Handle weapon attachment
-                if let Some(weapon_id) = &player.default_weapon_id {
-                    attach_weapon_to_bone(models, collectables, player_model_index, weapon_id, "LowerArm.r", queue);
+                if let Some(weapon) = &player.default_weapon {
+                    attach_weapon_to_bone(models, collectables, player_model_index, &weapon.id, "LowerArm.r", queue);
                 }
             }
         }
