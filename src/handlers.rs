@@ -29,6 +29,8 @@ use crate::helpers::saved_data::{CollectableProperties, CollectableType, Compone
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
+use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
+use crate::rhai_engine::{ComponentChanges, RhaiEngine, ScriptParticleConfig};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
@@ -437,6 +439,65 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                         if let Some(id) = attacked_npc_id {
                             state.current_enemy_target = Some(id.clone());
                             println!("Updated enemy target: {:?}", id);
+                        }
+
+                        // Execute Rhai on_attack scripts for the player
+                        let mut script_changes = Vec::new();
+                        if let Some(saved_state) = &state.saved_state {
+                            if let Some(levels) = &saved_state.levels {
+                                if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
+                                    for component in components.iter() {
+                                        if component.kind == Some(ComponentKind::PlayerCharacter) {
+                                            if let Some(script_path) = &component.rhai_script_path {
+                                                if let Some(change) = state.rhai_engine.execute_component_script(
+                                                    renderer_state,
+                                                    component,
+                                                    script_path,
+                                                    "on_attack",
+                                                ) {
+                                                    script_changes.push(change);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Handle particle spawns from on_attack
+                        for change in script_changes {
+                            if let Some(spawns) = change.particle_spawns {
+                                let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
+                                for spawn in spawns {
+                                    let uniforms = ParticleUniforms {
+                                        position: [spawn.position.x, spawn.position.y, spawn.position.z],
+                                        _pad0: 0.0,
+                                        time: 0.0,
+                                        emission_rate: spawn.emission_rate,
+                                        life_time: spawn.life_time,
+                                        radius: spawn.radius,
+                                        gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
+                                        _pad1: 0.0,
+                                        initial_speed_min: spawn.initial_speed_min,
+                                        initial_speed_max: spawn.initial_speed_max,
+                                        start_color: spawn.start_color,
+                                        end_color: spawn.end_color,
+                                        size: spawn.size,
+                                        mode: spawn.mode,
+                                        _pad2: [0.0; 2],
+                                    };
+                                    
+                                    let system = ParticleSystem::new(
+                                        &gpu_resources.device,
+                                        &state.camera_binding.as_ref().unwrap().bind_group_layout,
+                                        uniforms,
+                                        1000,
+                                        wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
+                                    );
+                                    
+                                    renderer_state.particle_systems.push(system);
+                                }
+                            }
                         }
 
                         // Handle debug hitscan line
