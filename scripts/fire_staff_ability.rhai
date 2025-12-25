@@ -26,7 +26,7 @@ fn on_attack(player, system, state) {
 
         // Use arrays throughout
         system.spawn_particles(
-            vec3(pos.x, pos.y + 15.0, pos.z),
+            vec3(pos.x, pos.y, pos.z),
             vec4(1.0, 0.3, 0.0, 1.0),
             vec3(0.0, -10.0, 0.0),
         );

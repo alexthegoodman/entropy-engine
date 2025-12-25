@@ -1984,6 +1984,17 @@ impl ExportPipeline {
                 }
             }
 
+            if !renderer_state.particle_systems.is_empty() {                
+                for system in &mut renderer_state.particle_systems {
+                    // println!("isntance count {:?}", system.instance_count);
+                    system.update(&queue, time);
+                    render_pass.set_pipeline(&system.render_pipeline);
+                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    render_pass.set_bind_group(1, &system.uniform_bind_group, &[]);
+                    render_pass.draw(0..6, 0..system.instance_count);
+                }
+            }
+
             // Drop the render pass before doing texture copies
             drop(render_pass);
 
@@ -2080,42 +2091,42 @@ impl ExportPipeline {
             }
 
             // Particle Forward Pass
-            {
-                if !renderer_state.particle_systems.is_empty() {
-                    let camera_binding = editor.camera_binding.as_ref().unwrap();
+            // {
+            //     if !renderer_state.particle_systems.is_empty() {
+            //         let camera_binding = editor.camera_binding.as_ref().unwrap();
                     
-                    let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Particle Forward Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+            //         let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //             label: Some("Particle Forward Pass"),
+            //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //                 view: &view,
+            //                 resolve_target: None,
+            //                 ops: wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 },
+            //                 depth_slice: None,
+            //             })],
+            //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            //                 view: &depth_view,
+            //                 depth_ops: Some(wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 }),
+            //                 stencil_ops: None,
+            //             }),
+            //             timestamp_writes: None,
+            //             occlusion_query_set: None,
+            //         });
 
-                    for system in &mut renderer_state.particle_systems {
-                        system.update(&queue, time);
-                        particle_pass.set_pipeline(&system.render_pipeline);
-                        particle_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                        particle_pass.set_bind_group(1, &system.uniform_bind_group, &[]);
-                        particle_pass.draw(0..6, 0..system.instance_count);
-                    }
-                }
-            }
+            //         for system in &mut renderer_state.particle_systems {
+            //             system.update(&queue, time);
+            //             particle_pass.set_pipeline(&system.render_pipeline);
+            //             particle_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+            //             particle_pass.set_bind_group(1, &system.uniform_bind_group, &[]);
+            //             particle_pass.draw(0..6, 0..system.instance_count);
+            //         }
+            //     }
+            // }
 
             
             renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {

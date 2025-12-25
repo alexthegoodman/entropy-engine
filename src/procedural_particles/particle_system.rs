@@ -73,7 +73,7 @@ impl ParticleSystem {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Particle Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("particles.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("flames.wgsl").into()),
         });
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -97,10 +97,32 @@ impl ParticleSystem {
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
                 entry_point: Some("fs_main"),
+                // targets: &[
+                //     Some(wgpu::ColorTargetState {
+                //         format,
+                //         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                //         write_mask: wgpu::ColorWrites::ALL,
+                //     }),
+                // ],
                 targets: &[
                     Some(wgpu::ColorTargetState {
-                        format,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
+                        blend: None,
                         write_mask: wgpu::ColorWrites::ALL,
                     }),
                 ],
@@ -115,7 +137,8 @@ impl ParticleSystem {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: false, // Particles usually don't write depth (transparent)
+                // depth_write_enabled: false, // Particles usually don't write depth (transparent)
+                depth_write_enabled: true, // Particles usually don't write depth (transparent)
                 depth_compare: wgpu::CompareFunction::Less,
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
