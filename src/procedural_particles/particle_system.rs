@@ -3,7 +3,7 @@ use crate::core::{SimpleCamera::SimpleCamera, vertex::Vertex};
 use nalgebra::{Point3, Vector3};
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ParticleUniforms {
     pub position: [f32; 3],
     pub time: f32,

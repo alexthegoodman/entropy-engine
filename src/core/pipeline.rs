@@ -1720,38 +1720,6 @@ impl ExportPipeline {
 
             // Apply collected changes
             for change in changes {
-                if let Some(spawns) = change.particle_spawns {
-                    for spawn in spawns {
-                        let uniforms = ParticleUniforms {
-                            position: [spawn.position.x, spawn.position.y, spawn.position.z],
-                            // _pad0: 0.0,
-                            time: 0.0,
-                            emission_rate: spawn.emission_rate,
-                            life_time: spawn.life_time,
-                            radius: spawn.radius,
-                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
-                            // _pad1: 0.0,
-                            initial_speed_min: spawn.initial_speed_min,
-                            initial_speed_max: spawn.initial_speed_max,
-                            start_color: spawn.start_color,
-                            end_color: spawn.end_color,
-                            size: spawn.size,
-                            mode: spawn.mode,
-                            _pad2: [0.0; 6],
-                        };
-                        
-                        let system = ParticleSystem::new(
-                            device,
-                            &camera_binding.bind_group_layout,
-                            uniforms,
-                            1000, // Max particles hardcoded for now
-                            wgpu::TextureFormat::Rgba8Unorm,
-                        );
-                        
-                        renderer_state.particle_systems.push(system);
-                    }
-                }
-
                 if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == change.component_id) {
                     if let Some(new_pos) = change.new_position {
                         let pos_array = [new_pos.x, new_pos.y, new_pos.z];

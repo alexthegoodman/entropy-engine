@@ -443,8 +443,11 @@ impl RhaiEngine {
                             "".to_string()
                         },
                         // Hack: use sphere position or camera position // TODO: need to fix
-                         position: if let Some(sphere) = &player.sphere {
-                            sphere.transform.position
+                        position: if let Some(rigidbody) = &player.movement_rigid_body_handle {
+                            let body = renderer_state.rigid_body_set.get(*rigidbody);
+                            let body = body.as_ref().expect("Couldn't get body");
+
+                            Vector3::new(body.translation().x, body.translation().y, body.translation().z)
                         } else {
                             Vector3::zeros()
                         }

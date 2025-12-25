@@ -487,6 +487,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                         mode: spawn.mode,
                                         _pad2: [0.0; 6],
                                     };
+
+                                    println!("inserting particles {:?}", uniforms);
                                     
                                     let system = ParticleSystem::new(
                                         &gpu_resources.device,
@@ -500,6 +502,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                 }
                             }
                         }
+
+                        println!("particle_systems {:?}", renderer_state.particle_systems.len());
 
                         // Handle debug hitscan line
                         if renderer_state.game_settings.show_hitscan_line {
