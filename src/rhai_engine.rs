@@ -550,9 +550,9 @@ impl RhaiEngine {
                 }
             },
             Err(e) => {
-                if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
                     eprintln!("Error executing hook '{}': {:?}", hook_name, e);
-                }
+                // }
             }
         }
     }
