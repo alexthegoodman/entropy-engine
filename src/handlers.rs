@@ -365,35 +365,34 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                     println!("Check ray");
 
                     // DEBUG
-                            let start_color = [1.0, 0.0, 0.0, 1.0];
-                            let pos = [0.0, 0.0, 0.0];
-                            let grav = [1.0, -10.0, 0.0];
-                            let config = ParticleUniforms {
-                                emission_rate: 100.0,
-                                life_time: 2.0,
-                                radius: 2.0,
-                                gravity: grav,
-                                initial_speed_min: 2.0,
-                                initial_speed_max: 5.0,
-                                start_color: start_color,
-                                end_color: [start_color[0], start_color[1], start_color[2], 0.0],
-                                size: 0.2,
-                                mode: 0.0,
-                                position: pos,
-                                time: 0.0,
-                                _pad2: [0.0; 6]
-                            };
-                            let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
-                            let system = ParticleSystem::new(
-                                &gpu_resources.device,
-                                &state.camera_binding.as_ref().unwrap().bind_group_layout,
-                                config,
-                                1000,
-                                wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
-                            );
+                            // let start_color = [1.0, 0.0, 0.0, 1.0];
+                            // let pos = [0.0, 0.0, 0.0];
+                            // let grav = [1.0, -20.0, 0.0];
+                            // let config = ParticleUniforms {
+                            //     emission_rate: 100.0,
+                            //     life_time: 2.0,
+                            //     radius: 1.5,
+                            //     gravity: grav,
+                            //     initial_speed_min: 2.0,
+                            //     initial_speed_max: 5.0,
+                            //     start_color: start_color,
+                            //     end_color: [start_color[0], start_color[1], start_color[2], 0.0],
+                            //     size: 0.8,
+                            //     mode: 0.0,
+                            //     position: pos,
+                            //     time: 0.0,
+                            //     _pad2: [0.0; 6]
+                            // };
+                            // let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
+                            // let system = ParticleSystem::new(
+                            //     &gpu_resources.device,
+                            //     &state.camera_binding.as_ref().unwrap().bind_group_layout,
+                            //     config,
+                            //     1000,
+                            //     wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
+                            // );
+                            // renderer_state.particle_systems.push(system);
                     // end debug
-                    
-                    renderer_state.particle_systems.push(system);
 
                     // Perform raycast
                     renderer_state.update_rays((mouse_pos.x, mouse_pos.y), &camera, window_size.width, window_size.height);

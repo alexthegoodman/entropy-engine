@@ -173,7 +173,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let final_size = base_size * size_variation * size_curve * 2.0; // Make flames bigger
     
     // Stretch flames vertically (taller than wide)
-    let flame_aspect = vec2<f32>(1.0, 1.8);
+    let flame_aspect = vec2<f32>(1.0, 6.8);
     let world_pos = particle_pos + (right * quad_offset.x * flame_aspect.x + up * quad_offset.y * flame_aspect.y) * final_size;
 
     out.world_pos = world_pos;
