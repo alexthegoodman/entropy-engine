@@ -116,12 +116,9 @@ fn vs_main(
         + (local_corner.x * size * 0.5) * right 
         + (local_corner.y * size * 0.5) * up;
 
-    // out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
-    out.clip_position = camera.view_proj * vec4<f32>(uniforms.position, 1.0);
+    out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
     out.color = mix(uniforms.start_color, uniforms.end_color, norm_life);
     out.color.a = out.color.a * alpha;
-
-    out.color = vec4<f32>(1.0, 0.0, 0.0, 1.0);
 
     return out;
 }
