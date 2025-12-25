@@ -1800,54 +1800,8 @@ impl ExportPipeline {
 
             render_pass.set_pipeline(&geometry_pipeline);
 
-            // actual rendering commands
-            // editor.step_video_animations(&camera, Some(current_time));
-            // editor.step_motion_path_animations(&camera, Some(current_time));
-
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
-
-            // // draw static (internal) polygons
-            // for (poly_index, polygon) in editor.static_polygons.iter().enumerate() {
-            //     polygon
-            //         .transform
-            //         .update_uniform_buffer(&queue, &camera.viewport.window_size);
-            //     render_pass.set_bind_group(1, &polygon.bind_group, &[]);
-            //     render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
-            //     render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
-            //     render_pass
-            //         .set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            //     render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
-            // }
-
-            // draw skybox sphere
-            // if let sphere = &mut renderer_state.skybox {
-            //     // sphere.transform.update_uniform_buffer(&queue);
-            //     render_pass.set_bind_group(1, &sphere.bind_group, &[]);
-            //     render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
-            //     render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
-            //     render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            //     render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
-            // }
-
-            // draw player character sphere (will use as a fallback when no model is available)
-            // if let Some(player_character) = &mut renderer_state.player_character {
-            //     if let Some(sphere) = &mut player_character.sphere {
-            //         if let Some(rb_handle) = player_character.movement_rigid_body_handle {
-            //             if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-            //                 let pos = rb.translation();
-            //                 sphere.transform.update_position([pos.x, pos.y, pos.z]);
-            //             }
-            //         }
-
-            //         sphere.transform.update_uniform_buffer(&queue);
-            //         render_pass.set_bind_group(1, &sphere.bind_group, &[]);
-            //         render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
-            //         render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
-            //         render_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            //         render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
-            //     }
-            // }
 
             // // draw cubes
             for (poly_index, cube) in renderer_state.cubes.iter().enumerate() {
@@ -2029,97 +1983,6 @@ impl ExportPipeline {
                     }
                 }
             }
-
-            // // draw text items
-            // for (text_index, text_item) in editor.text_items.iter().enumerate() {
-            //     if !text_item.hidden {
-            //         if !text_item.background_polygon.hidden {
-            //             text_item
-            //                 .background_polygon
-            //                 .transform
-            //                 .update_uniform_buffer(&gpu_resources.queue, &camera.viewport.window_size);
-
-            //             render_pass.set_bind_group(
-            //                 1,
-            //                 &text_item.background_polygon.bind_group,
-            //                 &[],
-            //             );
-            //             render_pass.set_bind_group(
-            //                 3,
-            //                 &text_item.background_polygon.group_bind_group,
-            //                 &[],
-            //             );
-            //             render_pass.set_vertex_buffer(
-            //                 0,
-            //                 text_item.background_polygon.vertex_buffer.slice(..),
-            //             );
-            //             render_pass.set_index_buffer(
-            //                 text_item.background_polygon.index_buffer.slice(..),
-            //                 wgpu::IndexFormat::Uint32,
-            //             );
-            //             render_pass.draw_indexed(
-            //                 0..text_item.background_polygon.indices.len() as u32,
-            //                 0,
-            //                 0..1,
-            //             );
-            //         }
-
-            //         text_item
-            //             .transform
-            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
-            //         render_pass.set_bind_group(1, &text_item.bind_group, &[]);
-            //         render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
-            //         render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
-            //         render_pass.set_index_buffer(
-            //             text_item.index_buffer.slice(..),
-            //             wgpu::IndexFormat::Uint32,
-            //         );
-            //         render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
-            //     }
-            // }
-
-            // // draw image items
-            // for (image_index, st_image) in editor.image_items.iter().enumerate() {
-            //     if !st_image.hidden {
-            //         st_image
-            //             .transform
-            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
-            //         render_pass.set_bind_group(1, &st_image.bind_group, &[]);
-            //         render_pass.set_bind_group(3, &st_image.group_bind_group, &[]);
-            //         render_pass.set_vertex_buffer(0, st_image.vertex_buffer.slice(..));
-            //         render_pass.set_index_buffer(
-            //             st_image.index_buffer.slice(..),
-            //             wgpu::IndexFormat::Uint32,
-            //         );
-            //         render_pass.draw_indexed(0..st_image.indices.len() as u32, 0, 0..1);
-            //     }
-            // }
-
-            // // draw video items
-            // for (video_index, st_video) in editor.video_items.iter().enumerate() {
-            //     if !st_video.hidden {
-            //         st_video
-            //             .transform
-            //             .update_uniform_buffer(&queue, &camera.viewport.window_size);
-            //         render_pass.set_bind_group(1, &st_video.bind_group, &[]);
-            //         render_pass.set_bind_group(3, &st_video.group_bind_group, &[]);
-            //         render_pass.set_vertex_buffer(0, st_video.vertex_buffer.slice(..));
-            //         render_pass.set_index_buffer(
-            //             st_video.index_buffer.slice(..),
-            //             wgpu::IndexFormat::Uint32,
-            //         );
-            //         render_pass.draw_indexed(0..st_video.indices.len() as u32, 0, 0..1);
-            //     }
-            // }
-
-            // Render all terrain managers (for quadtree only)
-            // for terrain_manager in &renderer_state.terrain_managers {
-            //     terrain_manager.render(
-            //         &mut render_pass,
-            //         // &camera_binding.bind_group,
-            //         &gpu_resources.queue,
-            //     );
-            // }
 
             // Drop the render pass before doing texture copies
             drop(render_pass);
