@@ -442,7 +442,6 @@ impl RhaiEngine {
                         } else {
                             "".to_string()
                         },
-                        // Hack: use sphere position or camera position // TODO: need to fix
                         position: if let Some(rigidbody) = &player.movement_rigid_body_handle {
                             let body = renderer_state.rigid_body_set.get(*rigidbody);
                             let body = body.as_ref().expect("Couldn't get body");
