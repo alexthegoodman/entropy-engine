@@ -483,9 +483,9 @@ impl RhaiEngine {
                             }
                         },
                         Err(e) => {
-                             if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                            //  if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
                                 eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
-                            }
+                            // }
                         }
                      }
                 }
