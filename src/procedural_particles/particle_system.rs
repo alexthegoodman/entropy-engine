@@ -6,7 +6,6 @@ use nalgebra::{Point3, Vector3};
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ParticleUniforms {
     pub position: [f32; 3],
-    pub _pad0: f32,
     pub time: f32,
     
     pub emission_rate: f32,
@@ -14,7 +13,6 @@ pub struct ParticleUniforms {
     pub radius: f32,
     
     pub gravity: [f32; 3],
-    pub _pad1: f32,
     
     pub initial_speed_min: f32,
     pub initial_speed_max: f32,
@@ -24,7 +22,7 @@ pub struct ParticleUniforms {
     pub size: f32,
     
     pub mode: f32, // 0 = continuous, 1 = burst
-    pub _pad2: [f32; 2],
+    pub _pad2: [f32; 6],
 }
 
 pub struct ParticleSystem {

@@ -1724,20 +1724,20 @@ impl ExportPipeline {
                     for spawn in spawns {
                         let uniforms = ParticleUniforms {
                             position: [spawn.position.x, spawn.position.y, spawn.position.z],
-                            _pad0: 0.0,
+                            // _pad0: 0.0,
                             time: 0.0,
                             emission_rate: spawn.emission_rate,
                             life_time: spawn.life_time,
                             radius: spawn.radius,
                             gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
-                            _pad1: 0.0,
+                            // _pad1: 0.0,
                             initial_speed_min: spawn.initial_speed_min,
                             initial_speed_max: spawn.initial_speed_max,
                             start_color: spawn.start_color,
                             end_color: spawn.end_color,
                             size: spawn.size,
                             mode: spawn.mode,
-                            _pad2: [0.0; 2],
+                            _pad2: [0.0; 6],
                         };
                         
                         let system = ParticleSystem::new(

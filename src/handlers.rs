@@ -447,6 +447,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                     for component in components.iter() {
                                         if component.kind == Some(ComponentKind::PlayerCharacter) {
                                             if let Some(script_path) = &component.rhai_script_path {
+                                                println!("execute_component_script on_attack");
                                                 if let Some(change) = state.rhai_engine.execute_component_script(
                                                     renderer_state,
                                                     component,
@@ -462,6 +463,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                             }
                         }
 
+                        println!("script_changes {:?}", script_changes.len());
+
                         // Handle particle spawns from on_attack
                         for change in script_changes {
                             if let Some(spawns) = change.particle_spawns {
@@ -469,20 +472,20 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                 for spawn in spawns {
                                     let uniforms = ParticleUniforms {
                                         position: [spawn.position.x, spawn.position.y, spawn.position.z],
-                                        _pad0: 0.0,
+                                        // _pad0: 0.0,
                                         time: 0.0,
                                         emission_rate: spawn.emission_rate,
                                         life_time: spawn.life_time,
                                         radius: spawn.radius,
                                         gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
-                                        _pad1: 0.0,
+                                        // _pad1: 0.0,
                                         initial_speed_min: spawn.initial_speed_min,
                                         initial_speed_max: spawn.initial_speed_max,
                                         start_color: spawn.start_color,
                                         end_color: spawn.end_color,
                                         size: spawn.size,
                                         mode: spawn.mode,
-                                        _pad2: [0.0; 2],
+                                        _pad2: [0.0; 6],
                                     };
                                     
                                     let system = ParticleSystem::new(

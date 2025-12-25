@@ -1,4 +1,4 @@
-fn on_update(player, state) {
+fn on_update(player, system, state) {
     let weapon_name = player.get_equipped_weapon_name();
     
     // Check if Fire Staff is equipped
@@ -17,19 +17,22 @@ fn on_update(player, state) {
     return state;
 }
 
-fn on_attack(player, state) {
+fn on_attack(player, system, state) {
     let weapon_name = player.get_equipped_weapon_name();
     
     if weapon_name.contains("Fire Staff") || weapon_name.contains("fire staff") {
-        let pos = player.get_position();
-        
-        // Spawn fire rain system above the player
+        let pos = player.get_position();  // Returns [x, y, z]
+        print("Attack!");
+
+        // Use arrays throughout
         system.spawn_particles(
-            new_vector3(pos.x, pos.y + 15.0, pos.z), 
-            [1.0, 0.3, 0.0, 1.0], 
-            new_vector3(0.0, -10.0, 0.0)
+            vec3(pos.x, pos.y + 15.0, pos.z),
+            vec4(1.0, 0.3, 0.0, 1.0),
+            vec3(0.0, -10.0, 0.0),
         );
         
-        print("Fire Staff attack! Calling fire from the heavens...");
+        print("Fire Staff attack!");
     }
+    
+    return state;
 }

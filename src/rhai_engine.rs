@@ -10,6 +10,21 @@ use crate::helpers::saved_data::ComponentData;
 use crate::game_behaviors::dialogue_state::{DialogueState, DialogueOption};
 use crate::helpers::saved_data::ComponentKind;
 
+#[derive(Clone, CustomType, Debug)]            // <- auto-implement 'CustomType'
+pub struct Vec3 {                       //    for normal structs
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+#[derive(Clone, CustomType, Debug)]            // <- auto-implement 'CustomType'
+pub struct Vec4 {                       //    for normal structs
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+    pub w: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct ScriptParticleConfig {
     pub emission_rate: f32,
@@ -37,34 +52,107 @@ impl SystemWrapper {
         }
     }
 
+    pub fn debug_name(&mut self, pos: f32) -> String {
+        // "SystemWrapper".to_string()
+        format!("SystemWrapper! {:?}", pos)
+    }
+
+    pub fn vec3(&mut self, x: f32, y: f32, z: f32) -> Vec3 {
+        println!("SystemWrapper::vec3 called with: {}, {}, {}", x, y, z);
+
+        Vec3 { x, y, z }
+    }
+    
+    pub fn log_particles(&mut self, 
+        position: Vec3, 
+        color: Vec4, 
+        gravity: Vec3
+    ) -> String {
+        // format!("Spawn! {:?} {:?} {:?}", position, color, gravity)
+        "Anything".to_string()
+    }
+
+    // pub fn spawn_particles(&mut self, 
+    //     position: Array, 
+    //     color: Array, 
+    //     gravity: Array
+    // ) {
+    //     println!("Spawn particles called!");
+        
+    //     // Convert position array to Vector3
+    //     let pos = if position.len() == 3 {
+    //         Vector3::new(
+    //             position[0].as_float().unwrap_or(0.0) as f32,
+    //             position[1].as_float().unwrap_or(0.0) as f32,
+    //             position[2].as_float().unwrap_or(0.0) as f32,
+    //         )
+    //     } else {
+    //         Vector3::zeros()
+    //     };
+        
+    //     // Convert gravity array to Vector3
+    //     let grav = if gravity.len() == 3 {
+    //         Vector3::new(
+    //             gravity[0].as_float().unwrap_or(0.0) as f32,
+    //             gravity[1].as_float().unwrap_or(0.0) as f32,
+    //             gravity[2].as_float().unwrap_or(0.0) as f32,
+    //         )
+    //     } else {
+    //         Vector3::new(0.0, -9.8, 0.0)
+    //     };
+        
+    //     // Convert color array
+    //     let start_color = if color.len() >= 3 {
+    //         [
+    //             color[0].as_float().unwrap_or(1.0) as f32,
+    //             color[1].as_float().unwrap_or(1.0) as f32,
+    //             color[2].as_float().unwrap_or(1.0) as f32,
+    //             if color.len() > 3 { color[3].as_float().unwrap_or(1.0) as f32 } else { 1.0 }
+    //         ]
+    //     } else {
+    //         [1.0, 0.0, 0.0, 1.0]
+    //     };
+
+    //     let config = ScriptParticleConfig {
+    //         emission_rate: 100.0,
+    //         life_time: 2.0,
+    //         radius: 5.0,
+    //         gravity: grav,
+    //         initial_speed_min: 2.0,
+    //         initial_speed_max: 5.0,
+    //         start_color: start_color,
+    //         end_color: [start_color[0], start_color[1], start_color[2], 0.0],
+    //         size: 0.2,
+    //         mode: 0.0, // Continuous
+    //         position: pos,
+    //     };
+    //     self.particle_spawns.borrow_mut().push(config);
+    // }
+
     pub fn spawn_particles(&mut self, 
-        position: Vector3<f32>, 
-        color: Array, 
-        gravity: Vector3<f32>
+        position: Vec3, 
+        color: Vec4, 
+        gravity: Vec3
     ) {
-        let start_color = if color.len() >= 3 {
-             [
-                color[0].as_float().unwrap_or(1.0) as f32,
-                color[1].as_float().unwrap_or(1.0) as f32,
-                color[2].as_float().unwrap_or(1.0) as f32,
-                if color.len() > 3 { color[3].as_float().unwrap_or(1.0) as f32 } else { 1.0 }
-             ]
-        } else {
-            [1.0, 0.0, 0.0, 1.0]
-        };
+        println!("Spawn particles called!");
+        
+        // Convert to nalgebra Vector3
+        let pos = Vector3::new(position.x, position.y, position.z);
+        let grav = Vector3::new(gravity.x, gravity.y, gravity.z);
+        let start_color = [color.x, color.y, color.z, color.w];
 
         let config = ScriptParticleConfig {
             emission_rate: 100.0,
             life_time: 2.0,
             radius: 5.0,
-            gravity: gravity,
+            gravity: grav,
             initial_speed_min: 2.0,
             initial_speed_max: 5.0,
             start_color: start_color,
             end_color: [start_color[0], start_color[1], start_color[2], 0.0],
             size: 0.2,
-            mode: 0.0, // Continuous
-            position: position,
+            mode: 0.0,
+            position: pos,
         };
         self.particle_spawns.borrow_mut().push(config);
     }
@@ -87,8 +175,25 @@ impl PlayerWrapper {
         self.equipped_weapon_name.clone()
     }
     
-    pub fn get_position(&mut self) -> Vector3<f32> {
-        self.position.clone()
+    // pub fn get_position(&mut self) -> Vector3<f32> {
+    //     self.position.clone()
+    // }
+
+    // Return an array instead of Vector3
+    // pub fn get_position(&mut self) -> rhai::Array {
+    //     vec![
+    //         Dynamic::from(self.position.x),
+    //         Dynamic::from(self.position.y),
+    //         Dynamic::from(self.position.z),
+    //     ]
+    // }
+
+    pub fn get_position(&mut self) -> Vec3 {
+        Vec3 {
+            x: self.position.x,
+            y: self.position.y,
+            z: self.position.z,
+        }
     }
 }
 
@@ -164,6 +269,17 @@ impl RhaiEngine {
             println!("[RHAI] {}", text);
         });
 
+        engine.build_type::<Vec3>();
+        engine.build_type::<Vec4>();
+
+        // Register constructor functions
+        engine.register_fn("vec3", |x: f32, y: f32, z: f32| {
+            println!("vec3 called with: {}, {}, {}", x, y, z);
+
+            Vec3 { x, y, z }
+        });
+        engine.register_fn("vec4", |x: f32, y: f32, z: f32, w: f32| Vec4 { x, y, z, w });
+
         // Register the ModelWrapper with mutation methods
         engine.register_type_with_name::<ModelWrapper>("ComponentModel")
             .register_get("id", |m: &mut ModelWrapper| m.id.clone())
@@ -171,14 +287,17 @@ impl RhaiEngine {
             .register_fn("set_position", ModelWrapper::set_position);
             
         // Register Vector3 for direct use in Rhai
-        engine.register_type_with_name::<Vector3<f32>>("Vector3")
-            .register_fn("new_vector3", |x: f32, y: f32, z: f32| Vector3::new(x, y, z))
-            .register_get("x", |v: &mut Vector3<f32>| v.x)
-            .register_set("x", |v: &mut Vector3<f32>, val: f32| v.x = val)
-            .register_get("y", |v: &mut Vector3<f32>| v.y)
-            .register_set("y", |v: &mut Vector3<f32>, val: f32| v.y = val)
-            .register_get("z", |v: &mut Vector3<f32>| v.z)
-            .register_set("z", |v: &mut Vector3<f32>, val: f32| v.z = val);
+        // engine.register_type_with_name::<Vector3<f32>>("Vector3")
+        //     .register_fn("new_vector3", |x: f32, y: f32, z: f32| {
+        //         println!("new_vector3 {:?} {:?} {:?}", x, y, z);
+        //         Vector3::new(x, y, z)
+        //     })
+        //     .register_get("x", |v: &mut Vector3<f32>| v.x)
+        //     .register_set("x", |v: &mut Vector3<f32>, val: f32| v.x = val)
+        //     .register_get("y", |v: &mut Vector3<f32>| v.y)
+        //     .register_set("y", |v: &mut Vector3<f32>, val: f32| v.y = val)
+        //     .register_get("z", |v: &mut Vector3<f32>| v.z)
+        //     .register_set("z", |v: &mut Vector3<f32>, val: f32| v.z = val);
 
         // Register DialogueWrapper
         engine.register_type_with_name::<DialogueWrapper>("Dialogue")
@@ -189,8 +308,34 @@ impl RhaiEngine {
             .register_fn("close", DialogueWrapper::close);
 
         // Register SystemWrapper
+        // engine.register_type_with_name::<SystemWrapper>("System")
+        //     .register_fn("spawn_particles", SystemWrapper::spawn_particles)
         engine.register_type_with_name::<SystemWrapper>("System")
-            .register_fn("spawn_particles", SystemWrapper::spawn_particles);
+            .register_fn("spawn_particles", SystemWrapper::spawn_particles)
+            .register_fn("log_particles", SystemWrapper::log_particles)
+            .register_fn("debug_name", SystemWrapper::debug_name)
+            .register_fn("vec3", SystemWrapper::vec3);
+
+        // engine
+        //     .register_type_with_name::<Rc<RefCell<SystemWrapper>>>("System")
+        //     .register_fn(
+        //         "spawn_particles",
+        //         |sys: &mut Rc<RefCell<SystemWrapper>>,
+        //         position: Vector3<f32>,
+        //         color: Array,
+        //         gravity: Vector3<f32>| {
+        //             sys.borrow_mut().spawn_particles(position, color, gravity);
+        //         }
+        //     )
+        //     .register_fn(
+        //         "log_particles",
+        //         |sys: &mut Rc<RefCell<SystemWrapper>>,
+        //         position: Vector3<f32>,
+        //         color: Array,
+        //         gravity: Vector3<f32>| {
+        //             sys.borrow_mut().log_particles(position, color, gravity);
+        //         }
+        //     );
 
         // Register PlayerWrapper
         engine.register_type_with_name::<PlayerWrapper>("PlayerCharacter")
@@ -231,7 +376,8 @@ impl RhaiEngine {
 
         let mut scope = Scope::new();
         let mut system = SystemWrapper::new();
-        scope.push("system", system.clone());
+        // let system = Rc::new(RefCell::new(SystemWrapper::new()));
+        // scope.push("system", system.clone());
 
         match component.kind.as_ref().unwrap() {
             crate::helpers::saved_data::ComponentKind::Model => {
@@ -250,7 +396,7 @@ impl RhaiEngine {
                         }
                     }
                     
-                    match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), rhai_script_state)) {
+                    match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
                         Ok(result) => {
                             // Script returns just the updated script_state map
                             if let Some(map) = result.try_cast::<rhai::Map>() {
@@ -273,9 +419,9 @@ impl RhaiEngine {
                             }
                         }
                         Err(e) => {
-                            if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                            // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
                                 eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
-                            }
+                            // }
                         }
                     }
                 }
@@ -296,7 +442,7 @@ impl RhaiEngine {
                         } else {
                             "".to_string()
                         },
-                        // Hack: use sphere position or camera position
+                        // Hack: use sphere position or camera position // TODO: need to fix
                          position: if let Some(sphere) = &player.sphere {
                             sphere.transform.position
                         } else {
@@ -313,7 +459,7 @@ impl RhaiEngine {
                     }
 
                     // Call Rhai function
-                     match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), rhai_script_state)) {
+                     match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
                         Ok(result) => {
                              // Script returns just the updated script_state map
                             if let Some(map) = result.try_cast::<rhai::Map>() {
