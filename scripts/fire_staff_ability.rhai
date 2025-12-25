@@ -1,8 +1,8 @@
 fn on_update(player, state) {
-    let weapon_id = player.get_equipped_weapon_id();
+    let weapon_name = player.get_equipped_weapon_name();
     
     // Check if Fire Staff is equipped
-    if weapon_id.contains("FireStaff") || weapon_id.contains("fire_staff") {
+    if weapon_name.contains("Fire Staff") || weapon_name.contains("fire staff") {
         if !state.contains("fire_staff_equipped") {
             state["fire_staff_equipped"] = "true";
             print("Fire Staff equipped.");
@@ -18,9 +18,9 @@ fn on_update(player, state) {
 }
 
 fn on_attack(player, state) {
-    let weapon_id = player.get_equipped_weapon_id();
+    let weapon_name = player.get_equipped_weapon_name();
     
-    if weapon_id.contains("FireStaff") || weapon_id.contains("fire_staff") {
+    if weapon_name.contains("Fire Staff") || weapon_name.contains("fire staff") {
         let pos = player.get_position();
         
         // Spawn fire rain system above the player

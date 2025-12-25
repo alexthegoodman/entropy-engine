@@ -74,12 +74,17 @@ impl SystemWrapper {
 pub struct PlayerWrapper {
     pub id: String,
     pub equipped_weapon_id: String,
+    pub equipped_weapon_name: String,
     pub position: Vector3<f32>,
 }
 
 impl PlayerWrapper {
     pub fn get_equipped_weapon_id(&mut self) -> String {
         self.equipped_weapon_id.clone()
+    }
+
+    pub fn get_equipped_weapon_name(&mut self) -> String {
+        self.equipped_weapon_name.clone()
     }
     
     pub fn get_position(&mut self) -> Vector3<f32> {
@@ -190,6 +195,7 @@ impl RhaiEngine {
         // Register PlayerWrapper
         engine.register_type_with_name::<PlayerWrapper>("PlayerCharacter")
             .register_fn("get_equipped_weapon_id", PlayerWrapper::get_equipped_weapon_id)
+            .register_fn("get_equipped_weapon_name", PlayerWrapper::get_equipped_weapon_name)
             .register_fn("get_position", PlayerWrapper::get_position);
 
         RhaiEngine {
@@ -280,6 +286,11 @@ impl RhaiEngine {
                     // We need a wrapper for player
                     let wrapper = PlayerWrapper {
                         id: component.id.clone(),
+                        equipped_weapon_name: if let Some(weapon) = &player.inventory.equipped_weapon {
+                            weapon.generic_properties.name.clone()
+                        } else {
+                            "".to_string()
+                        },
                         equipped_weapon_id: if let Some(weapon) = &player.inventory.equipped_weapon {
                             weapon.id.clone()
                         } else {
