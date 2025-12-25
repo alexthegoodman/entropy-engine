@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 use std::sync::MutexGuard;
 
 #[cfg(target_os = "windows")]
@@ -56,6 +56,7 @@ pub struct PlayerCharacter {
 
     pub animation_state: AnimationState,
     pub is_moving: bool,
+    pub script_state: Option<HashMap<String, String>>,
 }
 
 impl PlayerCharacter {
@@ -165,6 +166,7 @@ impl PlayerCharacter {
             default_weapon_type,
             animation_state: AnimationState::new(0),
             is_moving: false,
+            script_state: None,
         }
     }
 

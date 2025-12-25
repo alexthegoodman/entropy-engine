@@ -1,11 +1,92 @@
 use rhai::{Engine, Scope, AST, Dynamic, Array, CustomType, TypeBuilder};
 use std::collections::HashMap;
 use std::fs;
+use std::rc::Rc;
+use std::cell::RefCell;
 use nalgebra::Vector3;
 
 use crate::core::RendererState::RendererState;
 use crate::helpers::saved_data::ComponentData;
 use crate::game_behaviors::dialogue_state::{DialogueState, DialogueOption};
+use crate::helpers::saved_data::ComponentKind;
+
+#[derive(Clone, Debug)]
+pub struct ScriptParticleConfig {
+    pub emission_rate: f32,
+    pub life_time: f32,
+    pub radius: f32,
+    pub gravity: Vector3<f32>,
+    pub initial_speed_min: f32,
+    pub initial_speed_max: f32,
+    pub start_color: [f32; 4],
+    pub end_color: [f32; 4],
+    pub size: f32,
+    pub mode: f32,
+    pub position: Vector3<f32>,
+}
+
+#[derive(Clone)]
+pub struct SystemWrapper {
+    pub particle_spawns: Rc<RefCell<Vec<ScriptParticleConfig>>>,
+}
+
+impl SystemWrapper {
+    pub fn new() -> Self {
+        Self {
+            particle_spawns: Rc::new(RefCell::new(Vec::new())),
+        }
+    }
+
+    pub fn spawn_particles(&mut self, 
+        position: Vector3<f32>, 
+        color: Array, 
+        gravity: Vector3<f32>
+    ) {
+        let start_color = if color.len() >= 3 {
+             [
+                color[0].as_float().unwrap_or(1.0) as f32,
+                color[1].as_float().unwrap_or(1.0) as f32,
+                color[2].as_float().unwrap_or(1.0) as f32,
+                if color.len() > 3 { color[3].as_float().unwrap_or(1.0) as f32 } else { 1.0 }
+             ]
+        } else {
+            [1.0, 0.0, 0.0, 1.0]
+        };
+
+        let config = ScriptParticleConfig {
+            emission_rate: 100.0,
+            life_time: 2.0,
+            radius: 5.0,
+            gravity: gravity,
+            initial_speed_min: 2.0,
+            initial_speed_max: 5.0,
+            start_color: start_color,
+            end_color: [start_color[0], start_color[1], start_color[2], 0.0],
+            size: 0.2,
+            mode: 0.0, // Continuous
+            position: position,
+        };
+        self.particle_spawns.borrow_mut().push(config);
+    }
+}
+
+#[derive(Clone)]
+pub struct PlayerWrapper {
+    pub id: String,
+    pub equipped_weapon_id: String,
+    pub position: Vector3<f32>,
+}
+
+impl PlayerWrapper {
+    pub fn get_equipped_weapon_id(&mut self) -> String {
+        self.equipped_weapon_id.clone()
+    }
+    
+    pub fn get_position(&mut self) -> Vector3<f32> {
+        self.position.clone()
+    }
+}
+
 
 #[derive(Clone)]
 pub struct ModelWrapper {
@@ -102,6 +183,15 @@ impl RhaiEngine {
             .register_fn("get_node", DialogueWrapper::get_node)
             .register_fn("close", DialogueWrapper::close);
 
+        // Register SystemWrapper
+        engine.register_type_with_name::<SystemWrapper>("System")
+            .register_fn("spawn_particles", SystemWrapper::spawn_particles);
+
+        // Register PlayerWrapper
+        engine.register_type_with_name::<PlayerWrapper>("PlayerCharacter")
+            .register_fn("get_equipped_weapon_id", PlayerWrapper::get_equipped_weapon_id)
+            .register_fn("get_position", PlayerWrapper::get_position);
+
         RhaiEngine {
             engine,
             ast_cache: HashMap::new(),
@@ -134,6 +224,8 @@ impl RhaiEngine {
         };
 
         let mut scope = Scope::new();
+        let mut system = SystemWrapper::new();
+        scope.push("system", system.clone());
 
         match component.kind.as_ref().unwrap() {
             crate::helpers::saved_data::ComponentKind::Model => {
@@ -162,12 +254,15 @@ impl RhaiEngine {
                                 }
                                 model.script_state = Some(updated_hashmap);
                             }
+                            
+                            let particle_spawns = system.particle_spawns.borrow().clone();
 
                             // Check if wrapper was mutated
-                            if wrapper.position_changed {
+                            if wrapper.position_changed || !particle_spawns.is_empty() {
                                 return Some(ComponentChanges {
                                     component_id: wrapper.id,
-                                    new_position: Some(wrapper.position),
+                                    new_position: if wrapper.position_changed { Some(wrapper.position) } else { None },
+                                    particle_spawns: if !particle_spawns.is_empty() { Some(particle_spawns) } else { None },
                                 });
                             }
                         }
@@ -177,6 +272,63 @@ impl RhaiEngine {
                             }
                         }
                     }
+                }
+            },
+            crate::helpers::saved_data::ComponentKind::PlayerCharacter => {
+                if let Some(player) = &mut renderer_state.player_character {
+                    // Assuming player model position or camera position
+                    // We need a wrapper for player
+                    let wrapper = PlayerWrapper {
+                        id: component.id.clone(),
+                        equipped_weapon_id: if let Some(weapon_id) = &player.inventory.equipped_weapon {
+                            weapon_id.clone()
+                        } else {
+                            "".to_string()
+                        },
+                        // Hack: use sphere position or camera position
+                         position: if let Some(sphere) = &player.sphere {
+                            sphere.transform.position
+                        } else {
+                            Vector3::zeros()
+                        }
+                    };
+                    
+                    // Prepare script_state
+                    let mut rhai_script_state = rhai::Map::new();
+                    if let Some(current_state) = &player.script_state {
+                        for (key, value) in current_state {
+                            rhai_script_state.insert(key.clone().into(), value.clone().into());
+                        }
+                    }
+
+                    // Call Rhai function
+                     match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), rhai_script_state)) {
+                        Ok(result) => {
+                             // Script returns just the updated script_state map
+                            if let Some(map) = result.try_cast::<rhai::Map>() {
+                                let mut updated_hashmap = HashMap::new();
+                                for (key, value) in map {
+                                    updated_hashmap.insert(key.to_string(), value.to_string());
+                                }
+                                player.script_state = Some(updated_hashmap);
+                            }
+
+                             let particle_spawns = system.particle_spawns.borrow().clone();
+
+                            if !particle_spawns.is_empty() {
+                                return Some(ComponentChanges {
+                                    component_id: wrapper.id,
+                                    new_position: None,
+                                    particle_spawns: Some(particle_spawns),
+                                });
+                            }
+                        },
+                        Err(e) => {
+                             if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                                eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
+                            }
+                        }
+                     }
                 }
             },
             _ => {}
@@ -218,32 +370,27 @@ impl RhaiEngine {
         };
 
         let mut scope = Scope::new();
-
-        println!("Call fn! {:?} {:?}", wrapper.changed, wrapper.text);
         
         // Call the function, passing wrapper as argument
         match self.engine.call_fn::<DialogueWrapper>(&mut scope, &ast, hook_name, (wrapper,)) {
             Ok(updated_wrapper) => {
-                println!("Called fn {:?} {:?}", updated_wrapper.changed, updated_wrapper.text);
                 if updated_wrapper.changed {
                     dialogue_state.current_text = updated_wrapper.text;
                     dialogue_state.options = updated_wrapper.options;
                     dialogue_state.is_open = updated_wrapper.is_open;
-                                         dialogue_state.npc_name = updated_wrapper.npc_name;
-                                         dialogue_state.current_node = updated_wrapper.current_node;
-                                         // Keep existing selected_option_index and current_npc_id or reset?
-                                         // Reset index when options change?
-                                                              // For now, let's keep index unless options change length, but safer to reset 0.
-                                                              dialogue_state.selected_option_index = 0;
-                                                              dialogue_state.ui_dirty = true;
-                                                              
-                                                              if !dialogue_state.is_open {
-                                                                  if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
-                                                                      npc.is_talking = false;
-                                                                  }
-                                                              }
-                                                          }
-                                                      },            Err(e) => {
+                    dialogue_state.npc_name = updated_wrapper.npc_name;
+                    dialogue_state.current_node = updated_wrapper.current_node;
+                    dialogue_state.selected_option_index = 0;
+                    dialogue_state.ui_dirty = true;
+                    
+                    if !dialogue_state.is_open {
+                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
+                            npc.is_talking = false;
+                        }
+                    }
+                }
+            },
+            Err(e) => {
                 if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
                     eprintln!("Error executing hook '{}': {:?}", hook_name, e);
                 }
@@ -256,4 +403,5 @@ impl RhaiEngine {
 pub struct ComponentChanges {
     pub component_id: String,
     pub new_position: Option<Vector3<f32>>,
+    pub particle_spawns: Option<Vec<ScriptParticleConfig>>,
 }

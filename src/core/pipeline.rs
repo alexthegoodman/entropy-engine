@@ -41,6 +41,7 @@ use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::game_behaviors::dialogue_ui;
+use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 // use super::chat::Chat;
 
@@ -1719,6 +1720,38 @@ impl ExportPipeline {
 
             // Apply collected changes
             for change in changes {
+                if let Some(spawns) = change.particle_spawns {
+                    for spawn in spawns {
+                        let uniforms = ParticleUniforms {
+                            position: [spawn.position.x, spawn.position.y, spawn.position.z],
+                            _pad0: 0.0,
+                            time: 0.0,
+                            emission_rate: spawn.emission_rate,
+                            life_time: spawn.life_time,
+                            radius: spawn.radius,
+                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
+                            _pad1: 0.0,
+                            initial_speed_min: spawn.initial_speed_min,
+                            initial_speed_max: spawn.initial_speed_max,
+                            start_color: spawn.start_color,
+                            end_color: spawn.end_color,
+                            size: spawn.size,
+                            mode: spawn.mode,
+                            _pad2: [0.0; 2],
+                        };
+                        
+                        let system = ParticleSystem::new(
+                            device,
+                            &camera_binding.bind_group_layout,
+                            uniforms,
+                            1000, // Max particles hardcoded for now
+                            wgpu::TextureFormat::Rgba8Unorm,
+                        );
+                        
+                        renderer_state.particle_systems.push(system);
+                    }
+                }
+
                 if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == change.component_id) {
                     if let Some(new_pos) = change.new_position {
                         let pos_array = [new_pos.x, new_pos.y, new_pos.z];
@@ -2211,6 +2244,44 @@ impl ExportPipeline {
                         sky_render_pass.set_pipeline(procedural_sky_pipeline);
                         sky_render_pass.set_bind_group(0, procedural_sky_bind_group, &[]);
                         sky_render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
+                    }
+                }
+            }
+
+            // Particle Forward Pass
+            {
+                if !renderer_state.particle_systems.is_empty() {
+                    let camera_binding = editor.camera_binding.as_ref().unwrap();
+                    
+                    let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Particle Forward Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    for system in &mut renderer_state.particle_systems {
+                        system.update(&queue, time);
+                        particle_pass.set_pipeline(&system.render_pipeline);
+                        particle_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        particle_pass.set_bind_group(1, &system.uniform_bind_group, &[]);
+                        particle_pass.draw(0..6, 0..system.instance_count);
                     }
                 }
             }

@@ -19,6 +19,7 @@ pub mod procedural_grass;
 pub mod water_plane;
 pub mod procedural_trees;
 pub mod procedural_models;
+pub mod procedural_particles;
 pub mod model_components;
 pub mod procedural_heightmaps;
 pub mod rhai_engine;
