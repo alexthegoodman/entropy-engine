@@ -26,9 +26,9 @@ fn on_attack(player, system, state) {
 
         // Use arrays throughout
         system.spawn_particles(
-            vec3(pos.x, pos.y, pos.z),
-            vec4(1.0, 0.3, 0.0, 1.0),
-            vec3(0.0, -10.0, 0.0),
+            vec3(pos.x, pos.y + 5.0, pos.z), // start pos
+            vec4(1.0, 0.3, 0.0, 1.0), // color
+            vec3(0.0, -1.0, 0.0), // grav
         );
         
         print("Fire Staff attack!");

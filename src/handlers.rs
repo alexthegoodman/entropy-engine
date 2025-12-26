@@ -470,42 +470,41 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                             if let Some(spawns) = change.particle_spawns {
                                 let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
                                 for spawn in spawns {
-                                    let (source_pos, target_pos) = if let Some((start, end)) = debug_line {
-                                        ([start.x, start.y, start.z], [end.x, end.y, end.z])
+                                    if let Some((start, end)) = debug_line {
+                                        let uniforms = ParticleUniforms {
+                                            position: [start.x, start.y, start.z],
+                                            // _pad0: 0.0,
+                                            time: 0.0,
+                                            emission_rate: spawn.emission_rate,
+                                            life_time: spawn.life_time,
+                                            radius: spawn.radius,
+                                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
+                                            // _pad1: 0.0,
+                                            initial_speed_min: spawn.initial_speed_min,
+                                            initial_speed_max: spawn.initial_speed_max,
+                                            start_color: spawn.start_color,
+                                            end_color: spawn.end_color,
+                                            size: spawn.size,
+                                            mode: spawn.mode,
+                                            target_position: [end.x, end.y, end.z],
+                                            _pad2: [0.0; 7],
+                                        };
+
+                                        println!("inserting particles {:?}", uniforms);
+                                        
+                                        let system = ParticleSystem::new(
+                                            &gpu_resources.device,
+                                            &state.camera_binding.as_ref().unwrap().bind_group_layout,
+                                            uniforms,
+                                            500,
+                                            wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
+                                        );
+                                        
+                                        renderer_state.particle_systems.push(system);
                                     } else {
-                                        ([spawn.position.x, spawn.position.y, spawn.position.z], [spawn.position.x + 10.0, spawn.position.y, spawn.position.z + 10.0])
+                                        // ([spawn.position.x, spawn.position.y, spawn.position.z], [spawn.position.x + 10.0, spawn.position.y, spawn.position.z + 10.0])
+                                        // would rather nothing happen if no hit
                                     };
-
-                                    let uniforms = ParticleUniforms {
-                                        position: source_pos,
-                                        // _pad0: 0.0,
-                                        time: 0.0,
-                                        emission_rate: spawn.emission_rate,
-                                        life_time: spawn.life_time,
-                                        radius: spawn.radius,
-                                        gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
-                                        // _pad1: 0.0,
-                                        initial_speed_min: spawn.initial_speed_min,
-                                        initial_speed_max: spawn.initial_speed_max,
-                                        start_color: spawn.start_color,
-                                        end_color: spawn.end_color,
-                                        size: spawn.size,
-                                        mode: spawn.mode,
-                                        target_position: target_pos,
-                                        _pad2: [0.0; 7],
-                                    };
-
-                                    println!("inserting particles {:?}", uniforms);
-                                    
-                                    let system = ParticleSystem::new(
-                                        &gpu_resources.device,
-                                        &state.camera_binding.as_ref().unwrap().bind_group_layout,
-                                        uniforms,
-                                        500,
-                                        wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
-                                    );
-                                    
-                                    renderer_state.particle_systems.push(system);
                                 }
                             }
                         }

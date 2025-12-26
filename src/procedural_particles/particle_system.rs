@@ -75,7 +75,7 @@ impl ParticleSystem {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Particle Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("flames.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(include_str!("flames2.wgsl").into()),
         });
 
         let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

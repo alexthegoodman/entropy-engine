@@ -144,13 +144,13 @@ impl SystemWrapper {
         let config = ScriptParticleConfig {
             emission_rate: 100.0,
             life_time: 3.0,
-            radius: 2.0,
+            radius: 0.2,
             gravity: grav,
             initial_speed_min: 2.0,
             initial_speed_max: 5.0,
             start_color: start_color,
             end_color: [start_color[0], start_color[1], start_color[2], 0.0],
-            size: 0.2,
+            size: 0.02,
             mode: 0.0,
             position: pos,
         };
