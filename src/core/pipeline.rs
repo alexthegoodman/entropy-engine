@@ -1740,6 +1740,11 @@ impl ExportPipeline {
                 }
             }
 
+            let time = self.start_time.elapsed().as_secs_f32();
+            if !renderer_state.particle_systems.is_empty() {
+                renderer_state.particle_systems.retain_mut(|system| system.update(queue, time));
+            }
+
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
@@ -1923,7 +1928,6 @@ impl ExportPipeline {
             }
 
             // draw grass
-            let time = self.start_time.elapsed().as_secs_f32();
 
             for grass in &renderer_state.grasses {
                 if let Some(player_character) = &renderer_state.player_character {
@@ -1985,9 +1989,8 @@ impl ExportPipeline {
             }
 
             if !renderer_state.particle_systems.is_empty() {                
-                for system in &mut renderer_state.particle_systems {
+                for system in &renderer_state.particle_systems {
                     // println!("isntance count {:?}", system.instance_count);
-                    system.update(&queue, time);
                     render_pass.set_pipeline(&system.render_pipeline);
                     render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                     render_pass.set_bind_group(1, &system.uniform_bind_group, &[]);

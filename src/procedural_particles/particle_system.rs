@@ -32,6 +32,7 @@ pub struct ParticleSystem {
     pub uniform_bind_group: wgpu::BindGroup,
     pub instance_count: u32,
     pub uniforms: ParticleUniforms,
+    pub creation_time: Option<f32>,
 }
 
 impl ParticleSystem {
@@ -155,11 +156,20 @@ impl ParticleSystem {
             uniform_bind_group,
             instance_count: max_particles,
             uniforms,
+            creation_time: None,
         }
     }
 
-    pub fn update(&mut self, queue: &wgpu::Queue, time: f32) {
-        self.uniforms.time = time;
+    pub fn update(&mut self, queue: &wgpu::Queue, global_time: f32) -> bool {
+        if self.creation_time.is_none() {
+            self.creation_time = Some(global_time);
+        }
+        
+        let age = global_time - self.creation_time.unwrap();
+        self.uniforms.time = age;
+        
         queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.uniforms]));
+        
+        age < self.uniforms.life_time
     }
 }
