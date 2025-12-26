@@ -78,7 +78,7 @@ impl PlayerCharacter {
         let uuid = uuid.as_ref().expect("Couldn't convert uuid");
 
         let movement_collider = ColliderBuilder::capsule_y(0.5, 1.0)
-            .friction(0.7) // Add significant friction (was 0.0)
+            .friction(0.9) // Add significant friction (was 0.0)
             .restitution(0.0)
             .density(1.0)
             .user_data(uuid.as_u128())
@@ -88,8 +88,8 @@ impl PlayerCharacter {
         let movement_shape = movement_collider.clone();
 
         let dynamic_body = RigidBodyBuilder::dynamic()
-            .additional_mass(70.0)
-            .linear_damping(0.4) // Increase damping (was 0.1)
+            .additional_mass(80.0)
+            .linear_damping(0.8) // Increase damping (was 0.1)
             .angular_damping(0.9) // Add angular damping to prevent excessive rotation
             .ccd_enabled(true) // Enable Continuous Collision Detection for fast movement
             .lock_rotations() // Prevent character from tipping over

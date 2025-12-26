@@ -143,7 +143,7 @@ impl SystemWrapper {
 
         let config = ScriptParticleConfig {
             emission_rate: 100.0,
-            life_time: 2.0,
+            life_time: 3.0,
             radius: 2.0,
             gravity: grav,
             initial_speed_min: 2.0,
