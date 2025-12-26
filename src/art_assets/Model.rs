@@ -1,4 +1,4 @@
-use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Quaternion, Translation3, UnitQuaternion, Vector3};
 use rapier3d::math::Point;
 use rapier3d::prelude::ColliderBuilder;
 use rapier3d::prelude::*;
@@ -291,7 +291,19 @@ impl Model {
             loaded_textures.push((Arc::new(wgpu_texture), Arc::new(wgpu_texture_view)));
         }  
 
-        for mesh in gltf.meshes() {
+        for node in gltf.nodes() {
+            let transform = node.transform();
+            let (translation, rotation, node_scale) = node.transform().decomposed();
+            
+            if let Some(mesh) = node.mesh() {
+
+            
+
+            println!("MESH TRANSFORM {:?}", transform);
+
+        // }
+
+        // for mesh in gltf.meshes() {
             for primitive in mesh.primitives() {
                 // Create a default sampler to be used for all textures
                 let default_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
@@ -404,7 +416,7 @@ impl Model {
 
                 // 2. Apply scaling to positions
                 let scaled_positions: Vec<[f32; 3]> = positions
-                    .map(|p| [p[0] * scale.x, p[1] * scale.y, p[2] * scale.z])
+                    .map(|p| [p[0] * (scale.x * node_scale[0]), p[1] * (scale.y * node_scale[1]), p[2] * (scale.z * node_scale[2])])
                     .collect();
 
                 let vertices: Vec<ModelVertex> = scaled_positions.iter()
@@ -624,6 +636,27 @@ impl Model {
                     label: None,
                 });
 
+                
+                let node_rot = UnitQuaternion::from_quaternion(Quaternion::new(
+                    rotation[3],
+                    rotation[0],
+                    rotation[1],
+                    rotation[2],
+                ));
+
+                let new_rotation = isometry.rotation * node_rot;
+                let new_position = Vector3::new(translation[0] + isometry.translation.x, translation[1] + isometry.translation.y, translation[2] + isometry.translation.z);
+                let transform_inner = Transform::new_with_quat(
+                    new_position,
+                    new_rotation,
+                    Vector3::new(1.0, 1.0, 1.0), // nodes are scaled at vertex level to enable proper collisions
+                    uniform_buffer,
+                );
+
+                let model_position = Translation3::new(new_position.x, new_position.y, new_position.z);
+
+                let model_final_iso = Isometry3::from_parts(model_position, new_rotation);
+
                 // rapier physics and collision detection!
                 // let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
                 //     .expect("Couldn't create convex hull")
@@ -654,7 +687,7 @@ impl Model {
                 let dynamic_body = RigidBodyBuilder::fixed()
                     .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
                     .linear_damping(0.1)
-                    .position(isometry)
+                    .position(model_final_iso)
                     .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
                     .user_data(
                         Uuid::from_str(&model_component_id)
@@ -676,16 +709,17 @@ impl Model {
                 println!("mesh iso {:?} {:?}", model_component_id, isometry);
 
                 meshes.push(Mesh {
-                    transform: Transform::new(
-                        Vector3::new(
-                            isometry.translation.x,
-                            isometry.translation.y,
-                            isometry.translation.z,
-                        ),
-                        Vector3::new(euler.0, euler.1, euler.2),
-                        Vector3::new(1.0, 1.0, 1.0), // apply scale directly to vertices and set this to 1
-                        uniform_buffer,
-                    ),
+                    // transform: Transform::new(
+                    //     Vector3::new(
+                    //         isometry.translation.x,
+                    //         isometry.translation.y,
+                    //         isometry.translation.z,
+                    //     ),
+                    //     Vector3::new(euler.0, euler.1, euler.2),
+                    //     Vector3::new(1.0, 1.0, 1.0), // apply scale directly to vertices and set this to 1
+                    //     uniform_buffer,
+                    // ),
+                    transform: transform_inner,
                     vertex_buffer,
                     index_buffer,
                     index_count: indices_u32.len() as u32,
@@ -701,6 +735,7 @@ impl Model {
                     rigid_body_handle: None,
                 });
             }
+        }
         }
 
         let mut nodes = Vec::new();
