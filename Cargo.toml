@@ -57,7 +57,7 @@ mint = "0.5.9"
 exr = "1.74.0"
 
 [dependencies.gltf]
-features = ["utils"]
+features = ["utils", "KHR_texture_transform"]
 version = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
