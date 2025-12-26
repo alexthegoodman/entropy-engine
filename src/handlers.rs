@@ -364,36 +364,6 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                 if let Some(mouse_pos) = renderer_state.current_mouse_position {
                     println!("Check ray");
 
-                    // DEBUG
-                            // let start_color = [1.0, 0.0, 0.0, 1.0];
-                            // let pos = [0.0, 0.0, 0.0];
-                            // let grav = [1.0, -20.0, 0.0];
-                            // let config = ParticleUniforms {
-                            //     emission_rate: 100.0,
-                            //     life_time: 2.0,
-                            //     radius: 1.5,
-                            //     gravity: grav,
-                            //     initial_speed_min: 2.0,
-                            //     initial_speed_max: 5.0,
-                            //     start_color: start_color,
-                            //     end_color: [start_color[0], start_color[1], start_color[2], 0.0],
-                            //     size: 0.8,
-                            //     mode: 0.0,
-                            //     position: pos,
-                            //     time: 0.0,
-                            //     _pad2: [0.0; 6]
-                            // };
-                            // let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
-                            // let system = ParticleSystem::new(
-                            //     &gpu_resources.device,
-                            //     &state.camera_binding.as_ref().unwrap().bind_group_layout,
-                            //     config,
-                            //     1000,
-                            //     wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
-                            // );
-                            // renderer_state.particle_systems.push(system);
-                    // end debug
-
                     // Perform raycast
                     renderer_state.update_rays((mouse_pos.x, mouse_pos.y), &camera, window_size.width, window_size.height);
 
@@ -500,8 +470,14 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                             if let Some(spawns) = change.particle_spawns {
                                 let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
                                 for spawn in spawns {
+                                    let (source_pos, target_pos) = if let Some((start, end)) = debug_line {
+                                        ([start.x, start.y, start.z], [end.x, end.y, end.z])
+                                    } else {
+                                        ([spawn.position.x, spawn.position.y, spawn.position.z], [spawn.position.x + 10.0, spawn.position.y, spawn.position.z + 10.0])
+                                    };
+
                                     let uniforms = ParticleUniforms {
-                                        position: [spawn.position.x, spawn.position.y, spawn.position.z],
+                                        position: source_pos,
                                         // _pad0: 0.0,
                                         time: 0.0,
                                         emission_rate: spawn.emission_rate,
@@ -515,7 +491,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                         end_color: spawn.end_color,
                                         size: spawn.size,
                                         mode: spawn.mode,
-                                        _pad2: [0.0; 6],
+                                        target_position: target_pos,
+                                        _pad2: [0.0; 7],
                                     };
 
                                     println!("inserting particles {:?}", uniforms);
@@ -524,7 +501,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                         &gpu_resources.device,
                                         &state.camera_binding.as_ref().unwrap().bind_group_layout,
                                         uniforms,
-                                        1000,
+                                        500,
                                         wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
                                     );
                                     

@@ -22,7 +22,8 @@ pub struct ParticleUniforms {
     pub size: f32,
     
     pub mode: f32, // 0 = continuous, 1 = burst
-    pub _pad2: [f32; 6],
+    pub target_position: [f32; 3],
+    pub _pad2: [f32; 7],
 }
 
 pub struct ParticleSystem {

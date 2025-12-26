@@ -15,6 +15,10 @@ struct ParticleUniforms {
     size: f32,
     
     mode: f32, 
+    // target_x: f32,
+    // target_y: f32,
+    // target_z: f32,
+    target_position: vec3<f32>,
 }
 
 @group(0) @binding(0) var<uniform> camera: CameraUniform;
@@ -120,26 +124,40 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     // Generate random values for this particle
     let rand = hash3(particle_id * 3u);
     let rand2 = hash3(particle_id * 3u + 100u);
-    
-    // Spawn particles in a circle high above
-    let spawn_height = 15.0 + rand.z * 10.0;
+
+    let target_pos = uniforms.target_position;
+        
+    // Spawn particles at source
     let angle = rand.x * 6.28318530718;
-    let dist = sqrt(rand.y) * uniforms.radius;
+    let dist = sqrt(rand.y) * (uniforms.radius * 0.5); 
     
-    let spawn_pos = uniforms.position + vec3<f32>(
+    let spawn_offset = vec3<f32>(
         cos(angle) * dist,
-        spawn_height,
+        (rand.z - 0.5) * dist,
         sin(angle) * dist
     );
     
-    // Initial velocity - mostly downward with turbulent motion
+    let spawn_pos = uniforms.position + spawn_offset;
+    
+    // Direction towards target
+    let dir_to_target = normalize(target_pos - uniforms.position);
+    
+    // Initial velocity towards target with some spread
     let speed = mix(uniforms.initial_speed_min, uniforms.initial_speed_max, rand2.x);
-    let spread = (rand2.yz - 0.5) * 0.4;
-    let initial_vel = vec3<f32>(
-        spread.x * speed,
-        -speed * 1.5,
-        spread.y * speed
-    );
+    let spread = (rand2.yz - 0.5) * 0.2; 
+    
+    // Create a basis for spread
+    var right1 = cross(dir_to_target, vec3<f32>(0.0, 1.0, 0.0));
+    if (length(right1) < 0.001) {
+        right1 = cross(dir_to_target, vec3<f32>(1.0, 0.0, 0.0));
+    }
+    right1 = normalize(right1);
+    let up1 = cross(right1, dir_to_target);
+    
+    let spread_vec = right1 * spread.x + up1 * spread.y;
+    let velocity_dir = normalize(dir_to_target + spread_vec);
+    
+    let initial_vel = velocity_dir * speed;
     
     // Physics: apply gravity over time
     let velocity = initial_vel + uniforms.gravity * age;
