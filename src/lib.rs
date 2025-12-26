@@ -1,3 +1,5 @@
+#![allow(warnings)]
+
 #[cfg(target_os = "windows")]
 pub mod startup;
 
