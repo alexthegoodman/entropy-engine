@@ -472,13 +472,14 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                 for spawn in spawns {
                                     if let Some((start, end)) = debug_line {
                                         let uniforms = ParticleUniforms {
-                                            position: [start.x, start.y, start.z],
+                                            // position: [start.x, start.y, start.z],
+                                            position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
                                             // _pad0: 0.0,
                                             time: 0.0,
                                             emission_rate: spawn.emission_rate,
                                             life_time: spawn.life_time,
                                             radius: spawn.radius,
-                                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z],
+                                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
                                             // _pad1: 0.0,
                                             initial_speed_min: spawn.initial_speed_min,
                                             initial_speed_max: spawn.initial_speed_max,
@@ -486,8 +487,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                             end_color: spawn.end_color,
                                             size: spawn.size,
                                             mode: spawn.mode,
-                                            target_position: [end.x, end.y, end.z],
-                                            _pad2: [0.0; 7],
+                                            target_position: [end.x, end.y, end.z, 0.0],
+                                            _pad2: [0.0; 4],
                                         };
 
                                         println!("inserting particles {:?}", uniforms);

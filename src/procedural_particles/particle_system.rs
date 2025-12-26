@@ -5,25 +5,23 @@ use nalgebra::{Point3, Vector3};
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ParticleUniforms {
-    pub position: [f32; 3],
+    pub position: [f32; 4],
+    pub target_position: [f32; 4],
+    pub gravity: [f32; 4],
+    pub start_color: [f32; 4],
+    pub end_color: [f32; 4],
+
     pub time: f32,
-    
     pub emission_rate: f32,
     pub life_time: f32,
     pub radius: f32,
     
-    pub gravity: [f32; 3],
-    
     pub initial_speed_min: f32,
     pub initial_speed_max: f32,
-    
-    pub start_color: [f32; 4],
-    pub end_color: [f32; 4],
     pub size: f32,
-    
     pub mode: f32, // 0 = continuous, 1 = burst
-    pub target_position: [f32; 3],
-    pub _pad2: [f32; 7],
+    
+    pub _pad2: [f32; 4],
 }
 
 pub struct ParticleSystem {

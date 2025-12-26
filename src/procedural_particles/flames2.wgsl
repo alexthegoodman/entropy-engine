@@ -3,23 +3,21 @@
    ============================================================ */
 
 struct ParticleUniforms {
-    position: vec3<f32>,
-    time: f32,
+    position: vec4<f32>,
+    target_position: vec4<f32>,
+    gravity: vec4<f32>,
+    start_color: vec4<f32>,
+    end_color: vec4<f32>,
 
+    time: f32,
     emission_rate: f32,
     life_time: f32,
     radius: f32,
-
-    gravity: vec3<f32>,
+    
     initial_speed_min: f32,
     initial_speed_max: f32,
-
-    start_color: vec4<f32>,
-    end_color: vec4<f32>,
     size: f32,
-
     mode: f32,
-    target_position: vec3<f32>,
 };
 
 struct CameraUniform {
@@ -181,10 +179,10 @@ fn vs_main(input: VertexInput) -> VertexOutput {
         (rand.y - 0.5) * uniforms.radius,
         (hash(seed + 5.0) - 0.5) * uniforms.radius
     );
-    let spawn_pos = uniforms.position + tiny_offset;
+    let spawn_pos = uniforms.position.xyz + tiny_offset;
 
     /* --- Velocity towards target --- */
-    let direction = normalize(uniforms.target_position - uniforms.position);
+    let direction = normalize(uniforms.target_position.xyz - uniforms.position.xyz);
 
     let speed =
         mix(uniforms.initial_speed_min,
@@ -199,7 +197,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     let world_pos =
         spawn_pos +
         velocity * t +
-        0.5 * uniforms.gravity * t * t;
+        0.5 * uniforms.gravity.xyz * t * t;
 
     // let world_pos = spawn_pos;
 
