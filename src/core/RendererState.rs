@@ -191,6 +191,7 @@ pub struct RendererState {
     pub last_mouse_position_time: Instant,
     pub gizmo: Gizmo,
 
+    pub display_debug_spheres: bool,
 }
 
 // impl<'a> RendererState<'a> {
@@ -377,6 +378,7 @@ impl RendererState {
             camera_yaw: 0.0,
             last_mouse_position_time: Instant::now(),
             gizmo,
+            display_debug_spheres: true,
         }
     }
 
@@ -705,6 +707,43 @@ impl RendererState {
 
                     if let Some(player_character) = &mut self.player_character {
                         if let Some(first_mesh) = instance_model_data.meshes.get_mut(0) {
+
+                            // Debug Spheres Logic
+                            if self.display_debug_spheres {
+                                let mut radius = 0.0;
+                                match &instance_npc_data.test_behavior {
+                                    crate::model_components::NPC::NPCBehavior::Wander(w) => radius = w.radius,
+                                    crate::model_components::NPC::NPCBehavior::Melee(m) => radius = m.chase.detection_radius,
+                                    crate::model_components::NPC::NPCBehavior::Ranged(r) => radius = r.chase.detection_radius, // TODO: show another sphere for range
+                                }
+        
+                                if radius > 0.0 {
+                                    if instance_npc_data.debug_sphere.is_none() {
+
+                                        println!("ADD DEBUG SPHERE");
+
+                                        // Create sphere
+                                        instance_npc_data.debug_sphere = Some(Sphere::new_wireframe(
+                                            device,
+                                            queue,
+                                            &self.model_bind_group_layout,
+                                            &self.group_bind_group_layout,
+                                            &self.texture_render_mode_buffer,
+                                            camera,
+                                            1.0, // Unit sphere
+                                            16,
+                                            16,
+                                            [0.0, 1.0, 0.0] // Green
+                                        ));
+                                    }
+        
+                                    if let Some(sphere) = &mut instance_npc_data.debug_sphere {
+                                        sphere.transform.update_position([position.x, position.y, position.z]);
+                                        sphere.transform.update_scale([radius, radius, radius]);
+                                    }
+                                }
+                            }
+
                             if !instance_npc_data.is_talking {
                                 let result = instance_npc_data.test_behavior.update(
                                     &mut self.rigid_body_set,

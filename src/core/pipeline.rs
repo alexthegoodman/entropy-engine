@@ -89,6 +89,7 @@ pub struct ExportPipeline {
     pub procedural_sky_pipeline: Option<RenderPipeline>, // New field for procedural sky
     pub procedural_sky_bind_group: Option<wgpu::BindGroup>, // New field for procedural sky bind group
     pub procedural_sky_uniform_buffer: Option<wgpu::Buffer>, // New field for procedural sky uniform buffer
+    pub debug_sphere_pipeline: Option<RenderPipeline>,
     pub texture: Option<Arc<wgpu::Texture>>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
@@ -168,6 +169,7 @@ impl ExportPipeline {
             procedural_sky_pipeline: None,
             procedural_sky_bind_group: None,
             procedural_sky_uniform_buffer: None,
+            debug_sphere_pipeline: None,
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
         }
@@ -1147,6 +1149,61 @@ impl ExportPipeline {
                 source: wgpu::ShaderSource::Wgsl(include_str!("shaders/sky.wgsl").into()),
             });
 
+        let shader_module_debug_sphere =
+            device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Debug Sphere Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/debug_sphere.wgsl").into()),
+            });
+
+        let debug_sphere_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Debug Sphere Pipeline Layout"),
+            bind_group_layouts: &[
+                &camera_binding.bind_group_layout,
+                &model_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let debug_sphere_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Debug Sphere Pipeline"),
+            layout: Some(&debug_sphere_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_module_debug_sphere,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module_debug_sphere,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: swapchain_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::LineList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::LessEqual,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let procedural_sky_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Procedural Sky Pipeline Layout"),
             bind_group_layouts: &[&procedural_sky_bind_group_layout],
@@ -1349,6 +1406,7 @@ impl ExportPipeline {
         self.procedural_sky_pipeline = Some(procedural_sky_pipeline);
         self.procedural_sky_bind_group = Some(procedural_sky_bind_group);
         self.procedural_sky_uniform_buffer = Some(procedural_sky_uniform_buffer);
+        self.debug_sphere_pipeline = Some(debug_sphere_pipeline);
         self.texture = Some(texture);
         self.view = Some(view);
         self.depth_view = Some(depth_view);
@@ -2030,7 +2088,7 @@ impl ExportPipeline {
                 let lighting_bind_group = self.lighting_bind_group.as_ref().unwrap();
                 let g_buffer_bind_group = self.g_buffer_bind_group.as_ref().unwrap();
                 let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
-                let camera_binding = editor.camera_binding.as_ref().unwrap();
+                // let camera_binding = editor.camera_binding.as_ref().unwrap();
                 let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
 
                 let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -2093,43 +2151,45 @@ impl ExportPipeline {
                 }
             }
 
-            // Particle Forward Pass
-            // {
-            //     if !renderer_state.particle_systems.is_empty() {
-            //         let camera_binding = editor.camera_binding.as_ref().unwrap();
-                    
-            //         let mut particle_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            //             label: Some("Particle Forward Pass"),
-            //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            //                 view: &view,
-            //                 resolve_target: None,
-            //                 ops: wgpu::Operations {
-            //                     load: wgpu::LoadOp::Load,
-            //                     store: wgpu::StoreOp::Store,
-            //                 },
-            //                 depth_slice: None,
-            //             })],
-            //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-            //                 view: &depth_view,
-            //                 depth_ops: Some(wgpu::Operations {
-            //                     load: wgpu::LoadOp::Load,
-            //                     store: wgpu::StoreOp::Store,
-            //                 }),
-            //                 stencil_ops: None,
-            //             }),
-            //             timestamp_writes: None,
-            //             occlusion_query_set: None,
-            //         });
+            {
+                if let Some(pipeline) = &self.debug_sphere_pipeline {
+                    let mut debug_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Debug Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
 
-            //         for system in &mut renderer_state.particle_systems {
-            //             system.update(&queue, time);
-            //             particle_pass.set_pipeline(&system.render_pipeline);
-            //             particle_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-            //             particle_pass.set_bind_group(1, &system.uniform_bind_group, &[]);
-            //             particle_pass.draw(0..6, 0..system.instance_count);
-            //         }
-            //     }
-            // }
+                    debug_pass.set_pipeline(pipeline);
+                    debug_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    
+                    for npc in &renderer_state.npcs {
+                        if let Some(sphere) = &npc.debug_sphere {
+                            sphere.transform.update_uniform_buffer(queue);
+                            debug_pass.set_bind_group(1, &sphere.bind_group, &[]);
+                            debug_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+                            debug_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            debug_pass.draw_indexed(0..sphere.index_count, 0, 0..1);
+                        }
+                    }
+                }
+            }
 
             
             renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {
@@ -2227,7 +2287,7 @@ impl ExportPipeline {
                         usage: wgpu::BufferUsages::INDEX,
                     });
 
-                let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Gizmo Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,

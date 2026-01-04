@@ -27,6 +27,7 @@ use crate::{
     core::AnimationState::AnimationState,
 };
 use crate::core::Transform_2::Transform;
+use crate::shape_primitives::Sphere::Sphere;
 
 pub enum NPCBehavior {
     Melee(MeleeCombatBehavior),
@@ -107,36 +108,45 @@ pub struct NPC {
     pub inventory: Inventory,
     pub is_talking: bool,
     pub forward_axis: Vector3<f32>,
+    pub debug_sphere: Option<Sphere>,
 }
 
 impl NPC {
     pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
-        let wander = WanderBehavior::new(50.0, 100.0);
+        let wander = WanderBehavior::new(12.0, 100.0);
 
         let test_behavior = NPCBehavior::Wander(wander);
         
-        // let attack_stats = AttackStats {
+        // let melee_stats = AttackStats {
         //     damage: 15.0,
         //     range: 3.0,
-        //     cooldown: 0.2,
+        //     cooldown: 0.4,
         //     wind_up_time: 0.1,
-        //     recovery_time: 0.1,
+        //     recovery_time: 0.3,
         // };
 
         // // let melee_combat = MeleeCombatBehavior::new(
         // //     200.0, // chase_speed
-        // //     50.0,  // detection_radius
-        // //     attack_stats,
+        // //     12.0,  // detection_radius
+        // //     melee_stats,
         // //     75.0, // evade_speed
         // //     0.7,  // block_chance
         // // );
 
         // // let test_behavior = NPCBehavior::Melee(melee_combat);
 
+        // let ranged_stats = AttackStats {
+        //     damage: 10.0,
+        //     range: 18.0,
+        //     cooldown: 0.2,
+        //     wind_up_time: 0.1,
+        //     recovery_time: 0.1,
+        // };
+
         // let melee_combat = RangedCombatBehavior::new(
         //     200.0, // chase_speed
-        //     50.0,  // detection_radius
-        //     attack_stats,
+        //     12.0,  // detection_radius
+        //     ranged_stats,
         //     75.0, // evade_speed
         //     0.7,  // block_chance
         // );
@@ -157,6 +167,7 @@ impl NPC {
             is_talking: false,
             // forward_axis: Vector3::z(),
             forward_axis: Vector3::x(),
+            debug_sphere: None,
         }
     }
 }
