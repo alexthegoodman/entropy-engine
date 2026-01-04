@@ -9,6 +9,8 @@ pub struct Transform {
     pub rotation: UnitQuaternion<f32>,
     pub scale: Vector3<f32>,
     pub uniform_buffer: wgpu::Buffer,
+
+    pub initial_position: Option<Vector3<f32>>,
 }
 
 impl Transform {
@@ -22,6 +24,7 @@ impl Transform {
 
         Self {
             position,
+            initial_position: None,
             rotation: rotation_quat,
             scale,
             uniform_buffer,
@@ -36,6 +39,7 @@ impl Transform {
     ) -> Self {
         Self {
             position,
+            initial_position: None,
             rotation,
             scale,
             uniform_buffer,

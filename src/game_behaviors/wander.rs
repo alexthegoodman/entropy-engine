@@ -54,7 +54,20 @@ impl WanderBehavior {
         forward_axis: Vector3<f32>,
     ) {
         // First, collect all the data we need
-        let current_pos = transform.position;
+        let current_pos = transform.position; // for a radius which moves with the characer - but that doesn't make any sense
+        let radius_center_pos = if let Some(pos) = transform.initial_position {
+            pos
+        } else {
+            Vector3::identity()
+        };
+
+        // println!("radius_center_pos {:?}", radius_center_pos);
+
+        // if (transform.initial_position.is_none()) {
+        //     println!("SET initial position");
+        //     transform.initial_position = Some(Vector3::from([radius_center_pos.x, radius_center_pos.y, radius_center_pos.z]));
+        // }
+
         let need_new_target = self.last_update.elapsed().as_secs_f32() > 8.0
             || current_pos.metric_distance(&self.target_position) < 0.5;
 
@@ -94,7 +107,7 @@ impl WanderBehavior {
 
         // Now handle the logic and updates
         if need_new_target || obstacle_detected {
-            self.choose_new_target(rigid_body_set, collider_set, query_pipeline, current_pos);
+            self.choose_new_target(rigid_body_set, collider_set, query_pipeline, radius_center_pos);
             self.last_update = Instant::now();
 
             // If we hit an obstacle, return early
@@ -163,17 +176,17 @@ impl WanderBehavior {
         rigid_body_set: &mut RigidBodySet,
         collider_set: &ColliderSet,
         physics: &QueryPipeline,
-        current_pos: Vec3,
+        radius_center_pos: Vec3,
     ) {
         let mut rng = rand::thread_rng();
 
         for _ in 0..10 {
             let angle = rng.gen_range(0.0..std::f32::consts::TAU);
-            let distance = rng.gen_range(0.0..self.radius);
+            let distance = rng.gen_range((self.radius / 2.0)..self.radius);
 
             let offset = Vec3::new(angle.cos() * distance, 0.0, angle.sin() * distance);
 
-            let potential_target = current_pos + offset;
+            let potential_target = radius_center_pos + offset;
 
             // Ground detection
             let ground_shape = Cuboid::new(vector![0.1, 0.1, 0.1]);
@@ -241,7 +254,7 @@ impl WanderBehavior {
             }
         }
 
-        self.target_position = current_pos;
+        self.target_position = radius_center_pos;
     }
 
     pub fn get_animation_name(&self) -> &str {

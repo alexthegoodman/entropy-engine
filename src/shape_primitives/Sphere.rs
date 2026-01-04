@@ -19,6 +19,8 @@ pub struct Sphere {
     pub normal_texture_view: Option<wgpu::TextureView>,
     pub pbr_params_texture: Option<wgpu::Texture>,
     pub pbr_params_texture_view: Option<wgpu::TextureView>,
+
+    pub debug_moving: bool,
 }
 
 impl Sphere {
@@ -32,7 +34,8 @@ impl Sphere {
         radius: f32,
         sectors: u32, // longitude
         stacks: u32,  // latitude
-        color: [f32; 3]
+        color: [f32; 3],
+        debug_moving: bool
     ) -> Self {
         let (vertices, _) = Self::generate_sphere_data(radius, sectors, stacks, color);
         let indices = Self::generate_wireframe_indices(sectors, stacks);
@@ -256,6 +259,7 @@ impl Sphere {
             normal_texture_view: Some(normal_texture_view),
             pbr_params_texture: Some(pbr_params_texture),
             pbr_params_texture_view: Some(pbr_params_texture_view),
+            debug_moving
         }
     }
 
@@ -290,7 +294,8 @@ impl Sphere {
         radius: f32,
         sectors: u32, // longitude
         stacks: u32,  // latitude
-        color: [f32; 3]
+        color: [f32; 3],
+        debug_moving: bool
     ) -> Self {
         let (vertices, indices) = Self::generate_sphere_data(radius, sectors, stacks, color);
 
@@ -513,6 +518,7 @@ impl Sphere {
             normal_texture_view: Some(normal_texture_view),
             pbr_params_texture: Some(pbr_params_texture),
             pbr_params_texture_view: Some(pbr_params_texture_view),
+            debug_moving
         }
     }
 

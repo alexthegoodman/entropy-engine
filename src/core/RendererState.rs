@@ -701,6 +701,11 @@ impl RendererState {
                     .find(|m| m.model_id == component_id.to_string())
                 {
                     instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                        if (mesh.transform.initial_position.is_none()) {
+                            println!("Set initial position {:?}", position);
+                            mesh.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
+                        }
+
                         mesh.transform
                             .update_position([position.x, position.y, position.z]);
                     });
@@ -711,10 +716,17 @@ impl RendererState {
                             // Debug Spheres Logic
                             if self.display_debug_spheres {
                                 let mut radius = 0.0;
+                                let mut debug_moving = false;
                                 match &instance_npc_data.test_behavior {
                                     crate::model_components::NPC::NPCBehavior::Wander(w) => radius = w.radius,
-                                    crate::model_components::NPC::NPCBehavior::Melee(m) => radius = m.chase.detection_radius,
-                                    crate::model_components::NPC::NPCBehavior::Ranged(r) => radius = r.chase.detection_radius, // TODO: show another sphere for range
+                                    crate::model_components::NPC::NPCBehavior::Melee(m) => {
+                                        debug_moving = true;
+                                        radius = m.chase.detection_radius
+                                    },
+                                    crate::model_components::NPC::NPCBehavior::Ranged(r) => {
+                                        debug_moving = true;
+                                        radius = r.chase.detection_radius
+                                    },
                                 }
         
                                 if radius > 0.0 {
@@ -733,13 +745,24 @@ impl RendererState {
                                             1.0, // Unit sphere
                                             16,
                                             16,
-                                            [0.0, 1.0, 0.0] // Green
+                                            [0.0, 1.0, 0.0], // Green
+                                            debug_moving
                                         ));
+
+                                        if let Some(sphere) = &mut instance_npc_data.debug_sphere {
+                                            if let Some(pos) = first_mesh.transform.initial_position {
+                                                println!("Setting sphere pos {:?}", pos);
+                                                sphere.transform.update_position([pos.x, pos.y, pos.z]);
+                                            }
+                                        }
                                     }
         
                                     if let Some(sphere) = &mut instance_npc_data.debug_sphere {
-                                        sphere.transform.update_position([position.x, position.y, position.z]);
                                         sphere.transform.update_scale([radius, radius, radius]);
+
+                                        if debug_moving {
+                                            sphere.transform.update_position([position.x, position.y, position.z]);
+                                        }
                                     }
                                 }
                             }
