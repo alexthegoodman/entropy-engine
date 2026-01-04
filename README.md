@@ -38,6 +38,7 @@ Example Game:
 
 - GLB (gltf) Import
 - GLB (gltf) animations
+- Physics with Rapier
 - Interactive, windy, procedural grass blades
 - Deferred rendering / lighting
 - PBR Materials
@@ -49,6 +50,7 @@ Example Game:
 - Skybox Pipeline
 - Point lighting
 - Basic game behaviors (melee, chase, inventory, etc)
+- Magic particle effects (ex. fire from heavens, snow, etc)
 - Dialogue (integrates with UI and Rhai scripting)
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
@@ -148,3 +150,8 @@ Example Game:
 - Documentation (including on publishing and distribution)
 - Game Saves for players (currently restart from beginning each time)
 - Configurable Controller Input -> Action Mapping (currently has default key mapping)
+
+### Ecosystem Plans:
+
+- Instant shareable live link of any game (via WASM) (with expiration and analytics)
+- Live collaboration

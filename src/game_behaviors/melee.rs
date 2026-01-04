@@ -65,6 +65,7 @@ impl MeleeCombatBehavior {
         transform: &mut Transform,
         current_stamina: f32,
         dt: f32,
+        forward_axis: Vector3<f32>,
     ) -> Option<f32> {
         // Returns damage dealt if attack lands
         let min_state_duration = 8.0; // Minimum time to stay in a state
@@ -83,6 +84,7 @@ impl MeleeCombatBehavior {
                     collider,
                     transform,
                     dt,
+                    forward_axis,
                 );
 
                 // Transition to attacking if in range

@@ -9,7 +9,6 @@ The first character you play as is a rogue. He was raised by a surface mechanic 
 ## TODOs
 
 - DomeKit.blend for first map (in progress)
-- Magic particle effects (ex. fire from heavens, snow, etc)
 - Other magic powers (control NPC mind, telekinesis)
 - Enemy Stat archetypes?
 - Ligtning gun
@@ -21,4 +20,6 @@ The first character you play as is a rogue. He was raised by a surface mechanic 
 - Quest sytem and menus
 - Befriend hostiles (?)
 - Save system and menus
+- Suspicion Meter and Visibility Icon
+- Weather Conditions?
 - Mini-Map with markers

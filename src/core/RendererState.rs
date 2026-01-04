@@ -701,7 +701,6 @@ impl RendererState {
                     instance_model_data.meshes.iter_mut().for_each(|mesh| {
                         mesh.transform
                             .update_position([position.x, position.y, position.z]);
-                        // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
                     });
 
                     if let Some(player_character) = &mut self.player_character {
@@ -721,6 +720,7 @@ impl RendererState {
                                     &mut first_mesh.transform,
                                     instance_npc_data.stats.stamina, // Use NPC's actual stamina
                                     dt,
+                                    instance_npc_data.forward_axis,
                                 );
 
                                 if let Some((damage, debug_line)) = result {
@@ -1043,6 +1043,7 @@ impl RendererState {
                 // Only jump if on ground (check if vertical velocity is near zero)
                 let velocity = rigidbody.linvel();
                 if velocity.y.abs() < 0.1 {
+                    println!("Jump!");
                     let jump_force = 8.0; // Adjust for desired jump height
                     rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
                 }

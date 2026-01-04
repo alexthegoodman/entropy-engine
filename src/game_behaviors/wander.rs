@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
-use nalgebra::{vector, ComplexField, Vector3};
+use nalgebra::{vector, ComplexField, Vector3, UnitQuaternion};
 use nalgebra_glm::{Quat, Vec3};
 use rand::Rng;
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
@@ -51,6 +51,7 @@ impl WanderBehavior {
         collider: &Collider,
         transform: &mut Transform,
         dt: f32,
+        forward_axis: Vector3<f32>,
     ) {
         // First, collect all the data we need
         let current_pos = transform.position;
@@ -113,6 +114,26 @@ impl WanderBehavior {
                 linvel.x = movement.x;
                 linvel.z = movement.z;
                 rigid_body.set_linvel(linvel, true);
+
+                // Update rotation
+                if direction.magnitude() > 0.001 {
+                    let rotation = UnitQuaternion::face_towards(&direction, &Vector3::y());
+                    // Adjust for model's forward axis
+                    // Default face_towards assumes -Z is forward. If forward_axis is Z, we need to rotate 180 deg around Y?
+                    // nalgebra::face_towards: "The local z axis of the result will point towards dir" (actually it says "The z-axis of the rotation will be aligned with dir" but usually implies -Z or +Z depending on handedness).
+                    // In nalgebra 0.32, face_towards aligns the local Z axis with the target direction.
+                    
+                    // If the model's forward axis is not Z, we need to apply an additional rotation.
+                    // But simpler: Construct rotation such that forward_axis aligns with direction.
+                    // UnitQuaternion::rotation_between(&forward_axis, &direction).
+                    // But we want to constrain to Y axis.
+                    
+                    let dir_flat = Vector3::new(direction.x, 0.0, direction.z).normalize();
+                    let fwd_flat = Vector3::new(forward_axis.x, 0.0, forward_axis.z).normalize();
+                    
+                    let rotation_quat = UnitQuaternion::rotation_between(&fwd_flat, &dir_flat).unwrap_or(UnitQuaternion::identity());
+                    transform.rotation = rotation_quat;
+                }
             }
         } else {
             // No new target needed, just apply movement
@@ -124,6 +145,15 @@ impl WanderBehavior {
                 linvel.x = movement.x;
                 linvel.z = movement.z;
                 rigid_body.set_linvel(linvel, true);
+
+                // Update rotation
+                if direction.magnitude() > 0.001 {
+                    let dir_flat = Vector3::new(direction.x, 0.0, direction.z).normalize();
+                    let fwd_flat = Vector3::new(forward_axis.x, 0.0, forward_axis.z).normalize();
+                    
+                    let rotation_quat = UnitQuaternion::rotation_between(&fwd_flat, &dir_flat).unwrap_or(UnitQuaternion::identity());
+                    transform.rotation = rotation_quat;
+                }
             }
         }
     }

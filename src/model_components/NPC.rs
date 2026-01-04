@@ -46,6 +46,7 @@ impl NPCBehavior {
         transform: &mut Transform,
         current_stamina: f32,
         dt: f32,
+        forward_axis: Vector3<f32>,
     ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
         match self {
             NPCBehavior::Melee(behavior) => behavior.update(
@@ -58,6 +59,7 @@ impl NPCBehavior {
                 transform,
                 current_stamina,
                 dt,
+                forward_axis,
             ).map(|damage| (damage, None)),
             NPCBehavior::Ranged(behavior) => behavior.update(
                 rigid_body_set,
@@ -69,9 +71,10 @@ impl NPCBehavior {
                 transform,
                 current_stamina,
                 dt,
+                forward_axis,
             ),
             NPCBehavior::Wander(behavior) => {
-                behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt);
+                behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt, forward_axis);
                 None
             },
         }
@@ -103,6 +106,7 @@ pub struct NPC {
     pub stats: CharacterStats,
     pub inventory: Inventory,
     pub is_talking: bool,
+    pub forward_axis: Vector3<f32>,
 }
 
 impl NPC {
@@ -151,6 +155,8 @@ impl NPC {
             },
             inventory: Inventory::new(),
             is_talking: false,
+            // forward_axis: Vector3::z(),
+            forward_axis: Vector3::x(),
         }
     }
 }

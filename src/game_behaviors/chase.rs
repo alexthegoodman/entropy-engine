@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
-use nalgebra::{vector, ComplexField, Vector3};
+use nalgebra::{vector, ComplexField, Vector3, UnitQuaternion};
 use nalgebra_glm::Vec3;
 use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
 
@@ -54,6 +54,7 @@ impl ChaseBehavior {
         collider: &Collider,
         transform: &mut Transform,
         dt: f32,
+        forward_axis: Vector3<f32>,
     ) {
         let current_pos = transform.position;
 
@@ -140,6 +141,15 @@ impl ChaseBehavior {
                 linvel.x = movement.x;
                 linvel.z = movement.z;
                 rigid_body.set_linvel(linvel, true);
+
+                // Update rotation
+                if direction.magnitude() > 0.001 {
+                    let dir_flat = Vector3::new(direction.x, 0.0, direction.z).normalize();
+                    let fwd_flat = Vector3::new(forward_axis.x, 0.0, forward_axis.z).normalize();
+                    
+                    let rotation_quat = UnitQuaternion::rotation_between(&fwd_flat, &dir_flat).unwrap_or(UnitQuaternion::identity());
+                    transform.rotation = rotation_quat;
+                }
             }
         }
     }
