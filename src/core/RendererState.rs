@@ -727,6 +727,17 @@ impl RendererState {
                                         debug_moving = true;
                                         radius = r.chase.detection_radius
                                     },
+                                    crate::model_components::NPC::NPCBehavior::Stateful(r) => {
+                                        debug_moving = true;
+
+                                        if let Some(melee) = &r.melee_behavior {
+                                            radius = melee.chase.detection_radius
+                                        }
+
+                                        if let Some(ranged) = &r.ranged_behavior {
+                                            radius = ranged.chase.detection_radius
+                                        }
+                                    },
                                 }
         
                                 if radius > 0.0 {

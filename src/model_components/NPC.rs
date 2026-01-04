@@ -22,6 +22,7 @@ use crate::{
         ranged::{RangedCombatBehavior},
         wander::WanderBehavior,
         inventory::Inventory,
+        stateful::{StatefulBehavior, BehaviorConfig, CombatType},
     },
     art_assets::Model::Model,
     core::AnimationState::AnimationState,
@@ -32,7 +33,8 @@ use crate::shape_primitives::Sphere::Sphere;
 pub enum NPCBehavior {
     Melee(MeleeCombatBehavior),
     Ranged(RangedCombatBehavior),
-    Wander(WanderBehavior)
+    Wander(WanderBehavior),
+    Stateful(StatefulBehavior),
 }
 
 impl NPCBehavior {
@@ -78,6 +80,18 @@ impl NPCBehavior {
                 behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt, forward_axis);
                 None
             },
+            NPCBehavior::Stateful(behavior) => behavior.update(
+                rigid_body_set,
+                collider_set,
+                query_pipeline,
+                entity_handle,
+                target_handle,
+                collider,
+                transform,
+                current_stamina,
+                dt,
+                forward_axis,
+            ),
         }
     }
 
@@ -86,6 +100,7 @@ impl NPCBehavior {
             NPCBehavior::Melee(behavior) => behavior.handle_incoming_damage(damage, stats),
             NPCBehavior::Ranged(behavior) => behavior.handle_incoming_damage(damage, stats),
             NPCBehavior::Wander(behavior) => return,
+            NPCBehavior::Stateful(behavior) => behavior.handle_incoming_damage(damage, stats),
         }
     }
 
@@ -94,6 +109,7 @@ impl NPCBehavior {
             NPCBehavior::Melee(behavior) => behavior.get_animation_name(),
             NPCBehavior::Ranged(behavior) => behavior.get_animation_name(),
             NPCBehavior::Wander(behavior) => behavior.get_animation_name(),
+            NPCBehavior::Stateful(behavior) => behavior.get_animation_name(),
         }
     }
 }
@@ -113,46 +129,36 @@ pub struct NPC {
 
 impl NPC {
     pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
-        let wander = WanderBehavior::new(12.0, 100.0);
+        // Default to a Stateful behavior
+        let melee_stats = AttackStats {
+            damage: 15.0,
+            range: 3.0,
+            cooldown: 0.4,
+            wind_up_time: 0.1,
+            recovery_time: 0.3,
+        };
 
-        let test_behavior = NPCBehavior::Wander(wander);
+        let ranged_stats = AttackStats {
+            damage: 10.0,
+            range: 18.0,
+            cooldown: 0.2,
+            wind_up_time: 0.1,
+            recovery_time: 0.1,
+        };
+
+        let config = BehaviorConfig {
+            aggressiveness: 0.8, // Fairly aggressive
+            combat_type: CombatType::Melee, // Default to melee
+            wander_radius: 12.0,
+            wander_speed: 100.0,
+            detection_radius: 15.0,
+            melee_stats: Some(melee_stats),
+            ranged_stats: Some(ranged_stats),
+        };
+
+        let stateful_behavior = StatefulBehavior::new(config);
+        let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
-        // let melee_stats = AttackStats {
-        //     damage: 15.0,
-        //     range: 3.0,
-        //     cooldown: 0.4,
-        //     wind_up_time: 0.1,
-        //     recovery_time: 0.3,
-        // };
-
-        // // let melee_combat = MeleeCombatBehavior::new(
-        // //     200.0, // chase_speed
-        // //     12.0,  // detection_radius
-        // //     melee_stats,
-        // //     75.0, // evade_speed
-        // //     0.7,  // block_chance
-        // // );
-
-        // // let test_behavior = NPCBehavior::Melee(melee_combat);
-
-        // let ranged_stats = AttackStats {
-        //     damage: 10.0,
-        //     range: 18.0,
-        //     cooldown: 0.2,
-        //     wind_up_time: 0.1,
-        //     recovery_time: 0.1,
-        // };
-
-        // let melee_combat = RangedCombatBehavior::new(
-        //     200.0, // chase_speed
-        //     12.0,  // detection_radius
-        //     ranged_stats,
-        //     75.0, // evade_speed
-        //     0.7,  // block_chance
-        // );
-
-        // let test_behavior = NPCBehavior::Ranged(melee_combat);
-
         // TODO: add a customizable ScriptedBehavior which ties into the Rhai scripting more
 
         NPC {

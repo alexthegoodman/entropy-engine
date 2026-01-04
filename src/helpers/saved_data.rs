@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
+use crate::{game_behaviors::stateful::BehaviorConfig, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct ScatterSettings {
@@ -93,6 +93,7 @@ pub struct CollectableProperties {
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct NPCProperties {
     pub model_id: String,
+    pub behavior: BehaviorConfig,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -122,7 +123,6 @@ pub struct ComponentData {
     pub water_properties: Option<WaterConfig>,
     pub collectable_properties: Option<CollectableProperties>,
     pub player_properties: Option<PlayerProperties>,
-    #[serde(default)]
     pub scatter: Option<ScatterSettings>,
     pub rhai_script_path: Option<String>,
     pub script_state: Option<HashMap<String, String>>,
@@ -162,9 +162,9 @@ pub struct GameSettings {
     pub show_hitscan_line: bool,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default, Copy)]
 pub struct AttackStats {
-    pub damage: f32,
+    pub damage: f32, // TODO: should be determined be equipped weapon
     pub range: f32,
     pub cooldown: f32,
     pub wind_up_time: f32,
