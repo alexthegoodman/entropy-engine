@@ -28,7 +28,7 @@ use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 use crate::rhai_engine::RhaiEngine;
-use crate::game_behaviors::dialogue_state::DialogueState;
+use crate::game_ui::dialogue_state::DialogueState;
 
 use cgmath::SquareMatrix;
 

@@ -153,6 +153,8 @@ impl NPC {
 
         // let test_behavior = NPCBehavior::Ranged(melee_combat);
 
+        // TODO: add a customizable ScriptedBehavior which ties into the Rhai scripting more
+
         NPC {
             id: component_id,
             model_id,

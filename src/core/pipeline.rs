@@ -40,7 +40,7 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
-use crate::game_behaviors::dialogue_ui;
+use crate::game_ui::dialogue_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 // use super::chat::Chat;

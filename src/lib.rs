@@ -25,6 +25,7 @@ pub mod procedural_particles;
 pub mod model_components;
 pub mod procedural_heightmaps;
 pub mod rhai_engine;
+pub mod game_ui;
 
 // I noticed that `pipeline.rs` has some dependencies that are not in the file system.
 // I'm adding them here so the compiler can find them.

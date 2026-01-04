@@ -7,7 +7,7 @@ use nalgebra::Vector3;
 
 use crate::core::RendererState::RendererState;
 use crate::helpers::saved_data::ComponentData;
-use crate::game_behaviors::dialogue_state::{DialogueState, DialogueOption};
+use crate::game_ui::dialogue_state::{DialogueState, DialogueOption};
 use crate::helpers::saved_data::ComponentKind;
 
 #[derive(Clone, CustomType, Debug)]            // <- auto-implement 'CustomType'

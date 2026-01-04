@@ -179,7 +179,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             if game_mode {
                 let gpu_resources = state.gpu_resources.clone();
                 if let Some(gpu_resources) = gpu_resources {
-                    crate::game_behaviors::inventory_ui::toggle_inventory_menu(state, &gpu_resources.device, &gpu_resources.queue);
+                    crate::game_ui::inventory_ui::toggle_inventory_menu(state, &gpu_resources.device, &gpu_resources.queue);
                 }
             }
         }
@@ -1070,7 +1070,7 @@ pub fn handle_configure_water_plane(
     }
 }
 
-use crate::game_behaviors::dialogue_state::DialogueState;
+use crate::game_ui::dialogue_state::DialogueState;
 
 fn handle_npc_interaction(state: &mut Editor) {
     // println!("Checking interact...");

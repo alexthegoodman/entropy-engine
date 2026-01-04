@@ -6,6 +6,3 @@ pub mod attack;
 pub mod defense;
 pub mod evade;
 pub mod inventory;
-pub mod inventory_ui;
-pub mod dialogue_state;
-pub mod dialogue_ui;
