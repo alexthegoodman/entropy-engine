@@ -38,6 +38,9 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
+#[cfg(target_arch = "wasm32")]
+use std::time::Duration;
+
 use transform_gizmo::{enum_set, Gizmo, GizmoConfig, GizmoMode, GizmoOrientation, GizmoVisuals, Rect};
 use transform_gizmo::mint::RowMatrix4;
 

@@ -64,6 +64,9 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
+#[cfg(target_arch = "wasm32")]
+use std::time::Duration;
+
 #[derive(Debug, Clone, Copy)]
 pub struct EntropyPosition {
     pub x: f32,

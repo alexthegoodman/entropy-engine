@@ -13,6 +13,7 @@ Within /src/, there are several directories:
 /art_assets/ handles GLB import and the wgpu Model creation
 /core/ handles all kinds of things from shaders to camera to Editor and RendererState, it also has the important pipeline.rs which contains the actual frame render function(s)
 /game_behaviors/ is for in-game AI and mechanics
+/game_ui/ holds the UI pipeline's frontend implementations
 /heightfield_landscapes/ contains two landscape implementations (a quadtree version and a normal version). We are currently using the normal version in Landscape.rs
 /helpers/ will include data regarding the saved state (saved_data.rs)
 /physics/ offers a simple custom physics implementation, but it is not used here. Instead, we use Rapier.

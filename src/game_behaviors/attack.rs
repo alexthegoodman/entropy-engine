@@ -7,7 +7,10 @@ use rapier3d::{parry::query::ShapeCastOptions, prelude::*};
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
-use wasm_timer::Instant;
+use wasm_timer::{Instant};
+
+#[cfg(target_arch = "wasm32")]
+use std::time::Duration;
 
 use crate::core::Transform_2::Transform;
 use crate::helpers::saved_data::AttackStats;
