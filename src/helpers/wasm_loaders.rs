@@ -13,7 +13,7 @@ use exr::image::read as exr_read;
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_project_state_wasm(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
-    let url = format!("http://asset.localhost/midpoint/projects/{}/midpoint.json", project_id);
+    let url = format!("https://stunts.b-cdn.net/midpoint/projects/{}/midpoint.json", project_id);
     let json_content = reqwest::get(&url).await?.text().await?;
     let state: SavedState = serde_json::from_str(&json_content)?;
     Ok(state)
@@ -27,6 +27,131 @@ pub async fn load_image_from_url(url: &str) -> Result<TextureData, Box<dyn std::
     let rgba_img = img.to_rgba8();
     let bytes = rgba_img.into_raw();
     Ok(TextureData { bytes, width, height })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn read_heightmap_wasm(
+    image_bytes: Vec<u8>,
+    target_width: f32,
+    target_length: f32,
+    target_height: f32,
+) -> (
+    usize,
+    usize,
+    Vec<Vec<PixelData>>,
+    na::DMatrix<f32>,
+    Vec<f32>,
+    f32,
+) {
+    use std::io::Cursor;
+
+    // Try to determine format from the image bytes
+    let (width, height, image_data) = if is_tiff(&image_bytes) {
+        // Handle TIFF files
+        let cursor = Cursor::new(image_bytes);
+        let mut decoder = tiff::decoder::Decoder::new(cursor)
+            .expect("Couldn't decode TIFF bytes");
+
+        let (w, h) = decoder.dimensions().expect("Couldn't get TIFF dimensions");
+        let width = usize::try_from(w).unwrap();
+        let height = usize::try_from(h).unwrap();
+
+        let data = match decoder.read_image().expect("Couldn't read TIFF data") {
+            tiff::decoder::DecodingResult::F32(vec) => vec,
+            tiff::decoder::DecodingResult::U16(vec) => {
+                vec.into_iter().map(|v| v as f32).collect()
+            }
+            tiff::decoder::DecodingResult::U8(vec) => {
+                vec.into_iter().map(|v| v as f32).collect()
+            }
+            _ => panic!("Unsupported TIFF format"),
+        };
+
+        (width, height, data)
+    } else {
+        // Handle PNG, JPEG, BMP, etc. using the image crate
+        use image::GenericImageView;
+
+        let img = image::load_from_memory(&image_bytes)
+            .expect("Couldn't load image from bytes");
+        let (w, h) = img.dimensions();
+        let width = w as usize;
+        let height = h as usize;
+
+        // Convert to 16-bit grayscale for consistency
+        let gray_img = img.to_luma16();
+        let data: Vec<f32> = gray_img.as_raw()
+            .iter()
+            .map(|&v| v as f32)
+            .collect();
+
+        (width, height, data)
+    };
+
+    // Process the image data (same for all formats)
+    let mut pixel_data = Vec::new();
+    let mut raw_heights = Vec::new();
+
+    let x_scale = target_width / width as f32;
+    let y_scale = target_length / height as f32;
+    let z_scale = target_height;
+
+    let min_height = *image_data
+        .iter()
+        .min_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap();
+    let max_height = *image_data
+        .iter()
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap();
+    let height_range = max_height - min_height;
+
+    let mut max_height_actual: f32 = 0.0;
+    let mut heights = na::DMatrix::zeros(height, width);
+
+    for y in 0..height {
+        let mut row = Vec::new();
+        for x in 0..width {
+            let idx = y * width + x;
+            let normalized_height = if height_range > 0.0 {
+                (image_data[idx] - min_height) / height_range
+            } else {
+                0.5
+            };
+            let height_value = normalized_height * z_scale;
+
+            max_height_actual = max_height_actual.max(height_value);
+            raw_heights.push(height_value);
+            heights[(y, x)] = height_value;
+
+            let position = [
+                x as f32 * x_scale - target_width / 2.0,
+                height_value,
+                y as f32 * y_scale - target_length / 2.0,
+            ];
+            let tex_coords = [x as f32 / width as f32, y as f32 / height as f32];
+
+            row.push(PixelData {
+                height_value,
+                position,
+                tex_coords,
+            });
+        }
+        pixel_data.push(row);
+    }
+
+    (width, height, pixel_data, heights, raw_heights, max_height_actual)
+}
+
+// Helper function to detect TIFF format from magic bytes
+#[cfg(target_arch = "wasm32")]
+fn is_tiff(bytes: &[u8]) -> bool {
+    if bytes.len() < 4 {
+        return false;
+    }
+    // TIFF magic numbers: II (little-endian) or MM (big-endian)
+    (bytes[0] == 0x49 && bytes[1] == 0x49 && bytes[2] == 0x2A && bytes[3] == 0x00) ||
+    (bytes[0] == 0x4D && bytes[1] == 0x4D && bytes[2] == 0x00 && bytes[3] == 0x2A)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -136,7 +261,7 @@ pub async fn get_landscape_pixels_wasm(
     landscape_filename: String,
 ) -> LandscapePixelData {
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
         project_id, landscape_asset_id, landscape_filename
     );
 
@@ -150,7 +275,13 @@ pub async fn get_landscape_pixels_wasm(
 
     let square_size = 1024.0 * 4.0;
     let square_height = 150.0 * 4.0;
-    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_tiff_heightmap_wasm(
+    // let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_tiff_heightmap_wasm(
+    //     tiff_bytes,
+    //     square_size,
+    //     square_size,
+    //     square_height,
+    // );
+    let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_heightmap_wasm(
         tiff_bytes,
         square_size,
         square_size,
@@ -174,7 +305,7 @@ pub async fn read_landscape_heightmap_as_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
         project_id, landscape_id, texture_filename
     );
 
@@ -232,7 +363,7 @@ pub async fn read_landscape_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/textures/{}.png",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/textures/{}.png",
         project_id, texture_filename
     );
     load_image_from_url(&url)
@@ -256,7 +387,7 @@ pub async fn read_landscape_mask_wasm(
     };
 
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/landscapes/{}/{}/{}",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/{}/{}",
         project_id, landscape_id, kind_slug, mask_filename
     );
 
@@ -273,7 +404,7 @@ pub async fn read_texture_bytes_wasm(
 ) -> Result<(Vec<u8>, u32, u32), String> {
     // Determine the base directory based on asset_id type
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/textures/{}",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/textures/{}",
         project_id, file_name
     );
 
@@ -389,7 +520,7 @@ pub async fn read_model_wasm(
     modelFilename: String,
 ) -> Result<Vec<u8>, String> {
     let url = format!(
-        "http://asset.localhost/midpoint/projects/{}/models/{}",
+        "https://stunts.b-cdn.net/midpoint/projects/{}/models/{}",
         projectId, modelFilename
     );
 
