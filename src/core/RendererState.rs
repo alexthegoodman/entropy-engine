@@ -1012,7 +1012,7 @@ impl RendererState {
                 camera.position.z,
             );
 
-            player_character.character_controller.move_shape(
+            let effective_character_movement = player_character.character_controller.move_shape(
                 delta_time,
                 &self.rigid_body_set,
                 &self.collider_set,
@@ -1026,13 +1026,17 @@ impl RendererState {
                 },
             );
 
+            // effective_character_movement.grounded
+            // effective_character_movement.is_sliding_down_slope
+            // effective_character_movement.translation
+
             camera.position = Point3::new(
                 camera.position.x + translation.x,
                 camera.position.y - 0.9 + translation.y,
                 camera.position.z + translation.z,
             );
 
-            // TODO: update collider with handle?
+            // TODO: update rigidbody with handle?
         }
     }
 
@@ -1082,50 +1086,160 @@ impl RendererState {
         });
     }
 
-    pub fn apply_player_movement(&mut self, direction: Vector3<f32>) {
+    // pub fn apply_player_movement(&mut self, direction: Vector3<f32>) {
+    //     if let Some(player_character) = &mut self.player_character {
+
+    //         if let Some(rigidbody) = self.rigid_body_set.get_mut(
+    //             player_character
+    //                 .movement_rigid_body_handle
+    //                 .expect("Couldn't get mesh rigidbody handle"),
+    //         ) {
+    //             // Get current velocity to preserve Y component (gravity)
+    //             let current_velocity = rigidbody.linvel();
+                
+    //             // Set horizontal velocity while keeping vertical velocity
+    //             // let movement_speed = 5.0; // Adjust this to your desired speed
+    //             let movement_speed = 3.7;
+    //             // let movement_speed = 2.5;
+    //             let new_velocity = vector![
+    //                 direction.x * movement_speed,
+    //                 current_velocity.y, // Preserve gravity/jumping
+    //                 direction.z * movement_speed
+    //             ];
+                
+    //             rigidbody.set_linvel(new_velocity, true);
+    //         }
+    //     }
+    // }
+
+    pub fn apply_player_movement(&mut self, direction: Vector3<f32>, delta_time: f32) {
         if let Some(player_character) = &mut self.player_character {
+            let mut current_position = None;
+            let mut current_velocity = None;
+            
+            if let Some(rigidbody) = self.rigid_body_set.get_mut(
+                player_character
+                    .movement_rigid_body_handle
+                    .expect("Couldn't get mesh rigidbody handle"),
+            ) {
+                current_position = Some(*rigidbody.translation());
+                current_velocity = Some(*rigidbody.linvel());
+            }
+
+            let current_position = current_position.expect("Couldn't get position");
+            let current_velocity = current_velocity.expect("Couldn't get velocity");
+
+            // Collision filter
+            let filter = QueryFilter::default()
+                .exclude_rigid_body(
+                    player_character
+                        .movement_rigid_body_handle
+                        .expect("Couldn't get rigid body handle"),
+                )
+                .exclude_collider(
+                    player_character
+                        .collider_handle
+                        .expect("Couldn't get collider handle"),
+                )
+                .exclude_sensors();
+
+            // let movement_speed = 3.7;
+            let movement_speed = 5.2;
+
+            // IMPORTANT: This should be a movement DELTA, not absolute position
+            let desired_translation = vector![
+                direction.x * movement_speed * delta_time,
+                current_velocity.y * delta_time, // Preserve gravity
+                direction.z * movement_speed * delta_time
+            ];
+
+            // Create the character position (Isometry)
+            let character_pos = Isometry3::translation(
+                current_position.x,
+                current_position.y,
+                current_position.z,
+            );
+
+            let effective_character_movement = player_character.character_controller.move_shape(
+                delta_time,
+                &self.rigid_body_set,
+                &self.collider_set,
+                &self.query_pipeline,
+                player_character.movement_shape.shape(),
+                &character_pos,
+                desired_translation,
+                filter,
+                |_collision| {},
+            );
+
+            // Store grounded state for jump logic
+            player_character.is_grounded = effective_character_movement.grounded;
 
             if let Some(rigidbody) = self.rigid_body_set.get_mut(
                 player_character
                     .movement_rigid_body_handle
                     .expect("Couldn't get mesh rigidbody handle"),
             ) {
-                // Get current velocity to preserve Y component (gravity)
-                let current_velocity = rigidbody.linvel();
+                // Apply the corrected translation from character controller
+                // rigidbody.set_translation(effective_character_movement.translation, true);
                 
-                // Set horizontal velocity while keeping vertical velocity
-                // let movement_speed = 5.0; // Adjust this to your desired speed
-                let movement_speed = 3.7;
-                // let movement_speed = 2.5;
-                let new_velocity = vector![
-                    direction.x * movement_speed,
-                    current_velocity.y, // Preserve gravity/jumping
-                    direction.z * movement_speed
-                ];
-                
-                rigidbody.set_linvel(new_velocity, true);
+                // Update velocity to match the actual movement
+                // let actual_velocity = vector![
+                //     (effective_character_movement.translation.x - current_position.x) / delta_time,
+                //     current_velocity.y,
+                //     (effective_character_movement.translation.z - current_position.z) / delta_time
+                // ];
+                // rigidbody.set_linvel(actual_velocity, true);
+
+                // effective_character_movement.translation is a DELTA, so add it to current position
+                let new_position = current_position + effective_character_movement.translation;
+                rigidbody.set_translation(new_position, true);
             }
         }
     }
 
     pub fn apply_jump_impulse(&mut self) {
         if let Some(player_character) = &mut self.player_character {
-
-            if let Some(rigidbody) = self.rigid_body_set.get_mut(
-                player_character
-                    .movement_rigid_body_handle
-                    .expect("Couldn't get mesh rigidbody handle"),
-            ) {
-                // Only jump if on ground (check if vertical velocity is near zero)
-                let velocity = rigidbody.linvel();
-                if velocity.y.abs() < 0.1 {
+            // Use the grounded state from character controller
+            if player_character.is_grounded {
+                if let Some(rigidbody) = self.rigid_body_set.get_mut(
+                    player_character
+                        .movement_rigid_body_handle
+                        .expect("Couldn't get mesh rigidbody handle"),
+                ) {
                     println!("Jump!");
-                    let jump_force = 8.0; // Adjust for desired jump height
-                    rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+                    let jump_force = 8.0;
+                    // rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+
+                    // for kinematic character
+                    let mut current_velocity = rigidbody.linvel().clone();
+                    
+                    // Set the upward velocity
+                    current_velocity.y = jump_force;
+                    rigidbody.set_linvel(current_velocity, true)
                 }
             }
         }
     }
+
+    // pub fn apply_jump_impulse(&mut self) {
+    //     if let Some(player_character) = &mut self.player_character {
+
+    //         if let Some(rigidbody) = self.rigid_body_set.get_mut(
+    //             player_character
+    //                 .movement_rigid_body_handle
+    //                 .expect("Couldn't get mesh rigidbody handle"),
+    //         ) {
+    //             // Only jump if on ground (check if vertical velocity is near zero)
+    //             let velocity = rigidbody.linvel();
+    //             if velocity.y.abs() < 0.1 {
+    //                 println!("Jump!");
+    //                 let jump_force = 8.0; // Adjust for desired jump height
+    //                 rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+    //             }
+    //         }
+    //     }
+    // }
 
     pub fn update_player_rigidbody_position(
         &mut self,

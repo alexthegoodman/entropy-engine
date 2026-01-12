@@ -339,7 +339,8 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
     if movement_direction.magnitude() > 0.0 {
         if renderer_state.game_mode {
-            renderer_state.apply_player_movement(movement_direction);
+            renderer_state.apply_player_movement(movement_direction, 0.016);
+            // renderer_state.update_player_character_position(movement_direction, 0.16, camera);
         } else {
             // Free camera mode - directly update position with full 3D movement
             let diff = movement_direction * 0.5;

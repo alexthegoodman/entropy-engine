@@ -56,6 +56,8 @@ pub struct PlayerCharacter {
     pub animation_state: AnimationState,
     pub is_moving: bool,
     pub script_state: Option<HashMap<String, String>>,
+
+    pub is_grounded: bool
 }
 
 impl PlayerCharacter {
@@ -133,7 +135,7 @@ impl PlayerCharacter {
             sphere: Some(sphere),
             character_controller: KinematicCharacterController {
                 autostep: Some(CharacterAutostep {
-                    max_height: rapier3d::control::CharacterLength::Relative((40.0)), // helps with jagged terrain?
+                    max_height: rapier3d::control::CharacterLength::Relative((6.0)), // helps with jagged terrain?
                     min_width: rapier3d::control::CharacterLength::Relative((2.0)),
                     include_dynamic_bodies: true,
                 }),
@@ -163,6 +165,7 @@ impl PlayerCharacter {
             animation_state: AnimationState::new(0),
             is_moving: false,
             script_state: None,
+            is_grounded: false
         }
     }
 
