@@ -41,6 +41,7 @@ use crate::shape_primitives::Cube::Cube;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::game_ui::dialogue_ui;
+use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 // use super::chat::Chat;
@@ -2363,6 +2364,7 @@ impl ExportPipeline {
 
             // Update Dialogue UI
             dialogue_ui::update_dialogue_ui(editor, device, queue);
+            quest_ui::update_quest_ui(editor, device, queue);
 
             let command_buffer = encoder.finish();
             queue.submit(std::iter::once(command_buffer));

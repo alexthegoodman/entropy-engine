@@ -319,6 +319,7 @@ pub struct Editor {
     // Inventory UI
     pub is_inventory_open: bool,
     pub inventory_ui_ids: Vec<Uuid>,
+    pub quest_ui_ids: Vec<Uuid>,
     pub font_manager: FontManager,
 
     // Dialogue State
@@ -513,6 +514,7 @@ impl Editor {
             current_enemy_target: None,
             is_inventory_open: false,
             inventory_ui_ids: Vec::new(),
+            quest_ui_ids: Vec::new(),
             font_manager,
             dialogue_state: DialogueState::default(),
             // dragging_image: None,

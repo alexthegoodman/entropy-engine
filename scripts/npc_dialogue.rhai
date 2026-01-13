@@ -11,6 +11,12 @@ fn interact(d) {
         d.show("Indeed. A storm approaches from the north. Best be careful.");
         d.add_option("I will watch my step.", "start");
         d.add_option("I love storms.", "storm_lover");
+        d.add_option("Can I help?", "start_quest");
+    }
+    else if node == "start_quest" {
+        d.show("You are brave. Talk to the Elder on the hill.");
+        d.start_quest("storm_quest");
+        d.add_option("I'm on it.", "end");
     }
     else if node == "storm_lover" {
         d.show("A brave soul! Or perhaps a foolish one. Ha!");

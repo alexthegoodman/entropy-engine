@@ -59,6 +59,7 @@ use crate::{
 
 use super::Grid::GridConfig;
 use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
+use crate::game_ui::quest_state::QuestState;
 use super::{
     Grid::Grid,
     Rays::{cast_ray_at_components, create_ray_from_mouse},
@@ -195,6 +196,8 @@ pub struct RendererState {
     pub gizmo: Gizmo,
 
     pub display_debug_spheres: bool,
+
+    pub quest_state: QuestState,
 }
 
 // impl<'a> RendererState<'a> {
@@ -382,6 +385,7 @@ impl RendererState {
             last_mouse_position_time: Instant::now(),
             gizmo,
             display_debug_spheres: true,
+            quest_state: QuestState::new(),
         }
     }
 

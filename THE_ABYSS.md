@@ -6,20 +6,22 @@ In The Abyss (FPS RPG), an energy-obsessed, highly-advanced surface people drill
 
 The first character you play as is a rogue. He was raised by a surface mechanic who had a child with an underground mage. A very rare and dangerous thing to have happen, but sometimes it does. He is raised by his father on the surface. Then he eventually ventures off to the underground to understand his past. The story starts some years after that, at the Meeting Place. You begin lightly armed and stocked, but need to find more items and weapons soon, because there are so many hostiles everywhere.
 
+## Urgent
+- Quest system and menus
+- Suspicion Meter and Visibility Icon (use sphere instead with color code?)
+- NPC swarms
+- Display most keyboard controls in HUD (i, e, etc)
+
 ## TODOs
 
-- DomeKit.blend for first map (in progress)
+- Full DomeKit.blend for first map (in progress)
 - Other magic powers (control NPC mind, telekinesis)
-- Enemy Stat archetypes?
 - Ligtning gun
 - Xray vision glasses
 - Invisibility cloak?
-- NPC swarms
 - Enhance inventory menu (equip, consume, drop) (first need to collect!)
 - Loot dead enemies and pick up Collectables
-- Quest sytem and menus
 - Befriend hostiles (?)
 - Save system and menus
-- Suspicion Meter and Visibility Icon
 - Weather Conditions?
 - Mini-Map with markers

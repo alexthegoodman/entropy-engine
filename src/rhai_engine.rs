@@ -226,6 +226,7 @@ pub struct DialogueWrapper {
     pub is_open: bool,
     pub npc_name: String,
     pub current_node: String,
+    pub started_quest: Option<String>,
 }
 
 impl DialogueWrapper {
@@ -244,6 +245,10 @@ impl DialogueWrapper {
     pub fn set_node(&mut self, node: String) {
         self.current_node = node;
         self.changed = true;
+    }
+
+    pub fn start_quest(&mut self, quest_id: String) {
+        self.started_quest = Some(quest_id);
     }
 
     pub fn close(&mut self) {
@@ -305,6 +310,7 @@ impl RhaiEngine {
             .register_fn("add_option", DialogueWrapper::add_option)
             .register_fn("set_node", DialogueWrapper::set_node)
             .register_fn("get_node", DialogueWrapper::get_node)
+            .register_fn("start_quest", DialogueWrapper::start_quest)
             .register_fn("close", DialogueWrapper::close);
 
         // Register SystemWrapper
@@ -526,6 +532,7 @@ impl RhaiEngine {
             is_open: dialogue_state.is_open,
             npc_name: dialogue_state.npc_name.clone(),
             current_node: dialogue_state.current_node.clone(),
+            started_quest: None,
         };
 
         let mut scope = Scope::new();
@@ -533,6 +540,10 @@ impl RhaiEngine {
         // Call the function, passing wrapper as argument
         match self.engine.call_fn::<DialogueWrapper>(&mut scope, &ast, hook_name, (wrapper,)) {
             Ok(updated_wrapper) => {
+                if let Some(quest_id) = updated_wrapper.started_quest {
+                    renderer_state.quest_state.start_quest(&quest_id);
+                }
+
                 if updated_wrapper.changed {
                     dialogue_state.current_text = updated_wrapper.text;
                     dialogue_state.options = updated_wrapper.options;
