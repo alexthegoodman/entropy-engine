@@ -208,14 +208,14 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     // Dialogue Navigation
     if state.dialogue_state.is_open && is_pressed {
         match key_code {
-            "w" => {
+            "w" | "ArrowUp" => {
                 if state.dialogue_state.selected_option_index > 0 {
                     state.dialogue_state.selected_option_index -= 1;
                     state.dialogue_state.ui_dirty = true;
                 }
                 return;
             },
-            "s" => {
+            "s" | "ArrowDown" => {
                 if state.dialogue_state.selected_option_index < state.dialogue_state.options.len().saturating_sub(1) {
                     state.dialogue_state.selected_option_index += 1;
                     state.dialogue_state.ui_dirty = true;
@@ -286,7 +286,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 
     match key_code {
-        "w" => {
+        "w" | "ArrowUp" => {
             if is_pressed {
                 // In game mode, move horizontally. In free camera, move in full 3D direction
                 let forward = if renderer_state.game_mode {
@@ -297,7 +297,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 movement_direction += forward * speed_multiplier;
             }
         }
-        "s" => {
+        "s" | "ArrowDown" => {
             if is_pressed {
                 let forward = if renderer_state.game_mode {
                     Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize()
@@ -307,7 +307,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 movement_direction -= forward * speed_multiplier;
             }
         }
-        "a" => {
+        "a" | "ArrowLeft" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
                 let right_horizontal = if renderer_state.game_mode {
@@ -318,7 +318,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 movement_direction -= right_horizontal * speed_multiplier;
             }
         }
-        "d" => {
+        "d" | "ArrowRight" => {
             if is_pressed {
                 let right = camera.direction.cross(&camera.up).normalize();
                 let right_horizontal = if renderer_state.game_mode {
@@ -329,7 +329,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 movement_direction += right_horizontal * speed_multiplier;
             }
         }
-        " " => { // Space bar for jumping
+        "Space" | " " => { // Space bar for jumping
             if is_pressed && renderer_state.game_mode {
                 renderer_state.apply_jump_impulse();
             }
