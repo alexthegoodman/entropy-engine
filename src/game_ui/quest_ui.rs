@@ -115,7 +115,7 @@ fn build_quest_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         font_family: "Basic".to_string(),
         font_size: 20,
         dimensions: (panel_width - 20.0, title_height),
-        position: Point { x: panel_x + 10.0, y: panel_y + 10.0 },
+        position: Point { x: panel_x + 110.0, y: panel_y + 10.0 },
         layer: 301,
         color: [255, 215, 0, 255], // Gold
         background_fill: [0, 0, 0, 0],
@@ -150,7 +150,7 @@ fn build_quest_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
             font_family: "Basic".to_string(),
             font_size: 16,
             dimensions: (panel_width - 20.0, step_height),
-            position: Point { x: panel_x + 20.0, y: panel_y + title_height + 10.0 + (i as f32 * step_height) },
+            position: Point { x: panel_x + 120.0, y: panel_y + title_height + 10.0 + (i as f32 * step_height) },
             layer: 301,
             color,
             background_fill: [0, 0, 0, 0],
