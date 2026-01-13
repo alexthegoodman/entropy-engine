@@ -59,7 +59,7 @@ fn build_quest_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
     let title_height = 30.0;
     let panel_height = title_height + (steps.len() as f32 * step_height) + 20.0;
     
-    let panel_x = window_size.width as f32 - panel_width - padding;
+    let panel_x = (window_size.width as f32 / 2.0) - panel_width - padding;
     let panel_y = padding; // Top right
     
      // Polygon expects center position
