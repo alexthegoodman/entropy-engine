@@ -140,7 +140,9 @@ impl StatefulBehavior {
             BehaviorState::Melee | BehaviorState::Ranged => {
                 // Check if we should give up and wander
                 // If target is very far (e.g. 2x detection radius), go back to wander
-                if distance_to_target > self.config.detection_radius * 2.0 {
+                if self.config.aggressiveness < 0.1 {
+                    self.current_state = BehaviorState::Wander;
+                } else if distance_to_target > self.config.detection_radius * 2.0 {
                     self.current_state = BehaviorState::Wander;
                     self.last_state_change = Instant::now();
                      // println!("StatefulBehavior: Target lost, switching to Wander");
@@ -226,15 +228,17 @@ impl StatefulBehavior {
     pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {
         // If attacked, become aggressive/alert even if previously wandering
         if let BehaviorState::Wander = self.current_state {
-             match self.config.combat_type {
-                CombatType::Melee => {
-                    if self.melee_behavior.is_some() {
-                        self.current_state = BehaviorState::Melee;
-                    }
-                },
-                CombatType::Ranged => {
-                    if self.ranged_behavior.is_some() {
-                        self.current_state = BehaviorState::Ranged;
+            if self.config.aggressiveness > 0.3 {
+                match self.config.combat_type {
+                    CombatType::Melee => {
+                        if self.melee_behavior.is_some() {
+                            self.current_state = BehaviorState::Melee;
+                        }
+                    },
+                    CombatType::Ranged => {
+                        if self.ranged_behavior.is_some() {
+                            self.current_state = BehaviorState::Ranged;
+                        }
                     }
                 }
             }
