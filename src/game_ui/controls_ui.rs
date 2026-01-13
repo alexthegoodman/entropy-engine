@@ -28,8 +28,8 @@ pub fn init_controls_ui(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu
         .unwrap_or_else(|| &editor.font_manager.font_data[0].1);
 
     // Position: Top-left, with some padding
-    let start_x = 20.0;
-    let start_y = 60.0;
+    let start_x = 120.0;
+    let start_y = 160.0;
     let line_height = 30.0;
 
     // Controls Header
