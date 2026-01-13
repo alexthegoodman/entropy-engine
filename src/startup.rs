@@ -820,6 +820,10 @@ impl WindowState {
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
 
+        if game_mode {
+            crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
+        }
+
         let mut state = Self {
             #[cfg(macos_platform)]
             option_as_alt: window.option_as_alt(),
