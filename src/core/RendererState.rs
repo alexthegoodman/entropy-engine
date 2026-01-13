@@ -13,6 +13,7 @@ use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
+use crate::game_behaviors::stateful::BehaviorState;
 use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::GameSettings;
 use crate::heightfield_landscapes::QuadNode::QuadNode;
@@ -722,10 +723,17 @@ impl RendererState {
 
                             // Debug Spheres Logic
                             if self.display_debug_spheres {
+                                if let Some(debug_sphere) = &instance_npc_data.debug_sphere {}
                                 let mut radius = 0.0;
                                 let mut debug_moving = false;
                                 let mut color = [0.0, 1.0, 0.0]; // Default Green
-                                let distance_to_player = nalgebra::distance(&Point3::from(position), &Point3::from(first_mesh.transform.position));
+                                let debug_sphere_position = if let Some(debug_sphere) = &instance_npc_data.debug_sphere {
+                                    debug_sphere.transform.position
+                                } else {
+                                    Vector3::identity()
+                                };
+
+                                let distance_to_player = nalgebra::distance(&Point3::from(position), &Point3::from(debug_sphere_position));
 
                                 match &instance_npc_data.test_behavior {
                                     crate::model_components::NPC::NPCBehavior::Wander(w) => radius = w.radius,
@@ -762,15 +770,23 @@ impl RendererState {
                                             color = [0.0, 1.0, 0.0]; // Green (Friendly)
                                         } else {
                                             match r.current_state {
-                                                crate::game_behaviors::stateful::BehaviorState::Wander => {
+                                                BehaviorState::Wander => {
+                                                    // if distance_to_player <= radius {
+                                                    //     color = [1.0, 0.0, 0.0]; // Red (Should be engaging)
+                                                    // } else {
+                                                    //     color = [1.0, 1.0, 0.0]; // Yellow (Dangerous but far)
+                                                    // }
+                                                    color = [0.0, 1.0, 0.0]; // Green
+                                                },
+                                                BehaviorState::Melee | BehaviorState::Ranged => {
                                                     if distance_to_player <= radius {
                                                         color = [1.0, 0.0, 0.0]; // Red (Should be engaging)
                                                     } else {
                                                         color = [1.0, 1.0, 0.0]; // Yellow (Dangerous but far)
                                                     }
-                                                },
+                                                }
                                                 _ => {
-                                                    color = [1.0, 0.0, 0.0]; // Red (Engaging)
+                                                    color = [0.0, 1.0, 0.0]; // Green
                                                 }
                                             }
                                         }
