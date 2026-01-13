@@ -3,6 +3,7 @@ use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::core::RendererState::DebugRay;
+use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::model_components::Collectable::Collectable;
 use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
@@ -783,6 +784,7 @@ pub async fn handle_add_npc(
     scale: Vector3<f32>,
     camera: &SimpleCamera,
     script_state: Option<HashMap<String, String>>,
+    npcBehaviorCOnfig: BehaviorConfig
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -803,7 +805,7 @@ pub async fn handle_add_npc(
         .and_then(|mesh| mesh.rigid_body_handle)
         .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
 
-    state.npcs.push(NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle));
+    state.npcs.push(NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle, npcBehaviorCOnfig));
 }
 
 pub async fn handle_add_collectable(

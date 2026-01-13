@@ -407,6 +407,7 @@ editor.saved_state = Some(loaded_state);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
+                                        let npc_properties = component.npc_properties.as_ref().expect("Couldn't get NPC properties");
 
                                         if let Some(asset_item) = asset {
                                             handle_add_npc(
@@ -420,7 +421,8 @@ editor.saved_state = Some(loaded_state);
                                                 model_iso, 
                                                 model_scale,
                                                 camera,
-                                                component.script_state.clone()
+                                                component.script_state.clone(),
+                                                npc_properties.behavior
                                             ).await;
                                         }
                                     }

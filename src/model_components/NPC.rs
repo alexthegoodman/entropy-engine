@@ -128,35 +128,35 @@ pub struct NPC {
 }
 
 impl NPC {
-    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle) -> Self {
+    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig) -> Self {
         // Default to a Stateful behavior
-        let melee_stats = AttackStats {
-            damage: 15.0,
-            range: 3.0,
-            cooldown: 0.4,
-            wind_up_time: 0.1,
-            recovery_time: 0.3,
-        };
+        // let melee_stats = AttackStats {
+        //     damage: 15.0,
+        //     range: 3.0,
+        //     cooldown: 0.4,
+        //     wind_up_time: 0.1,
+        //     recovery_time: 0.3,
+        // };
 
-        let ranged_stats = AttackStats {
-            damage: 10.0,
-            range: 18.0,
-            cooldown: 0.2,
-            wind_up_time: 0.1,
-            recovery_time: 0.1,
-        };
+        // let ranged_stats = AttackStats {
+        //     damage: 10.0,
+        //     range: 18.0,
+        //     cooldown: 0.2,
+        //     wind_up_time: 0.1,
+        //     recovery_time: 0.1,
+        // };
 
-        let config = BehaviorConfig {
-            aggressiveness: 0.8, // Fairly aggressive
-            combat_type: CombatType::Melee, // Default to melee
-            wander_radius: 12.0,
-            wander_speed: 100.0,
-            detection_radius: 15.0,
-            melee_stats: Some(melee_stats),
-            ranged_stats: Some(ranged_stats),
-        };
+        // let config = BehaviorConfig {
+        //     aggressiveness: 0.8, // Fairly aggressive
+        //     combat_type: CombatType::Melee, // Default to melee
+        //     wander_radius: 12.0,
+        //     wander_speed: 100.0,
+        //     detection_radius: 15.0,
+        //     melee_stats: Some(melee_stats),
+        //     ranged_stats: Some(ranged_stats),
+        // };
 
-        let stateful_behavior = StatefulBehavior::new(config);
+        let stateful_behavior = StatefulBehavior::new(behavior_config);
         let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
         // TODO: add a customizable ScriptedBehavior which ties into the Rhai scripting more
