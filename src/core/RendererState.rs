@@ -724,15 +724,28 @@ impl RendererState {
                             if self.display_debug_spheres {
                                 let mut radius = 0.0;
                                 let mut debug_moving = false;
+                                let mut color = [0.0, 1.0, 0.0]; // Default Green
+                                let distance_to_player = nalgebra::distance(&Point3::from(position), &Point3::from(first_mesh.transform.position));
+
                                 match &instance_npc_data.test_behavior {
                                     crate::model_components::NPC::NPCBehavior::Wander(w) => radius = w.radius,
                                     crate::model_components::NPC::NPCBehavior::Melee(m) => {
                                         debug_moving = true;
-                                        radius = m.chase.detection_radius
+                                        radius = m.chase.detection_radius;
+                                        if distance_to_player <= radius {
+                                            color = [1.0, 0.0, 0.0]; // Red
+                                        } else {
+                                            color = [1.0, 1.0, 0.0]; // Yellow
+                                        }
                                     },
                                     crate::model_components::NPC::NPCBehavior::Ranged(r) => {
                                         debug_moving = true;
-                                        radius = r.chase.detection_radius
+                                        radius = r.chase.detection_radius;
+                                        if distance_to_player <= radius {
+                                            color = [1.0, 0.0, 0.0]; // Red
+                                        } else {
+                                            color = [1.0, 1.0, 0.0]; // Yellow
+                                        }
                                     },
                                     crate::model_components::NPC::NPCBehavior::Stateful(r) => {
                                         debug_moving = true;
@@ -743,6 +756,23 @@ impl RendererState {
 
                                         if let Some(ranged) = &r.ranged_behavior {
                                             radius = ranged.chase.detection_radius
+                                        }
+
+                                        if r.config.aggressiveness <= 0.1 {
+                                            color = [0.0, 1.0, 0.0]; // Green (Friendly)
+                                        } else {
+                                            match r.current_state {
+                                                crate::game_behaviors::stateful::BehaviorState::Wander => {
+                                                    if distance_to_player <= radius {
+                                                        color = [1.0, 0.0, 0.0]; // Red (Should be engaging)
+                                                    } else {
+                                                        color = [1.0, 1.0, 0.0]; // Yellow (Dangerous but far)
+                                                    }
+                                                },
+                                                _ => {
+                                                    color = [1.0, 0.0, 0.0]; // Red (Engaging)
+                                                }
+                                            }
                                         }
                                     },
                                 }
@@ -763,7 +793,7 @@ impl RendererState {
                                             1.0, // Unit sphere
                                             16,
                                             16,
-                                            [0.0, 1.0, 0.0], // Green
+                                            color,
                                             debug_moving
                                         ));
 
@@ -781,6 +811,9 @@ impl RendererState {
                                         if debug_moving {
                                             sphere.transform.update_position([position.x, position.y, position.z]);
                                         }
+
+                                        // Update color
+                                        sphere.update_color(queue, 1.0, 16, 16, color);
                                     }
                                 }
                             }

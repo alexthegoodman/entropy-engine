@@ -302,7 +302,7 @@ impl Sphere {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Sphere Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -520,6 +520,18 @@ impl Sphere {
             pbr_params_texture_view: Some(pbr_params_texture_view),
             debug_moving
         }
+    }
+
+    pub fn update_color(
+        &mut self,
+        queue: &wgpu::Queue,
+        radius: f32,
+        sectors: u32,
+        stacks: u32,
+        color: [f32; 3]
+    ) {
+        let (vertices, _) = Self::generate_sphere_data(radius, sectors, stacks, color);
+        queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
     }
 
     fn generate_sphere_data(radius: f32, sectors: u32, stacks: u32, color: [f32; 3]) -> (Vec<Vertex>, Vec<u16>) {
