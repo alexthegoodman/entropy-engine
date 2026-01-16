@@ -379,7 +379,8 @@ impl RendererState {
             game_mode,
             game_settings: GameSettings {
                 third_person: false,
-                show_hitscan_line: true
+                show_hitscan_line: true,
+                ui_theme: None,
             },
             camera_pitch: 0.0,
             camera_yaw: 0.0,

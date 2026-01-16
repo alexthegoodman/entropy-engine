@@ -34,7 +34,10 @@ pub enum ComponentKind {
     PointLight,
     WaterPlane,
     Collectable,
-    PlayerCharacter
+    PlayerCharacter,
+    ProceduralTree,
+    ProceduralParticle,
+    ProceduralGrass,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -81,6 +84,41 @@ pub struct ModelProperties {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ProceduralTreeProperties {
+    pub seed: u32,
+    pub trunk_height: f32,
+    pub trunk_radius: f32,
+    pub branch_levels: u32,
+    pub foliage_radius: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ProceduralParticleProperties {
+    pub emission_rate: f32,
+    pub life_time: f32,
+    pub radius: f32,
+    pub initial_speed_min: f32,
+    pub initial_speed_max: f32,
+    pub size: f32,
+    pub mode: f32, // 0 = continuous, 1 = burst
+    pub start_color: [f32; 4],
+    pub end_color: [f32; 4],
+    pub gravity: [f32; 4],
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ProceduralGrassProperties {
+    pub grid_size: f32,
+    pub render_distance: f32,
+    pub blade_density: u32,
+    pub wind_strength: f32,
+    pub wind_speed: f32,
+    pub blade_height: f32,
+    pub blade_width: f32,
+    pub brownian_strength: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct CollectableProperties {
     // fallback to sphere
     pub model_id: Option<String>,
@@ -123,6 +161,9 @@ pub struct ComponentData {
     pub water_properties: Option<WaterConfig>,
     pub collectable_properties: Option<CollectableProperties>,
     pub player_properties: Option<PlayerProperties>,
+    pub procedural_tree_properties: Option<ProceduralTreeProperties>,
+    pub procedural_particle_properties: Option<ProceduralParticleProperties>,
+    pub procedural_grass_properties: Option<ProceduralGrassProperties>,
     pub scatter: Option<ScatterSettings>,
     pub rhai_script_path: Option<String>,
     pub script_state: Option<HashMap<String, String>>,
@@ -156,10 +197,21 @@ pub struct ProjectsDataFile {
     pub projects: Vec<ProjectData>,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct UIThemeProperties {
+    pub primary_color: [u8; 4], // e.g. Gold
+    pub secondary_color: [u8; 4], // e.g. White
+    pub background_color: [u8; 4], // e.g. Grey
+    pub text_color: [u8; 4],
+    pub font_size_heading: f32,
+    pub font_size_body: f32,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub struct GameSettings {
     pub third_person: bool,
     pub show_hitscan_line: bool,
+    pub ui_theme: Option<UIThemeProperties>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default, Copy)]
