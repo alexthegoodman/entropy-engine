@@ -8,7 +8,7 @@ Create beautiful games easily.
 
 Entropy Engine is all about energizing Rust + wgpu-based game development by providing you with out-of-the-box systems and mechanics which can be easily forked and extended. It is both an engine and a level editor. Entropy Engine is focused on open-world (or smaller) game types at this time, but better support for something like RTS could come in the future.
 
-Powering <a href="https://github.com/alexthegoodman/entropy-tauri" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
+Powering <a href="https://github.com/alexthegoodman/entropy-chat" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
 
 The purpose of Entropy Chat is simple. Real designers shouldn't have to make a dozen clicks for a single preview change. They should be creative, rather than technical. Check it out if you have a chance.
 
@@ -53,7 +53,7 @@ Example Game:
 - Quadtree landscapes with texture maps
 - Skybox Pipeline
 - Point lighting
-- Basic game behaviors (melee, chase, inventory, etc)
+- Basic game behaviors (melee, chase, inventory, quests, etc)
 - Magic particle effects (ex. fire from heavens, snow, etc)
 - Dialogue (integrates with UI and Rhai scripting)
 - Professional transform gizmo (as well as egui inputs)
@@ -102,7 +102,6 @@ Example Game:
 #### Priority
 
 - Score / Experience Points + Levels
-- Quests (and logs/tracking)
 
 #### Secondary
 
