@@ -269,6 +269,7 @@ pub struct SavedState {
     pub pbr_textures: Option<Vec<PBRTextureData>>, // counts as Assets
     pub stats: Option<Vec<StatData>>, // Stats can be used to record a value or change tied to whatever references it
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
+    pub game_settings: Option<GameSettings>,
     // videos
     pub sequences: Option<Vec<Sequence>>,
     pub timeline_state: Option<SavedTimelineStateConfig>,

@@ -26,7 +26,7 @@ use crate::core::editor::{self, Editor};
 use crate::core::gpu_resources;
 use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
-use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentData, ComponentKind, StatData};
+use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentData, ComponentKind, StatData, ProceduralTreeProperties, ProceduralParticleProperties, ProceduralGrassProperties, ScatterSettings};
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
@@ -36,7 +36,8 @@ use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
 use crate::water_plane::config::WaterConfig;
-use rand::{Rng, random};
+use rand::{Rng, random, SeedableRng};
+use rand::rngs::StdRng;
 use crate::{
     core::SimpleCamera::SimpleCamera,
     helpers::landscapes::read_landscape_texture,
@@ -991,7 +992,8 @@ pub fn handle_add_grass(
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     model_bind_group_layout: &wgpu::BindGroupLayout,
     landscape_id: &str,
-    texture_data: TextureData
+    texture_data: TextureData,
+    grass_properties: Option<ProceduralGrassProperties>
 ) {
     if let Some(landscape) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
         println!("Adding grass to landscape: {}", landscape.id);
@@ -1008,7 +1010,15 @@ pub fn handle_add_grass(
             &texture,
         );
 
-        let grass = Grass::new(&device, &camera_bind_group_layout, landscape);
+        let mut grass = Grass::new(&device, &camera_bind_group_layout, landscape);
+
+        if let Some(props) = grass_properties {
+            grass.grid_size = props.grid_size;
+            grass.render_distance = props.render_distance;
+            grass.blade_density = props.blade_density;
+            // Note: wind settings are currently uniforms, will need to be passed during update_uniforms
+            // storing them in grass struct might be needed if they aren't there already
+        }
 
         state.grasses.push(grass);
         println!("Added grass");
@@ -1036,16 +1046,34 @@ pub fn handle_add_trees(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
+    tree_properties: Option<ProceduralTreeProperties>,
+    scatter_settings: Option<ScatterSettings>
 ) {
     if let Some(landscape) = renderer_state.landscapes.get_mut(0) {
+        // TODO: Pass tree_properties to ProceduralTrees::new or configure it after
         let mut trees = ProceduralTrees::new(device, camera_bind_group_layout, landscape);
 
-        let mut rng = rand::thread_rng();
-        let num_trees = 50;
+        let mut rng = if let Some(scatter) = &scatter_settings {
+             StdRng::seed_from_u64(scatter.seed as u64)
+        } else {
+             StdRng::seed_from_u64(0)
+        };
+        
+        let num_trees = if let Some(scatter) = &scatter_settings {
+            (scatter.density * 100.0) as i32
+        } else {
+            50
+        };
+
+        let radius = if let Some(scatter) = &scatter_settings {
+            scatter.radius
+        } else {
+            50.0
+        };
 
         for _ in 0..num_trees {
-            let x = rng.gen_range(-50.0..50.0);
-            let z = rng.gen_range(-50.0..50.0);
+            let x = rng.gen_range(-radius..radius);
+            let z = rng.gen_range(-radius..radius);
 
             if let Some(y) = landscape.get_height_at(x, z) {
                 trees.instances.push(TreeInstance {
@@ -1064,6 +1092,42 @@ pub fn handle_add_trees(
 
         renderer_state.procedural_trees.push(trees);
     }
+}
+
+pub fn handle_add_particle_system(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+    component_id: String,
+    generic_properties: crate::helpers::saved_data::GenericProperties,
+    properties: ProceduralParticleProperties
+) {
+    let uniforms = ParticleUniforms {
+        position: [generic_properties.position[0], generic_properties.position[1], generic_properties.position[2], 0.0],
+        target_position: [0.0; 4], // Optional target
+        gravity: properties.gravity,
+        start_color: properties.start_color,
+        end_color: properties.end_color,
+        time: 0.0,
+        emission_rate: properties.emission_rate,
+        life_time: properties.life_time,
+        radius: properties.radius,
+        initial_speed_min: properties.initial_speed_min,
+        initial_speed_max: properties.initial_speed_max,
+        size: properties.size,
+        mode: properties.mode,
+        _pad2: [0.0; 4],
+    };
+
+    let system = ParticleSystem::new(
+        device,
+        camera_bind_group_layout,
+        uniforms,
+        1000, // Max particles, could be configurable
+        wgpu::TextureFormat::Rgba8Unorm, // Should match swapchain format or render target
+    );
+
+    state.particle_systems.push(system);
 }
 
 pub fn handle_configure_water_plane(

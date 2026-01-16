@@ -4,7 +4,7 @@ use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures}, editor::Editor}, 
-    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_player, handle_add_trees, handle_add_water_plane}, 
+    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_player, handle_add_trees, handle_add_water_plane, handle_add_particle_system}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
     saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
@@ -24,9 +24,19 @@ pub async fn load_project(editor: &mut Editor, project_id: &str) {
 }
 
 pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
-editor.saved_state = Some(loaded_state);
+            editor.saved_state = Some(loaded_state);
             
             let renderer_state = editor.renderer_state.as_mut().unwrap();
+
+            // Load game settings if available
+            if let Some(saved_state) = &editor.saved_state {
+                if let Some(game_settings) = &saved_state.game_settings {
+                    renderer_state.game_settings.ui_theme = game_settings.ui_theme.clone();
+                    renderer_state.game_settings.third_person = game_settings.third_person;
+                    renderer_state.game_settings.show_hitscan_line = game_settings.show_hitscan_line;
+                }
+            }
+
             let camera = editor.camera.as_mut().unwrap();
             let gpu_resources = editor.gpu_resources.as_ref().unwrap();
 
@@ -232,42 +242,6 @@ editor.saved_state = Some(loaded_state);
                                                                         println!("Failed to load texture!");
                                                                     }
                                                                 }
-                                                                // Load roughness/metallic/AO
-                                                                // let mut pbr_params_data = vec![0u8; 4];
-                                                                // if let Some(rough_file) = &pbr_data.rough {
-                                                                //     if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), rough_file.fileName.clone()) {
-                                                                //         if let texture = Texture::new(data.0, data.1, data.2) {
-                                                                //             if !texture.data.is_empty() {
-                                                                //                 pbr_params_data[0] = texture.data[0];
-                                                                //             }
-                                                                //         }
-                                                                //     } else {
-                                                                //         println!("Failed to load texture!");
-                                                                //     }
-                                                                // }
-                                                                // if let Some(metallic_file) = &pbr_data.metallic {
-                                                                //     if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), metallic_file.fileName.clone()) {
-                                                                //         if let texture = Texture::new(data.0, data.1, data.2) {
-                                                                //             if !texture.data.is_empty() {
-                                                                //                 pbr_params_data[1] = texture.data[0];
-                                                                //             }
-                                                                //         }
-                                                                //     } else {
-                                                                //         println!("Failed to load texture!");
-                                                                //     }
-                                                                // }
-                                                                // if let Some(ao_file) = &pbr_data.ao {
-                                                                //     if let Ok(data) = read_texture_bytes(project_id.to_string(), pbr_texture_id.clone(), ao_file.fileName.clone()) {
-                                                                //         if let texture = Texture::new(data.0, data.1, data.2) {
-                                                                //             if !texture.data.is_empty() {
-                                                                //                 pbr_params_data[2] = texture.data[0];
-                                                                //             }
-                                                                //         }
-                                                                //     } else {
-                                                                //         println!("Failed to load texture!");
-                                                                //     }
-                                                                // }
-                                                                // let pbr_params_texture = Texture::from_bytes_1x1(&gpu_resources.device, &gpu_resources.queue, &pbr_params_data, "packed_pbr_params", false);
                                                                 
                                                                 let mut rough_tex = None;
                                                                 let mut metallic_tex = None;
@@ -326,23 +300,51 @@ editor.saved_state = Some(loaded_state);
                                                         &camera_binding.bind_group_layout,
                                                         &editor.model_bind_group_layout.as_ref().expect("Couldn't get layout"),
                                                         &component.id.clone(),
-                                                        texture
+                                                        texture,
+                                                        component.procedural_grass_properties.clone()
                                                     );
-
-                                                    handle_add_water_plane(
-                                                        renderer_state, 
-                                                        &gpu_resources.device, 
-                                                        &camera_binding.bind_group_layout, 
-                                                        wgpu::TextureFormat::Rgba16Float,
-                                                        component.id.clone()
-                                                    );
-
-                                                    handle_add_trees(renderer_state, &gpu_resources.device,
-                                                        &gpu_resources.queue, &camera_binding.bind_group_layout);
                                                 }
                                             }
                                         }
                                     }
+
+                                    if let Some(ComponentKind::WaterPlane) = component.kind {
+                                        let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+                                        handle_add_water_plane(
+                                            renderer_state, 
+                                            &gpu_resources.device, 
+                                            &camera_binding.bind_group_layout, 
+                                            wgpu::TextureFormat::Rgba16Float,
+                                            component.id.clone()
+                                        );
+                                    }
+
+                                    if let Some(ComponentKind::ProceduralTree) = component.kind {
+                                        let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+                                        handle_add_trees(
+                                            renderer_state,
+                                            &gpu_resources.device,
+                                            &gpu_resources.queue,
+                                            &camera_binding.bind_group_layout,
+                                            component.procedural_tree_properties.clone(),
+                                            component.scatter.clone()
+                                        );
+                                    }
+
+                                    if let Some(ComponentKind::ProceduralParticle) = component.kind {
+                                        let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
+                                        if let Some(props) = &component.procedural_particle_properties {
+                                            handle_add_particle_system(
+                                                renderer_state,
+                                                &gpu_resources.device,
+                                                &camera_binding.bind_group_layout,
+                                                component.id.clone(),
+                                                component.generic_properties.clone(),
+                                                props.clone()
+                                            );
+                                        }
+                                    }
+
                                     if let Some(ComponentKind::Model) = component.kind {
                                         let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
                                         let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
