@@ -1013,9 +1013,9 @@ pub fn handle_add_grass(
         let mut grass = Grass::new(&device, &camera_bind_group_layout, landscape);
 
         if let Some(props) = grass_properties {
-            grass.grid_size = props.grid_size;
-            grass.render_distance = props.render_distance;
-            grass.blade_density = props.blade_density;
+            grass.config.grid_size = props.grid_size;
+            grass.config.render_distance = props.render_distance;
+            grass.config.blade_density = props.blade_density as f32;
             // Note: wind settings are currently uniforms, will need to be passed during update_uniforms
             // storing them in grass struct might be needed if they aren't there already
         }
