@@ -4,26 +4,47 @@ use crate::heightfield_landscapes::Landscape::Landscape;
 use nalgebra::{Matrix4, Vector3, Point3};
 
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct GrassUniforms {
-    time: f32,
-    grid_size: f32,
-    render_distance: f32,
-    wind_strength: f32,
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct GrassConfig {
+    pub time: f32,
+    pub grid_size: f32,
+    pub render_distance: f32,
+    pub wind_strength: f32,
     
-    player_pos: [f32; 4], // x, y, z, and unused w (16-byte aligned)
+    pub player_pos: [f32; 4], // x, y, z, and unused w (16-byte aligned)
     
-    wind_speed: f32,
-    blade_height: f32,
-    blade_width: f32,
-    brownian_strength: f32,
-    blade_density: f32,
+    pub wind_speed: f32,
+    pub blade_height: f32,
+    pub blade_width: f32,
+    pub brownian_strength: f32,
+    pub blade_density: f32,
 
     pub landscape_size: f32,
     pub landscape_height: f32,
     pub landscape_y_offset: f32,
 
-    _pad0: [f32; 2],
+    pub _pad0: [f32; 2],
+}
+
+impl Default for GrassConfig {
+    fn default() -> Self {
+        Self {
+            time: 0.0,
+            grid_size: 2.0,
+            render_distance: 150.0,
+            wind_strength: 2.5,
+            player_pos: [0.0; 4],
+            wind_speed: 0.3,
+            blade_height: 2.75,
+            blade_width: 0.03,
+            brownian_strength: 0.03,
+            blade_density: 15.0,
+            landscape_size: 1000.0,
+            landscape_height: 100.0,
+            landscape_y_offset: 0.0,
+            _pad0: [0.0; 2],
+        }
+    }
 }
 
 // Instead of per-blade instances, we'll use a simple grid vertex buffer
@@ -95,13 +116,11 @@ pub struct Grass {
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub landscape_bind_group: wgpu::BindGroup,
-    pub grid_size: f32,
-    pub render_distance: f32,
-    pub blade_density: u32, // Blades per grid cell
+    pub config: GrassConfig,
     // cache landscape properties, will need to update as needed
-    pub landscape_size: f32,
-    pub landscape_height: f32,
-    pub landscape_y_offset: f32,
+    // pub landscape_size: f32,
+    // pub landscape_height: f32,
+    // pub landscape_y_offset: f32,
 }
 
 impl Grass {
@@ -111,17 +130,16 @@ impl Grass {
         landscape: &mut Landscape,
     ) -> Self {
         let blade = GrassBlade::new(device);
-        let grid_size = 2.0; // Each grid cell is 2x2 units
-        // let render_distance = 50.0; // a bit tight
-        // let blade_density = 25; // good thickness
-        // let blade_density = 50; // thick
-        let render_distance = 150.0; // moderate distance
-        let blade_density = 15; // somewhat sparse
+        
+        let mut config = GrassConfig::default();
+        config.landscape_height = landscape.terrain_height;
+        config.landscape_size = landscape.terrain_size;
+        config.landscape_y_offset = landscape.transform.position.y;
 
         // -- Uniforms --
         let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Grass Uniform Buffer"),
-            size: std::mem::size_of::<GrassUniforms>() as wgpu::BufferAddress,
+            size: std::mem::size_of::<GrassConfig>() as wgpu::BufferAddress,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -231,32 +249,18 @@ impl Grass {
             uniform_buffer,
             uniform_bind_group,
             landscape_bind_group,
-            grid_size,
-            render_distance,
-            blade_density,
-            landscape_height: landscape.terrain_height,
-            landscape_size: landscape.terrain_size,
-            landscape_y_offset: landscape.transform.position.y
+            config,
         }
     }
 
-    pub fn update_uniforms(&self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
-        let uniforms = GrassUniforms {
-            time,
-            grid_size: self.grid_size,
-            render_distance: self.render_distance,
-            wind_strength: 2.5,
-            player_pos: [player_pos.x, player_pos.y, player_pos.z, 0.0],
-            wind_speed: 0.3, // slow
-            blade_height: 2.75,
-            blade_width: 0.03, // thin
-            brownian_strength: 0.03,
-            blade_density: self.blade_density as f32,
-            landscape_height: self.landscape_height,
-            landscape_size: self.landscape_size,
-            landscape_y_offset: self.landscape_y_offset,
-            _pad0: [0.0; 2],
-        };
-        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[uniforms]));
+    pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
+        self.config.time = time;
+        self.config.player_pos = [player_pos.x, player_pos.y, player_pos.z, 0.0];
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.config]));
+    }
+
+    pub fn update_config(&mut self, queue: &wgpu::Queue, config: GrassConfig) {
+        self.config = config;
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.config]));
     }
 }

@@ -38,6 +38,7 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 
 use crate::shape_primitives::Cube::Cube;
+use crate::shape_primitives::Sphere::Sphere;
 use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::game_ui::dialogue_ui;
@@ -1884,6 +1885,19 @@ impl ExportPipeline {
                 // }
             }
 
+            // draw spheres
+            for sphere in &renderer_state.spheres {
+                sphere.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &sphere.bind_group, &[]);
+                render_pass.set_bind_group(3, &sphere.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    sphere.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..sphere.index_count as u32, 0, 0..1);
+            }
+
             // draw debug rays
             for debug_ray in &renderer_state.debug_rays {
                 // println!("display debug line");
@@ -1988,7 +2002,7 @@ impl ExportPipeline {
 
             // draw grass
 
-            for grass in &renderer_state.grasses {
+            for grass in &mut renderer_state.grasses {
                 if let Some(player_character) = &renderer_state.player_character {
                     if let Some(model_id) = &player_character.model_id {
                         let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
@@ -2012,8 +2026,8 @@ impl ExportPipeline {
                 render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-                let grid_cells = ((grass.render_distance * 2.0) / grass.grid_size).ceil() as u32;
-                let total_instances = grid_cells * grid_cells * grass.blade_density;
+                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
 
                 render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
                 render_pass.set_pipeline(&geometry_pipeline);

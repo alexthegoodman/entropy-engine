@@ -120,6 +120,7 @@ pub struct DebugRay {
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
     pub cubes: Vec<Cube>,
+    pub spheres: Vec<Sphere>,
     pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
@@ -231,6 +232,7 @@ impl RendererState {
         let mut grids = Vec::new();
 
         let mut cubes = Vec::new();
+        let mut spheres = Vec::new();
         // cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
 
         let mut pyramids = Vec::new();
@@ -295,6 +297,7 @@ impl RendererState {
 
         Self {
             cubes,
+            spheres,
             debug_rays: Vec::new(),
             pyramids,
             grids,
