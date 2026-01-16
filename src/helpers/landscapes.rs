@@ -567,3 +567,59 @@ pub fn read_texture_bytes_local(
 
     Ok(data)
 }
+
+pub fn generate_landscape_data(
+    width: usize,
+    height: usize,
+    height_data: Vec<f32>, // 0.0 to 1.0 normalized
+    target_width: f32,
+    target_length: f32,
+    target_height: f32,
+) -> LandscapePixelData {
+    let mut pixel_data = Vec::new();
+    let mut raw_heights = Vec::new();
+    let mut heights = na::DMatrix::zeros(height, width);
+    
+    let x_scale = target_width / width as f32;
+    let y_scale = target_length / height as f32;
+    let z_scale = target_height;
+
+    let mut max_height_actual: f32 = 0.0;
+
+    for y in 0..height {
+        let mut row = Vec::new();
+        for x in 0..width {
+            let idx = y * width + x;
+            // height_data is already 0.0-1.0
+            let normalized_height = height_data[idx];
+            let height_value = normalized_height * z_scale;
+
+            max_height_actual = max_height_actual.max(height_value);
+            raw_heights.push(height_value);
+            heights[(y, x)] = height_value;
+
+            let position = [
+                x as f32 * x_scale - target_width / 2.0,
+                height_value,
+                y as f32 * y_scale - target_length / 2.0,
+            ];
+            let tex_coords = [x as f32 / width as f32, y as f32 / height as f32];
+
+            row.push(PixelData {
+                height_value,
+                position,
+                tex_coords,
+            });
+        }
+        pixel_data.push(row);
+    }
+
+    LandscapePixelData {
+        width,
+        height,
+        pixel_data,
+        rapier_heights: heights,
+        raw_heights,
+        max_height: max_height_actual,
+    }
+}
