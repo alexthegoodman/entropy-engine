@@ -1,8 +1,10 @@
 use wgpu::util::DeviceExt;
 use crate::core::{SimpleCamera::SimpleCamera, vertex::Vertex, RendererState::RendererState};
 use crate::heightfield_landscapes::Landscape::Landscape;
+use crate::helpers::saved_data::ProceduralTreeProperties;
 use nalgebra::{Matrix4, Vector3, Point3};
-use rand::{Rng, random};
+use rand::{Rng, random, SeedableRng};
+use rand::rngs::StdRng;
 
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
@@ -27,16 +29,16 @@ pub struct TreeArchetype {
 }
 
 impl TreeArchetype {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, config: &ProceduralTreeProperties) -> Self {
         let mut vertices = vec![];
         let mut indices: Vec<u32> = vec![];
         
-        let mut rng = rand::thread_rng();
+        let mut rng = StdRng::seed_from_u64(config.seed as u64);
         
         // Generate tree using recursive branching
         let trunk_base = [0.0, 0.0, 0.0];
-        let trunk_top = [0.0, 3.5, 0.0];
-        let trunk_radius = 0.25;
+        let trunk_top = [0.0, config.trunk_height, 0.0];
+        let trunk_radius = config.trunk_radius;
         
         let root_branch = BranchNode {
             start_pos: trunk_base,
@@ -46,7 +48,7 @@ impl TreeArchetype {
         };
         
         let mut branches = vec![root_branch];
-        Self::generate_branches(&mut branches, 0, 4, &mut rng);
+        Self::generate_branches(&mut branches, 0, config.branch_levels, &mut rng);
         
         // Create geometry for all branches
         for branch in &branches {
@@ -65,7 +67,7 @@ impl TreeArchetype {
                     &mut vertices,
                     &mut indices,
                     branch.end_pos,
-                    0.4 + random::<f32>() * 0.3,
+                    config.foliage_radius + rng.r#gen::<f32>() * 0.3,
                     &mut rng,
                 );
             }
@@ -109,20 +111,20 @@ impl TreeArchetype {
         ];
         
         let num_children = if parent.generation == 0 {
-            3 + rng.gen_range(0..2)
+            3 + rng.r#gen_range(0..2)
         } else {
-            2 + rng.gen_range(0..2)
+            2 + rng.r#gen_range(0..2)
         };
         
         for _ in 0..num_children {
-            let angle = random::<f32>() * std::f32::consts::PI * 2.0;
+            let angle = rng.r#gen::<f32>() * std::f32::consts::PI * 2.0;
             let tilt = if parent.generation == 0 {
-                0.3 + random::<f32>() * 0.4
+                0.3 + rng.r#gen::<f32>() * 0.4
             } else {
-                0.4 + random::<f32>() * 0.6
+                0.4 + rng.r#gen::<f32>() * 0.6
             };
             
-            let length_scale = 0.6 + random::<f32>() * 0.3;
+            let length_scale = 0.6 + rng.r#gen::<f32>() * 0.3;
             let branch_length = (parent.end_pos[1] - parent.start_pos[1]) * length_scale;
             
             let forward = [
@@ -144,7 +146,7 @@ impl TreeArchetype {
                 parent.end_pos[2] + forward_norm[2],
             ];
             
-            let child_radius = parent.radius * (0.5 + random::<f32>() * 0.15);
+            let child_radius = parent.radius * (0.5 + rng.r#gen::<f32>() * 0.15);
             
             let child = BranchNode {
                 start_pos: parent.end_pos,
@@ -273,7 +275,7 @@ impl TreeArchetype {
                 (v[2] - center[2]) / radius,
             ];
             
-            let color_variation = 0.8 + random::<f32>() * 0.4;
+            let color_variation = 0.8 + rng.r#gen::<f32>() * 0.4;
             
             vertices.push(Vertex {
                 position: v,
@@ -321,6 +323,7 @@ pub struct ProceduralTrees {
     pub render_pipeline: wgpu::RenderPipeline,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
+    pub config: ProceduralTreeProperties,
 }
 
 impl ProceduralTrees {
@@ -328,8 +331,9 @@ impl ProceduralTrees {
         device: &wgpu::Device,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         landscape: &mut Landscape,
+        config: ProceduralTreeProperties,
     ) -> Self {
-        let archetypes = vec![TreeArchetype::new(device)];
+        let archetypes = vec![TreeArchetype::new(device, &config)];
         
         let instances = vec![]; 
 
@@ -446,7 +450,13 @@ impl ProceduralTrees {
             render_pipeline,
             uniform_buffer,
             uniform_bind_group,
+            config,
         }
+    }
+
+    pub fn regenerate(&mut self, device: &wgpu::Device, config: ProceduralTreeProperties) {
+        self.config = config;
+        self.archetypes = vec![TreeArchetype::new(device, &self.config)];
     }
 
     pub fn update_uniforms(&self, queue: &wgpu::Queue, time: f32) {

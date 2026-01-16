@@ -1050,8 +1050,16 @@ pub fn handle_add_trees(
     scatter_settings: Option<ScatterSettings>
 ) {
     if let Some(landscape) = renderer_state.landscapes.get_mut(0) {
-        // TODO: Pass tree_properties to ProceduralTrees::new or configure it after
-        let mut trees = ProceduralTrees::new(device, camera_bind_group_layout, landscape);
+        
+        let config = tree_properties.unwrap_or(ProceduralTreeProperties {
+            seed: 0,
+            trunk_height: 3.5,
+            trunk_radius: 0.25,
+            branch_levels: 4,
+            foliage_radius: 0.5,
+        });
+
+        let mut trees = ProceduralTrees::new(device, camera_bind_group_layout, landscape, config);
 
         let mut rng = if let Some(scatter) = &scatter_settings {
              StdRng::seed_from_u64(scatter.seed as u64)
