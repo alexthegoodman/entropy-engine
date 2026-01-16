@@ -343,6 +343,124 @@
           "collectable_properties": null,
           "player_properties": null,
           "scatter": null
+        },
+        {
+          "id": "7f8e9a2b-3c4d-5e6f-7a8b-9c0d1e2f3a4b",
+          "kind": "ProceduralTree",
+          "asset_id": "",
+          "generic_properties": {
+            "name": "Forest Patch",
+            "position": [
+              50.0,
+              -550.0,
+              50.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "procedural_tree_properties": {
+            "seed": 12345,
+            "trunk_height": 5.0,
+            "trunk_radius": 0.3,
+            "branch_levels": 4,
+            "foliage_radius": 1.5
+          },
+          "scatter": {
+            "density": 0.6,
+            "radius": 100.0,
+            "seed": 54321
+          }
+        },
+        {
+          "id": "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d",
+          "kind": "ProceduralGrass",
+          "asset_id": "",
+          "generic_properties": {
+            "name": "Grassland",
+            "position": [
+              0.0,
+              -550.0,
+              0.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "procedural_grass_properties": {
+            "grid_size": 2.0,
+            "render_distance": 150.0,
+            "blade_density": 20,
+            "wind_strength": 2.5,
+            "wind_speed": 0.3,
+            "blade_height": 2.5,
+            "blade_width": 0.05,
+            "brownian_strength": 0.05
+          }
+        },
+        {
+          "id": "8g9h0i1j-2k3l-4m5n-6o7p-8q9r0s1t2u3v",
+          "kind": "ProceduralParticle",
+          "asset_id": "",
+          "generic_properties": {
+            "name": "Campfire Sparks",
+            "position": [
+              20.0,
+              -545.0,
+              10.0
+            ],
+            "rotation": [
+              0.0,
+              0.0,
+              0.0
+            ],
+            "scale": [
+              1.0,
+              1.0,
+              1.0
+            ]
+          },
+          "procedural_particle_properties": {
+            "emission_rate": 20.0,
+            "life_time": 2.0,
+            "radius": 0.5,
+            "initial_speed_min": 1.0,
+            "initial_speed_max": 3.0,
+            "size": 0.1,
+            "mode": 0.0,
+            "start_color": [
+              1.0,
+              0.5,
+              0.0,
+              1.0
+            ],
+            "end_color": [
+              1.0,
+              0.1,
+              0.0,
+              0.0
+            ],
+            "gravity": [
+              0.0,
+              1.0,
+              0.0,
+              0.0
+            ]
+          }
         }
       ],
       "procedural_sky": {
@@ -370,6 +488,38 @@
       }
     }
   ],
+  "game_settings": {
+    "third_person": true,
+    "show_hitscan_line": true,
+    "ui_theme": {
+      "primary_color": [
+        255,
+        215,
+        0,
+        255
+      ],
+      "secondary_color": [
+        255,
+        255,
+        255,
+        255
+      ],
+      "background_color": [
+        40,
+        40,
+        40,
+        200
+      ],
+      "text_color": [
+        240,
+        240,
+        240,
+        255
+      ],
+      "font_size_heading": 24.0,
+      "font_size_body": 16.0
+    }
+  },
   "sequences": null,
   "timeline_state": null,
   "global_rhai_scripts": [
