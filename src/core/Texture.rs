@@ -143,3 +143,28 @@ pub fn pack_pbr_textures(
         format: wgpu::TextureFormat::Rgba8Unorm, // Linear for PBR parameters
     })
 }
+
+pub fn repack_arm_to_mra(arm_texture: Texture) -> Texture {
+    let pixel_count = (arm_texture.width * arm_texture.height) as usize;
+    let mut repacked_data = vec![0u8; pixel_count * 4];
+    
+    for i in 0..pixel_count {
+        let offset = i * 4;
+        let ao = arm_texture.data[offset];         // R channel
+        let roughness = arm_texture.data[offset + 1]; // G channel
+        let metallic = arm_texture.data[offset + 2];  // B channel
+        
+        // Repack as MRA
+        repacked_data[offset] = metallic;     // R = Metallic
+        repacked_data[offset + 1] = roughness; // G = Roughness
+        repacked_data[offset + 2] = ao;        // B = AO
+        repacked_data[offset + 3] = 255;
+    }
+    
+    Texture {
+        data: repacked_data,
+        width: arm_texture.width,
+        height: arm_texture.height,
+        format: arm_texture.format,
+    }
+}
