@@ -249,12 +249,13 @@ pub struct StatData {
 pub struct PBRTextureData {
     pub id: String,
     // from PolyHaven for now
-    pub diff: Option<File>, // will be an .jpg for now
-    pub disp: Option<File>, // will be an .png for now
-    pub nor_gl: Option<File>, // will be an .exr for now
-    pub rough: Option<File>, // will be an .exr for now
-    pub metallic: Option<File>, // will be an .exr for now
-    pub ao: Option<File>, // will be an .exr for now
+    pub diff: Option<File>, // png, tiff, and jpg seem stable
+    pub disp: Option<File>, // png, tiff, and jpg seem stable
+    pub nor_gl: Option<File>, // png, tiff, and jpg seem stable
+    pub rough: Option<File>, // png, tiff, and jpg seem stable
+    pub metallic: Option<File>, // png, tiff, and jpg seem stable
+    pub ao: Option<File>, // png, tiff, and jpg seem stable
+    pub arm: Option<File>, // png, tiff, and jpg seem stable
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
