@@ -89,7 +89,7 @@ tokio = { version = "1.41.0", features = ["fs", "full"] }
 rhai = { version = "1.16.1", features = ["f32_float"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = { version = "0.3", features = ["Window", "Navigator"] }
+web-sys = { version = "0.3", features = ["Window", "Navigator", "Location"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"

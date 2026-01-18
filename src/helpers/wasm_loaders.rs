@@ -12,8 +12,21 @@ use exr::prelude::ReadLayers;
 use exr::image::read as exr_read;
 
 #[cfg(target_arch = "wasm32")]
+fn get_base_url() -> String {
+    let window = web_sys::window().expect("no global `window` exists");
+    let location = window.location();
+    let hostname = location.hostname().expect("no hostname");
+    
+    if hostname == "localhost" || hostname == "127.0.0.1" {
+        "http://localhost:3000/api/local-assets".to_string()
+    } else {
+        "https://stunts.b-cdn.net/midpoint".to_string()
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 pub async fn load_project_state_wasm(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
-    let url = format!("https://stunts.b-cdn.net/midpoint/projects/{}/midpoint.json", project_id);
+    let url = format!("{}/projects/{}/midpoint.json", get_base_url(), project_id);
     let json_content = reqwest::get(&url).await?.text().await?;
     let state: SavedState = serde_json::from_str(&json_content)?;
     Ok(state)
@@ -261,8 +274,8 @@ pub async fn get_landscape_pixels_wasm(
     landscape_filename: String,
 ) -> LandscapePixelData {
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
-        project_id, landscape_asset_id, landscape_filename
+        "{}/projects/{}/landscapes/{}/heightmaps/{}",
+        get_base_url(), project_id, landscape_asset_id, landscape_filename
     );
 
     let tiff_bytes = reqwest::get(&url)
@@ -305,8 +318,8 @@ pub async fn read_landscape_heightmap_as_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/heightmaps/{}",
-        project_id, landscape_id, texture_filename
+        "{}/projects/{}/landscapes/{}/heightmaps/{}",
+        get_base_url(), project_id, landscape_id, texture_filename
     );
 
     let response_bytes = reqwest::get(&url)
@@ -363,8 +376,8 @@ pub async fn read_landscape_texture_wasm(
     texture_filename: String,
 ) -> Result<TextureData, String> {
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/textures/{}.png",
-        project_id, texture_filename
+        "{}/projects/{}/textures/{}.png",
+        get_base_url(), project_id, texture_filename
     );
     load_image_from_url(&url)
         .await
@@ -387,8 +400,8 @@ pub async fn read_landscape_mask_wasm(
     };
 
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/landscapes/{}/{}/{}",
-        project_id, landscape_id, kind_slug, mask_filename
+        "{}/projects/{}/landscapes/{}/{}/{}",
+        get_base_url(), project_id, landscape_id, kind_slug, mask_filename
     );
 
     load_image_from_url(&url)
@@ -404,8 +417,8 @@ pub async fn read_texture_bytes_wasm(
 ) -> Result<(Vec<u8>, u32, u32), String> {
     // Determine the base directory based on asset_id type
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/textures/{}",
-        project_id, file_name
+        "{}/projects/{}/textures/{}",
+        get_base_url(), project_id, file_name
     );
 
     println!("Attempting to read texture from URL: {:?}", url);
@@ -515,13 +528,14 @@ pub async fn read_texture_bytes_wasm(
     Ok((bytes, width, height))
 }
 
+#[cfg(target_arch = "wasm32")]
 pub async fn read_model_wasm(
     projectId: String,
     modelFilename: String,
 ) -> Result<Vec<u8>, String> {
     let url = format!(
-        "https://stunts.b-cdn.net/midpoint/projects/{}/models/{}",
-        projectId, modelFilename
+        "{}/projects/{}/models/{}",
+        get_base_url(), projectId, modelFilename
     );
 
     println!("Attempting to read texture from URL: {:?}", url);
