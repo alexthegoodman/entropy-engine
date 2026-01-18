@@ -4,7 +4,7 @@ use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
-use crate::helpers::utilities::save_heightmap;
+use crate::helpers::utilities::{save_heightmap, save_rhai_script};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 use crate::water_plane::config::WaterConfig;
 use crate::{
@@ -1127,6 +1127,10 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //             .await;
             //     });
             // }
+            
+            let project_id = project_id.as_ref().expect("Couldn't get selected project id");
+
+            save_rhai_script(&project_id, &args.filename, &args.content);
         }
     } else if tool_call.function.name == "generateHeightmap" {
         println!("Generating heightmap...");

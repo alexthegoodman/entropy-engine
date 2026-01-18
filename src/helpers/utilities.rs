@@ -74,6 +74,35 @@ pub fn save_heightmap(
     fs::write(&file_path, png_bytes)?;
     
     Ok(file_path)
+}
+
+pub fn get_scripts_dir(project_id: &str) -> Option<PathBuf> {
+    let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
+    let scripts_dir = project_dir.join("scripts");
+
+    fs::create_dir_all(&scripts_dir)
+        .ok()
+        .expect("Couldn't check or create Rhai Scripts directory");
+
+    Some(scripts_dir)
+}
+
+pub fn save_rhai_script(
+    project_id: &str,
+    filename: &str,
+    content: &str,
+) -> Result<PathBuf, std::io::Error> {
+    let scripts_dir = get_scripts_dir(project_id)
+        .ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Could not get script directory"
+        ))?;
+    
+    let file_path = scripts_dir.join(filename);
+    
+    fs::write(&file_path, content)?;
+    
+    Ok(file_path)
 } 
 
 pub fn get_soilmap_dir(project_id: &str, landscape_id: &str) -> Option<PathBuf> {
