@@ -46,6 +46,7 @@ use winit::window::Window;
 #[cfg(target_os = "windows")]
 use egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use rfd::FileDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tab {
@@ -1547,6 +1548,368 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                         }
                     }
                  }
+            }
+            Tab::AssetLibrary => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let mut saved_state_opt = editor.saved_state.clone(); 
+                
+                if let Some(saved_state) = &mut saved_state_opt {
+                    let project_id = saved_state.id.clone().unwrap_or_default();
+                    
+                    egui::CollapsingHeader::new("Models").show(ui, |ui| {
+                        for model in &saved_state.models {
+                            ui.label(&model.fileName);
+                        }
+                        if ui.button("Add Model").clicked() {
+                            if let Some(path) = FileDialog::new()
+                                .add_filter("GLB/GLTF", &["glb", "gltf"])
+                                .pick_file() 
+                            {
+                                if let Some(models_dir) = utilities::get_models_dir(&project_id) {
+                                    let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                    let dest_path = models_dir.join(&filename);
+                                    if let Ok(_) = fs::copy(&path, &dest_path) {
+                                        let new_file = saved_data::File {
+                                            id: Uuid::new_v4().to_string(),
+                                            fileName: filename,
+                                            ..Default::default()
+                                        };
+                                        saved_state.models.push(new_file);
+                                        // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    egui::CollapsingHeader::new("Landscapes").show(ui, |ui| {
+                        if saved_state.landscapes.is_none() {
+                            saved_state.landscapes = Some(Vec::new());
+                        }
+                        let landscapes = saved_state.landscapes.as_mut().unwrap();
+                        
+                        for landscape in landscapes.iter_mut() {
+                            ui.collapsing(format!("Landscape: {}", landscape.id), |ui| {
+                                ui.label("Heightmap:");
+                                if let Some(hm) = &landscape.heightmap {
+                                    ui.label(&hm.fileName);
+                                } else {
+                                    ui.label("None");
+                                }
+                                if ui.button("Set Heightmap").clicked() {
+                                    if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                        if let Some(hm_dir) = utilities::get_heightmap_dir(&project_id, &landscape.id) {
+                                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                            let dest_path = hm_dir.join(&filename);
+                                            if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                landscape.heightmap = Some(saved_data::File {
+                                                    id: Uuid::new_v4().to_string(),
+                                                    fileName: filename,
+                                                    ..Default::default()
+                                                });
+                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                ui.label("Rockmap:");
+                                if let Some(rm) = &landscape.rockmap {
+                                    ui.label(&rm.fileName);
+                                } else {
+                                    ui.label("None");
+                                }
+                                if ui.button("Set Rockmap").clicked() {
+                                     if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                        if let Some(rm_dir) = utilities::get_rockmap_dir(&project_id, &landscape.id) {
+                                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                            let dest_path = rm_dir.join(&filename);
+                                            if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                landscape.rockmap = Some(saved_data::File {
+                                                    id: Uuid::new_v4().to_string(),
+                                                    fileName: filename,
+                                                    ..Default::default()
+                                                });
+                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                            }
+                                        }
+                                     }
+                                }
+
+                                ui.label("Soil:");
+                                if let Some(s) = &landscape.soil {
+                                    ui.label(&s.fileName);
+                                } else {
+                                    ui.label("None");
+                                }
+                                if ui.button("Set Soil").clicked() {
+                                     if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                        if let Some(s_dir) = utilities::get_soilmap_dir(&project_id, &landscape.id) {
+                                            let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                            let dest_path = s_dir.join(&filename);
+                                            if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                landscape.soil = Some(saved_data::File {
+                                                    id: Uuid::new_v4().to_string(),
+                                                    fileName: filename,
+                                                    ..Default::default()
+                                                });
+                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                            }
+                                        }
+                                     }
+                                }
+                            });
+                        }
+                        
+                        if ui.button("Add New Landscape Entry").clicked() {
+                             landscapes.push(saved_data::LandscapeData {
+                                 id: Uuid::new_v4().to_string(),
+                                 heightmap: None,
+                                 rockmap: None,
+                                 soil: None,
+                             });
+                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                        }
+                    });
+
+                    egui::CollapsingHeader::new("Textures").show(ui, |ui| {
+                        if saved_state.textures.is_none() {
+                            saved_state.textures = Some(Vec::new());
+                        }
+                        let textures = saved_state.textures.as_mut().unwrap();
+
+                        for tex in textures {
+                            ui.label(&tex.fileName);
+                        }
+
+                        if ui.button("Add Texture").clicked() {
+                            if let Some(path) = FileDialog::new()
+                                .add_filter("Image", &["png", "jpg", "jpeg", "tga", "bmp"])
+                                .pick_file() 
+                            {
+                                if let Some(textures_dir) = utilities::get_textures_dir(&project_id) {
+                                    let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                    let dest_path = textures_dir.join(&filename);
+                                    if let Ok(_) = fs::copy(&path, &dest_path) {
+                                        let new_file = saved_data::File {
+                                            id: Uuid::new_v4().to_string(),
+                                            fileName: filename,
+                                            ..Default::default()
+                                        };
+                                        if let Some(tex_vec) = saved_state.textures.as_mut() {
+                                            tex_vec.push(new_file);
+                                        }
+                                        // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    egui::CollapsingHeader::new("PBR Textures").show(ui, |ui| {
+                        if saved_state.pbr_textures.is_none() {
+                            saved_state.pbr_textures = Some(Vec::new());
+                        }
+                        let pbr_textures = saved_state.pbr_textures.as_mut().unwrap();
+
+                        for pbr in pbr_textures.iter_mut() {
+                             ui.collapsing(format!("PBR: {}", pbr.id), |ui| {
+                                 ui.horizontal(|ui| {
+                                     ui.label("Diff:");
+                                     if let Some(f) = &pbr.diff { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.diff = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Normal:");
+                                     if let Some(f) = &pbr.nor_gl { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.nor_gl = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Rough:");
+                                     if let Some(f) = &pbr.rough { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.rough = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("AO:");
+                                     if let Some(f) = &pbr.ao { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.ao = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Metal:");
+                                     if let Some(f) = &pbr.metallic { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.metallic = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Disp:");
+                                     if let Some(f) = &pbr.disp { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.disp = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                                 ui.horizontal(|ui| {
+                                     ui.label("Arm:");
+                                     if let Some(f) = &pbr.arm { ui.label(&f.fileName); } else { ui.label("None"); }
+                                     if ui.button("Set").clicked() {
+                                         if let Some(path) = FileDialog::new().add_filter("Image", &["png", "jpg"]).pick_file() {
+                                             if let Some(tex_dir) = utilities::get_textures_dir(&project_id) {
+                                                 let filename = path.file_name().unwrap().to_string_lossy().to_string();
+                                                 let dest_path = tex_dir.join(&filename);
+                                                  if let Ok(_) = fs::copy(&path, &dest_path) {
+                                                     pbr.arm = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
+                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                  }
+                                             }
+                                         }
+                                     }
+                                 });
+                             });
+                        }
+
+                        if ui.button("Add New PBR Texture Entry").clicked() {
+                             pbr_textures.push(saved_data::PBRTextureData {
+                                 id: Uuid::new_v4().to_string(),
+                                 ..Default::default()
+                             });
+                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                        }
+                    });
+
+                    egui::CollapsingHeader::new("Stats").show(ui, |ui| {
+                        if saved_state.stats.is_none() {
+                            saved_state.stats = Some(Vec::new());
+                        }
+                        let stats = saved_state.stats.as_mut().unwrap();
+
+                        let mut to_remove_index = None;
+                        
+                        for (i, stat) in stats.iter_mut().enumerate() {
+                            let stat_name = stat.name.clone();
+                            ui.collapsing(if stat.name.is_empty() { "Unnamed Stat" } else { stat_name.as_str() }, |ui| {
+                                ui.text_edit_singleline(&mut stat.name);
+                                
+                                ui.label("Character Stats:");
+                                if stat.character.is_none() { stat.character = Some(saved_data::CharacterStats::default()); }
+                                if let Some(char_stats) = &mut stat.character {
+                                    ui.horizontal(|ui| { ui.label("Health"); ui.add(egui::DragValue::new(&mut char_stats.health)); });
+                                    ui.horizontal(|ui| { ui.label("Stamina"); ui.add(egui::DragValue::new(&mut char_stats.stamina)); });
+                                }
+
+                                ui.label("Attack Stats:");
+                                if stat.attack.is_none() { stat.attack = Some(saved_data::AttackStats::default()); }
+                                if let Some(atk) = &mut stat.attack {
+                                    ui.horizontal(|ui| { ui.label("Damage"); ui.add(egui::DragValue::new(&mut atk.damage)); });
+                                    ui.horizontal(|ui| { ui.label("Range"); ui.add(egui::DragValue::new(&mut atk.range)); });
+                                    ui.horizontal(|ui| { ui.label("Cooldown"); ui.add(egui::DragValue::new(&mut atk.cooldown)); });
+                                }
+                                
+                                ui.label("Defense Stats:");
+                                if stat.defense.is_none() { stat.defense = Some(saved_data::DefenseStats::default()); }
+                                if let Some(def) = &mut stat.defense {
+                                    ui.horizontal(|ui| { ui.label("Block Chance"); ui.add(egui::DragValue::new(&mut def.block_chance)); });
+                                }
+                                
+                                ui.label("Weight:");
+                                if stat.weight.is_none() { stat.weight = Some(0.0); }
+                                if let Some(w) = &mut stat.weight {
+                                     ui.add(egui::DragValue::new(w)); 
+                                }
+
+                                // if ui.button("Save Changes").clicked() {
+                                //     utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                // }
+                                if ui.button("Delete Stat").clicked() {
+                                    to_remove_index = Some(i);
+                                }
+                            });
+                        }
+                        
+                        if let Some(idx) = to_remove_index {
+                            stats.remove(idx);
+                            // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                        }
+
+                        if ui.button("Add New Stat").clicked() {
+                            stats.push(saved_data::StatData {
+                                id: Uuid::new_v4().to_string(),
+                                name: "New Stat".to_string(),
+                                ..Default::default()
+                            });
+                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                        }
+                    });
+
+                    if ui.button("Save Changes").clicked() {
+                        utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                    }
+                }
+                
+                if let Some(new_state) = saved_state_opt {
+                    editor.saved_state = Some(new_state);
+                }
             }
             Tab::Chat => {
                  if self.context.chat.current_session.is_none() {

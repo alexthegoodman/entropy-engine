@@ -88,6 +88,7 @@ egui_dock = "0.18"
 device_query = "2.1.0"
 tokio = { version = "1.41.0", features = ["fs", "full"] }
 rhai = { version = "1.16.1", features = ["f32_float"] }
+rfd = "0.17.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Navigator", "Location"] }
