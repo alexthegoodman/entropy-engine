@@ -146,6 +146,7 @@ pub struct PlayerProperties {
 pub struct LightProperties {
     pub intensity: f32,
     pub color: [f32; 4],
+    pub max_distance: f32,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

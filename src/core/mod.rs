@@ -11,6 +11,7 @@ pub mod editor;
 pub mod vertex;
 pub mod camera;
 pub mod gpu_resources;
+pub mod chat;
 pub mod pipeline;
 pub mod shadow_pipeline;
 pub mod ui_pipeline;

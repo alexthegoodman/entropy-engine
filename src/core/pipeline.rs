@@ -1,8 +1,9 @@
 use crate::core::skinned_pipeline::SkinnedPipeline;
+use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -16,6 +17,8 @@ use transform_gizmo::math::{DMat4, DVec3, DVec4};
 use uuid::Uuid;
 use pollster; // For pollster::block_on
 use transform_gizmo::math::Vec4Swizzles;
+use serde::Deserialize;
+use serde_json;
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
@@ -98,7 +101,7 @@ pub struct ExportPipeline {
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
-    // pub chat: Chat,
+    pub chat: Chat,
     new_project_name: String,
     projects: Vec<String>,
 
@@ -145,7 +148,7 @@ impl ExportPipeline {
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
-            // chat: Chat::new(),
+            chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
             
@@ -2453,6 +2456,321 @@ impl ExportPipeline {
     }
     
     #[cfg(target_os = "windows")]
+    fn chat_ui(&mut self, ctx: &egui::Context) {
+        let mut open = self.chat.is_open;
+        
+        egui::Window::new("Chat")
+            .open(&mut open)
+            .show(ctx, |ui| {
+                if self.chat.current_session.is_none() {
+                    if ui.button("Start New Session").clicked() {
+                        // Start session logic
+
+                        use crate::helpers::saved_data;
+                        let client = self.chat.client.clone();
+                        let api_url = self.chat.api_url.clone();
+                        let editor = self.export_editor.as_ref().unwrap();
+                        let saved_data = editor.saved_state.as_ref().expect("Couldn't get saved data");
+                        let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
+                        
+                        // We need to use a channel or Arc<Mutex> to get the result back since we are in a sync UI function
+                        // For simplicity in this iteration, let's just spawn and print, but ideally we update state.
+                        // Since we can't easily mutate self in the async block, we might need a receiver in ExportPipeline.
+                        // OR we use pollster for blocking if it's quick (HTTP is not quick).
+                        // Better: use tokio::spawn and have a shared state for incoming messages/session info.
+                        
+                        // Check if we have a runtime handle? entropy-engine usually runs in a runtime if started correctly.
+                        // Assuming we are in a tokio runtime context or can spawn.
+                        
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                let url = format!("{}/api/sessions", api_url);
+                                let body = serde_json::json!({ "projectId": project_id });
+                                let res = client.post(&url).json(&body).send().await;
+                                if let Ok(resp) = res {
+                                    if let Ok(session) = resp.json::<ChatSession>().await {
+                                        let _ = tx.send(session);
+                                    }
+                                }
+                            });
+                        });
+                        
+                        if let Ok(session) = rx.recv() {
+                             self.chat.current_session = Some(session);
+                        }
+                    }
+                } else {
+                     ui.label(format!("Session: {}", self.chat.current_session.as_ref().unwrap().id));
+                     
+                     // Scroll area for messages
+                     egui::ScrollArea::vertical().show(ui, |ui| {
+                         for msg in &self.chat.messages {
+                             ui.label(format!("{}: {}", msg.role, msg.content.as_deref().unwrap_or("...")));
+                         }
+                     });
+                     
+                     ui.separator();
+                     
+                     ui.horizontal(|ui| {
+                         ui.text_edit_singleline(&mut self.chat.current_input);
+                         if ui.button("Send").clicked() {
+                             let content = self.chat.current_input.clone();
+                             self.chat.current_input.clear();
+                             
+                             let session_id = self.chat.current_session.as_ref().unwrap().id.clone();
+                             let client = self.chat.client.clone();
+                             let api_url = self.chat.api_url.clone();
+                             let editor = self.export_editor.as_ref().unwrap();
+                             let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
+                            let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
+
+                             // Add user message locally immediately
+                             self.chat.messages.push(ChatMessage {
+                                 id: Uuid::new_v4().to_string(),
+                                 role: "user".to_string(),
+                                 content: Some(content.clone()),
+                                 tool_call_id: None,
+                                 tool_calls: None,
+                             });
+
+                             let (tx, rx) = std::sync::mpsc::channel();
+
+                            let saved_state_cl = saved_state.clone();
+
+                             std::thread::spawn(move || {
+                                let rt = tokio::runtime::Runtime::new().unwrap();
+                                rt.block_on(async {
+                                    let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
+                                    let body = serde_json::json!({
+                                        "role": "user",
+                                        "content": content,
+                                        "saved_state": saved_state_cl
+                                    });
+                                    
+                                    let res = client.post(&url).json(&body).send().await;
+                                    if let Ok(resp) = res {
+                                        if let Ok(msg) = resp.json::<ChatMessage>().await {
+                                            let _ = tx.send(msg);
+                                        }
+                                    }
+                                });
+                             });
+                             
+                             if let Ok(msg) = rx.recv() {
+                                 // Handle response (which might contain tool calls)
+
+                                use crate::helpers::utilities::update_project_state;
+                                 self.chat.messages.push(msg.clone());
+                                 
+                                 if let Some(tool_calls) = msg.tool_calls {
+                                     for tool_call in tool_calls {
+                                         self.execute_tool_call(tool_call);
+                                     }
+                                 }
+
+                                // TODO: save updated saved_data to file
+                                let _ = update_project_state(&project_id, &saved_state).as_ref().expect("Couldn't save");
+                             }
+                         }
+                     });
+                }
+            });
+            
+        self.chat.is_open = open;
+    }
+
+    fn execute_tool_call(&mut self, tool_call: ToolCall) {
+        println!("Executing tool call: {}", tool_call.function.name);
+        
+        if tool_call.function.name == "transformObject" {
+            #[derive(Deserialize)]
+            struct TransformObjectArgs {
+                component_id: String,
+                translation: Option<[f32; 3]>,
+                rotation: Option<[f32; 3]>,
+                scale: Option<[f32; 3]>,
+            }
+            
+            if let Ok(args) = serde_json::from_str::<TransformObjectArgs>(&tool_call.function.arguments) {
+                 if let Some(editor) = &mut self.export_editor {
+                    // Update RendererState
+                    if let Some(renderer_state) = &mut editor.renderer_state {
+                        if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == args.component_id) {
+                            for mesh in &mut model.meshes {
+                                if let Some(t) = args.translation { mesh.transform.update_position(t); }
+                                if let Some(r) = args.rotation { 
+                                    mesh.transform.update_rotation([r[0].to_radians(), r[1].to_radians(), r[2].to_radians()]); 
+                                }
+                                if let Some(s) = args.scale { mesh.transform.update_scale(s); }
+                            }
+                        }
+                    }
+                    
+                    // Update SavedState
+                    if let Some(saved_state) = &mut editor.saved_state {
+                        if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                            if let Some(components) = &mut level.components {
+                                if let Some(component) = components.iter_mut().find(|c| c.id == args.component_id) {
+                                    if let Some(t) = args.translation { component.generic_properties.position = t; }
+                                    if let Some(r) = args.rotation { component.generic_properties.rotation = r; }
+                                    if let Some(s) = args.scale { component.generic_properties.scale = s; }
+                                }
+                            }
+                        }
+                    }
+                 }
+            }
+        }
+        
+        if tool_call.function.name == "spawnModel" {
+            #[derive(Deserialize)]
+            struct SpawnModelArgs {
+                #[serde(rename = "assetId")]
+                asset_id: String,
+                position: Option<[f32; 3]>,
+                rotation: Option<[f32; 3]>,
+                scale: Option<[f32; 3]>,
+            }
+
+            if let Ok(args) = serde_json::from_str::<SpawnModelArgs>(&tool_call.function.arguments) {
+                 if let Some(editor) = &mut self.export_editor {
+                    let saved_data = editor.saved_state.as_ref().expect("Couldn't get saved data");
+                    let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
+                     let mut asset_file_name = String::new();
+                     
+                     if let Some(saved_state) = &editor.saved_state {
+                        if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                            asset_file_name = model.fileName.clone();
+                        }
+                     }
+                     
+                     if !asset_file_name.is_empty() {
+                         let component_id = Uuid::new_v4().to_string();
+                         let pos = args.position.unwrap_or([0.0, 0.0, 0.0]);
+                         let rot = args.rotation.unwrap_or([0.0, 0.0, 0.0]);
+                         let scale = args.scale.unwrap_or([1.0, 1.0, 1.0]);
+                         
+                         let model_position = Translation3::new(pos[0], pos[1], pos[2]);
+                         let model_rotation = UnitQuaternion::from_euler_angles(
+                             rot[0].to_radians(), rot[1].to_radians(), rot[2].to_radians()
+                         );
+                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
+                         let model_scale = Vector3::new(scale[0], scale[1], scale[2]);
+                         
+                         if let Some(renderer_state) = &mut editor.renderer_state {
+                             let gpu_resources = self.gpu_resources.as_ref().unwrap();
+                             
+                             pollster::block_on(handle_add_model(
+                                 renderer_state,
+                                 &gpu_resources.device,
+                                 &gpu_resources.queue,
+                                 project_id,
+                                 args.asset_id.clone(),
+                                 component_id.clone(),
+                                 asset_file_name,
+                                 model_iso,
+                                 model_scale,
+                                 editor.camera.as_ref().unwrap(),
+                                 None
+                             ));
+                         }
+                         
+                        if let Some(saved_state) = &mut editor.saved_state {
+                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                                let new_component = ComponentData {
+                                    id: component_id,
+                                    kind: Some(ComponentKind::Model),
+                                    asset_id: args.asset_id,
+                                    generic_properties: GenericProperties {
+                                        name: "New Model".to_string(),
+                                        position: pos,
+                                        rotation: rot,
+                                        scale: scale,
+                                    },
+                                    ..Default::default()
+                                };
+                                
+                                if let Some(components) = &mut level.components {
+                                    components.push(new_component);
+                                } else {
+                                    level.components = Some(vec![new_component]);
+                                }
+                            }
+                        }
+                     }
+                 }
+            }
+        }
+        
+        if tool_call.function.name == "spawnPointLight" {
+            #[derive(Deserialize)]
+            struct SpawnPointLightArgs {
+                position: [f32; 3],
+                color: Option<[f32; 3]>,
+                intensity: Option<f32>,
+                radius: Option<f32>,
+            }
+            
+            if let Ok(args) = serde_json::from_str::<SpawnPointLightArgs>(&tool_call.function.arguments) {
+                 if let Some(editor) = &mut self.export_editor {
+                     let component_id = Uuid::new_v4().to_string();
+                     let color = args.color.unwrap_or([1.0, 1.0, 1.0]);
+                    //  let color = [color[0] / 255.0, color[1] / 255.0, color[2] / 255.0]; // adjust for rgb provided by LLM
+                     let intensity = args.intensity.unwrap_or(1.0);
+                     let radius = args.radius.unwrap_or(200.0);
+                     
+                     // Update RendererState
+                     if let Some(renderer_state) = &mut editor.renderer_state {
+                         renderer_state.point_lights.push(PointLight {
+                             position: args.position,
+                             _padding1: 0,
+                             color: color,
+                             _padding2: 0,
+                             intensity: intensity,
+                             max_distance: radius,
+                             _padding3: [0; 2]
+                         });
+                     }
+                     
+                     // Update SavedState
+                     if let Some(saved_state) = &mut editor.saved_state {
+                         if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                             use crate::helpers::saved_data::LightProperties;
+                             
+                             let new_component = ComponentData {
+                                 id: component_id,
+                                 kind: Some(ComponentKind::PointLight),
+                                 asset_id: "".to_string(),
+                                 generic_properties: GenericProperties {
+                                     name: "New Light".to_string(),
+                                     position: args.position,
+                                     ..Default::default()
+                                 },
+                                 light_properties: Some(LightProperties {
+                                     color: [color[0], color[1], color[2], 1.0],
+                                     intensity: intensity,
+                                     max_distance: radius,
+                                 }),
+                                 ..Default::default()
+                             };
+                             
+                             if let Some(components) = &mut level.components {
+                                 components.push(new_component);
+                             } else {
+                                 level.components = Some(vec![new_component]);
+                             }
+                         }
+                     }
+                 }
+            }
+        }
+        
+        // Add other tool calls here
+    }
+
     fn ui(&mut self, ctx: &egui::Context) {
         let editor = self.export_editor.as_mut().unwrap();
         if editor.saved_state.is_none() {
@@ -2673,18 +2991,32 @@ impl ExportPipeline {
                                                 }
                                                 utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
                                             }
-
-                                            // ui.label("Color");
-                                            // if ui.color_edit_button_rgba_premultiplied(&mut light_props.color).changed() {
-                                            //     if let Some(renderer_state) = &mut editor.renderer_state {
-                                            //         if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
-                                            //             if let Some(light) = renderer_state.point_lights.get_mut(index) {
-                                            //                 light.color = [light_props.color[0], light_props.color[1], light_props.color[2]];
-                                            //             }
-                                            //         }
-                                            //     }
-                                            //     utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
-                                            // }
+                                        }
+                                        if let Some(light_props) = &mut component.light_properties {
+                                            ui.label("Max Distance (Radius)");
+                                            if ui.add(egui::DragValue::new(&mut light_props.max_distance).speed(0.1)).changed() {
+                                                if let Some(renderer_state) = &mut editor.renderer_state {
+                                                    if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
+                                                        if let Some(light) = renderer_state.point_lights.get_mut(index) {
+                                                            light.max_distance = light_props.max_distance;
+                                                        }
+                                                    }
+                                                }
+                                                utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                            }
+                                        }
+                                        if let Some(light_props) = &mut component.light_properties {
+                                            ui.label("Color");
+                                            if ui.color_edit_button_rgba_premultiplied(&mut light_props.color).changed() {
+                                                if let Some(renderer_state) = &mut editor.renderer_state {
+                                                    if let Some(index) = light_components.iter().position(|c| &c.id == selected_component_id) {
+                                                        if let Some(light) = renderer_state.point_lights.get_mut(index) {
+                                                            light.color = [light_props.color[0], light_props.color[1], light_props.color[2]];
+                                                        }
+                                                    }
+                                                }
+                                                utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                            }
                                         }
                                     },
                                     _ => {
@@ -2700,6 +3032,6 @@ impl ExportPipeline {
             
         }
 
-        // self.chat.render(ctx);
+        self.chat_ui(ctx);
     }
 }
