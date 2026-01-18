@@ -1592,7 +1592,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                      });
                      ui.separator();
                      ui.horizontal(|ui| {
-                         ui.text_edit_singleline(&mut self.context.chat.current_input);
+                         ui.text_edit_multiline(&mut self.context.chat.current_input);
                          if ui.button("Send").clicked() {
                               let content = self.context.chat.current_input.clone();
                               self.context.chat.current_input.clear();
