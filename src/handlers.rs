@@ -397,7 +397,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                             if let Some(level) = levels.get(0) {
                                                 if let Some(components) = &level.components {
                                                     // Find component where asset_id matches the model id
-                                                    if let Some(component) = components.iter().find(|c| c.asset_id == model.id) {
+                                                    if let Some(component) = components.iter().find(|c| c.id == model.id) {
                                                         renderer_state.selected_component_id = Some(component.id.clone());
                                                         println!("Selected model: {:?}, component: {:?}", model.id, component.id);
                                                     }

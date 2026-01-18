@@ -2233,6 +2233,7 @@ impl ExportPipeline {
                 ..renderer_state.gizmo.config().clone()
             });
 
+            // println!("gizmo {:?}", renderer_state.gizmo.config().clone());
 
 // DEBUG:
 // let gizmo_draw_data = renderer_state.gizmo.draw();
