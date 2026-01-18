@@ -12,6 +12,7 @@ Within /src/, there are several directories:
 
 /art_assets/ handles GLB import and the wgpu Model creation
 /core/ handles all kinds of things from shaders to camera to Editor and RendererState, it also has the important pipeline.rs which contains the actual frame render function(s)
+/core/ also contains the egui_sidebar.rs which describes most of egui ui for the Chat as well as Properties, Projects, and Components and the AI Chat tool execution functions
 /game_behaviors/ is for in-game AI and mechanics
 /game_ui/ holds the UI pipeline's frontend implementations
 /heightfield_landscapes/ contains two landscape implementations (a quadtree version and a normal version). We are currently using the normal version in Landscape.rs
