@@ -84,6 +84,7 @@ winit = { version = "0.30.12", features = ["rwh_06"] }
 egui = "0.33.2"
 egui-wgpu = { version = "0.33.2", features = ["winit"] }
 egui-winit = "0.33.2"
+egui_dock = "0.18"
 device_query = "2.1.0"
 tokio = { version = "1.41.0", features = ["fs", "full"] }
 rhai = { version = "1.16.1", features = ["f32_float"] }
