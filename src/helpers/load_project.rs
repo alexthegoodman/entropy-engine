@@ -47,6 +47,15 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                         let level = &levels[0]; // assume one level for now
                         for landscape_data in landscapes {
                             if let Some(components) = &level.components {
+
+                                let mut landscape_id = None;
+
+                                for component in components {
+                                    if let Some(ComponentKind::Landscape) = component.kind {
+                                        landscape_id = Some(component.id.clone());
+                                    }
+                                }
+
                                 for component in components {
                                     if let Some(ComponentKind::Landscape) = component.kind {
                                         if component.asset_id == landscape_data.id {
@@ -360,7 +369,9 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                             &gpu_resources.device, 
                                             &camera_binding.bind_group_layout, 
                                             wgpu::TextureFormat::Rgba16Float,
-                                            component.id.clone()
+                                            component.id.clone(),
+                                            component.water_properties.clone(),
+                                            landscape_id.clone()
                                         );
                                     }
 

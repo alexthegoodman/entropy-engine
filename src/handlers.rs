@@ -1032,12 +1032,18 @@ pub fn handle_add_water_plane(
     device: &wgpu::Device,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     texture_format: wgpu::TextureFormat,
-    component_id: String
+    component_id: String,
+    water_properties: Option<WaterConfig>,
+    landscape_id: Option<String>
 ) {
-    if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == component_id) {
-        let config = WaterConfig::default();
-        let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj, config);
-        state.water_planes.push(water_plane);
+    if let Some(config) = water_properties {
+        if let Some(landscape_id) = landscape_id {
+            if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
+                // let config = WaterConfig::default();
+                let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj, config);
+                state.water_planes.push(water_plane);
+            }
+        }
     }
 }
 
