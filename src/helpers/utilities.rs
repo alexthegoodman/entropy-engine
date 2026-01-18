@@ -57,6 +57,25 @@ pub fn get_heightmap_dir(project_id: &str, landscape_id: &str) -> Option<PathBuf
     Some(heightmap_dir)
 }
 
+pub fn save_heightmap(
+    project_id: &str,
+    landscape_id: &str,
+    filename: &str,
+    png_bytes: Vec<u8>,
+) -> Result<PathBuf, std::io::Error> {
+    let heightmap_dir = get_heightmap_dir(project_id, landscape_id)
+        .ok_or_else(|| std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Could not get heightmap directory"
+        ))?;
+    
+    let file_path = heightmap_dir.join(filename);
+    
+    fs::write(&file_path, png_bytes)?;
+    
+    Ok(file_path)
+} 
+
 pub fn get_soilmap_dir(project_id: &str, landscape_id: &str) -> Option<PathBuf> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
     let landscape_dir = project_dir.join("landscapes").join(landscape_id);

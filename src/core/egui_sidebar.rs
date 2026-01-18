@@ -4,6 +4,7 @@ use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
+use crate::helpers::utilities::save_heightmap;
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 use crate::water_plane::config::WaterConfig;
 use crate::{
@@ -1271,6 +1272,12 @@ let Editor { saved_state, renderer_state, .. } = editor;
                         //     });
                         // }
 
+                        // Save the heightmap
+                        match save_heightmap(project_id, &asset_id, &filename, png_bytes) {
+                            Ok(path) => println!("Heightmap saved to: {:?}", path),
+                            Err(e) => eprintln!("Failed to save heightmap: {}", e),
+                        }
+
                         // Update In-Memory
                         let height_data: Vec<f32> = img.pixels().map(|p| p.0[0] as f32 / 65535.0).collect();
 
@@ -1576,6 +1583,11 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                      egui::ScrollArea::vertical().show(ui, |ui| {
                          for msg in &self.context.chat.messages {
                              ui.label(format!("{}: {}", msg.role, msg.content.as_deref().unwrap_or("...")));
+                             if let Some(tool_calls) = &msg.tool_calls {
+                                for tool_call in tool_calls {
+                                    ui.label(format!("Tool | {}: {}", tool_call.function.name, tool_call.function.arguments));
+                                }
+                             }
                          }
                      });
                      ui.separator();
