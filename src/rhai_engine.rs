@@ -359,15 +359,11 @@ impl RhaiEngine {
     }
 
     pub fn load_script(&mut self, path: &str) -> Result<(), Box<rhai::EvalAltResult>> {
-        let scripts_path = get_scripts_dir(&self.project_id);
-
-        if let Some(script_path) = scripts_path {
-            let path = script_path.join(path);
-            println!("Loading Rhai Script... {:?}", path);
-            let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
-            let ast = self.engine.compile(script_content)?;
-            self.ast_cache.insert(path.to_str().as_ref().expect("Couldn't get path str").to_string(), ast);
-        }
+        println!("Loading Rhai Script... {:?}", path);
+        let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
+        let ast = self.engine.compile(script_content)?;
+        self.ast_cache.insert(path.clone().to_string(), ast);
+    
 
         Ok(())
     }
@@ -379,135 +375,151 @@ impl RhaiEngine {
         script_path: &str,
         hook_name: &str,
     ) -> Option<ComponentChanges> {
-        let ast = if let Some(ast) = self.ast_cache.get(script_path) {
-            ast
+        let scripts_path = get_scripts_dir(&self.project_id);
+
+        let mut ast = None;
+
+        if let Some(scripts_path) = scripts_path {
+            let script_path = scripts_path.join(script_path);
+            let script_path = script_path.clone().to_string_lossy().to_string();
+
+            let ast_i = if let Some(ast) = self.ast_cache.get(&script_path) {
+                ast
+            } else {
+                if self.load_script(&script_path).is_err() {
+                    eprintln!("Failed to load Rhai script: {}", script_path);
+                    return None;
+                }
+                self.ast_cache.get(&script_path).unwrap()
+            };
+
+            ast = Some(ast_i);
         } else {
-            if self.load_script(script_path).is_err() {
-                eprintln!("Failed to load Rhai script: {}", script_path);
-                return None;
-            }
-            self.ast_cache.get(script_path).unwrap()
-        };
-
-        let mut scope = Scope::new();
-        let mut system = SystemWrapper::new();
-        // let system = Rc::new(RefCell::new(SystemWrapper::new()));
-        // scope.push("system", system.clone());
-
-        match component.kind.as_ref().unwrap() {
-            crate::helpers::saved_data::ComponentKind::Model => {
-                if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == component.id) {
-                    let mut wrapper = ModelWrapper {
-                        id: model.id.clone(),
-                        position: model.meshes[0].transform.position,
-                        position_changed: false,
-                    };
-                    
-                    // Prepare script_state
-                    let mut rhai_script_state = rhai::Map::new();
-                    if let Some(current_state) = &model.script_state {
-                        for (key, value) in current_state {
-                            rhai_script_state.insert(key.clone().into(), value.clone().into());
-                        }
-                    }
-                    
-                    match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
-                        Ok(result) => {
-                            // Script returns just the updated script_state map
-                            if let Some(map) = result.try_cast::<rhai::Map>() {
-                                let mut updated_hashmap = HashMap::new();
-                                for (key, value) in map {
-                                    updated_hashmap.insert(key.to_string(), value.to_string());
-                                }
-                                model.script_state = Some(updated_hashmap);
-                            }
-                            
-                            let particle_spawns = system.particle_spawns.borrow().clone();
-
-                            // Check if wrapper was mutated
-                            if wrapper.position_changed || !particle_spawns.is_empty() {
-                                return Some(ComponentChanges {
-                                    component_id: wrapper.id,
-                                    new_position: if wrapper.position_changed { Some(wrapper.position) } else { None },
-                                    particle_spawns: if !particle_spawns.is_empty() { Some(particle_spawns) } else { None },
-                                });
-                            }
-                        }
-                        Err(e) => {
-                            // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
-                                eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
-                            // }
-                        }
-                    }
-                }
-            },
-            crate::helpers::saved_data::ComponentKind::PlayerCharacter => {
-                if let Some(player) = &mut renderer_state.player_character {
-                    // Assuming player model position or camera position
-                    // We need a wrapper for player
-                    let wrapper = PlayerWrapper {
-                        id: component.id.clone(),
-                        equipped_weapon_name: if let Some(weapon) = &player.inventory.equipped_weapon {
-                            weapon.generic_properties.name.clone()
-                        } else {
-                            "".to_string()
-                        },
-                        equipped_weapon_id: if let Some(weapon) = &player.inventory.equipped_weapon {
-                            weapon.id.clone()
-                        } else {
-                            "".to_string()
-                        },
-                        position: if let Some(rigidbody) = &player.movement_rigid_body_handle {
-                            let body = renderer_state.rigid_body_set.get(*rigidbody);
-                            let body = body.as_ref().expect("Couldn't get body");
-
-                            Vector3::new(body.translation().x, body.translation().y, body.translation().z)
-                        } else {
-                            Vector3::zeros()
-                        }
-                    };
-                    
-                    // Prepare script_state
-                    let mut rhai_script_state = rhai::Map::new();
-                    if let Some(current_state) = &player.script_state {
-                        for (key, value) in current_state {
-                            rhai_script_state.insert(key.clone().into(), value.clone().into());
-                        }
-                    }
-
-                    // Call Rhai function
-                     match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
-                        Ok(result) => {
-                             // Script returns just the updated script_state map
-                            if let Some(map) = result.try_cast::<rhai::Map>() {
-                                let mut updated_hashmap = HashMap::new();
-                                for (key, value) in map {
-                                    updated_hashmap.insert(key.to_string(), value.to_string());
-                                }
-                                player.script_state = Some(updated_hashmap);
-                            }
-
-                             let particle_spawns = system.particle_spawns.borrow().clone();
-
-                            if !particle_spawns.is_empty() {
-                                return Some(ComponentChanges {
-                                    component_id: wrapper.id,
-                                    new_position: None,
-                                    particle_spawns: Some(particle_spawns),
-                                });
-                            }
-                        },
-                        Err(e) => {
-                            //  if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
-                                eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
-                            // }
-                        }
-                     }
-                }
-            },
-            _ => {}
+            return None;
         }
-        
+
+        if let Some(ast) = ast {
+            let mut scope = Scope::new();
+            let mut system = SystemWrapper::new();
+            // let system = Rc::new(RefCell::new(SystemWrapper::new()));
+            // scope.push("system", system.clone());
+
+            match component.kind.as_ref().unwrap() {
+                crate::helpers::saved_data::ComponentKind::Model => {
+                    if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == component.id) {
+                        let mut wrapper = ModelWrapper {
+                            id: model.id.clone(),
+                            position: model.meshes[0].transform.position,
+                            position_changed: false,
+                        };
+                        
+                        // Prepare script_state
+                        let mut rhai_script_state = rhai::Map::new();
+                        if let Some(current_state) = &model.script_state {
+                            for (key, value) in current_state {
+                                rhai_script_state.insert(key.clone().into(), value.clone().into());
+                            }
+                        }
+                        
+                        match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
+                            Ok(result) => {
+                                // Script returns just the updated script_state map
+                                if let Some(map) = result.try_cast::<rhai::Map>() {
+                                    let mut updated_hashmap = HashMap::new();
+                                    for (key, value) in map {
+                                        updated_hashmap.insert(key.to_string(), value.to_string());
+                                    }
+                                    model.script_state = Some(updated_hashmap);
+                                }
+                                
+                                let particle_spawns = system.particle_spawns.borrow().clone();
+
+                                // Check if wrapper was mutated
+                                if wrapper.position_changed || !particle_spawns.is_empty() {
+                                    return Some(ComponentChanges {
+                                        component_id: wrapper.id,
+                                        new_position: if wrapper.position_changed { Some(wrapper.position) } else { None },
+                                        particle_spawns: if !particle_spawns.is_empty() { Some(particle_spawns) } else { None },
+                                    });
+                                }
+                            }
+                            Err(e) => {
+                                // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                                    eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
+                                // }
+                            }
+                        }
+                    }
+                },
+                crate::helpers::saved_data::ComponentKind::PlayerCharacter => {
+                    if let Some(player) = &mut renderer_state.player_character {
+                        // Assuming player model position or camera position
+                        // We need a wrapper for player
+                        let wrapper = PlayerWrapper {
+                            id: component.id.clone(),
+                            equipped_weapon_name: if let Some(weapon) = &player.inventory.equipped_weapon {
+                                weapon.generic_properties.name.clone()
+                            } else {
+                                "".to_string()
+                            },
+                            equipped_weapon_id: if let Some(weapon) = &player.inventory.equipped_weapon {
+                                weapon.id.clone()
+                            } else {
+                                "".to_string()
+                            },
+                            position: if let Some(rigidbody) = &player.movement_rigid_body_handle {
+                                let body = renderer_state.rigid_body_set.get(*rigidbody);
+                                let body = body.as_ref().expect("Couldn't get body");
+
+                                Vector3::new(body.translation().x, body.translation().y, body.translation().z)
+                            } else {
+                                Vector3::zeros()
+                            }
+                        };
+                        
+                        // Prepare script_state
+                        let mut rhai_script_state = rhai::Map::new();
+                        if let Some(current_state) = &player.script_state {
+                            for (key, value) in current_state {
+                                rhai_script_state.insert(key.clone().into(), value.clone().into());
+                            }
+                        }
+
+                        // Call Rhai function
+                        match self.engine.call_fn::<Dynamic>(&mut scope, &ast, hook_name, (wrapper.clone(), system.clone(), rhai_script_state)) {
+                            Ok(result) => {
+                                // Script returns just the updated script_state map
+                                if let Some(map) = result.try_cast::<rhai::Map>() {
+                                    let mut updated_hashmap = HashMap::new();
+                                    for (key, value) in map {
+                                        updated_hashmap.insert(key.to_string(), value.to_string());
+                                    }
+                                    player.script_state = Some(updated_hashmap);
+                                }
+
+                                let particle_spawns = system.particle_spawns.borrow().clone();
+
+                                if !particle_spawns.is_empty() {
+                                    return Some(ComponentChanges {
+                                        component_id: wrapper.id,
+                                        new_position: None,
+                                        particle_spawns: Some(particle_spawns),
+                                    });
+                                }
+                            },
+                            Err(e) => {
+                                //  if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                                    eprintln!("Error executing hook '{}' in Rhai script for component {}: {:?}", hook_name, component.id, e);
+                                // }
+                            }
+                        }
+                    }
+                },
+                _ => {}
+            }
+            
+        }
+
         None
     }
     
