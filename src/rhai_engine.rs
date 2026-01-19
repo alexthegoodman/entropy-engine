@@ -363,9 +363,9 @@ impl RhaiEngine {
 
         if let Some(script_path) = scripts_path {
             let path = script_path.join(path);
+            println!("Loading Rhai Script... {:?}", path);
             let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
             let ast = self.engine.compile(script_content)?;
-            println!("Loading Rhai Script... {:?}", path);
             self.ast_cache.insert(path.to_str().as_ref().expect("Couldn't get path str").to_string(), ast);
         }
 
