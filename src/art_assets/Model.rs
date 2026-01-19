@@ -645,7 +645,17 @@ impl Model {
                 ));
 
                 let new_rotation = isometry.rotation * node_rot;
-                let new_position = Vector3::new(translation[0] + isometry.translation.x, translation[1] + isometry.translation.y, translation[2] + isometry.translation.z);
+
+                // Rotated the local offset by the global rotation so that the mesh orbits the model center
+                let local_translation = Vector3::new(translation[0], translation[1], translation[2]);
+                let rotated_translation = isometry.rotation * local_translation;
+
+                let new_position = Vector3::new(
+                    rotated_translation.x + isometry.translation.x,
+                    rotated_translation.y + isometry.translation.y,
+                    rotated_translation.z + isometry.translation.z
+                );
+
                 let transform_inner = Transform::new_with_quat(
                     new_position,
                     new_rotation,
