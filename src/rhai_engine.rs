@@ -9,6 +9,7 @@ use crate::core::RendererState::RendererState;
 use crate::helpers::saved_data::ComponentData;
 use crate::game_ui::dialogue_state::{DialogueState, DialogueOption};
 use crate::helpers::saved_data::ComponentKind;
+use crate::helpers::utilities::get_scripts_dir;
 
 #[derive(Clone, CustomType, Debug)]            // <- auto-implement 'CustomType'
 pub struct Vec3 {                       //    for normal structs
@@ -264,10 +265,11 @@ impl DialogueWrapper {
 pub struct RhaiEngine {
     engine: Engine,
     ast_cache: HashMap<String, AST>,
+    pub project_id: String,
 }
 
 impl RhaiEngine {
-    pub fn new() -> Self {
+    pub fn new(project_id: String) -> Self {
         let mut engine = Engine::new();
         
         engine.on_print(|text| {
@@ -352,14 +354,21 @@ impl RhaiEngine {
         RhaiEngine {
             engine,
             ast_cache: HashMap::new(),
+            project_id
         }
     }
 
     pub fn load_script(&mut self, path: &str) -> Result<(), Box<rhai::EvalAltResult>> {
-        let script_content = fs::read_to_string(path).map_err(|e| e.to_string())?;
-        let ast = self.engine.compile(script_content)?;
-        println!("load script");
-        self.ast_cache.insert(path.to_string(), ast);
+        let scripts_path = get_scripts_dir(&self.project_id);
+
+        if let Some(script_path) = scripts_path {
+            let path = script_path.join(path);
+            let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
+            let ast = self.engine.compile(script_content)?;
+            println!("Loading Rhai Script... {:?}", path);
+            self.ast_cache.insert(path.to_str().as_ref().expect("Couldn't get path str").to_string(), ast);
+        }
+
         Ok(())
     }
 

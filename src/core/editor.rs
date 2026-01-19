@@ -450,7 +450,7 @@ impl Editor {
         let project_path = std::env::current_dir()
             .unwrap_or_else(|_| std::path::PathBuf::from("."))
             .join("captures")
-            .join(project_id);
+            .join(project_id.clone());
 
         if let Err(e) = std::fs::create_dir_all(&project_path) {
             println!("Failed to create capture directory: {}", e);
@@ -464,7 +464,7 @@ impl Editor {
         Editor {
             renderer_state: None,
             saved_state: None,
-            rhai_engine: RhaiEngine::new(),
+            rhai_engine: RhaiEngine::new(project_id.clone()),
             // st_capture,
             // exporter: None,
             // font_manager,
