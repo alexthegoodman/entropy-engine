@@ -22,6 +22,7 @@ use crate::core::editor::Point;
 use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
+use transform_gizmo::{EnumSet, GizmoMode};
 use transform_gizmo::math::{DMat4, DVec3, DVec4};
 use uuid::Uuid;
 use pollster; // For pollster::block_on
@@ -2230,6 +2231,7 @@ impl ExportPipeline {
                     min: (0.0, 0.0).into(),
                     max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
                 },
+                modes: GizmoMode::all_translate(),
                 ..renderer_state.gizmo.config().clone()
             });
 

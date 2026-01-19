@@ -262,44 +262,102 @@ impl<'a> PipelineTabViewer<'a> {
                     // if let Some(editor) = pipeline.export_editor.as_mut() {
                         // Update SavedState
                         if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+                            let Editor { saved_state, renderer_state, camera, .. } = editor;
 
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
-                                if let Some(components) = level.components.as_mut() {
-                                    if let Some(component) = components.iter_mut().find(|c| c.id == args.component_id) {
-                                        if let Some(translation) = args.translation {
-                                            component.generic_properties.position = translation;
+                            if let (Some(saved_state), Some(renderer_state), Some(camera)) = (saved_state, renderer_state, camera) {
+                                let project_id = saved_state.id.clone().unwrap_or_default();
+                                let mut component_modified = None;
+
+                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                                    if let Some(components) = level.components.as_mut() {
+                                        if let Some(component) = components.iter_mut().find(|c| c.id == args.component_id) {
+                                            if let Some(translation) = args.translation {
+                                                component.generic_properties.position = translation;
+                                            }
+                                            if let Some(rotation) = args.rotation {
+                                                component.generic_properties.rotation = rotation;
+                                            }
+                                            if let Some(scale) = args.scale {
+                                                component.generic_properties.scale = scale;
+                                            }
+                                            component_modified = Some(component.clone());
                                         }
-                                        if let Some(rotation) = args.rotation {
-                                            component.generic_properties.rotation = rotation;
+                                    }
+                                }
+                                saved_state_clone = Some(saved_state.clone());
+
+                                if let Some(component) = component_modified {
+                                    let mut reimported = false;
+                                    if matches!(component.kind, Some(ComponentKind::Model)) {
+                                         if let Some(pos) = renderer_state.models.iter().position(|m| m.id == args.component_id) {
+                                            let old_model = renderer_state.models.remove(pos);
+                                            for mesh in old_model.meshes {
+                                                if let Some(handle) = mesh.collider_handle {
+                                                    renderer_state.collider_set.remove(handle, &mut renderer_state.island_manager, &mut renderer_state.rigid_body_set, true);
+                                                }
+                                                if let Some(handle) = mesh.rigid_body_handle {
+                                                    renderer_state.rigid_body_set.remove(
+                                                        handle, 
+                                                        &mut renderer_state.island_manager, 
+                                                        &mut renderer_state.collider_set, 
+                                                        &mut renderer_state.impulse_joint_set,
+                                                        &mut renderer_state.multibody_joint_set, 
+                                                        true
+                                                    );
+                                                }
+                                            }
+
+                                            let model_asset_id = component.asset_id.clone();
+                                            if let Some(model_file) = saved_state.models.iter().find(|m| m.id == model_asset_id) {
+                                                let model_filename = model_file.fileName.clone();
+                                                let isometry = Isometry3::from_parts(
+                                                    Translation3::from(Vector3::from(component.generic_properties.position)),
+                                                    UnitQuaternion::from_euler_angles(
+                                                        component.generic_properties.rotation[0].to_radians(),
+                                                        component.generic_properties.rotation[1].to_radians(),
+                                                        component.generic_properties.rotation[2].to_radians(),
+                                                    )
+                                                );
+                                                let scale = Vector3::from(component.generic_properties.scale);
+                                                
+                                                if let Some(gpu) = &self.context.gpu_resources {
+                                                    pollster::block_on(crate::handlers::handle_add_model(
+                                                        renderer_state,
+                                                        &gpu.device,
+                                                        &gpu.queue,
+                                                        project_id.clone(),
+                                                        model_asset_id,
+                                                        args.component_id.clone(),
+                                                        model_filename,
+                                                        isometry,
+                                                        scale,
+                                                        camera,
+                                                        component.script_state.clone(),
+                                                    ));
+                                                    reimported = true;
+                                                }
+                                            }
                                         }
-                                        if let Some(scale) = args.scale {
-                                            component.generic_properties.scale = scale;
+                                    }
+
+                                    if !reimported {
+                                         if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == args.component_id) {
+                                            for mesh in model.meshes.iter_mut() {
+                                                if let Some(translation) = args.translation {
+                                                    mesh.transform.update_position(translation);
+                                                }
+                                                if let Some(rotation) = args.rotation {
+                                                    mesh.transform.update_rotation(rotation);
+                                                }
+                                                if let Some(scale) = args.scale {
+                                                    mesh.transform.update_scale(scale);
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
-                            saved_state_clone = Some(saved_state.clone());
                         }
-
-                        // Update RendererState
-                        if let Some(renderer_state) = editor.renderer_state.as_mut() {
-                            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == args.component_id) {
-                                for mesh in model.meshes.iter_mut() {
-                                    if let Some(translation) = args.translation {
-                                        mesh.transform.update_position(translation);
-                                    }
-                                    if let Some(rotation) = args.rotation {
-                                        mesh.transform.update_rotation(rotation);
-                                    }
-                                    if let Some(scale) = args.scale {
-                                        mesh.transform.update_scale(scale);
-                                    }
-                                }
-                            }
-                        }
-                    }
             //         }
             //     }
             // }
@@ -1413,7 +1471,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                  let editor = self.context.export_editor.as_mut().unwrap();
                  if let Some(selected_component_id) = self.context.selected_component_id {
                     // Use disjoint borrow pattern to access saved_state and renderer_state simultaneously
-                    let Editor { saved_state, renderer_state, .. } = editor;
+                    let Editor { saved_state, renderer_state, camera, .. } = editor;
 
                     if let Some(saved_state) = saved_state {
                         let project_id = saved_state.id.as_ref().expect("Couldn't get project id").clone();
@@ -1451,20 +1509,14 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                         
                                         match component.kind {
                                             Some(ComponentKind::Model) => {
+                                                let mut changed = false;
                                                 ui.label("Position");
                                                 if ui.horizontal(|ui| {
                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.position[0]).speed(0.1)).changed() ||
                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.position[1]).speed(0.1)).changed() ||
                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.position[2]).speed(0.1)).changed()
                                                 }).inner {
-                                                    if let Some(renderer_state) = renderer_state {
-                                                        if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
-                                                            for mesh in &mut model.meshes {
-                                                                mesh.transform.update_position(component.generic_properties.position);
-                                                            }
-                                                        }
-                                                    }
-                                                    utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                                    changed = true;
                                                 }
                                                 
                                                 ui.label("Rotation");
@@ -1473,10 +1525,67 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[1]).speed(0.1)).changed() ||
                                                     ui.add(egui::DragValue::new(&mut component.generic_properties.rotation[2]).speed(0.1)).changed()
                                                 }).inner {
+                                                     changed = true;
+                                                }
+
+                                                ui.label("Scale");
+                                                if ui.horizontal(|ui| {
+                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.scale[0]).speed(0.1)).changed() ||
+                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.scale[1]).speed(0.1)).changed() ||
+                                                    ui.add(egui::DragValue::new(&mut component.generic_properties.scale[2]).speed(0.1)).changed()
+                                                }).inner {
+                                                     changed = true;
+                                                }
+
+                                                if changed {
                                                      if let Some(renderer_state) = renderer_state {
-                                                        if let Some(model) = renderer_state.models.iter_mut().find(|m| &m.id == selected_component_id) {
-                                                            for mesh in &mut model.meshes {
-                                                                mesh.transform.update_rotation([component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians()]);
+                                                        // Update by re-importing the model to handle complex hierarchies correctly
+                                                        if let Some(pos) = renderer_state.models.iter().position(|m| &m.id == selected_component_id) {
+                                                            let old_model = renderer_state.models.remove(pos);
+                                                            for mesh in old_model.meshes {
+                                                                if let Some(handle) = mesh.collider_handle {
+                                                                    renderer_state.collider_set.remove(handle, &mut renderer_state.island_manager, &mut renderer_state.rigid_body_set, true);
+                                                                }
+                                                                if let Some(handle) = mesh.rigid_body_handle {
+                                                                    renderer_state.rigid_body_set.remove(
+                                                                        handle, 
+                                                                        &mut renderer_state.island_manager, 
+                                                                        &mut renderer_state.collider_set, 
+                                                                        &mut renderer_state.impulse_joint_set,
+                                                                        &mut renderer_state.multibody_joint_set, 
+                                                                        true
+                                                                    );
+                                                                }
+                                                            }
+                                                        }
+
+                                                        let model_asset_id = component.asset_id.clone();
+                                                        if let Some(model_file) = saved_state.models.iter().find(|m| m.id == model_asset_id) {
+                                                            let model_filename = model_file.fileName.clone();
+                                                            let isometry = Isometry3::from_parts(
+                                                                Translation3::from(Vector3::from(component.generic_properties.position)),
+                                                                UnitQuaternion::from_euler_angles(
+                                                                    component.generic_properties.rotation[0].to_radians(),
+                                                                    component.generic_properties.rotation[1].to_radians(),
+                                                                    component.generic_properties.rotation[2].to_radians(),
+                                                                )
+                                                            );
+                                                            let scale = Vector3::from(component.generic_properties.scale);
+                                                            
+                                                            if let (Some(gpu), Some(camera)) = (&self.context.gpu_resources, &camera) {
+                                                                pollster::block_on(crate::handlers::handle_add_model(
+                                                                    renderer_state,
+                                                                    &gpu.device,
+                                                                    &gpu.queue,
+                                                                    project_id.clone(),
+                                                                    model_asset_id,
+                                                                    selected_component_id.clone(),
+                                                                    model_filename,
+                                                                    isometry,
+                                                                    scale,
+                                                                    camera,
+                                                                    component.script_state.clone(),
+                                                                ));
                                                             }
                                                         }
                                                     }
