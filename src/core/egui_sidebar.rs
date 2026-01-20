@@ -648,7 +648,17 @@ let Editor { saved_state, renderer_state, .. } = editor;
 
                         if !asset_file_name.is_empty() {
                             let component_id = Uuid::new_v4().to_string();
-                            let pos = args.position.unwrap_or([0.0, 0.0, 0.0]);
+                            let mut pos = args.position.unwrap_or([0.0, 0.0, 0.0]);
+                            
+                            // Auto-calculate height from landscape
+                            if let Some(renderer_state) = editor.renderer_state.as_ref() {
+                                if let Some(landscape) = renderer_state.landscapes.get(0) {
+                                    if let Some(height) = landscape.get_height_at(pos[0], pos[2]) {
+                                        pos[1] = height;
+                                    }
+                                }
+                            }
+
                             let rot = args.rotation.unwrap_or([0.0, 0.0, 0.0]);
                             let scale = args.scale.unwrap_or([1.0, 1.0, 1.0]);
 
@@ -1055,7 +1065,17 @@ let Editor { saved_state, renderer_state, .. } = editor;
 
                         if !asset_file_name.is_empty() {
                             let component_id = Uuid::new_v4().to_string();
-                            let pos = args.position.unwrap_or([0.0, 0.0, 0.0]);
+                            let mut pos = args.position.unwrap_or([0.0, 0.0, 0.0]);
+
+                            // Auto-calculate height from landscape
+                            if let Some(renderer_state) = editor.renderer_state.as_ref() {
+                                if let Some(landscape) = renderer_state.landscapes.get(0) {
+                                    if let Some(height) = landscape.get_height_at(pos[0], pos[2]) {
+                                        pos[1] = height;
+                                    }
+                                }
+                            }
+
                             let rot = args.rotation.unwrap_or([0.0, 0.0, 0.0]);
                             let scale = args.scale.unwrap_or([1.0, 1.0, 1.0]);
 
