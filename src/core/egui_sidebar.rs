@@ -34,6 +34,7 @@ use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
+use crate::helpers::utilities::update_project_state;
 
 #[cfg(target_arch = "wasm32")]
 use web_sys::HtmlCanvasElement;
@@ -1181,8 +1182,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     if let Some(components) = level.components.as_mut() {
                                         if let Some(component) = components.iter_mut().find(|c| c.id == *component_id) {
-                                            let script_path = format!("scripts/{}", args.filename);
-                                            component.rhai_script_path = Some(script_path);
+                                            // let script_path = format!("scripts/{}", args.filename);
+                                            component.rhai_script_path = Some(args.filename.clone()); // already relative to scripts folder now
                                         }
                                     }
                                 }
@@ -2097,61 +2098,70 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                      ui.horizontal(|ui| {
                          ui.text_edit_multiline(&mut self.context.chat.current_input);
                          if ui.button("Send").clicked() {
-                              let content = self.context.chat.current_input.clone();
-                              self.context.chat.current_input.clear();
-                              
-                              let session_id = self.context.chat.current_session.as_ref().unwrap().id.clone();
-                              let client = self.context.chat.client.clone();
-                              let api_url = self.context.chat.api_url.clone();
+                                let content = self.context.chat.current_input.clone();
+                                self.context.chat.current_input.clear();
 
-                              // Get saved state for context
-                              let editor = self.context.export_editor.as_ref().unwrap();
-                              let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
-                              let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
-                              
-                              self.context.chat.messages.push(ChatMessage {
-                                 id: Uuid::new_v4().to_string(),
-                                 role: "user".to_string(),
-                                 content: Some(content.clone()),
-                                 tool_call_id: None,
-                                 tool_calls: None,
-                             });
-                             
-                             let (tx, rx) = std::sync::mpsc::channel();
-                             
-                             // Clone for thread
-                             let saved_state_cl = saved_state.clone();
 
-                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
-                                    let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
-                                    let body = serde_json::json!({
-                                        "role": "user",
-                                        "content": content,
-                                        "saved_state": saved_state_cl
+                                let session_id = self.context.chat.current_session.as_ref().unwrap().id.clone();
+                                let client = self.context.chat.client.clone();
+                                let api_url = self.context.chat.api_url.clone();
+
+                                let mut saved_state_cl = None;
+                                
+                                {
+                                    // Get saved state for context
+                                    let editor = self.context.export_editor.as_ref().unwrap();
+                                    let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
+                                    let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
+                                    
+                                    self.context.chat.messages.push(ChatMessage {
+                                        id: Uuid::new_v4().to_string(),
+                                        role: "user".to_string(),
+                                        content: Some(content.clone()),
+                                        tool_call_id: None,
+                                        tool_calls: None,
                                     });
-                                    let res = client.post(&url).json(&body).send().await;
-                                    if let Ok(resp) = res {
-                                        if let Ok(msg) = resp.json::<ChatMessage>().await {
-                                            let _ = tx.send(msg);
+                                    
+                                    // Clone for thread
+                                    saved_state_cl = Some(saved_state.clone());
+                                }
+
+                                let (tx, rx) = std::sync::mpsc::channel();
+
+                                std::thread::spawn(move || {
+                                    let rt = tokio::runtime::Runtime::new().unwrap();
+                                    rt.block_on(async {
+                                        let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
+                                        let body = serde_json::json!({
+                                            "role": "user",
+                                            "content": content,
+                                            "saved_state": saved_state_cl
+                                        });
+                                        let res = client.post(&url).json(&body).send().await;
+                                        if let Ok(resp) = res {
+                                            if let Ok(msg) = resp.json::<ChatMessage>().await {
+                                                let _ = tx.send(msg);
+                                            }
+                                        }
+                                    });
+                                });
+
+                                if let Ok(msg) = rx.recv() {
+                                    self.context.chat.messages.push(msg.clone());
+                                    
+                                    if let Some(tool_calls) = msg.tool_calls {
+                                        for tool_call in tool_calls {
+                                            self.execute_tool_call(tool_call);
                                         }
                                     }
-                                });
-                             });
-                             
-                             if let Ok(msg) = rx.recv() {
-                                 use crate::helpers::utilities::update_project_state;
-                                 self.context.chat.messages.push(msg.clone());
-                                 
-                                 if let Some(tool_calls) = msg.tool_calls {
-                                     for tool_call in tool_calls {
-                                         self.execute_tool_call(tool_call);
-                                     }
-                                 }
+                                }
 
-                                 let _ = update_project_state(&project_id, &saved_state).as_ref().expect("Couldn't save");
-                             }
+                                let editor = self.context.export_editor.as_ref().unwrap();
+                                let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
+                                let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
+
+                                let _ = update_project_state(&project_id, &saved_state).as_ref().expect("Couldn't save");
+
                          }
                      });
                  }
