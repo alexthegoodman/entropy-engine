@@ -87,9 +87,13 @@ impl MiniMap {
         // Create player marker (red dot/triangle)
         // Center it in the minimap
         let marker_size = 10.0;
+        // let marker_pos = Point {
+        //     x: position.x + (width / 2.0) - (marker_size / 2.0),
+        //     y: position.y + (height / 2.0) - (marker_size / 2.0),
+        // };
         let marker_pos = Point {
-            x: position.x + (width / 2.0) - (marker_size / 2.0),
-            y: position.y + (height / 2.0) - (marker_size / 2.0),
+            x: 0.0,
+            y: 0.0,
         };
 
         let player_marker = Polygon::new(
@@ -147,61 +151,33 @@ impl MiniMap {
         npcs: &Vec<NPC>,
         collectables: &Vec<Collectable>,
         rigid_body_set: &RigidBodySet,
-        camera: &Camera, // Needed for new polygon creation if any
+        camera: &Camera,
     ) {
         if !self.visible {
             return;
         }
 
-        // Update Player Marker (always center, rotates)
-        // With "North Up" map, player arrow rotates.
-        // With "Player Up" map (centered on player arrow), the map rotates.
-        
-        // Request: "remained centered on the player arrow"
-        // Interpretation: Player arrow is fixed in center pointing UP. The world rotates around it.
-        
+        // Player marker is ALWAYS at the center of the minimap
         // let center_screen_x = self.screen_position.x + (self.width / 2.0);
         // let center_screen_y = self.screen_position.y + (self.height / 2.0);
-
-        // // Player marker fixed at center, pointing UP
-        // let marker_half_size = self.player_marker.dimensions.0 / 2.0;
-        // self.player_marker.transform.update_position([
-        //     center_screen_x - marker_half_size, 
-        //     center_screen_y - marker_half_size, 
-        //     0.0
-        // ]);
-
-        // World Space: -Size/2 to Size/2 -> 0 to 1
-        
-        let relative_x = (player_position.x - (landscape_center.x - landscape_size / 2.0)) / landscape_size;
-        let relative_z = (player_position.z - (landscape_center.z - landscape_size / 2.0)) / landscape_size;
-
-        // Clamp to 0-1 to keep marker inside map
-        let clamped_x = relative_x.clamp(0.0, 1.0);
-        let clamped_z = relative_z.clamp(0.0, 1.0);
-
-        // Map to screen coordinates within the minimap
-        // Z in world is usually Y on 2D map (Top-Down)
-        let map_x = self.screen_position.x + (clamped_x * self.width);
-        let map_y = self.screen_position.y + (clamped_z * self.height);
-
-        // Centering the marker
+        let center_screen_x = self.screen_position.x; // since minimap is positioned according to its center, not top-left
+        let center_screen_y = self.screen_position.y;
         let marker_half_size = self.player_marker.dimensions.0 / 2.0;
         
         self.player_marker.transform.update_position([
-            map_x - marker_half_size, 
-            map_y - marker_half_size, 
-            0.0 // Z-index handled by layer usually
+            center_screen_x - marker_half_size, 
+            center_screen_y - marker_half_size, 
+            0.0
         ]);
-
-        self.player_marker.transform.update_rotation([0.0, 0.0, player_rotation_y + std::f32::consts::PI]); // Fixed UP
+        
+        // Player arrow points up (north), so rotate to show player's actual facing
+        self.player_marker.transform.update_rotation([0.0, 0.0, player_rotation_y + std::f32::consts::PI]);
         self.player_marker.transform.update_uniform_buffer(queue);
 
-        // Scale factor: pixels per world unit
-        // Assuming landscape_size fits in map width when fully zoomed out?
-        // Let's use a fixed zoom for now, e.g., 1.0 world unit = 1.0 pixel (too small?)
-        // Or map width covers `landscape_size` / zoom.
-        let scale = (self.width / landscape_size) * 5.0; // 5x Zoom
+        // Scale factor: adjust this to control zoom level
+        // Higher value = more zoomed in (shows less area)
+        // let scale = 5.0;
+        let scale = 1.25;
 
         // Update NPCs
         let mut active_npc_ids = Vec::new();
@@ -210,43 +186,30 @@ impl MiniMap {
             
             if let Some(rb) = rigid_body_set.get(npc.rigid_body_handle) {
                 let npc_pos = rb.translation();
+                
+                // Calculate position RELATIVE to player
                 let relative_pos = npc_pos - player_position;
 
-                // Rotate relative position by -player_rotation_y to align with "Player Up" view
-                // Rotation around Y axis in world space corresponds to 2D rotation.
-                // If player rotates Y (Yaw), the world should rotate -Y.
-                
+                // Rotate relative position by -player_rotation_y to keep map "north-up"
+                // as player rotates
                 let angle = -player_rotation_y;
                 let rotated_x = relative_pos.x * angle.cos() - relative_pos.z * angle.sin();
                 let rotated_z = relative_pos.x * angle.sin() + relative_pos.z * angle.cos();
 
-                // Map to screen
-                // In world Z is forward/-forward. In screen -Y is up.
-                // World +Z is usually "South" or "Back". World -Z is "North" or "Forward".
-                // Screen +Y is Down. Screen -Y is Up.
-                // If Player faces -Z (standard forward), and that is "Up" on screen (-Y).
-                // relative_pos.z (forward dist) should map to -screen_y.
-                
-                // Let's assume standard math: 
-                // x -> x
-                // z -> y
+                // Convert to screen offset from center
                 let screen_offset_x = rotated_x * scale;
-                let screen_offset_y = rotated_z * scale; // Inverted Z for screen Y? Depends on coord system.
-                // Usually Forward (-Z) -> Up (-Y). 
-                // If rotated_z is positive (behind player), it should go Down (+Y).
-                // So +Z -> +Y. Yes.
+                let screen_offset_y = rotated_z * scale;
 
-                let target_x = map_x + screen_offset_x;
-                let target_y = map_y + screen_offset_y;
+                // Calculate final screen position (offset from player's centered position)
+                let target_x = center_screen_x + screen_offset_x;
+                let target_y = center_screen_y + screen_offset_y;
 
-                // Check bounds (circle or box)
-                // Simple box check
+                // Check if within minimap bounds
                 let half_width = self.width / 2.0;
                 let half_height = self.height / 2.0;
-                
                 let in_bounds = screen_offset_x.abs() < half_width && screen_offset_y.abs() < half_height;
 
-                // Create marker if missing
+                // Create marker if it doesn't exist
                 if !self.npc_markers.contains_key(&npc.id) {
                     let marker_size = 8.0;
                     let marker = Polygon::new(
@@ -274,8 +237,10 @@ impl MiniMap {
                         Uuid::nil(),
                     );
                     self.npc_markers.insert(npc.id.clone(), marker);
+                    // println!("Insert NPC marker: {}", npc.id.clone());
                 }
 
+                // Update marker position and visibility
                 if let Some(marker) = self.npc_markers.get_mut(&npc.id) {
                     if in_bounds {
                         marker.hidden = false;
@@ -292,34 +257,41 @@ impl MiniMap {
             }
         }
         
-        // Clean up stale NPC markers
+        // Clean up markers for NPCs that no longer exist
         self.npc_markers.retain(|id, _| active_npc_ids.contains(id));
 
+        // println!("Active NPC markers: {}", self.npc_markers.len());
 
-        // Update Collectables
+        // Update Collectables (same logic as NPCs)
         let mut active_col_ids = Vec::new();
         for col in collectables {
             active_col_ids.push(col.id.clone());
             
             if let Some(rb) = rigid_body_set.get(col.rigid_body_handle) {
                 let col_pos = rb.translation();
+                
+                // Calculate position RELATIVE to player
                 let relative_pos = col_pos - player_position;
                 
+                // Rotate to maintain orientation
                 let angle = -player_rotation_y;
                 let rotated_x = relative_pos.x * angle.cos() - relative_pos.z * angle.sin();
                 let rotated_z = relative_pos.x * angle.sin() + relative_pos.z * angle.cos();
 
+                // Convert to screen offset
                 let screen_offset_x = rotated_x * scale;
                 let screen_offset_y = rotated_z * scale;
 
-                let target_x = map_x + screen_offset_x;
-                let target_y = map_y + screen_offset_y;
+                // Calculate final position
+                let target_x = center_screen_x + screen_offset_x;
+                let target_y = center_screen_y + screen_offset_y;
 
+                // Bounds check
                 let half_width = self.width / 2.0;
                 let half_height = self.height / 2.0;
                 let in_bounds = screen_offset_x.abs() < half_width && screen_offset_y.abs() < half_height;
 
-                // Create marker if missing
+                // Create marker if it doesn't exist
                 if !self.collectable_markers.contains_key(&col.id) {
                     let marker_size = 6.0;
                     let marker = Polygon::new(
@@ -349,6 +321,7 @@ impl MiniMap {
                     self.collectable_markers.insert(col.id.clone(), marker);
                 }
 
+                // Update marker position and visibility
                 if let Some(marker) = self.collectable_markers.get_mut(&col.id) {
                     if in_bounds {
                         marker.hidden = false;
@@ -365,7 +338,7 @@ impl MiniMap {
             }
         }
         
-        // Clean up stale Collectable markers
+        // Clean up markers for collectables that no longer exist
         self.collectable_markers.retain(|id, _| active_col_ids.contains(id));
     }
 }

@@ -112,7 +112,7 @@ impl WanderBehavior {
 
             // If we hit an obstacle, return early
             if obstacle_detected {
-                println!("obstacle detected {:?}", self.target_position);
+                // println!("obstacle detected {:?}", self.target_position);
             //     let jump_force = 8.0;
             //     // rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
 

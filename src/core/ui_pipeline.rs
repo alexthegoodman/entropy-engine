@@ -192,6 +192,30 @@ impl UiPipeline {
                 render_pass.set_vertex_buffer(0, mini_map.player_marker.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(mini_map.player_marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..mini_map.player_marker.indices.len() as u32, 0, 0..1);
+
+                // NPC Markers
+                for (id, marker) in &mini_map.npc_markers {
+                    if !marker.hidden {
+                        marker.transform.update_uniform_buffer(queue);
+                        render_pass.set_bind_group(1, &marker.bind_group, &[]);
+                        render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+                    }
+                }
+
+                // Collectable Markers
+                for (id, marker) in &mini_map.collectable_markers {
+                    if !marker.hidden {
+                        marker.transform.update_uniform_buffer(queue);
+                        render_pass.set_bind_group(1, &marker.bind_group, &[]);
+                        render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+                    }
+                }
             }
         }
     }
