@@ -255,7 +255,7 @@ impl<'a> PipelineTabViewer<'a> {
 
     if tool_call.function.name == "transformObject" {
         let args: Result<TransformObjectArgs, _> = serde_json::from_str(&tool_call.function.arguments);
-        if let Ok(args) = args {
+        if let Ok(mut args) = args {
             // if let Some(pipeline_arc_val) = pipeline_store.get() {
             //     if let Some(pipeline_arc) = pipeline_arc_val.as_ref() {
             //         let mut pipeline = pipeline_arc.borrow_mut();
@@ -271,8 +271,15 @@ impl<'a> PipelineTabViewer<'a> {
                                 if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     if let Some(components) = level.components.as_mut() {
                                         if let Some(component) = components.iter_mut().find(|c| c.id == args.component_id) {
-                                            if let Some(translation) = args.translation {
+                                            if let Some(mut translation) = args.translation {
+                                                // Calculate landscape height
+                                                if let Some(landscape) = renderer_state.landscapes.get(0) {
+                                                    if let Some(height) = landscape.get_height_at(translation[0], translation[2]) {
+                                                        translation[1] = height;
+                                                    }
+                                                }
                                                 component.generic_properties.position = translation;
+                                                args.translation = Some(translation);
                                             }
                                             if let Some(rotation) = args.rotation {
                                                 component.generic_properties.rotation = rotation;

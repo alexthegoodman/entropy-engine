@@ -68,6 +68,7 @@ pub struct GenericProperties {
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct LandscapeProperties {
+    pub size: u32,
     // regular textures
     pub primary_texture_id: Option<String>,
     pub rockmap_texture_id: Option<String>,
