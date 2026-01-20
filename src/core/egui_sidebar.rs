@@ -999,19 +999,19 @@ let Editor { saved_state, renderer_state, .. } = editor;
 
                             match args.r#type.as_str() {
                                 "Cube" => {
-                                    let mut cube = Cube::new(
-                                        device,
-                                        queue,
-                                        model_layout,
-                                        group_layout,
-                                        &buffer,
-                                        camera
-                                    );
-                                    cube.transform.update_position(args.position);
-                                    if let Some(scale) = args.scale {
-                                        cube.transform.update_scale(scale);
-                                    }
-                                    renderer_state.cubes.push(cube);
+                                    // let mut cube = Cube::new(
+                                    //     device,
+                                    //     queue,
+                                    //     model_layout,
+                                    //     group_layout,
+                                    //     &buffer,
+                                    //     camera
+                                    // );
+                                    // cube.transform.update_position(args.position);
+                                    // if let Some(scale) = args.scale {
+                                    //     cube.transform.update_scale(scale);
+                                    // }
+                                    // renderer_state.cubes.push(cube);
                                 },
                                 "Sphere" => {
                                     let mut sphere = Sphere::new(
