@@ -385,7 +385,8 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                             &gpu_resources.queue,
                                             &camera_binding.bind_group_layout,
                                             component.procedural_tree_properties.clone(),
-                                            component.scatter.clone()
+                                            component.scatter.clone(),
+                                            component.generic_properties.position
                                         );
                                     }
 

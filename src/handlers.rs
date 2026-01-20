@@ -1053,7 +1053,8 @@ pub fn handle_add_trees(
     queue: &wgpu::Queue,
     camera_bind_group_layout: &wgpu::BindGroupLayout,
     tree_properties: Option<ProceduralTreeProperties>,
-    scatter_settings: Option<ScatterSettings>
+    scatter_settings: Option<ScatterSettings>,
+    position: [f32; 3]
 ) {
     if let Some(landscape) = renderer_state.landscapes.get_mut(0) {
         
@@ -1086,8 +1087,8 @@ pub fn handle_add_trees(
         };
 
         for _ in 0..num_trees {
-            let x = rng.gen_range(-radius..radius);
-            let z = rng.gen_range(-radius..radius);
+            let x = rng.gen_range(-radius..radius) + position[0];
+            let z = rng.gen_range(-radius..radius) + position[2];
 
             if let Some(y) = landscape.get_height_at(x, z) {
                 trees.instances.push(TreeInstance {

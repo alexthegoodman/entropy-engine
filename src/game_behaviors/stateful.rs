@@ -52,7 +52,7 @@ pub struct StatefulBehavior {
 
 impl StatefulBehavior {
     pub fn new(config: BehaviorConfig) -> Self {
-        let real_speed = config.wander_speed * 50.0;
+        let real_speed = config.wander_speed * 200.0;
 
         let wander_behavior = WanderBehavior::new(config.wander_radius, real_speed);
         
