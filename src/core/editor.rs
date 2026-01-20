@@ -321,6 +321,7 @@ pub struct Editor {
     pub inventory_ui_ids: Vec<Uuid>,
     pub quest_ui_ids: Vec<Uuid>,
     pub font_manager: FontManager,
+    pub mini_map: Option<crate::game_ui::mini_map::MiniMap>,
 
     // Dialogue State
     pub dialogue_state: DialogueState,
@@ -516,6 +517,7 @@ impl Editor {
             inventory_ui_ids: Vec::new(),
             quest_ui_ids: Vec::new(),
             font_manager,
+            mini_map: None,
             dialogue_state: DialogueState::default(),
             // dragging_image: None,
             video_is_playing: false,

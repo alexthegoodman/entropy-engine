@@ -405,7 +405,8 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
 
                                     if let Some(ComponentKind::Model) = component.kind {
                                         let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
-                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                        let physics_gap = 0.0;
+                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
@@ -428,7 +429,8 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                     }
                                     if let Some(ComponentKind::PlayerCharacter) = component.kind {
                                         let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
-                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                        let physics_gap = 2.0;
+                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
@@ -463,7 +465,8 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                     }
                                     if let Some(ComponentKind::NPC) = component.kind {
                                         let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
-                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
+                                        let physics_gap = 2.0;
+                                        let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);

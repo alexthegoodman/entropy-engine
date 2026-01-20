@@ -822,6 +822,7 @@ impl WindowState {
 
         if game_mode {
             crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
+            crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
         }
 
         let mut state = Self {

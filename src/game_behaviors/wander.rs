@@ -112,7 +112,17 @@ impl WanderBehavior {
 
             // If we hit an obstacle, return early
             if obstacle_detected {
-                println!("obstacle detected");
+                println!("obstacle detected {:?}", self.target_position);
+            //     let jump_force = 8.0;
+            //     // rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
+
+            //     // for kinematic character
+            //     let mut current_velocity = rigid_body.linvel().clone();
+                
+            //     // Set the upward velocity
+            //     current_velocity.y = jump_force;
+            //     rigid_body.set_linvel(current_velocity, true);
+
                 return;
             }
 
@@ -122,6 +132,9 @@ impl WanderBehavior {
 
             // Apply the movement
             if let Some(rigid_body) = rigid_body_set.get_mut(rigid_body_handle) {
+
+                
+
                 // println!("apply movement");
                 let mut linvel = rigid_body.linvel().clone();
                 linvel.x = movement.x;
@@ -152,6 +165,7 @@ impl WanderBehavior {
             // No new target needed, just apply movement
 
             let movement = direction * self.speed * dt;
+            // println!("Wandering {:?}", movement);
             if let Some(rigid_body) = rigid_body_set.get_mut(rigid_body_handle) {
                 // println!("no new target needed, apply movement");
                 let mut linvel = rigid_body.linvel().clone();

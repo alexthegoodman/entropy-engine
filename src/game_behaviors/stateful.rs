@@ -52,14 +52,16 @@ pub struct StatefulBehavior {
 
 impl StatefulBehavior {
     pub fn new(config: BehaviorConfig) -> Self {
-        let wander_behavior = WanderBehavior::new(config.wander_radius, config.wander_speed);
+        let real_speed = config.wander_speed * 50.0;
+
+        let wander_behavior = WanderBehavior::new(config.wander_radius, real_speed);
         
         let melee_behavior = if let Some(stats) = config.melee_stats {
             Some(MeleeCombatBehavior::new(
-                config.wander_speed * 1.5, // Chase speed usually faster than wander
+                real_speed * 1.5, // Chase speed usually faster than wander
                 config.detection_radius,
                 stats,
-                config.wander_speed, // Evade speed
+                real_speed, // Evade speed
                 0.5, // Block chance
             ))
         } else {
@@ -68,10 +70,10 @@ impl StatefulBehavior {
 
         let ranged_behavior = if let Some(stats) = config.ranged_stats {
             Some(RangedCombatBehavior::new(
-                config.wander_speed * 1.5,
+                real_speed * 1.5,
                 config.detection_radius,
                 stats,
-                config.wander_speed,
+                real_speed,
                 0.5,
             ))
         } else {

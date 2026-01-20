@@ -1696,6 +1696,19 @@ impl ExportPipeline {
             if let Some(health_bar) = &mut editor.health_bar {
                 health_bar.update_health(queue, player.stats.health);
             }
+
+            if let Some(mini_map) = &mut editor.mini_map {
+                if let Some(rb_handle) = player.movement_rigid_body_handle {
+                     if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let position = rb.translation();
+                        let yaw = renderer_state.camera_yaw;
+                        let landscape_center = Vector3::new(0.0, 0.0, 0.0);
+                        let landscape_size = 200.0; // Matches grid size for now
+
+                        mini_map.update(queue, *position, yaw, landscape_center, landscape_size);
+                     }
+                }
+            }
         }
 
         // Sync enemy health to UI
