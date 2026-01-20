@@ -2084,6 +2084,38 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     }
                 }
 
+                // Check for sessions list
+                if let Some(rx) = &self.context.chat.sessions_rx {
+                    match rx.try_recv() {
+                        Ok(sessions) => {
+                            self.context.chat.available_sessions = sessions;
+                            self.context.chat.sessions_rx = None;
+                            self.context.chat.is_loading = false;
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            self.context.chat.sessions_rx = None;
+                            self.context.chat.is_loading = false;
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                    }
+                }
+
+                // Check for session history
+                if let Some(rx) = &self.context.chat.messages_rx {
+                    match rx.try_recv() {
+                        Ok(messages) => {
+                            self.context.chat.messages = messages;
+                            self.context.chat.messages_rx = None;
+                            self.context.chat.is_loading = false;
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            self.context.chat.messages_rx = None;
+                            self.context.chat.is_loading = false;
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                    }
+                }
+
                  if self.context.chat.current_session.is_none() {
                     if ui.button("Start New Session").clicked() {
                          let editor = self.context.export_editor.as_ref().unwrap();
@@ -2108,13 +2140,84 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                              });
                              if let Ok(session) = rx.recv() {
                                  self.context.chat.current_session = Some(session);
+                                 self.context.chat.messages.clear();
                             }
                          }
                     }
+
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        ui.label("Previous Sessions");
+                        if ui.button("Refresh").clicked() {
+                            if let Some(editor) = self.context.export_editor.as_ref() {
+                                if let Some(saved_data) = &editor.saved_state {
+                                    let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
+                                    let client = self.context.chat.client.clone();
+                                    let api_url = self.context.chat.api_url.clone();
+                                    
+                                    let (tx, rx) = std::sync::mpsc::channel();
+                                    self.context.chat.sessions_rx = Some(rx);
+                                    self.context.chat.is_loading = true;
+
+                                    std::thread::spawn(move || {
+                                        let rt = tokio::runtime::Runtime::new().unwrap();
+                                        rt.block_on(async {
+                                            let url = format!("{}/api/projects/{}/sessions", api_url, project_id);
+                                            if let Ok(res) = client.get(&url).send().await {
+                                                if let Ok(sessions) = res.json::<Vec<ChatSession>>().await {
+                                                    let _ = tx.send(sessions);
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                            }
+                        }
+                    });
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        for session in &self.context.chat.available_sessions {
+                            ui.horizontal(|ui| {
+                                ui.label(format!("Session {}", &session.id[0..8]));
+                                if ui.button("Resume").clicked() {
+                                    self.context.chat.current_session = Some(session.clone());
+                                    
+                                    // Fetch messages
+                                    let session_id = session.id.clone();
+                                    let client = self.context.chat.client.clone();
+                                    let api_url = self.context.chat.api_url.clone();
+                                    
+                                    let (tx, rx) = std::sync::mpsc::channel();
+                                    self.context.chat.messages_rx = Some(rx);
+                                    self.context.chat.is_loading = true;
+
+                                    std::thread::spawn(move || {
+                                        let rt = tokio::runtime::Runtime::new().unwrap();
+                                        rt.block_on(async {
+                                            let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
+                                            if let Ok(res) = client.get(&url).send().await {
+                                                if let Ok(messages) = res.json::<Vec<ChatMessage>>().await {
+                                                    let _ = tx.send(messages);
+                                                }
+                                            }
+                                        });
+                                    });
+                                }
+                            });
+                        }
+                    });
+
                  } else {
-                     if let Some(session) = &self.context.chat.current_session {
-                         ui.label(format!("Session: {}", session.id));
-                     }
+                     ui.horizontal(|ui| {
+                        if ui.button("Back to Sessions").clicked() {
+                            self.context.chat.current_session = None;
+                            self.context.chat.messages.clear();
+                        }
+                        if let Some(session) = &self.context.chat.current_session {
+                             ui.label(format!("Session: {}", session.id));
+                        }
+                     });
+                     
                      egui::ScrollArea::vertical().show(ui, |ui| {
                          for msg in &self.context.chat.messages {
                              ui.label(format!("{}: {}", msg.role, msg.content.as_deref().unwrap_or("...")));

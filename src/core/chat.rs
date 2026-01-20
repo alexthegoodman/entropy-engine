@@ -64,6 +64,9 @@ pub struct Chat {
     pub is_open: bool,
     pub is_loading: bool,
     pub rx: Option<std::sync::mpsc::Receiver<ChatMessage>>,
+    pub available_sessions: Vec<ChatSession>,
+    pub sessions_rx: Option<std::sync::mpsc::Receiver<Vec<ChatSession>>>,
+    pub messages_rx: Option<std::sync::mpsc::Receiver<Vec<ChatMessage>>>, // For loading history
 }
 
 impl Chat {
@@ -77,6 +80,9 @@ impl Chat {
             is_open: true,
             is_loading: false,
             rx: None,
+            available_sessions: Vec::new(),
+            sessions_rx: None,
+            messages_rx: None,
         }
     }
 
