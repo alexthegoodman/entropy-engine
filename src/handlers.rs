@@ -1083,7 +1083,7 @@ pub fn handle_add_trees(
         let radius = if let Some(scatter) = &scatter_settings {
             scatter.radius
         } else {
-            50.0
+            250.0
         };
 
         for _ in 0..num_trees {
