@@ -1,5 +1,5 @@
 use rhai::{Engine, Scope, AST, Dynamic, Array, CustomType, TypeBuilder};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -265,6 +265,7 @@ impl DialogueWrapper {
 pub struct RhaiEngine {
     engine: Engine,
     ast_cache: HashMap<String, AST>,
+    failed_scripts: HashSet<String>, // Add this field
     pub project_id: String,
 }
 
@@ -354,16 +355,29 @@ impl RhaiEngine {
         RhaiEngine {
             engine,
             ast_cache: HashMap::new(),
+            failed_scripts: HashSet::new(),
             project_id
         }
     }
 
+    // pub fn load_script(&mut self, path: &str) -> Result<(), Box<rhai::EvalAltResult>> {
+    //     println!("Loading Rhai Script... {:?}", path);
+    //     let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
+    //     println!("Loaded! Compiling Rhai Script...");
+    //     let ast = self.engine.compile(script_content)?;
+    //     println!("Compiling! Caching Rhai Script...");
+    //     self.ast_cache.insert(path.clone().to_string(), ast);
+
+    //     Ok(())
+    // }
+
     pub fn load_script(&mut self, path: &str) -> Result<(), Box<rhai::EvalAltResult>> {
         println!("Loading Rhai Script... {:?}", path);
-        let script_content = fs::read_to_string(path.clone()).map_err(|e| e.to_string())?;
+        let script_content = fs::read_to_string(path).map_err(|e| e.to_string())?;
+        println!("Loaded! Compiling Rhai Script...");
         let ast = self.engine.compile(script_content)?;
-        self.ast_cache.insert(path.clone().to_string(), ast);
-    
+        println!("Compiled! Caching Rhai Script...");
+        self.ast_cache.insert(path.to_string(), ast);
 
         Ok(())
     }
@@ -381,16 +395,26 @@ impl RhaiEngine {
 
         if let Some(scripts_path) = scripts_path {
             let script_path = scripts_path.join(script_path);
-            let script_path = script_path.clone().to_string_lossy().to_string();
+            let script_path = script_path.to_string_lossy().to_string();
+
+            // Check if this script has already failed
+            if self.failed_scripts.contains(&script_path) {
+                return None;
+            }
 
             let ast_i = if let Some(ast) = self.ast_cache.get(&script_path) {
                 ast
             } else {
-                if self.load_script(&script_path).is_err() {
-                    eprintln!("Failed to load Rhai script: {}", script_path);
-                    return None;
+                match self.load_script(&script_path) {
+                    Ok(_) => self.ast_cache.get(&script_path).unwrap(),
+                    Err(e) => {
+                        eprintln!("Failed to load/compile Rhai script (1): {}", script_path);
+                        eprintln!("Error: {}", e);
+                        // Mark this script as failed so we don't retry
+                        self.failed_scripts.insert(script_path);
+                        return None;
+                    }
                 }
-                self.ast_cache.get(&script_path).unwrap()
             };
 
             ast = Some(ast_i);
@@ -536,15 +560,38 @@ impl RhaiEngine {
              npc.is_talking = true;
         }
 
-        let ast = if let Some(ast) = self.ast_cache.get(script_path) {
-            ast
-        } else {
-            if self.load_script(script_path).is_err() {
-                eprintln!("Failed to load Rhai script: {}", script_path);
+        let scripts_path = get_scripts_dir(&self.project_id);
+
+        let mut ast = None;
+
+        if let Some(scripts_path) = scripts_path {
+            let script_path = scripts_path.join(script_path);
+            let script_path = script_path.to_string_lossy().to_string();
+
+            // Check if this script has already failed
+            if self.failed_scripts.contains(&script_path) {
                 return;
             }
-            self.ast_cache.get(script_path).unwrap()
-        };
+
+            let ast_i = if let Some(ast) = self.ast_cache.get(&script_path) {
+                ast
+            } else {
+                match self.load_script(&script_path) {
+                    Ok(_) => self.ast_cache.get(&script_path).unwrap(),
+                    Err(e) => {
+                        eprintln!("Failed to load/compile Rhai script (2): {}", script_path);
+                        eprintln!("Error: {}", e);
+                        // Mark this script as failed so we don't retry
+                        self.failed_scripts.insert(script_path);
+                        return;
+                    }
+                }
+            };
+
+            ast = Some(ast_i);
+        } else {
+            return;
+        }
 
         let wrapper = DialogueWrapper {
             text: dialogue_state.current_text.clone(),
@@ -559,32 +606,34 @@ impl RhaiEngine {
         let mut scope = Scope::new();
         
         // Call the function, passing wrapper as argument
-        match self.engine.call_fn::<DialogueWrapper>(&mut scope, &ast, hook_name, (wrapper,)) {
-            Ok(updated_wrapper) => {
-                if let Some(quest_id) = updated_wrapper.started_quest {
-                    renderer_state.quest_state.start_quest(&quest_id);
-                }
+        if let Some(ast) = ast {
+            match self.engine.call_fn::<DialogueWrapper>(&mut scope, &ast, hook_name, (wrapper,)) {
+                Ok(updated_wrapper) => {
+                    if let Some(quest_id) = updated_wrapper.started_quest {
+                        renderer_state.quest_state.start_quest(&quest_id);
+                    }
 
-                if updated_wrapper.changed {
-                    dialogue_state.current_text = updated_wrapper.text;
-                    dialogue_state.options = updated_wrapper.options;
-                    dialogue_state.is_open = updated_wrapper.is_open;
-                    dialogue_state.npc_name = updated_wrapper.npc_name;
-                    dialogue_state.current_node = updated_wrapper.current_node;
-                    dialogue_state.selected_option_index = 0;
-                    dialogue_state.ui_dirty = true;
-                    
-                    if !dialogue_state.is_open {
-                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
-                            npc.is_talking = false;
+                    if updated_wrapper.changed {
+                        dialogue_state.current_text = updated_wrapper.text;
+                        dialogue_state.options = updated_wrapper.options;
+                        dialogue_state.is_open = updated_wrapper.is_open;
+                        dialogue_state.npc_name = updated_wrapper.npc_name;
+                        dialogue_state.current_node = updated_wrapper.current_node;
+                        dialogue_state.selected_option_index = 0;
+                        dialogue_state.ui_dirty = true;
+                        
+                        if !dialogue_state.is_open {
+                            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == dialogue_state.current_npc_id) {
+                                npc.is_talking = false;
+                            }
                         }
                     }
+                },
+                Err(e) => {
+                    // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
+                        eprintln!("Error executing hook '{}': {:?}", hook_name, e);
+                    // }
                 }
-            },
-            Err(e) => {
-                // if !matches!(*e, rhai::EvalAltResult::ErrorFunctionNotFound(_, _)) {
-                    eprintln!("Error executing hook '{}': {:?}", hook_name, e);
-                // }
             }
         }
     }
