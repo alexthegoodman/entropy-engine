@@ -143,7 +143,7 @@ pub struct ExportPipeline {
 
 impl ExportPipeline {
     pub fn new() -> Self {
-        let mut dock_state = DockState::new(vec![Tab::Projects, Tab::Components]);
+        let mut dock_state = DockState::new(vec![Tab::Projects, Tab::Components, Tab::AssetLibrary]);
         let surface = dock_state.main_surface_mut();
         let [_, _] = surface.split_below(NodeIndex::root(), 0.5, vec![Tab::Properties, Tab::Chat]);
 
