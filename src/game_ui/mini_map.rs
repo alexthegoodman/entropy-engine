@@ -50,9 +50,10 @@ impl MiniMap {
         let padding = 120.0;
         
         // Position in bottom-left corner
+        // need to update upon window resize
         let position = Point {
             x: padding,
-            y: window_size.height as f32 - height,
+            y: window_size.height as f32 - (height / 2.0) - 20.0,
         };
 
         // Create background (dark semi-transparent rectangle)
