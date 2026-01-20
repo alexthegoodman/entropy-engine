@@ -62,6 +62,8 @@ pub struct Chat {
     pub client: Client,
     pub api_url: String,
     pub is_open: bool,
+    pub is_loading: bool,
+    pub rx: Option<std::sync::mpsc::Receiver<ChatMessage>>,
 }
 
 impl Chat {
@@ -73,6 +75,8 @@ impl Chat {
             client: Client::new(),
             api_url: "http://localhost:3000".to_string(), // Default, logic to change this later
             is_open: true,
+            is_loading: false,
+            rx: None,
         }
     }
 

@@ -2053,6 +2053,37 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 }
             }
             Tab::Chat => {
+                let mut received_msg = None;
+                if let Some(rx) = &self.context.chat.rx {
+                    match rx.try_recv() {
+                        Ok(msg) => received_msg = Some(msg),
+                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                            self.context.chat.is_loading = false;
+                            self.context.chat.rx = None;
+                        },
+                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                    }
+                }
+
+                if let Some(msg) = received_msg {
+                    self.context.chat.is_loading = false;
+                    self.context.chat.rx = None;
+                    self.context.chat.messages.push(msg.clone());
+
+                    if let Some(tool_calls) = msg.tool_calls {
+                        for tool_call in tool_calls {
+                            self.execute_tool_call(tool_call);
+                        }
+                    }
+
+                    if let Some(editor) = self.context.export_editor.as_ref() {
+                        if let Some(saved_state) = &editor.saved_state {
+                             let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
+                             let _ = update_project_state(&project_id, saved_state);
+                        }
+                    }
+                }
+
                  if self.context.chat.current_session.is_none() {
                     if ui.button("Start New Session").clicked() {
                          let editor = self.context.export_editor.as_ref().unwrap();
@@ -2097,10 +2128,12 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                      ui.separator();
                      ui.horizontal(|ui| {
                          ui.text_edit_multiline(&mut self.context.chat.current_input);
-                         if ui.button("Send").clicked() {
+                         
+                         let btn_text = if self.context.chat.is_loading { "Loading..." } else { "Send" };
+                         if ui.add_enabled(!self.context.chat.is_loading, egui::Button::new(btn_text)).clicked() {
                                 let content = self.context.chat.current_input.clone();
                                 self.context.chat.current_input.clear();
-
+                                self.context.chat.is_loading = true;
 
                                 let session_id = self.context.chat.current_session.as_ref().unwrap().id.clone();
                                 let client = self.context.chat.client.clone();
@@ -2112,7 +2145,6 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                     // Get saved state for context
                                     let editor = self.context.export_editor.as_ref().unwrap();
                                     let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
-                                    let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
                                     
                                     self.context.chat.messages.push(ChatMessage {
                                         id: Uuid::new_v4().to_string(),
@@ -2127,6 +2159,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 }
 
                                 let (tx, rx) = std::sync::mpsc::channel();
+                                self.context.chat.rx = Some(rx);
 
                                 std::thread::spawn(move || {
                                     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -2145,23 +2178,6 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                         }
                                     });
                                 });
-
-                                if let Ok(msg) = rx.recv() {
-                                    self.context.chat.messages.push(msg.clone());
-                                    
-                                    if let Some(tool_calls) = msg.tool_calls {
-                                        for tool_call in tool_calls {
-                                            self.execute_tool_call(tool_call);
-                                        }
-                                    }
-                                }
-
-                                let editor = self.context.export_editor.as_ref().unwrap();
-                                let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
-                                let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
-
-                                let _ = update_project_state(&project_id, &saved_state).as_ref().expect("Couldn't save");
-
                          }
                      });
                  }
