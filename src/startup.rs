@@ -460,6 +460,16 @@ impl ApplicationHandler<UserEvent> for Application {
 
                 // Dispatch actions only on press.
                 if event.state.is_pressed() {
+                    if let Key::Named(winit::keyboard::NamedKey::Escape) = event.logical_key.as_ref() {
+                        window.window.set_fullscreen(None);
+                        window.window.set_cursor_visible(true);
+                        window.cursor_hidden = false;
+                        if let Err(err) = window.window.set_cursor_grab(CursorGrabMode::None) {
+                            error!("Error releasing cursor grab: {err}");
+                        }
+                        window.cursor_grab = CursorGrabMode::None;
+                    }
+
                     let key_str = match event.logical_key.as_ref() {
                         Key::Character(ch) => Some(ch),
                         Key::Named(named_key) => {
@@ -848,6 +858,22 @@ impl WindowState {
             gui,
             game_mode,
         };
+
+        if game_mode {
+            state.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+            state.window.set_cursor_visible(false);
+            state.cursor_hidden = true;
+            if let Err(err) = state.window.set_cursor_grab(CursorGrabMode::Locked) {
+                // error!("Error setting cursor grab: {err}");
+                if let Err(err) = state.window.set_cursor_grab(CursorGrabMode::Confined) {
+                    error!("Error setting cursor grab: {err}");
+                } else {
+                    state.cursor_grab = CursorGrabMode::Confined;
+                }
+            } else {
+                state.cursor_grab = CursorGrabMode::Locked;
+            }
+        }
 
         state.resize(size);
         Ok(state)
