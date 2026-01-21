@@ -719,16 +719,6 @@ impl Model {
                 println!("mesh iso {:?} {:?}", model_component_id, isometry);
 
                 meshes.push(Mesh {
-                    // transform: Transform::new(
-                    //     Vector3::new(
-                    //         isometry.translation.x,
-                    //         isometry.translation.y,
-                    //         isometry.translation.z,
-                    //     ),
-                    //     Vector3::new(euler.0, euler.1, euler.2),
-                    //     Vector3::new(1.0, 1.0, 1.0), // apply scale directly to vertices and set this to 1
-                    //     uniform_buffer,
-                    // ),
                     transform: transform_inner,
                     vertex_buffer,
                     index_buffer,
