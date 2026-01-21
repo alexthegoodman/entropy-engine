@@ -23,4 +23,3 @@ The first character you play as is a rogue. He was raised by a surface mechanic 
 - Befriend hostiles (?)
 - Save system and menus
 - Weather Conditions?
-- Mini-Map with markers

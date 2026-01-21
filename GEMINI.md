@@ -1,8 +1,8 @@
-# Entropy Engine
+# Open World Studio (previously called Entropy Engine)
 
-entropy-engine is essentially a mixture of midpoint-engine (game engine) and stunts-engine (video engine) in a unified codebase. It has landscapes, video, text, images, 3d models, lighting, and more.
+This project was previously two separate projects, midpoint-engine (game engine) and stunts-engine (video engine), which are now in a unified codebase. It has landscapes, video, text, images, 3d models, lighting, and more.
 
-Ultimately, this engine will power separate editor's used for different purposes, and will even power a chat UI which enables the user to do things via chat similar to MCP but without the hassle of MCP setup processes.
+Ultimately, this engine can power various editors, and even powers a chat UI which enables the user to do things via chat similar to MCP but without the hassle of MCP setup processes.
 
 Here's some info on the architecture:
 
@@ -10,7 +10,7 @@ All the code is in /src/.
 
 Within /src/, there are several directories:
 
-/art_assets/ handles GLB import and the wgpu Model creation
+/art_assets/ handles GLB import and the wgpu Model creation as well as ScatteredModel (which distributes instances of a Model)
 /core/ handles all kinds of things from shaders to camera to Editor and RendererState, it also has the important pipeline.rs which contains the actual frame render function(s)
 /core/ also contains the egui_sidebar.rs which describes most of egui ui for the Chat as well as Properties, Projects, and Components and the AI Chat tool execution functions
 /game_behaviors/ is for in-game AI and mechanics
@@ -31,3 +31,5 @@ Within /src/, there are several directories:
 /video_export/ leverages Media Foundation to power mp4 video export on Windows
 
 startup.rs has the winit code
+handlers.rs has a number of event handlers (like click and key handlers)
+rhai_engine.rs has the Rhai glue code

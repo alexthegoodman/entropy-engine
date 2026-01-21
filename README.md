@@ -60,6 +60,7 @@ Example Game:
 - Rendered images and videos
 - Rendered text with fonts
 - In-Game UI Pipeline
+- Procedural scattering of models
 - Heightmap creation CLI (specify features and flat areas too)
 - Mini-Map
 - Screen capture
@@ -86,15 +87,16 @@ Example Game:
 - Destruction
 - Dynamic clothe (not out-of-the-box with Rapier?)
 - Multiplayer helpers
-- Procedural scattering of models
 - Landscape Simple Chunking (for practical use instead of quadtree) `HashMap<(x, y), Chunk>` for fast radius checks
 - Animation blending and responsiveness
 - Virtualized geometry
+- Texture creation (using noise and colors) and texture colorization
 - Audio
 
 ### TBD Game Mechanics:
 
 - Score / Experience Points + Levels
+- NPC Swarm Systems
 - Interactive Objects (physics-based)
 - Attachments
 - Skill Points
@@ -127,7 +129,6 @@ Example Game:
 
 - Procedural models for characters and more objects
 - Animation creation for Models (FK + IK)
-- Texture creation (using noise and colors) and texture colorization
 
 ### Other Needs:
 
