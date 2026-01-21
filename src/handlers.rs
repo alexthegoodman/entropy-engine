@@ -773,6 +773,44 @@ pub async fn handle_add_model(
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
+pub async fn handle_add_scattered_model(
+    state: &mut RendererState,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    projectId: String,
+    modelAssetId: String, // model is added to stored library as an asset
+    modelComponentId: String, // model is added from library to scene as an active component
+    modelFilename: String,
+    isometry: Isometry3<f32>,
+    scale: Vector3<f32>,
+    camera: &SimpleCamera,
+    script_state: Option<HashMap<String, String>>,
+    scatter_options: ScatterSettings
+) {
+    #[cfg(target_os = "windows")]
+    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+
+    #[cfg(target_arch = "wasm32")]
+    let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
+
+    let mut model = Model::from_glb(
+        &modelComponentId,
+        &bytes,
+        device,
+        queue,
+        &state.model_bind_group_layout,
+        &state.group_bind_group_layout,
+        &state.regular_texture_render_mode_buffer,
+        &state.color_render_mode_buffer,
+        isometry,
+        scale,
+        camera
+    );
+
+    state.add_scattered_model(model, scatter_options);
+    state.add_collider(modelComponentId, ComponentKind::Model);
+}
+
 pub async fn handle_add_npc(
     state: &mut RendererState,
     device: &wgpu::Device,

@@ -8,6 +8,7 @@ use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
 use wgpu::BindGroupLayout;
 
+use crate::art_assets::ScatteredModel::ScatteredModel;
 use crate::core::AnimationState::AnimationState;
 use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
@@ -15,7 +16,7 @@ use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::handlers::EntropyPosition;
-use crate::helpers::saved_data::GameSettings;
+use crate::helpers::saved_data::{GameSettings, ScatterSettings};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::model_components::Collectable::Collectable;
@@ -126,6 +127,7 @@ pub struct RendererState {
     pub grids: Vec<Grid>,
     pub models: Vec<Model>, // must add a Model in order to add an NPC
     pub procedural_houses: Vec<House>,
+    pub scattered_models: Vec<crate::art_assets::ScatteredModel::ScatteredModel>,
     // pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
@@ -145,6 +147,7 @@ pub struct RendererState {
     pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
     pub skinned_pipeline: Option<SkinnedPipeline>,
+    pub scattered_model_pipeline: Option<crate::core::scattered_model_pipeline::ScatteredModelPipeline>,
 
     // state
     pub project_selected: Option<Uuid>,
@@ -226,7 +229,8 @@ impl RendererState {
         // camera_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         game_mode: bool,
-        skinned_pipeline: SkinnedPipeline
+        skinned_pipeline: SkinnedPipeline,
+        scattered_model_pipeline: crate::core::scattered_model_pipeline::ScatteredModelPipeline,
     ) -> Self {
         // create the utility grid(s)
         let mut grids = Vec::new();
@@ -302,6 +306,7 @@ impl RendererState {
             pyramids,
             grids,
             models,
+            scattered_models: Vec::new(),
             procedural_houses,
             landscapes,
             grasses,
@@ -326,6 +331,7 @@ impl RendererState {
             texture_render_mode_buffer,
             color_render_mode_buffer,
             skinned_pipeline: Some(skinned_pipeline),
+            scattered_model_pipeline: Some(scattered_model_pipeline),
             // camera_uniform_buffer,
             // camera_bind_group,
             // light_bind_group_layout,
@@ -1619,6 +1625,20 @@ impl RendererState {
         self.procedural_houses.push(house);
     }
 
+    pub fn add_scattered_model(
+        &mut self,
+        model: Model,
+        scatter_options: ScatterSettings
+    ) {
+        let scattered = ScatteredModel {
+            model,
+            settings: scatter_options.clone(),
+            instance_buffer: None,
+            instance_count: scatter_options.density as u32
+        };
+
+        self.scattered_models.push(scattered);
+    }
 
     pub fn add_landscape(
         &mut self,

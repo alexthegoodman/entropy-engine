@@ -7,7 +7,7 @@ use wgpu::util::DeviceExt;
 pub struct ScatteredModel {
     pub model: Model, // The base model to scatter
     pub settings: ScatterSettings,
-    pub instance_buffer: wgpu::Buffer,
+    pub instance_buffer: Option<wgpu::Buffer>,
     pub instance_count: u32,
 }
 
@@ -125,10 +125,10 @@ impl ScatteredModel {
         self.instance_count = instances.len() as u32;
         
         // Create instance buffer
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        self.instance_buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Scattered Model Instance Buffer"),
             contents: bytemuck::cast_slice(&instances),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        }));
     }
 }

@@ -4,7 +4,7 @@ use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
 use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures, repack_arm_to_mra}, editor::Editor}, 
-    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_particle_system, handle_add_player, handle_add_trees, handle_add_water_plane}, 
+    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_particle_system, handle_add_player, handle_add_scattered_model, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
     saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
@@ -413,19 +413,36 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                         let model_scale = Vector3::new(component.generic_properties.scale[0], component.generic_properties.scale[1], component.generic_properties.scale[2]);
 
                                         if let Some(asset_item) = asset {
-                                            handle_add_model(
-                                                renderer_state,  
-                                                &gpu_resources.device,
-                                                &gpu_resources.queue, 
-                                                project_id.to_string(), 
-                                                asset_item.id.clone(), 
-                                                component.id.clone(), 
-                                                asset_item.fileName.clone(), 
-                                                model_iso, 
-                                                model_scale,
-                                                camera,
-                                                component.script_state.clone()
-                                            ).await;
+                                            if let Some(scatter_options) = &component.scatter {
+                                                handle_add_scattered_model(
+                                                    renderer_state,  
+                                                    &gpu_resources.device,
+                                                    &gpu_resources.queue, 
+                                                    project_id.to_string(), 
+                                                    asset_item.id.clone(), 
+                                                    component.id.clone(), 
+                                                    asset_item.fileName.clone(), 
+                                                    model_iso, 
+                                                    model_scale,
+                                                    camera,
+                                                    component.script_state.clone(),
+                                                    scatter_options.clone()
+                                                ).await;
+                                            } else {
+                                                handle_add_model(
+                                                    renderer_state,  
+                                                    &gpu_resources.device,
+                                                    &gpu_resources.queue, 
+                                                    project_id.to_string(), 
+                                                    asset_item.id.clone(), 
+                                                    component.id.clone(), 
+                                                    asset_item.fileName.clone(), 
+                                                    model_iso, 
+                                                    model_scale,
+                                                    camera,
+                                                    component.script_state.clone()
+                                                ).await;
+                                            }
                                         }
                                     }
                                     if let Some(ComponentKind::PlayerCharacter) = component.kind {

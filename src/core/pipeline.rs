@@ -1273,6 +1273,15 @@ impl ExportPipeline {
 
         let skinned_pipeline = SkinnedPipeline::new(&device, &camera_binding.bind_group_layout, &model_bind_group_layout, swapchain_format, wgpu::TextureFormat::Depth24Plus);
 
+        let scattered_model_pipeline = crate::core::scattered_model_pipeline::ScatteredModelPipeline::new(
+            &device,
+            &camera_binding.bind_group_layout,
+            &model_bind_group_layout,
+            &window_size_bind_group_layout,
+            &group_bind_group_layout,
+            wgpu::TextureFormat::Depth24Plus,
+        );
+
         println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
@@ -1285,7 +1294,8 @@ impl ExportPipeline {
             color_render_mode_buffer,
             regular_texture_render_mode_buffer,
             game_mode,
-            skinned_pipeline
+            skinned_pipeline,
+            scattered_model_pipeline,
         );
 
         if game_mode {
@@ -1999,17 +2009,48 @@ impl ExportPipeline {
 
             for house in &renderer_state.procedural_houses {
                 for mesh in &house.meshes {
-                    render_pass.set_pipeline(&geometry_pipeline);
                     mesh.transform.update_uniform_buffer(&gpu_resources.queue);
-                    render_pass.set_bind_group(1, &mesh.bind_group, &[]);
-                    // render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+
+                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
+                    render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
+                    // render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+
+                    // Need to use the regular vertex buffer with regular Vertex if using geometry pipeline
                     render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                     render_pass.set_index_buffer(
                         mesh.index_buffer.slice(..),
                         wgpu::IndexFormat::Uint32,
                     );
-
                     render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                }
+            }
+
+            // Render Scattered Models
+            if let Some(pipeline) = &renderer_state.scattered_model_pipeline {
+                render_pass.set_pipeline(&pipeline.render_pipeline);
+                
+                for scattered_model in &renderer_state.scattered_models {
+                    if scattered_model.instance_count == 0 {
+                        continue;
+                    }
+
+                    if let Some(instance_buffer) = &scattered_model.instance_buffer {
+                        for mesh in &scattered_model.model.meshes {
+                            // We need the model bind group for textures, but the transform in it is ignored by shader 
+                            // (except maybe for global model transform if we added it, but here instances drive position)
+                            render_pass.set_bind_group(1, &mesh.bind_group, &[]);
+                            render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+
+                            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            render_pass.set_vertex_buffer(1, instance_buffer.slice(..)); // Instance buffer
+                            render_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            
+                            render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..scattered_model.instance_count);
+                        }
+                    }
                 }
             }
 
