@@ -1627,17 +1627,26 @@ impl RendererState {
 
     pub fn add_scattered_model(
         &mut self,
+        device: &wgpu::Device,
         model: Model,
         scatter_options: ScatterSettings
     ) {
-        let scattered = ScatteredModel {
-            model,
-            settings: scatter_options.clone(),
-            instance_buffer: None,
-            instance_count: scatter_options.density as u32
-        };
-
-        self.scattered_models.push(scattered);
+        if let Some(landscape) = self.landscapes.get_mut(0) {
+            if let Some(pipeline) = &self.scattered_model_pipeline {
+                let scattered = ScatteredModel::new(
+                    device,
+                    model,
+                    scatter_options,
+                    landscape,
+                    &pipeline.uniform_bind_group_layout
+                );
+                self.scattered_models.push(scattered);
+            } else {
+                println!("Scattered model pipeline not initialized");
+            }
+        } else {
+            println!("Cannot add scattered model: No landscape found!");
+        }
     }
 
     pub fn add_landscape(

@@ -288,7 +288,7 @@ impl ExportPipeline {
                     label: None,
                     // required_features: wgpu::Features::FLOAT32_FILTERABLE,
                     required_limits: Limits {
-                        // max_bind_groups: 5, // bad for wasm :(
+                        max_bind_groups: 6, // bad for wasm :(
                         ..Default::default()
                     },
                     ..Default::default()
@@ -2029,27 +2029,48 @@ impl ExportPipeline {
             if let Some(pipeline) = &renderer_state.scattered_model_pipeline {
                 render_pass.set_pipeline(&pipeline.render_pipeline);
                 
-                for scattered_model in &renderer_state.scattered_models {
+                // Calculate player position for uniforms
+                let player_pos = if let Some(player_character) = &renderer_state.player_character {
+                    if let Some(model_id) = &player_character.model_id {
+                            renderer_state.models.iter().find(|m| m.id == model_id.clone())
+                            .and_then(|m| m.meshes.get(0))
+                            .map(|mesh| [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z])
+                            .unwrap_or([camera.position.x, camera.position.y, camera.position.z])
+                    } else if let Some(sphere) = &player_character.sphere {
+                            [sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z]
+                    } else {
+                        [camera.position.x, camera.position.y, camera.position.z]
+                    }
+                } else {
+                    [camera.position.x, camera.position.y, camera.position.z]
+                };
+
+                for scattered_model in &mut renderer_state.scattered_models {
                     if scattered_model.instance_count == 0 {
                         continue;
                     }
+                    
+                    scattered_model.update_uniforms(&queue, player_pos);
 
-                    if let Some(instance_buffer) = &scattered_model.instance_buffer {
-                        for mesh in &scattered_model.model.meshes {
-                            // We need the model bind group for textures, but the transform in it is ignored by shader 
-                            // (except maybe for global model transform if we added it, but here instances drive position)
-                            render_pass.set_bind_group(1, &mesh.bind_group, &[]);
-                            render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size
+                    render_pass.set_bind_group(4, &scattered_model.uniform_bind_group, &[]);
+                    render_pass.set_bind_group(5, &scattered_model.landscape_bind_group, &[]);
 
-                            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                            render_pass.set_vertex_buffer(1, instance_buffer.slice(..)); // Instance buffer
-                            render_pass.set_index_buffer(
-                                mesh.index_buffer.slice(..),
-                                wgpu::IndexFormat::Uint32,
-                            );
-                            
-                            render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..scattered_model.instance_count);
-                        }
+                    for mesh in &scattered_model.model.meshes {
+                        // We need the model bind group for textures, but the transform in it is ignored by shader 
+                        // (except maybe for global model transform if we added it, but here instances drive position)
+                        render_pass.set_bind_group(1, &mesh.bind_group, &[]);
+                        render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+
+                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        // No instance buffer needed - procedural generation
+                        render_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        
+                        render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..scattered_model.instance_count);
                     }
                 }
             }

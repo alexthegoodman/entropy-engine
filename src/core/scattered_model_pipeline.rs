@@ -5,6 +5,7 @@ use crate::core::vertex::Vertex;
 
 pub struct ScatteredModelPipeline {
     pub render_pipeline: wgpu::RenderPipeline,
+    pub uniform_bind_group_layout: wgpu::BindGroupLayout,
 }
 
 impl ScatteredModelPipeline {
@@ -16,6 +17,45 @@ impl ScatteredModelPipeline {
         group_bind_group_layout: &wgpu::BindGroupLayout,
         depth_format: wgpu::TextureFormat,
     ) -> Self {
+        
+        // 1. Uniform Bind Group Layout (Group 4)
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Scattered Model Uniform Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        // 2. Landscape Bind Group Layout (Group 5)
+        let landscape_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("Landscape Particle Bind Group Layout (Scattered Model)"),
+        });
+
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Scattered Model Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/scattered_model.wgsl").into()),
@@ -28,6 +68,8 @@ impl ScatteredModelPipeline {
                 model_bind_group_layout,
                 window_size_bind_group_layout,
                 group_bind_group_layout,
+                &uniform_bind_group_layout,
+                &landscape_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -40,7 +82,7 @@ impl ScatteredModelPipeline {
                 entry_point: Some("vs_main"),
                 buffers: &[
                     Vertex::desc(),         // Mesh vertex attributes (0-3)
-                    ModelInstance::desc(),  // Instance attributes (5-8)
+                    // ModelInstance::desc(),  // REMOVED: Instance attributes are now procedural
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
@@ -92,6 +134,9 @@ impl ScatteredModelPipeline {
             cache: None,
         });
 
-        Self { render_pipeline }
+        Self { 
+            render_pipeline,
+            uniform_bind_group_layout, 
+        }
     }
 }

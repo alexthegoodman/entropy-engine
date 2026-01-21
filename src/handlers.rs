@@ -807,8 +807,8 @@ pub async fn handle_add_scattered_model(
         camera
     );
 
-    state.add_scattered_model(model, scatter_options);
-    state.add_collider(modelComponentId, ComponentKind::Model);
+    state.add_scattered_model(device, model, scatter_options);
+    // state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
 pub async fn handle_add_npc(

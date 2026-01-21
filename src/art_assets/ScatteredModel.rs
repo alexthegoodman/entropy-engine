@@ -1,19 +1,40 @@
 use crate::{art_assets::Model::Model, helpers::saved_data::ScatterSettings};
+use crate::heightfield_landscapes::Landscape::Landscape;
 
 use rand::SeedableRng;
 use rand::Rng;
 use wgpu::util::DeviceExt;
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct ScatteredModelConfig {
+    pub player_pos: [f32; 4], // x, y, z, padding
+    pub radius: f32,
+    pub density: f32,
+    pub seed: f32,
+    pub grid_size: f32,
+    
+    pub landscape_size: f32,
+    pub landscape_height: f32,
+    pub landscape_y_offset: f32,
+    pub _pad: f32,
+}
+
 pub struct ScatteredModel {
     pub model: Model, // The base model to scatter
     pub settings: ScatterSettings,
-    pub instance_buffer: Option<wgpu::Buffer>,
+    // pub instance_buffer: Option<wgpu::Buffer>, // Replaced by procedural generation
     pub instance_count: u32,
+    
+    pub uniform_buffer: wgpu::Buffer,
+    pub uniform_bind_group: wgpu::BindGroup,
+    pub landscape_bind_group: wgpu::BindGroup,
+    pub config: ScatteredModelConfig,
 }
 
 pub struct ScatteredModelPipeline {
-    pub pipeline: wgpu::RenderPipeline,
-    pub models: Vec<ScatteredModel>,
+    pub render_pipeline: wgpu::RenderPipeline,
+    // pub models: Vec<ScatteredModel>, // Models are stored in RendererState
 }
 
 #[repr(C)]
@@ -61,74 +82,61 @@ impl ModelInstance {
 }
 
 impl ScatteredModel {
-    pub fn generate_instances(
-        &mut self,
+    pub fn new(
         device: &wgpu::Device,
-        settings: &ScatterSettings,
-        player_pos: [f32; 3],
-        landscape_sampler: &dyn Fn(f32, f32) -> f32, // Height sampling function
-    ) {
-        let mut instances = Vec::new();
-        
-        // Calculate grid based on radius
-        let grid_size = 10.0; // Size of each grid cell
+        model: Model,
+        settings: ScatterSettings,
+        landscape: &mut Landscape,
+        bind_group_layout: &wgpu::BindGroupLayout, // Layout for uniform bind group
+    ) -> Self {
+        let grid_size = 25.0;
         let grid_cells = (settings.radius * 2.0 / grid_size).ceil() as u32;
-        
-        // Use density to determine instances per cell
-        let instances_per_cell = (settings.density * grid_size * grid_size) as u32;
-        
-        let mut rng = rand::rngs::StdRng::seed_from_u64(settings.seed as u64);
-        
-        for cell_x in 0..grid_cells {
-            for cell_z in 0..grid_cells {
-                // Calculate cell world position relative to player
-                let world_cell_x = player_pos[0] - settings.radius + (cell_x as f32 * grid_size);
-                let world_cell_z = player_pos[2] - settings.radius + (cell_z as f32 * grid_size);
-                
-                for _ in 0..instances_per_cell {
-                    // Random position within cell
-                    let offset_x = rng.r#gen::<f32>() * grid_size;
-                    let offset_z = rng.r#gen::<f32>() * grid_size;
-                    
-                    let world_x = world_cell_x + offset_x;
-                    let world_z = world_cell_z + offset_z;
-                    
-                    // Sample landscape height
-                    let world_y = landscape_sampler(world_x, world_z);
-                    
-                    // Distance culling
-                    let dx = world_x - player_pos[0];
-                    let dz = world_z - player_pos[2];
-                    let dist = (dx * dx + dz * dz).sqrt();
-                    
-                    if dist > settings.radius {
-                        continue;
-                    }
-                    
-                    // Random rotation around Y axis
-                    let rotation_y = rng.r#gen::<f32>() * std::f32::consts::TAU;
-                    let rotation = [0.0, rotation_y.sin(), 0.0, rotation_y.cos()]; // Quaternion
-                    
-                    // Random scale variation (0.8 to 1.2)
-                    let scale = 0.8 + rng.r#gen::<f32>() * 0.4;
-                    
-                    instances.push(ModelInstance {
-                        position: [world_x, world_y, world_z],
-                        rotation,
-                        scale,
-                        variation: rng.r#gen::<f32>(),
-                    });
-                }
-            }
+        let instances_per_cell = (settings.density * 100.0) as u32;
+        let instance_count = grid_cells * grid_cells * instances_per_cell;
+
+        let config = ScatteredModelConfig {
+            player_pos: [0.0; 4],
+            radius: settings.radius,
+            density: settings.density,
+            seed: settings.seed as f32,
+            grid_size,
+            landscape_size: landscape.terrain_size,
+            landscape_height: landscape.terrain_height,
+            landscape_y_offset: landscape.transform.position.y,
+            _pad: 0.0,
+        };
+
+        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Scattered Model Config Buffer"),
+            contents: bytemuck::cast_slice(&[config]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("Scattered Model Uniform Bind Group"),
+        });
+
+        landscape.create_layout_for_particles(device);
+        let landscape_bind_group = landscape.create_particle_bind_group(device);
+
+        Self {
+            model,
+            settings,
+            instance_count,
+            uniform_buffer,
+            uniform_bind_group,
+            landscape_bind_group,
+            config,
         }
-        
-        self.instance_count = instances.len() as u32;
-        
-        // Create instance buffer
-        self.instance_buffer = Some(device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Scattered Model Instance Buffer"),
-            contents: bytemuck::cast_slice(&instances),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        }));
+    }
+
+    pub fn update_uniforms(&mut self, queue: &wgpu::Queue, player_pos: [f32; 3]) {
+        self.config.player_pos = [player_pos[0], player_pos[1], player_pos[2], 0.0];
+        queue.write_buffer(&self.uniform_buffer, 0, bytemuck::cast_slice(&[self.config]));
     }
 }
