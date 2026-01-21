@@ -61,6 +61,7 @@ Example Game:
 - Rendered text with fonts
 - In-Game UI Pipeline
 - Heightmap creation CLI (specify features and flat areas too)
+- Mini-Map
 - Screen capture
 - Vector animations
 - Video export
@@ -68,16 +69,10 @@ Example Game:
 
 ### TBD Features:
 
-#### Priority
-
 - More game logic and mechanics
 - Modernize in-game UI choices
-- Mini-Map
 - Volumetric Fog
 - Dynamic clouds
-
-#### Secondary
-
 - Parallax Mapping
 - Tessellation
 - Displacement Mapping
@@ -99,12 +94,7 @@ Example Game:
 
 ### TBD Game Mechanics:
 
-#### Priority
-
 - Score / Experience Points + Levels
-
-#### Secondary
-
 - Interactive Objects (physics-based)
 - Attachments
 - Skill Points
@@ -129,18 +119,9 @@ Example Game:
 
 ### TBD Procedural Models:
 
-- Human
-- Monster
-- Animal
-- TVs / Monitors
-- Coffee maker
-- Desk
-- Bed
-- Chair
-- Couch
-- Car
-- Stairs
-- Rocks
+- More foliage types
+- More tree types
+- Rock types
 
 ### Maybe:
 
