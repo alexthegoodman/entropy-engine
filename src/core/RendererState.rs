@@ -189,6 +189,7 @@ pub struct RendererState {
 
     pub current_mouse_position: Option<EntropyPosition>,
     pub last_mouse_position: Option<EntropyPosition>,
+    pub last_mouse_delta: (f32, f32),
 
     pub navigation_speed: f32,
     pub game_mode: bool,
@@ -397,6 +398,7 @@ impl RendererState {
             gizmo,
             display_debug_spheres: true,
             quest_state: QuestState::new(),
+            last_mouse_delta: (0.0, 0.0)
         }
     }
 
@@ -404,6 +406,11 @@ impl RendererState {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
         self.last_mouse_position_time = Instant::now();
+    }
+
+    pub fn set_mouse_delta(&mut self, delta: (f64, f64)) {
+        self.last_mouse_delta = (delta.0 as f32, delta.1 as f32);
+        // self.last_mouse_position_time = Instant::now();
     }
 
     pub fn is_player_grounded(
@@ -543,7 +550,7 @@ impl RendererState {
                             let pos = rb.translation(); // nalgebra::Vector3<f32>
 
                             // --- Mouse Input and Angle Update ---
-                            if let (Some(current), Some(last)) = (
+                            let delta = if let (Some(current), Some(last)) = (
                                 self.current_mouse_position,
                                 self.last_mouse_position
                             ) {
@@ -552,26 +559,38 @@ impl RendererState {
                                 // Calculate difference (delta) in screen coordinates
                                 let delta_x = current.x - last.x;
                                 let delta_y = current.y - last.y;
-                                
-                                // 1. Update Yaw (Left/Right rotation)
-                                // Positive delta_x (mouse moved right) should typically decrease yaw 
-                                // to swing the camera left (assuming a right-hand coordinate system)
-                                // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
-                                self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                                // 2. Update Pitch (Up/Down rotation)
-                                // Positive delta_y (mouse moved down) should increase pitch
-                                self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
-                                // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
-                                
-                                // 3. Clamp Pitch to prevent the camera from flipping over
-                                // 1.55 radians is approximately 89 degrees
-                                self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
-                                
-                                // You should update self.last_mouse_position *after* calculating delta, 
-                                // typically in your event loop, but often set here for simplicity if needed.
-                                // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
-                            }
+                                (delta_x, delta_y)
+                            } else if let del = self.last_mouse_delta {
+                                del
+                            } else {
+                                (0.0, 0.0)
+                            };
+
+                            let mouse_sensitivity: f32 = 0.005; 
+                            
+                            // Calculate difference (delta) in screen coordinates
+                            let delta_x = delta.0;
+                            let delta_y = delta.1;
+                            
+                            // 1. Update Yaw (Left/Right rotation)
+                            // Positive delta_x (mouse moved right) should typically decrease yaw 
+                            // to swing the camera left (assuming a right-hand coordinate system)
+                            // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
+                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+
+                            // 2. Update Pitch (Up/Down rotation)
+                            // Positive delta_y (mouse moved down) should increase pitch
+                            self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
+                            // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
+                            
+                            // 3. Clamp Pitch to prevent the camera from flipping over
+                            // 1.55 radians is approximately 89 degrees
+                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                            
+                            // You should update self.last_mouse_position *after* calculating delta, 
+                            // typically in your event loop, but often set here for simplicity if needed.
+                            // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
 
                             // --- Camera Variables ---
                             let radius: f32 = 25.0; // The fixed distance from the player

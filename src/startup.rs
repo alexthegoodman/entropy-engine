@@ -573,7 +573,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     last_y = last_pos.y;
                 }
 
-                if (self.shift_active) {
+                if (self.shift_active && !self.game_mode) {
                     handle_mouse_move_on_shift(
                     (position.x - last_x) as f32, 
                     (position.y - last_y) as f32, 
@@ -589,16 +589,21 @@ impl ApplicationHandler<UserEvent> for Application {
                     });
                 }
 
-                handle_mouse_move(
-                    self.mouse_pressed,
-                    EntropyPosition {
-                        x: position.x as f32,
-                        y: position.y as f32
-                    }, 
-                    (position.x - last_x) as f32,
-                    (position.y - last_y) as f32,
-                    editor
-                );
+                if (!self.game_mode) {
+                    // NOTE: game_mode is handle in DeviceEvent due to Locked cursor
+                    // NOTE: it is still done here for editor to provide exact pos to gizmo
+
+                    handle_mouse_move(
+                        self.mouse_pressed,
+                        Some(EntropyPosition {
+                            x: position.x as f32,
+                            y: position.y as f32
+                        }), 
+                        (position.x - last_x) as f32,
+                        (position.y - last_y) as f32,
+                        editor
+                    );
+                }
 
                 self.last_mouse_position = Some(position);
             },
@@ -666,7 +671,22 @@ impl ApplicationHandler<UserEvent> for Application {
         device_id: DeviceId,
         event: DeviceEvent,
     ) {
-        info!("Device {device_id:?} event: {event:?}");
+        // info!("Device {device_id:?} event: {event:?}");
+
+        if let DeviceEvent::MouseMotion { delta } = event {                                                                                            
+            for window in self.windows.values_mut() {                                                                                                  
+                if window.game_mode && window.cursor_grab != CursorGrabMode::None {
+                    if let Some(editor) = &mut window.pipeline.export_editor {
+                        // handle_mouse_move(false, None, delta.0 as f32, delta.1 as f32, editor);
+
+                        let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
+                        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
+
+                        renderer_state.set_mouse_delta(delta);
+                    }
+                }
+            }
+        }
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
