@@ -562,7 +562,7 @@ impl Sphere {
                     position: [x, y, z],
                     normal: [normal.x, normal.y, normal.z],
                     tex_coords: [s, t],
-                    color: [color[0], color[1], color[2], 1.0], // Default to gray, can be modified as needed
+                    color: [color[0], color[1], color[2], 0.25], // Default to gray, can be modified as needed
                 });
             }
         }
