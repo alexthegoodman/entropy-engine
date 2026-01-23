@@ -1404,7 +1404,14 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
 pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
     // Map gamepad buttons to existing key handlers
     match button {
-        "South" => handle_key_press(state, " ", pressed), // A -> Jump
+        "South" => {
+             // Context sensitive: Enter (Dialogue) vs Jump (Space)
+             if state.dialogue_state.is_open {
+                 handle_key_press(state, "Enter", pressed);
+             } else {
+                 handle_key_press(state, " ", pressed);
+             }
+        }, 
         "East" => handle_key_press(state, "c", pressed), // B -> Crouch
         "North" => handle_key_press(state, "i", pressed), // Y -> Inventory
         "West" => handle_key_press(state, "e", pressed), // X -> Interact
@@ -1412,7 +1419,12 @@ pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
         "DPadDown" => handle_key_press(state, "s", pressed),
         "DPadLeft" => handle_key_press(state, "a", pressed),
         "DPadRight" => handle_key_press(state, "d", pressed),
-        "Start" => handle_key_press(state, "Escape", pressed), // Start -> Menu/Escape (Need to handle Escape in handle_key_press if not present or handle separately)
+        "Start" => handle_key_press(state, "Escape", pressed), // Start -> Menu/Escape
+        "LeftThumb" => handle_key_press(state, "Shift", pressed), // L3 -> Sprint
+        "RightTrigger2" => {
+            let element_state = if pressed { EntropyElementState::Pressed } else { EntropyElementState::Released };
+            handle_mouse_input(state, EntropyMouseButton::Left, element_state);
+        },
         _ => {}
     }
 }

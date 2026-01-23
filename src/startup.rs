@@ -731,6 +731,8 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadLeft => "DPadLeft",
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
+                            Button::LeftThumb => "LeftThumb",
+                            Button::RightTrigger2 => "RightTrigger2",
                             _ => ""
                         };
                         if !button_name.is_empty() {
@@ -753,6 +755,8 @@ impl ApplicationHandler<UserEvent> for Application {
                             Button::DPadLeft => "DPadLeft",
                             Button::DPadRight => "DPadRight",
                             Button::Start => "Start",
+                            Button::LeftThumb => "LeftThumb",
+                            Button::RightTrigger2 => "RightTrigger2",
                             _ => ""
                         };
                         if !button_name.is_empty() {
