@@ -29,6 +29,7 @@ use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyTyp
 use crate::shape_primitives::Cube::Cube;
 use crate::rhai_engine::RhaiEngine;
 use crate::game_ui::dialogue_state::DialogueState;
+use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 
 use cgmath::SquareMatrix;
 
@@ -314,6 +315,8 @@ pub struct Editor {
     pub ui_images: Vec<StImage>,
     pub health_bar: Option<HealthBar>,
     pub enemy_health_bar: Option<HealthBar>,
+    pub crosshair: Option<Crosshair>,
+    pub ammo_display: Option<AmmoDisplay>,
     pub current_enemy_target: Option<String>,
     
     // Inventory UI
@@ -512,6 +515,8 @@ impl Editor {
             ui_images: Vec::new(),
             health_bar: None,
             enemy_health_bar: None,
+            crosshair: None,
+            ammo_display: None,
             current_enemy_target: None,
             is_inventory_open: false,
             inventory_ui_ids: Vec::new(),

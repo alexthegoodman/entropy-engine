@@ -95,7 +95,9 @@ pub struct PlayerCharacter {
     pub is_moving: bool,
     pub script_state: Option<HashMap<String, String>>,
 
-    pub is_grounded: bool
+    pub is_grounded: bool,
+    pub is_aiming: bool,
+    pub aim_factor: f32,
 }
 
 impl PlayerCharacter {
@@ -209,7 +211,9 @@ impl PlayerCharacter {
             animation_state: AnimationState::new(0),
             is_moving: false,
             script_state: None,
-            is_grounded: false
+            is_grounded: false,
+            is_aiming: false,
+            aim_factor: 0.0,
         }
     }
 
@@ -249,9 +253,6 @@ impl PlayerCharacter {
             return (None, None); // Attack is on cooldown
         }
 
-        // Reset the attack timer
-        self.attack_timer = Instant::now();
-
         // Get player position
         let player_pos = if let Some(rb_handle) = self.movement_rigid_body_handle {
             if let Some(rb) = rigid_body_set.get(rb_handle) {
@@ -267,16 +268,37 @@ impl PlayerCharacter {
 
         // Determine attack type based on equipped weapon
         let mut is_ranged = false;
+        let mut has_ammo = false;
 
-        if let Some(weapon) = &self.inventory.equipped_weapon {
-            if let Some(props) = &weapon.collectable_properties {
+        if let Some(weapon) = &mut self.inventory.equipped_weapon {
+            if let Some(props) = &mut weapon.collectable_properties {
                 if props.collectable_type == Some(CollectableType::RangedWeapon) {
                     is_ranged = true;
+                    // Check ammo
+                    if let Some(ammo) = props.ammo {
+                        if ammo > 0 {
+                            has_ammo = true;
+                            // Decrease ammo
+                            props.ammo = Some(ammo - 1);
+                        } else {
+                            println!("Click! No ammo!");
+                        }
+                    } else {
+                        // Weapon has no ammo logic, assume infinite
+                        has_ammo = true;
+                    }
                 }
             }
         }
 
         if is_ranged {
+            if !has_ammo {
+                 return (None, None);
+            }
+
+            // Reset the attack timer only if we actually shoot
+            self.attack_timer = Instant::now();
+
             // Ranged Attack (Raycast)
             // Use camera direction as the attack direction
             let dir = camera.direction.normalize();
@@ -339,6 +361,9 @@ impl PlayerCharacter {
             return (hit_id, Some((origin, hit_point)));
 
         } else {
+            // Reset the attack timer
+            self.attack_timer = Instant::now();
+            
             // Melee Attack (Distance check)
             let mut closest_npc_index: Option<usize> = None;
             let mut min_distance = self.attack_stats.range;
@@ -370,6 +395,35 @@ impl PlayerCharacter {
         }
     }
 
+    pub fn set_aiming(&mut self, aiming: bool) {
+        self.is_aiming = aiming;
+    }
+
+    pub fn update_aim(&mut self, dt: f32) {
+        let aim_speed = 10.0;
+        let target = if self.is_aiming { 1.0 } else { 0.0 };
+        self.aim_factor += (target - self.aim_factor) * aim_speed * dt;
+        self.aim_factor = self.aim_factor.clamp(0.0, 1.0);
+    }
+
+    pub fn reload(&mut self) {
+        if let Some(weapon) = &mut self.inventory.equipped_weapon {
+             if let Some(props) = &mut weapon.collectable_properties {
+                if props.collectable_type == Some(CollectableType::RangedWeapon) {
+                     // Simple reload: Fill to max
+                     // In future, check inventory for ammo items
+                     if let Some(max) = props.max_ammo {
+                         props.ammo = Some(max);
+                         println!("Reloaded!");
+                     } else {
+                         // If no max defined, maybe set to a default?
+                         props.ammo = Some(30);
+                         println!("Reloaded to default 30!");
+                     }
+                }
+             }
+        }
+    }
 
     pub fn defend(&mut self) {
         self.is_defending = true;

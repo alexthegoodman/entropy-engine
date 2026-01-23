@@ -125,6 +125,8 @@ pub struct CollectableProperties {
     // this allows for reuable Health Potion stat, separate from the component instance.
     // chose reusable stat over reusable collectable so other things could have stat values or changes as well 
     pub stat_id: Option<String>, 
+    pub ammo: Option<u32>,
+    pub max_ammo: Option<u32>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

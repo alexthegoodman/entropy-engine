@@ -211,7 +211,14 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     // Dialogue Navigation
     if state.dialogue_state.is_open && is_pressed {
         match key_code {
-            "w" | "ArrowUp" => {
+            "r" => {
+            if is_pressed {
+                if let Some(player) = &mut renderer_state.player_character {
+                    player.reload();
+                }
+            }
+        },
+        "w" | "ArrowUp" => {
                 if state.dialogue_state.selected_option_index > 0 {
                     state.dialogue_state.selected_option_index -= 1;
                     state.dialogue_state.ui_dirty = true;
@@ -323,6 +330,13 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                     } else {
                         player.movement_state = MovementState::Prone;
                     }
+                }
+            }
+        },
+        "r" => {
+            if is_pressed {
+                if let Some(player) = &mut renderer_state.player_character {
+                    player.reload();
                 }
             }
         },
@@ -612,8 +626,10 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             }
             EntropyMouseButton::Right => {
                 if let Some(player_character) = &mut renderer_state.player_character {
-                    player_character.defend();
-                    println!("Right mouse button pressed - Player Defend!");
+                    // player_character.defend();
+                    // println!("Right mouse button pressed - Player Defend!");
+                    let is_pressed = element_state == EntropyElementState::Pressed;
+                    player_character.set_aiming(is_pressed);
                 }
             }
             _ => {}

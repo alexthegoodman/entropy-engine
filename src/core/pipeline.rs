@@ -54,6 +54,7 @@ use crate::helpers::load_project::load_project;
 use crate::rhai_engine::{ComponentChanges, RhaiEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
+use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 // use super::chat::Chat;
@@ -1324,6 +1325,29 @@ impl ExportPipeline {
                 30.0,
                 100.0,
             ));
+
+            export_editor.crosshair = Some(Crosshair::new(
+                &device,
+                &queue,
+                &ui_model_bind_group_layout,
+                &group_bind_group_layout,
+                &camera,
+                &WindowSize { width: video_width, height: video_height },
+            ));
+
+            // Load Basic font for AmmoDisplay
+            let font_bytes = export_editor.font_manager.get_font_by_name("Basic")
+                .unwrap_or_else(|| &export_editor.font_manager.font_data[0].1);
+
+            export_editor.ammo_display = Some(AmmoDisplay::new(
+                &device,
+                &queue,
+                &ui_model_bind_group_layout,
+                &group_bind_group_layout,
+                &camera,
+                &WindowSize { width: video_width, height: video_height },
+                font_bytes,
+            ));
         }
 
         let mut grids = Vec::new();
@@ -1702,9 +1726,31 @@ impl ExportPipeline {
         let texture = self.texture.as_ref().expect("Couldn't get texture");
         
         // Sync player health to UI
-        if let Some(player) = &renderer_state.player_character {
+        if let Some(player) = &mut renderer_state.player_character {
             if let Some(health_bar) = &mut editor.health_bar {
                 health_bar.update_health(queue, player.stats.health);
+            }
+
+            // Update Aim
+            player.update_aim(0.016);
+            let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
+            camera.fovy = target_fov;
+            // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
+            // Better call it here to be safe, but update() is called in step_physics_pipeline?
+            // step_physics_pipeline calls camera.update()
+            
+            // Update Ammo UI
+            if let Some(ammo_display) = &mut editor.ammo_display {
+                 let mut ammo = None;
+                 let mut max = None;
+                 if let Some(weapon) = &player.inventory.equipped_weapon {
+                     if let Some(props) = &weapon.collectable_properties {
+                         ammo = props.ammo;
+                         max = props.max_ammo;
+                     }
+                 }
+                 
+                 ammo_display.update(device, queue, ammo, max);
             }
 
             if let Some(mini_map) = &mut editor.mini_map {

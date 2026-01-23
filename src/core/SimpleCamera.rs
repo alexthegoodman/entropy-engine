@@ -9,6 +9,7 @@ pub struct SimpleCamera {
     pub up: Vector3<f32>,
     pub aspect_ratio: f32,
     pub fovy: f32,
+    pub base_fovy: f32,
     pub znear: f32,
     pub zfar: f32,
     pub view_projection_matrix: Matrix4<f32>,
@@ -35,6 +36,7 @@ impl SimpleCamera {
             // aspect_ratio,
             aspect_ratio: 16.0 / 9.0, // default aspect ratio
             fovy,
+            base_fovy: fovy,
             znear,
             zfar,
             view_projection_matrix: Matrix4::identity(),

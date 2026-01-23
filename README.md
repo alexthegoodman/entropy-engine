@@ -54,6 +54,7 @@ Example Game:
 - Skybox Pipeline
 - Point lighting
 - Basic game behaviors (melee, chase, inventory, quests, etc)
+- Sprinting/Stamina
 - Magic particle effects (ex. fire from heavens, snow, etc)
 - Dialogue (integrates with UI and Rhai scripting)
 - Professional transform gizmo (as well as egui inputs)
@@ -70,8 +71,6 @@ Example Game:
 
 ### TBD Features:
 
-- More game logic and mechanics
-- Modernize in-game UI choices
 - Volumetric Fog
 - Dynamic clouds
 - Parallax Mapping
@@ -81,7 +80,7 @@ Example Game:
 - Reflections
 - Air based particle effects (ex. dust, smoke, rain)
 - Fire (light procedural grass on fire, it burns for 15 seconds)
-- River water (currently only have ocean water)
+- River water (via maps) (currently only have ocean water)
 - Maps for procedural grass (determine where it exists, variations)
 - Vehicles (cars, planes, helicopters, motorcycles, tanks, mechs)
 - Destruction
@@ -105,11 +104,10 @@ Example Game:
 - Eating
 - Inspecting
 - Opening (cupboard, chest, etc)
-- Aiming and reloading
+- Aiming, ammo (store in existing inventory), and reloading (a little zoom in or FOV change on aim, also related UI HUD info such as ammo and aim dot)
 - “Mini Games”
 - Sneaking
 - Climbing
-- Sprinting/Stamina
 - Wall-running
 - Combo systems
 - Dodge/roll

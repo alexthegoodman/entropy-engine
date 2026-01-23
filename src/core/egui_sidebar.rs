@@ -832,6 +832,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 model_id: Some(component_id.clone()), // Use same ID for model part
                                 collectable_type: Some(collectable_type.clone()),
                                 stat_id: Some(related_stat.id.clone()),
+                                ammo: None,
+                                max_ammo: None
                             };
 
                             let renderer_state = editor.renderer_state.as_mut().unwrap();
