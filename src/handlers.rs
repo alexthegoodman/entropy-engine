@@ -626,8 +626,20 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             }
             EntropyMouseButton::Right => {
                 if let Some(player_character) = &mut renderer_state.player_character {
+                    // TODO: use defend when holding melee weapon
                     // player_character.defend();
                     // println!("Right mouse button pressed - Player Defend!");
+                    let is_pressed = element_state == EntropyElementState::Pressed;
+                    player_character.set_aiming(is_pressed);
+                }
+            }
+            _ => {}
+        }
+    } else if renderer_state.game_mode && element_state == EntropyElementState::Released {
+         match button {
+            EntropyMouseButton::Right => {
+                if let Some(player_character) = &mut renderer_state.player_character {
+                    // release defend if needed for melee weapon
                     let is_pressed = element_state == EntropyElementState::Pressed;
                     player_character.set_aiming(is_pressed);
                 }
