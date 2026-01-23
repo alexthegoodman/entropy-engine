@@ -1428,7 +1428,10 @@ pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
         }, 
         "East" => handle_key_press(state, "c", pressed), // B -> Crouch
         "North" => handle_key_press(state, "i", pressed), // Y -> Inventory
-        "West" => handle_key_press(state, "e", pressed), // X -> Interact
+        "West" => {
+            handle_key_press(state, "e", pressed); // X -> Interact
+            handle_key_press(state, "r", pressed); // X -> Reload
+        },
         "DPadUp" => handle_key_press(state, "w", pressed),
         "DPadDown" => handle_key_press(state, "s", pressed),
         "DPadLeft" => handle_key_press(state, "a", pressed),
@@ -1438,6 +1441,10 @@ pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
         "RightTrigger2" => {
             let element_state = if pressed { EntropyElementState::Pressed } else { EntropyElementState::Released };
             handle_mouse_input(state, EntropyMouseButton::Left, element_state);
+        },
+        "LeftTrigger2" => {
+            let element_state = if pressed { EntropyElementState::Pressed } else { EntropyElementState::Released };
+            handle_mouse_input(state, EntropyMouseButton::Right, element_state);
         },
         _ => {}
     }
