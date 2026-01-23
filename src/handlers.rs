@@ -1314,3 +1314,105 @@ fn handle_npc_interaction(state: &mut Editor) {
         );
     }
 }
+
+pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32)) {
+    let renderer_state = match state.renderer_state.as_mut() {
+        Some(rs) => rs,
+        None => return,
+    };
+    let camera = match state.camera.as_mut() {
+        Some(c) => c,
+        None => return,
+    };
+    let camera_binding = match state.camera_binding.as_mut() {
+        Some(cb) => cb,
+        None => return,
+    };
+    let gpu_resources = match state.gpu_resources.as_ref() {
+        Some(gr) => gr,
+        None => return,
+    };
+
+    let speed_multiplier = state.navigation_speed;
+    let deadzone = 0.1;
+
+    // --- Movement (Left Stick) ---
+    let (lx, ly) = left_stick;
+    let mut movement_direction = Vector3::zeros();
+
+    if lx.abs() > deadzone || ly.abs() > deadzone {
+        let forward = if renderer_state.game_mode {
+            Vector3::new(camera.direction.x, 0.0, camera.direction.z).normalize()
+        } else {
+            camera.direction
+        };
+        
+        let right = camera.direction.cross(&camera.up).normalize();
+        let right_horizontal = if renderer_state.game_mode {
+            Vector3::new(right.x, 0.0, right.z).normalize()
+        } else {
+            right
+        };
+
+        // Note: ly is usually positive up/forward. If gamepad returns positive up, we add forward.
+        // If gamepad returns positive down, we subtract forward.
+        // Usually Y is up on stick.
+        movement_direction += forward * ly * speed_multiplier;
+        movement_direction += right_horizontal * lx * speed_multiplier;
+    }
+
+    if movement_direction.magnitude() > 0.0 {
+         if renderer_state.game_mode {
+            renderer_state.apply_player_movement(movement_direction, 0.016);
+        } else {
+            // Free camera mode
+             let diff = movement_direction * 0.5;
+            camera.position += diff;
+            camera.update();
+            camera_binding.update_3d(&gpu_resources.queue, &camera);
+        }
+    }
+
+    // --- Camera/Look (Right Stick) ---
+    let (rx, ry) = right_stick;
+    if rx.abs() > deadzone || ry.abs() > deadzone {
+        let sensitivity = 0.05; // Adjust as needed, maybe separate cvar
+        // Invert Y if needed, usually games do.
+        // handle_mouse_move_on_shift uses: dx = -dx * sens, dy = dy * sens
+        // For stick:
+        let look_dx = -rx * sensitivity; 
+        let look_dy = ry * sensitivity;
+
+        // game_mode is handled in renderer_state step_physics_pipeline usually, but for camera rotation:
+        // simple camera update
+        camera.rotate(look_dx, look_dy);
+        
+        // If we are in game mode, we might also want to rotate the player body to face camera direction?
+        // Or apply rotation to player.
+        // In `handle_mouse_move`, if game_mode && Locked, `renderer_state.set_mouse_delta` is called.
+        // Let's try to mimic that for game logic consistency if we can.
+        
+        if renderer_state.game_mode {
+             renderer_state.set_mouse_delta((rx as f64 * 10.0, -ry as f64 * 10.0)); // Fake mouse delta
+        }
+
+        camera.update();
+        camera_binding.update_3d(&gpu_resources.queue, &camera);
+    }
+}
+
+pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
+    // Map gamepad buttons to existing key handlers
+    match button {
+        "South" => handle_key_press(state, " ", pressed), // A -> Jump
+        "East" => handle_key_press(state, "c", pressed), // B -> Crouch
+        "North" => handle_key_press(state, "i", pressed), // Y -> Inventory
+        "West" => handle_key_press(state, "e", pressed), // X -> Interact
+        "DPadUp" => handle_key_press(state, "w", pressed),
+        "DPadDown" => handle_key_press(state, "s", pressed),
+        "DPadLeft" => handle_key_press(state, "a", pressed),
+        "DPadRight" => handle_key_press(state, "d", pressed),
+        "Start" => handle_key_press(state, "Escape", pressed), // Start -> Menu/Escape (Need to handle Escape in handle_key_press if not present or handle separately)
+        _ => {}
+    }
+}

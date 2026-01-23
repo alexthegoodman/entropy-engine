@@ -20,6 +20,8 @@ use winit::window::{
     Theme, Window, WindowId,
 };
 
+use gilrs::{Gilrs, Button, Event, Axis};
+
 use std::time::Instant;
 
 use egui_wgpu::{Renderer as EguiRenderer, RendererOptions};
@@ -131,6 +133,7 @@ struct Application {
     project_id: Option<String>,
     project_loaded: bool,
     mouse_pressed: bool,
+    gilrs: Option<Gilrs>,
 }
 
 impl Application {
@@ -160,6 +163,17 @@ impl Application {
         //     event_loop.create_custom_cursor(decode_cursor(include_bytes!("data/gradient.png"))),
         // ];
 
+        let gilrs = match Gilrs::new() {
+            Ok(g) => {
+                info!("Gamepad support initialized");
+                Some(g)
+            },
+            Err(e) => {
+                error!("Failed to initialize gamepad support: {}", e);
+                None
+            }
+        };
+
         Self {
             // #[cfg(not(any(android_platform, ios_platform)))]
             // context,
@@ -171,7 +185,8 @@ impl Application {
             game_mode,
             project_id,
             project_loaded: false,
-            mouse_pressed: false
+            mouse_pressed: false,
+            gilrs
         }
     }
 
@@ -700,6 +715,74 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Poll Gamepad
+        if let Some(gilrs) = &mut self.gilrs {
+            while let Some(Event { id: _, event, .. }) = gilrs.next_event() {
+                // Handle buttons
+                match event {
+                    gilrs::EventType::ButtonPressed(button, _) => {
+                        let button_name = match button {
+                            Button::South => "South",
+                            Button::East => "East",
+                            Button::North => "North",
+                            Button::West => "West",
+                            Button::DPadUp => "DPadUp",
+                            Button::DPadDown => "DPadDown",
+                            Button::DPadLeft => "DPadLeft",
+                            Button::DPadRight => "DPadRight",
+                            Button::Start => "Start",
+                            _ => ""
+                        };
+                        if !button_name.is_empty() {
+                            // Find active window and call handler
+                            if let Some(window) = self.windows.values_mut().next() { // Assuming single window focus or first window
+                                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                                    crate::handlers::handle_gamepad_button(editor, button_name, true);
+                                }
+                            }
+                        }
+                    },
+                    gilrs::EventType::ButtonReleased(button, _) => {
+                        let button_name = match button {
+                            Button::South => "South",
+                            Button::East => "East",
+                            Button::North => "North",
+                            Button::West => "West",
+                            Button::DPadUp => "DPadUp",
+                            Button::DPadDown => "DPadDown",
+                            Button::DPadLeft => "DPadLeft",
+                            Button::DPadRight => "DPadRight",
+                            Button::Start => "Start",
+                            _ => ""
+                        };
+                        if !button_name.is_empty() {
+                            if let Some(window) = self.windows.values_mut().next() {
+                                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                                    crate::handlers::handle_gamepad_button(editor, button_name, false);
+                                }
+                            }
+                        }
+                    },
+                    _ => {}
+                }
+            }
+
+            // Handle Axes (State polling for continuous movement)
+            for (_id, gamepad) in gilrs.gamepads() {
+                let lx = gamepad.value(Axis::LeftStickX);
+                let ly = gamepad.value(Axis::LeftStickY);
+                let rx = gamepad.value(Axis::RightStickX);
+                let ry = gamepad.value(Axis::RightStickY);
+
+                if let Some(window) = self.windows.values_mut().next() {
+                    if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                        crate::handlers::handle_gamepad_input(editor, (lx, ly), (rx, ry));
+                    }
+                }
+                break; // Just handle first gamepad for now
+            }
+        }
+
         if !self.project_loaded {
             if let Some(project_id) = &self.project_id {
                 if let Some(window) = self.windows.values_mut().next() {
