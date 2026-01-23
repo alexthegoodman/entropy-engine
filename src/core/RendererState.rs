@@ -632,8 +632,29 @@ impl RendererState {
                             // Retrieve player position
                             let pos = rb.translation();
 
+                            // // --- Mouse Input and Angle Update ---
+                            // if let (Some(current), Some(last)) = (
+                            //     self.current_mouse_position,
+                            //     self.last_mouse_position
+                            // ) {
+                            //     let mouse_sensitivity: f32 = 0.005; 
+                                
+                            //     // Calculate difference (delta) in screen coordinates
+                            //     let delta_x = current.x - last.x;
+                            //     let delta_y = current.y - last.y;
+                                
+                            //     // Update Yaw (Left/Right rotation)
+                            //     self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+
+                            //     // Update Pitch (Up/Down rotation)
+                            //     self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
+                                
+                            //     // Clamp Pitch to prevent camera flipping
+                            //     self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+                            // }
+
                             // --- Mouse Input and Angle Update ---
-                            if let (Some(current), Some(last)) = (
+                            let delta = if let (Some(current), Some(last)) = (
                                 self.current_mouse_position,
                                 self.last_mouse_position
                             ) {
@@ -642,18 +663,28 @@ impl RendererState {
                                 // Calculate difference (delta) in screen coordinates
                                 let delta_x = current.x - last.x;
                                 let delta_y = current.y - last.y;
-                                
-                                // Update Yaw (Left/Right rotation)
-                                self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                                // Update Pitch (Up/Down rotation)
-                                self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
-                                
-                                // Clamp Pitch to prevent camera flipping
-                                self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
-                            }
+                                (delta_x, delta_y)
+                            } else if let del = self.last_mouse_delta {
+                                del
+                            } else {
+                                (0.0, 0.0)
+                            };
 
+                            let mouse_sensitivity: f32 = 0.005; 
                             
+                            // Calculate difference (delta) in screen coordinates
+                            let delta_x = delta.0;
+                            let delta_y = delta.1;
+
+                            // Update Yaw (Left/Right rotation)
+                            self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
+
+                            // Update Pitch (Up/Down rotation)
+                            self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
+                            
+                            // Clamp Pitch to prevent camera flipping
+                            self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
 
                             // --- Calculate look direction from yaw and pitch ---
                             // Convert spherical angles to a direction vector
