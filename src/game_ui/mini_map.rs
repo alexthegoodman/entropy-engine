@@ -342,6 +342,23 @@ impl MiniMap {
         // Clean up markers for collectables that no longer exist
         self.collectable_markers.retain(|id, _| active_col_ids.contains(id));
     }
+
+    pub fn resize(&mut self, queue: &wgpu::Queue, window_size: &WindowSize) {
+        self.window_size = window_size.clone();
+        let padding = 120.0;
+        let position = Point {
+            x: padding,
+            y: window_size.height as f32 - (self.height / 2.0) - 20.0,
+        };
+        self.screen_position = position;
+
+        // Update background position
+        self.background.transform.update_position([position.x, position.y, 0.0]);
+        self.background.transform.update_uniform_buffer(queue);
+
+        // We don't need to update markers here immediately because update_all is called every frame
+        // and it uses self.screen_position.
+    }
 }
 
 pub fn init_mini_map(

@@ -57,6 +57,7 @@ Example Game:
 - Sprinting/Stamina
 - Magic particle effects (ex. fire from heavens, snow, etc)
 - Dialogue (integrates with UI and Rhai scripting)
+- Aiming (with crosshair ui), ammo, and reloading
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
 - Rendered text with fonts
@@ -104,7 +105,6 @@ Example Game:
 - Eating
 - Inspecting
 - Opening (cupboard, chest, etc)
-- Aiming, ammo (store in existing inventory), and reloading (a little zoom in or FOV change on aim, also related UI HUD info such as ammo and aim dot)
 - “Mini Games”
 - Sneaking
 - Climbing
@@ -131,7 +131,7 @@ Example Game:
 ### Other Needs:
 
 - Documentation (including on publishing and distribution)
-- Game Saves for players (currently restart from beginning each time)
+- Game Saves for players (currently restart from beginning each time) and player death loop
 - Configurable Controller Input -> Action Mapping (currently has default key mapping)
 
 ### Ecosystem Plans:

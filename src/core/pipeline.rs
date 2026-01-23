@@ -1671,9 +1671,23 @@ impl ExportPipeline {
 
             // resize ui elements
             let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+            let window_size = WindowSize { width: new_size.width, height: new_size.height };
+
             if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
                 enemy_health_bar.bar.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
                 enemy_health_bar.background.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
+            }
+
+            if let Some(crosshair) = &mut editor.crosshair {
+                crosshair.resize(&gpu_resources.queue, &window_size);
+            }
+
+            if let Some(ammo_display) = &mut editor.ammo_display {
+                ammo_display.resize(&gpu_resources.queue, &window_size);
+            }
+
+            if let Some(mini_map) = &mut editor.mini_map {
+                mini_map.resize(&gpu_resources.queue, &window_size);
             }
         }
     }

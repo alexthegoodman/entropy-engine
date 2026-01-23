@@ -81,6 +81,17 @@ impl Crosshair {
         // If we add them to editor.ui_polygons, they are rendered automatically.
         // But we want to toggle them or manage them separately.
     }
+
+    pub fn resize(&mut self, queue: &wgpu::Queue, window_size: &WindowSize) {
+        let center_x = window_size.width as f32 / 2.0;
+        let center_y = window_size.height as f32 / 2.0;
+
+        self.vertical.transform.update_position([center_x, center_y, 0.0]);
+        self.vertical.transform.update_uniform_buffer(queue);
+
+        self.horizontal.transform.update_position([center_x, center_y, 0.0]);
+        self.horizontal.transform.update_uniform_buffer(queue);
+    }
 }
 
 pub struct AmmoDisplay {
@@ -149,5 +160,10 @@ impl AmmoDisplay {
             
             self.text_renderer.update_text(device, queue, text);
         }
+    }
+
+    pub fn resize(&mut self, queue: &wgpu::Queue, window_size: &WindowSize) {
+        let new_position = Point { x: window_size.width as f32 - 250.0, y: window_size.height as f32 - 100.0 };
+        self.text_renderer.transform.update_position([new_position.x, new_position.y, 0.0]);
     }
 }
