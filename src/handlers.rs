@@ -1375,29 +1375,27 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
 
     // --- Camera/Look (Right Stick) ---
     let (rx, ry) = right_stick;
-    if rx.abs() > deadzone || ry.abs() > deadzone {
-        let sensitivity = 0.05; // Adjust as needed, maybe separate cvar
-        // Invert Y if needed, usually games do.
-        // handle_mouse_move_on_shift uses: dx = -dx * sens, dy = dy * sens
-        // For stick:
-        let look_dx = -rx * sensitivity; 
-        let look_dy = ry * sensitivity;
-
-        // game_mode is handled in renderer_state step_physics_pipeline usually, but for camera rotation:
-        // simple camera update
-        camera.rotate(look_dx, look_dy);
-        
-        // If we are in game mode, we might also want to rotate the player body to face camera direction?
-        // Or apply rotation to player.
-        // In `handle_mouse_move`, if game_mode && Locked, `renderer_state.set_mouse_delta` is called.
-        // Let's try to mimic that for game logic consistency if we can.
-        
-        if renderer_state.game_mode {
-             renderer_state.set_mouse_delta((rx as f64 * 10.0, -ry as f64 * 10.0)); // Fake mouse delta
+    
+    if renderer_state.game_mode {
+        if rx.abs() > deadzone || ry.abs() > deadzone {
+            // Feed input to renderer_state for step_physics_pipeline
+            // Scale factor might need tuning to match mouse feel
+            renderer_state.set_mouse_delta((rx as f64 * 15.0, -ry as f64 * 15.0));
+        } else {
+            // Reset delta to stop rotation when stick is released
+            renderer_state.set_mouse_delta((0.0, 0.0));
         }
+    } else {
+        // Free Camera Mode - Direct Control
+        if rx.abs() > deadzone || ry.abs() > deadzone {
+            let sensitivity = 0.05;
+            let look_dx = -rx * sensitivity; 
+            let look_dy = ry * sensitivity;
 
-        camera.update();
-        camera_binding.update_3d(&gpu_resources.queue, &camera);
+            camera.rotate(look_dx, look_dy);
+            camera.update();
+            camera_binding.update_3d(&gpu_resources.queue, &camera);
+        }
     }
 }
 
