@@ -60,7 +60,7 @@ use crate::{
 };
 
 use super::Grid::GridConfig;
-use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
+use crate::model_components::{PlayerCharacter::{PlayerCharacter, MovementState}, NPC::NPC};
 use crate::game_ui::quest_state::QuestState;
 use super::{
     Grid::Grid,
@@ -494,6 +494,9 @@ impl RendererState {
 
         self.update_terrain_managers(device, dt, camera);
 
+        // Update player state (stamina, eye height, etc.)
+        self.update_player_state(dt);
+
         let step_time = Instant::now();
 
         // Step the physics pipeline
@@ -663,11 +666,13 @@ impl RendererState {
                             // let in_front = direction * 0.25;
 
                             // --- Position camera at player's eye level ---
-                            // let eye_height: f32 = 1.7; // Adjust based on your player model
-                            let eye_height: f32 = 3.5; // TODO: make configurable from saved state, where third person is, in GameSettings
+                            // Use calculated eye height and camera bob from PlayerCharacter state
+                            let eye_height = player_character.current_eye_height;
+                            let bob_offset = player_character.camera_bob_amount;
+
                             let camera_pos = Point3::new(
                                 pos.x,
-                                pos.y + eye_height,
+                                pos.y + eye_height + bob_offset,
                                 pos.z
                             );
                             camera.position = camera_pos;
@@ -1194,6 +1199,29 @@ impl RendererState {
     //     }
     // }
 
+    pub fn update_player_state(&mut self, delta_time: f32) {
+        if let Some(player_character) = &mut self.player_character {
+            // Regenerate stamina if not sprinting
+            if player_character.movement_state != MovementState::Sprinting {
+                if player_character.stats.stamina < 100.0 {
+                    player_character.stats.stamina += 5.0 * delta_time;
+                }
+            }
+
+            // Decay bob when stopped (or not called by movement)
+            // We can't easily know if we "stopped" here without input flag, 
+            // but apply_player_movement handles the "moving" case. 
+            // Here we just decay if it wasn't updated recently? 
+            // Simpler: Just decay. If moving, apply_player_movement will override/add.
+            // Actually, apply_player_movement sets it. If we decay here, we might fight.
+            // Let's leave bob logic in apply_player_movement for now, as it depends on velocity.
+            
+            // Interpolate Eye Height (Smooth Crouch)
+            let lerp_speed = 10.0;
+            player_character.current_eye_height = player_character.current_eye_height + (player_character.target_eye_height - player_character.current_eye_height) * lerp_speed * delta_time;
+        }
+    }
+
     pub fn apply_player_movement(&mut self, direction: Vector3<f32>, delta_time: f32) {
         if let Some(player_character) = &mut self.player_character {
             let mut current_position = None;
@@ -1225,8 +1253,52 @@ impl RendererState {
                 )
                 .exclude_sensors();
 
-            // let movement_speed = 3.7;
-            let movement_speed = 5.2;
+            // --- Movement Logic ---
+            let mut movement_speed = player_character.movement_config.walk_speed;
+            
+            // Handle Stamina for Sprinting
+            if player_character.movement_state == MovementState::Sprinting {
+                 if player_character.stats.stamina > 0.0 {
+                     movement_speed = player_character.movement_config.sprint_speed;
+                     player_character.stats.stamina -= 10.0 * delta_time; // Drain stamina
+                 } else {
+                     // Out of stamina, force walk
+                     player_character.movement_state = MovementState::Walking;
+                     movement_speed = player_character.movement_config.walk_speed;
+                 }
+            } 
+            // Note: Regeneration moved to update_player_state
+
+            match player_character.movement_state {
+                MovementState::Crouching => movement_speed = player_character.movement_config.crouch_speed,
+                MovementState::Prone => movement_speed = player_character.movement_config.prone_speed,
+                _ => {}
+            }
+            
+            player_character.movement_speed = movement_speed; // Update stored speed
+
+            // --- Camera Bob ---
+            // Bobbing only when moving and grounded
+            if player_character.is_grounded && direction.magnitude() > 0.0 {
+                 let bob_speed = if player_character.movement_state == MovementState::Sprinting { 15.0 } else { 10.0 };
+                 player_character.camera_bob_timer += bob_speed * delta_time;
+                 let bob_height = if player_character.movement_state == MovementState::Sprinting { 0.15 } else { 0.08 };
+                 player_character.camera_bob_amount = (player_character.camera_bob_timer.sin()) * bob_height;
+            } else {
+                 // Decay bob when stopped
+                 player_character.camera_bob_amount = player_character.camera_bob_amount * 0.9;
+                 player_character.camera_bob_timer = 0.0;
+            }
+
+            // Target Eye Height
+             let standing_height = 3.5;
+             match player_character.movement_state {
+                MovementState::Crouching => player_character.target_eye_height = standing_height * 0.6,
+                MovementState::Prone => player_character.target_eye_height = standing_height * 0.2,
+                _ => player_character.target_eye_height = standing_height,
+            }
+            
+            // Interpolation moved to update_player_state
 
             // IMPORTANT: This should be a movement DELTA, not absolute position
             let desired_translation = vector![
@@ -1262,17 +1334,6 @@ impl RendererState {
                     .movement_rigid_body_handle
                     .expect("Couldn't get mesh rigidbody handle"),
             ) {
-                // Apply the corrected translation from character controller
-                // rigidbody.set_translation(effective_character_movement.translation, true);
-                
-                // Update velocity to match the actual movement
-                // let actual_velocity = vector![
-                //     (effective_character_movement.translation.x - current_position.x) / delta_time,
-                //     current_velocity.y,
-                //     (effective_character_movement.translation.z - current_position.z) / delta_time
-                // ];
-                // rigidbody.set_linvel(actual_velocity, true);
-
                 // effective_character_movement.translation is a DELTA, so add it to current position
                 let new_position = current_position + effective_character_movement.translation;
                 rigidbody.set_translation(new_position, true);

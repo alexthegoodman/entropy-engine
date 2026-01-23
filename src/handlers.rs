@@ -5,6 +5,7 @@ use uuid::Uuid;
 use crate::core::RendererState::DebugRay;
 use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::model_components::Collectable::Collectable;
+use crate::model_components::PlayerCharacter::MovementState;
 use crate::procedural_models::House::HouseConfig;
 // use tokio::spawn;
 use transform_gizmo::math::Transform;
@@ -288,6 +289,43 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 
     match key_code {
+        "Shift" => {
+             if let Some(player) = &mut renderer_state.player_character {
+                 if is_pressed {
+                     if player.movement_state != MovementState::Crouching 
+                        && player.movement_state != MovementState::Prone 
+                     {
+                         player.movement_state = MovementState::Sprinting;
+                     }
+                 } else {
+                     if player.movement_state == MovementState::Sprinting {
+                         player.movement_state = MovementState::Walking;
+                     }
+                 }
+            }
+        },
+        "c" => {
+            if is_pressed {
+                if let Some(player) = &mut renderer_state.player_character {
+                    if player.movement_state == MovementState::Crouching {
+                        player.movement_state = MovementState::Walking;
+                    } else {
+                        player.movement_state = MovementState::Crouching;
+                    }
+                }
+            }
+        },
+        "z" => {
+            if is_pressed {
+                if let Some(player) = &mut renderer_state.player_character {
+                    if player.movement_state == MovementState::Prone {
+                        player.movement_state = MovementState::Walking;
+                    } else {
+                        player.movement_state = MovementState::Prone;
+                    }
+                }
+            }
+        },
         "w" | "ArrowUp" => {
             if is_pressed {
                 // In game mode, move horizontally. In free camera, move in full 3D direction

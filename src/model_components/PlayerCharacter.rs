@@ -30,6 +30,38 @@ use crate::{
 
 use crate::shape_primitives::Sphere::Sphere;
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum MovementState {
+    Idle,
+    Walking,
+    Sprinting,
+    Crouching,
+    Prone,
+}
+
+#[derive(Debug, Clone)]
+pub struct MovementConfig {
+    pub walk_speed: f32,
+    pub sprint_speed: f32,
+    pub crouch_speed: f32,
+    pub prone_speed: f32,
+    pub jump_force: f32,
+    pub mantle_force: f32,
+}
+
+impl Default for MovementConfig {
+    fn default() -> Self {
+        Self {
+            walk_speed: 5.2,
+            sprint_speed: 9.0,
+            crouch_speed: 2.5,
+            prone_speed: 1.0,
+            jump_force: 8.0,
+            mantle_force: 5.0,
+        }
+    }
+}
+
 pub struct PlayerCharacter {
     pub id: String,
     pub model_id: Option<String>,
@@ -43,7 +75,13 @@ pub struct PlayerCharacter {
 
     // Movement properties
     pub movement_speed: f32,
+    pub movement_state: MovementState,
+    pub movement_config: MovementConfig,
     pub mouse_sensitivity: f32,
+    pub camera_bob_timer: f32,
+    pub camera_bob_amount: f32,
+    pub current_eye_height: f32,
+    pub target_eye_height: f32,
 
     pub stats: CharacterStats,
     pub attack_stats: AttackStats,
@@ -145,8 +183,14 @@ impl PlayerCharacter {
             collider_handle: Some(collider_handle),
             movement_rigid_body_handle: Some(rigid_body_handle),
             movement_shape,
-            movement_speed: 50.0,
+            movement_speed: 5.2, // Default to walk speed
+            movement_state: MovementState::Idle,
+            movement_config: MovementConfig::default(),
             mouse_sensitivity: 0.003,
+            camera_bob_timer: 0.0,
+            camera_bob_amount: 0.0,
+            current_eye_height: 3.5, // Default eye height
+            target_eye_height: 3.5,
             stats: CharacterStats {
                 health: 100.0,
                 stamina: 100.0,
