@@ -483,145 +483,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         match button {
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
-                    if let Some(camera) = &state.camera {
-                        let (attacked_npc_id, debug_line) = player_character.attack(
-                            &renderer_state.rigid_body_set,
-                            &renderer_state.collider_set,
-                            &mut renderer_state.query_pipeline,
-                            &mut renderer_state.npcs,
-                            camera,
-                        );
-                        
-                        if let Some(id) = attacked_npc_id {
-                            state.current_enemy_target = Some(id.clone());
-                            println!("Updated enemy target: {:?}", id);
-                        }
-
-                        // Execute Rhai on_attack scripts for the player
-                        let mut script_changes = Vec::new();
-                        if let Some(saved_state) = &state.saved_state {
-                            if let Some(levels) = &saved_state.levels {
-                                if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
-                                    for component in components.iter() {
-                                        if component.kind == Some(ComponentKind::PlayerCharacter) {
-                                            if let Some(script_path) = &component.rhai_script_path {
-                                                println!("execute_component_script on_attack");
-                                                if let Some(change) = state.rhai_engine.execute_component_script(
-                                                    renderer_state,
-                                                    component,
-                                                    script_path,
-                                                    "on_attack",
-                                                ) {
-                                                    script_changes.push(change);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        println!("script_changes {:?}", script_changes.len());
-
-                        // Handle particle spawns from on_attack
-                        for change in script_changes {
-                            if let Some(spawns) = change.particle_spawns {
-                                let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
-                                for spawn in spawns {
-                                    if let Some((start, end)) = debug_line {
-                                        let uniforms = ParticleUniforms {
-                                            // position: [start.x, start.y, start.z],
-                                            position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
-                                            // _pad0: 0.0,
-                                            time: 0.0,
-                                            emission_rate: spawn.emission_rate,
-                                            life_time: spawn.life_time,
-                                            radius: spawn.radius,
-                                            gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
-                                            // _pad1: 0.0,
-                                            initial_speed_min: spawn.initial_speed_min,
-                                            initial_speed_max: spawn.initial_speed_max,
-                                            start_color: spawn.start_color,
-                                            end_color: spawn.end_color,
-                                            size: spawn.size,
-                                            mode: spawn.mode,
-                                            target_position: [end.x, end.y, end.z, 0.0],
-                                            _pad2: [0.0; 4],
-                                        };
-
-                                        println!("inserting particles {:?}", uniforms);
-                                        
-                                        let system = ParticleSystem::new(
-                                            &gpu_resources.device,
-                                            &state.camera_binding.as_ref().unwrap().bind_group_layout,
-                                            uniforms,
-                                            500,
-                                            wgpu::TextureFormat::Rgba8Unorm, // Hardcoded swapchain format
-                                        );
-                                        
-                                        renderer_state.particle_systems.push(system);
-                                    } else {
-                                        // ([spawn.position.x, spawn.position.y, spawn.position.z], [spawn.position.x + 10.0, spawn.position.y, spawn.position.z + 10.0])
-                                        // would rather nothing happen if no hit
-                                    };
-                                }
-                            }
-                        }
-
-                        println!("particle_systems {:?}", renderer_state.particle_systems.len());
-
-                        // Handle debug hitscan line
-                        if renderer_state.game_settings.show_hitscan_line {
-                            println!("Aiming at enemy... {:?}", debug_line);
-                            if let Some((start, end)) = debug_line {
-                                let gpu_resources = state.gpu_resources.as_ref().expect("GPU resources missing");
-                                let mut debug_cube = Cube::new(
-                                    &gpu_resources.device,
-                                    &gpu_resources.queue,
-                                    &renderer_state.model_bind_group_layout,
-                                    &renderer_state.group_bind_group_layout,
-                                    &renderer_state.texture_render_mode_buffer,
-                                    camera,
-                                );
-
-                                let dir = (end - start).normalize();
-                                // Start a bit in front of the camera to avoid near plane clipping
-                                let offset_start = start + dir * 0.5;
-                                let length = nalgebra::distance(&offset_start, &end);
-                                
-                                // Check if target is behind the offset start (too close)
-                                if length > 0.0 && (end - start).dot(&dir) > 0.5 {
-                                    let scale = 0.02;
-
-                                    let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
-                                    
-                                    // Center the cube on the ray (cube is 0..1 in X/Y, we want -0.5..0.5)
-                                    // We rotate the offset vector
-                                    let center_offset = rotation * Vector3::new(scale * 0.5, scale * 0.5, 0.0);
-                                    let draw_pos = offset_start - center_offset;
-
-                                    debug_cube.transform.update_position([draw_pos.x, draw_pos.y, draw_pos.z]);
-                                    debug_cube.transform.update_scale([scale, scale, length]);
-                                    
-                                    debug_cube.transform.update_rotation_quat([
-                                        rotation.coords.x,
-                                        rotation.coords.y,
-                                        rotation.coords.z,
-                                        rotation.coords.w,
-                                    ]);
-                                    
-                                    debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
-                                    
-                                    renderer_state.debug_rays.push(DebugRay {
-                                        cube: debug_cube,
-                                        expires_at: Instant::now() + Duration::from_millis(500),
-                                    });
-                                }
-                            }
-                        }
-
-                        println!("Left mouse button pressed - Player Attack!");
-                    }
+                    player_character.is_firing = true;
+                    println!("Left mouse button pressed - Player Firing Start");
                 }
             }
             EntropyMouseButton::Right => {
@@ -637,6 +500,12 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         }
     } else if renderer_state.game_mode && element_state == EntropyElementState::Released {
          match button {
+            EntropyMouseButton::Left => {
+                if let Some(player_character) = &mut renderer_state.player_character {
+                    player_character.is_firing = false;
+                    println!("Left mouse button released - Player Firing Stop");
+                }
+            }
             EntropyMouseButton::Right => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     // release defend if needed for melee weapon

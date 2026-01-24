@@ -46,6 +46,14 @@ pub enum CollectableType {
     Armor
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub enum FireType {
+    #[default]
+    Manual,
+    SemiAutomatic,
+    Automatic,
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub enum LandscapeTextureKinds {
     Primary,
@@ -127,6 +135,8 @@ pub struct CollectableProperties {
     pub stat_id: Option<String>, 
     pub ammo: Option<u32>,
     pub max_ammo: Option<u32>,
+    pub fire_type: Option<FireType>,
+    pub fire_rate: Option<f32>, 
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

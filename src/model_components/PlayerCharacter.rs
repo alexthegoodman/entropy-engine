@@ -87,6 +87,8 @@ pub struct PlayerCharacter {
     pub attack_stats: AttackStats,
     pub attack_timer: Instant,
     pub is_defending: bool,
+    pub is_firing: bool,
+    pub has_fired_this_press: bool,
     pub inventory: Inventory,
 
     pub default_weapon: Option<ComponentData>,
@@ -206,6 +208,8 @@ impl PlayerCharacter {
             },
             attack_timer: Instant::now(),
             is_defending: false,
+            is_firing: false,
+            has_fired_this_press: false,
             inventory,
             default_weapon,
             animation_state: AnimationState::new(0),
@@ -249,7 +253,18 @@ impl PlayerCharacter {
         npcs: &mut Vec<NPC>,
         camera: &SimpleCamera,
     ) -> (Option<String>, Option<(Point3<f32>, Point3<f32>)>) {
-        if self.attack_timer.elapsed().as_secs_f32() < self.attack_stats.cooldown {
+        let mut cooldown = self.attack_stats.cooldown;
+        if let Some(weapon) = &self.inventory.equipped_weapon {
+            if let Some(props) = &weapon.collectable_properties {
+                if let Some(rate) = props.fire_rate {
+                    if rate > 0.0 {
+                        cooldown = 1.0 / rate;
+                    }
+                }
+            }
+        }
+
+        if self.attack_timer.elapsed().as_secs_f32() < cooldown {
             return (None, None); // Attack is on cooldown
         }
 

@@ -833,7 +833,9 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 collectable_type: Some(collectable_type.clone()),
                                 stat_id: Some(related_stat.id.clone()),
                                 ammo: None,
-                                max_ammo: None
+                                max_ammo: None,
+                                fire_type: None,
+                                fire_rate: None
                             };
 
                             let renderer_state = editor.renderer_state.as_mut().unwrap();
