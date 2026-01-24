@@ -775,6 +775,7 @@ impl RendererState {
         }
 
         // Now process all updates without borrowing rigid_body_set
+        let mut alert_positions = Vec::new();
         for (component_id, position, euler) in physics_updates {
             // Update models
             if let Some(instance_model_data) = self
@@ -997,13 +998,13 @@ impl RendererState {
                                                         crate::game_behaviors::stateful::CombatType::Melee => {
                                                             if behavior.melee_behavior.is_some() {
                                                                 behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Melee;
-                                                                self.alert_nearby_npcs(npc_pos, 30.0);
+                                                                alert_positions.push((npc_pos, 30.0));
                                                             }
                                                         },
                                                         crate::game_behaviors::stateful::CombatType::Ranged => {
                                                             if behavior.ranged_behavior.is_some() {
                                                                 behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Ranged;
-                                                                self.alert_nearby_npcs(npc_pos, 30.0);
+                                                                alert_positions.push((npc_pos, 30.0));
                                                             }
                                                         }
                                                     }
@@ -1044,7 +1045,7 @@ impl RendererState {
                                 if just_spotted {
                                     let npc_pos = Vector3::new(position.x, position.y, position.z);
                                     // Alert nearby NPCs within 30 units
-                                    self.alert_nearby_npcs(npc_pos, 30.0);
+                                    alert_positions.push((npc_pos, 30.0));
                                 }
 
                                 if let Some((damage, debug_line)) = result {
@@ -1147,6 +1148,11 @@ impl RendererState {
             //         .transform
             //         .update_rotation([euler.0, euler.1, euler.2]);
             // }
+        }
+
+        // Process deferred alerts
+        for (alert_pos, radius) in alert_positions {
+            self.alert_nearby_npcs(alert_pos, radius);
         }
 
         // Collect matching indices only
