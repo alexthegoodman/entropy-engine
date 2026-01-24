@@ -408,7 +408,9 @@ impl RendererState {
             if npc.is_dead { continue; }
             
             if let Some(rb) = self.rigid_body_set.get(npc.rigid_body_handle) {
-                let npc_pos = rb.translation().vector;
+                let npc_pos = rb.translation();
+                let npc_pos = Vector3::new(npc_pos.x, npc_pos.y, npc_pos.z);
+
                 let dist = (npc_pos - position).magnitude();
                 
                 if dist <= radius {
