@@ -50,9 +50,9 @@ impl NPCBehavior {
         current_stamina: f32,
         dt: f32,
         forward_axis: Vector3<f32>,
-    ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
+    ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) {
         match self {
-            NPCBehavior::Melee(behavior) => behavior.update(
+            NPCBehavior::Melee(behavior) => (behavior.update(
                 rigid_body_set,
                 collider_set,
                 query_pipeline,
@@ -63,8 +63,8 @@ impl NPCBehavior {
                 current_stamina,
                 dt,
                 forward_axis,
-            ).map(|damage| (damage, None)),
-            NPCBehavior::Ranged(behavior) => behavior.update(
+            ).map(|damage| (damage, None)), false),
+            NPCBehavior::Ranged(behavior) => (behavior.update(
                 rigid_body_set,
                 collider_set,
                 query_pipeline,
@@ -75,10 +75,10 @@ impl NPCBehavior {
                 current_stamina,
                 dt,
                 forward_axis,
-            ),
+            ), false),
             NPCBehavior::Wander(behavior) => {
                 behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt, forward_axis);
-                None
+                (None, false)
             },
             NPCBehavior::Stateful(behavior) => behavior.update(
                 rigid_body_set,
@@ -123,6 +123,8 @@ pub struct NPC {
     pub stats: CharacterStats,
     pub inventory: Inventory,
     pub is_talking: bool,
+    pub is_dead: bool,
+    pub suspicion: f32, // 0.0 to 1.0
     pub forward_axis: Vector3<f32>,
     pub debug_sphere: Option<Sphere>,
 }
@@ -173,6 +175,8 @@ impl NPC {
             },
             inventory: Inventory::new(),
             is_talking: false,
+            is_dead: false,
+            suspicion: 0.0,
             // forward_axis: Vector3::z(),
             forward_axis: Vector3::x(),
             debug_sphere: None,

@@ -1816,6 +1816,16 @@ impl ExportPipeline {
                     if let Some(id) = attacked_npc_id {
                         editor.current_enemy_target = Some(id.clone());
                         println!("Updated enemy target: {:?}", id);
+
+                        // Alert nearby NPCs when one is hit
+                        if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+                            if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+                                let alert_pos = rb.translation();
+                                let alert_pos = Vector3::new(alert_pos.x, alert_pos.y, alert_pos.z);
+
+                                renderer_state.alert_nearby_npcs(alert_pos, 40.0); // Slightly larger radius for being hit
+                            }
+                        }
                     }
 
                     // Execute Rhai on_attack scripts for the player

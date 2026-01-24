@@ -198,21 +198,29 @@ impl<'a> PipelineTabViewer<'a> {
         scale: Option<[f32; 3]>,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
-    struct SpawnNPCArgs {
-        #[serde(rename = "assetId")]
-        asset_id: String,
-        position: Option<[f32; 3]>,
-        rotation: Option<[f32; 3]>,
-        scale: Option<[f32; 3]>,
-        aggressiveness: Option<f32>,
-        combat_type: Option<String>,
-        wander_radius: Option<f32>,
-        wander_speed: Option<f32>,
-        detection_radius: Option<f32>,
-        damage: Option<f32>,
-        health: Option<f32>,
-    }
+#[derive(Deserialize)]
+struct SpawnNPCArgs {
+    pub asset_id: String,
+    pub position: Option<[f32; 3]>,
+    pub rotation: Option<[f32; 3]>,
+    pub scale: Option<[f32; 3]>,
+    pub aggressiveness: Option<f32>,
+    pub combat_type: Option<String>,
+    pub wander_radius: Option<f32>,
+    pub wander_speed: Option<f32>,
+    pub detection_radius: Option<f32>,
+    pub damage: Option<f32>,
+}
+
+#[derive(Deserialize)]
+struct SpawnNPCSwarmArgs {
+    pub asset_id: String,
+    pub center_position: [f32; 3],
+    pub count: u32,
+    pub swarm_radius: f32,
+    pub aggressiveness: Option<f32>,
+    pub combat_type: Option<String>,
+}
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct SaveScriptArgs {
@@ -1161,13 +1169,126 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     }
                                 }
                                 saved_state_clone = Some(saved_state.clone());
-                            }
-                        } else {
-                            println!("Asset not found for NPC: {}", args.asset_id);
                         }
+                    } else {
+                        println!("Asset not found for NPC: {}", args.asset_id);
                     }
+                }
             //     }
             // }
+        }
+    } else if tool_call.function.name == "spawnNPCSwarm" {
+        println!("Spawning NPC Swarm...");
+        let args: Result<SpawnNPCSwarmArgs, _> = serde_json::from_str(&tool_call.function.arguments);
+        if let Ok(args) = args {
+            if let Some(editor) = &mut self.context.export_editor {
+                let project_id = project_id.as_ref().expect("Couldn't get project id");
+                let mut asset_file_name = String::new();
+
+                if let Some(saved_state) = editor.saved_state.as_ref() {
+                    if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                        asset_file_name = model.fileName.clone();
+                    }
+                }
+
+                if !asset_file_name.is_empty() {
+                    let count = args.count;
+                    let center = args.center_position;
+                    let radius = args.swarm_radius;
+
+                    for i in 0..count {
+                        let angle = (i as f32 / count as f32) * 2.0 * std::f32::consts::PI;
+                        let mut pos = [
+                            center[0] + angle.cos() * radius,
+                            center[1],
+                            center[2] + angle.sin() * radius,
+                        ];
+
+                        // Auto-calculate height from landscape
+                        if let Some(renderer_state) = editor.renderer_state.as_ref() {
+                            if let Some(landscape) = renderer_state.landscapes.get(0) {
+                                if let Some(height) = landscape.get_height_at(pos[0], pos[2]) {
+                                    pos[1] = height;
+                                }
+                            }
+                        }
+
+                        let component_id = Uuid::new_v4().to_string();
+                        let model_iso = Isometry3::translation(pos[0], pos[1], pos[2]);
+                        let model_scale = Vector3::new(1.0, 1.0, 1.0);
+
+                        let combat_type = match args.combat_type.as_deref() {
+                            Some("Ranged") => CombatType::Ranged,
+                            _ => CombatType::Melee,
+                        };
+
+                        let behavior_config = BehaviorConfig {
+                            aggressiveness: args.aggressiveness.unwrap_or(0.8),
+                            combat_type,
+                            wander_radius: 15.0,
+                            wander_speed: 2.0,
+                            detection_radius: 20.0,
+                            melee_stats: Some(AttackStats {
+                                damage: 15.0,
+                                range: 2.0,
+                                cooldown: 1.0,
+                                wind_up_time: 0.3,
+                                recovery_time: 0.3,
+                            }),
+                            ranged_stats: None,
+                        };
+
+                        let renderer_state = editor.renderer_state.as_mut().unwrap();
+                        let gpu_resources = editor.gpu_resources.as_ref().unwrap();
+                        let camera = editor.camera.as_ref().unwrap();
+
+                        pollster::block_on(handle_add_npc(
+                            renderer_state,
+                            &gpu_resources.device,
+                            &gpu_resources.queue,
+                            project_id.clone(),
+                            args.asset_id.clone(),
+                            component_id.clone(),
+                            asset_file_name.clone(),
+                            model_iso,
+                            model_scale,
+                            camera,
+                            None,
+                            behavior_config.clone()
+                        ));
+
+                        // Update SavedState
+                        if let Some(saved_state) = editor.saved_state.as_mut() {
+                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                                let new_component = ComponentData {
+                                    id: component_id,
+                                    kind: Some(ComponentKind::NPC),
+                                    asset_id: args.asset_id.clone(),
+                                    generic_properties: GenericProperties {
+                                        name: format!("Swarm NPC {}", i),
+                                        position: pos,
+                                        ..Default::default()
+                                    },
+                                    npc_properties: Some(NPCProperties {
+                                        model_id: args.asset_id.clone(),
+                                        behavior: behavior_config,
+                                    }),
+                                    ..Default::default()
+                                };
+                                
+                                if let Some(components) = level.components.as_mut() {
+                                    components.push(new_component);
+                                } else {
+                                    level.components = Some(vec![new_component]);
+                                }
+                            }
+                        }
+                    }
+                    if let Some(saved_state) = editor.saved_state.as_ref() {
+                        saved_state_clone = Some(saved_state.clone());
+                    }
+                }
+            }
         }
     } else if tool_call.function.name == "saveScript" {
         println!("Saving script...");

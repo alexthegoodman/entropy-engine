@@ -68,6 +68,7 @@ Example Game:
 - Screen capture
 - Vector animations
 - Video export
+- Do level design via LLM powered chat
 - and more!
 
 ### TBD Features:

@@ -196,6 +196,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             if game_mode {
                 // Interaction
                 handle_npc_interaction(state);
+                handle_collectable_interaction(state);
             }
         }
     }
@@ -1170,6 +1171,42 @@ fn handle_npc_interaction(state: &mut Editor) {
         return;
     }
 
+    // Check if NPC is dead for looting
+    let mut loot_collected = false;
+    if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == target_id) {
+        if npc.is_dead {
+            if let Some(player) = &mut renderer_state.player_character {
+                // Transfer all items from NPC inventory to player
+                let items_to_transfer: Vec<_> = npc.inventory.items.drain(..).collect();
+                if !items_to_transfer.is_empty() {
+                    for item in items_to_transfer {
+                        println!("Looted item: {:?}", item.generic_properties.name);
+                        player.inventory.add_item(&item);
+                    }
+                    loot_collected = true;
+                } else {
+                    println!("NPC has no loot.");
+                }
+
+                // Also transfer equipped items if any
+                if let Some(weapon) = npc.inventory.equipped_weapon.take() {
+                    println!("Looted equipped weapon: {:?}", weapon.generic_properties.name);
+                    player.inventory.add_item(&weapon);
+                    loot_collected = true;
+                }
+                if let Some(armor) = npc.inventory.equipped_armor.take() {
+                    println!("Looted equipped armor: {:?}", armor.generic_properties.name);
+                    player.inventory.add_item(&armor);
+                    loot_collected = true;
+                }
+            }
+            if loot_collected {
+                println!("Looted NPC {:?}.", target_id);
+            }
+            return; // Don't start dialogue with dead NPC
+        }
+    }
+
     // println!("Running interact... {:?}", target_id);
     
     let mut target_script_path = None;
@@ -1209,6 +1246,78 @@ fn handle_npc_interaction(state: &mut Editor) {
             &script,
             "interact"
         );
+    }
+}
+
+fn handle_collectable_interaction(state: &mut Editor) {
+    let renderer_state = match state.renderer_state.as_mut() {
+        Some(rs) => rs,
+        None => return,
+    };
+    
+    let player = match &renderer_state.player_character {
+        Some(p) => p,
+        None => return,
+    };
+    
+    let player_handle = player.movement_rigid_body_handle.as_ref().expect("Couldn't get player rigidbody");
+    let player_pos = if let Some(rb) = renderer_state.rigid_body_set.get(*player_handle) {
+        rb.translation().clone()
+    } else {
+        return;
+    };
+
+    let mut pickup_id = None;
+    let mut collectable_index = None;
+
+    for (i, col) in renderer_state.collectables.iter().enumerate() {
+        if let Some(rb) = renderer_state.rigid_body_set.get(col.rigid_body_handle) {
+            let col_pos = rb.translation();
+            let dist = (col_pos - player_pos).magnitude();
+            if dist < 5.0 {
+                pickup_id = Some(col.id.clone());
+                collectable_index = Some(i);
+                break;
+            }
+        }
+    }
+
+    if let (Some(id), Some(index)) = (pickup_id, collectable_index) {
+        println!("Picking up collectable: {:?}", id);
+        
+        // Find ComponentData in saved_state
+        let mut component_data = None;
+        if let Some(saved_state) = &state.saved_state {
+            if let Some(levels) = &saved_state.levels {
+                if let Some(level) = levels.get(0) {
+                    if let Some(components) = &level.components {
+                        if let Some(comp) = components.iter().find(|c| c.id == id) {
+                            component_data = Some(comp.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Some(comp) = component_data {
+            if let Some(player) = &mut renderer_state.player_character {
+                player.inventory.add_item(&comp);
+                println!("Added {:?} to inventory.", comp.generic_properties.name);
+                
+                // Remove from world
+                let col = renderer_state.collectables.remove(index);
+                
+                // Remove physics
+                // renderer_state.collider_set.remove(col.rigid_body_handle, &mut renderer_state.rigid_body_set, &mut renderer_state.island_manager, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
+                // Wait, collider_set.remove takes ColliderHandle. rigid_body_handle is RigidBodyHandle.
+                
+                // Remove rigidbody (and its colliders)
+                renderer_state.rigid_body_set.remove(col.rigid_body_handle, &mut renderer_state.island_manager, &mut renderer_state.collider_set, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
+
+                // Remove model
+                renderer_state.models.retain(|m| m.id != col.model_id);
+            }
+        }
     }
 }
 

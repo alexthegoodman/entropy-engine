@@ -102,11 +102,11 @@ impl StatefulBehavior {
         current_stamina: f32,
         dt: f32,
         forward_axis: Vector3<f32>,
-    ) -> Option<(f32, Option<(Point3<f32>, Point3<f32>)>)> {
+    ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) { // Returns (CombatResult, just_spotted_player)
         let target_pos = if let Some(rb) = rigid_body_set.get(target_handle) {
             rb.translation().clone()
         } else {
-            return None;
+            return (None, false);
         };
         
         let distance_to_target = transform.position.metric_distance(&Vec3::new(
@@ -114,6 +114,8 @@ impl StatefulBehavior {
             target_pos.y,
             target_pos.z,
         ));
+
+        let mut just_spotted = false;
 
         // State transitions
         match self.current_state {
@@ -126,6 +128,7 @@ impl StatefulBehavior {
                             if self.melee_behavior.is_some() {
                                 self.current_state = BehaviorState::Melee;
                                 self.last_state_change = Instant::now();
+                                just_spotted = true;
                                 // println!("StatefulBehavior: Switching to Melee");
                             }
                         },
@@ -133,6 +136,7 @@ impl StatefulBehavior {
                             if self.ranged_behavior.is_some() {
                                 self.current_state = BehaviorState::Ranged;
                                 self.last_state_change = Instant::now();
+                                just_spotted = true;
                                 // println!("StatefulBehavior: Switching to Ranged");
                             }
                         }
@@ -153,7 +157,7 @@ impl StatefulBehavior {
         }
 
         // Execute current behavior
-        match self.current_state {
+        let result = match self.current_state {
             BehaviorState::Wander => {
                 self.wander_behavior.update(
                     rigid_body_set,
@@ -224,7 +228,9 @@ impl StatefulBehavior {
                     None
                 }
             },
-        }
+        };
+
+        (result, just_spotted)
     }
 
     pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {

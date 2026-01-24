@@ -402,6 +402,47 @@ impl RendererState {
         }
     }
 
+    pub fn alert_nearby_npcs(&mut self, position: Vector3<f32>, radius: f32) {
+        let mut alerted_count = 0;
+        for npc in &mut self.npcs {
+            if npc.is_dead { continue; }
+            
+            if let Some(rb) = self.rigid_body_set.get(npc.rigid_body_handle) {
+                let npc_pos = rb.translation().vector;
+                let dist = (npc_pos - position).magnitude();
+                
+                if dist <= radius {
+                    // Alert the NPC
+                    if let crate::model_components::NPC::NPCBehavior::Stateful(behavior) = &mut npc.test_behavior {
+                        // If it was wandering, make it aggressive
+                        if let crate::game_behaviors::stateful::BehaviorState::Wander = behavior.current_state {
+                             // Force state change to combat if aggressiveness allows
+                             if behavior.config.aggressiveness > 0.1 {
+                                 match behavior.config.combat_type {
+                                     crate::game_behaviors::stateful::CombatType::Melee => {
+                                         if behavior.melee_behavior.is_some() {
+                                             behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Melee;
+                                             alerted_count += 1;
+                                         }
+                                     },
+                                     crate::game_behaviors::stateful::CombatType::Ranged => {
+                                         if behavior.ranged_behavior.is_some() {
+                                             behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Ranged;
+                                             alerted_count += 1;
+                                         }
+                                     }
+                                 }
+                             }
+                        }
+                    }
+                }
+            }
+        }
+        if alerted_count > 0 {
+            println!("Swarm Alert: {} NPCs alerted!", alerted_count);
+        }
+    }
+
     pub fn set_mouse_position(&mut self, new_position: EntropyPosition) {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
@@ -899,8 +940,89 @@ impl RendererState {
                                 }
                             }
 
-                            if !instance_npc_data.is_talking {
-                                let result = instance_npc_data.test_behavior.update(
+                            // Check for death
+                            if instance_npc_data.stats.health <= 0.0 && !instance_npc_data.is_dead {
+                                instance_npc_data.is_dead = true;
+                                println!("NPC {:?} has died!", instance_npc_data.id);
+                                
+                                // Disable collision with player but keep it for ground/interaction?
+                                // For now, just let it be.
+                            }
+
+                            // Stealth and Suspicion Logic
+                            if !instance_npc_data.is_dead {
+                                if let crate::model_components::NPC::NPCBehavior::Stateful(behavior) = &mut instance_npc_data.test_behavior {
+                                    if let crate::game_behaviors::stateful::BehaviorState::Wander = behavior.current_state {
+                                        let player_handle = player_character.movement_rigid_body_handle.expect("No player handle");
+                                        let player_rb = self.rigid_body_set.get(player_handle).expect("No player rb");
+                                        let player_translation = player_rb.translation();
+                                        let player_translation = Vector3::new(player_translation.x, player_translation.y, player_translation.z);
+
+                                        let npc_pos = position; // current NPC position from physics (Vector3)
+                                        let dist = nalgebra::distance(&Point3::from(npc_pos), &Point3::from(player_translation));
+
+                                        if dist <= behavior.config.detection_radius {
+                                            // Check Line of Sight
+                                            let ray_dir = (player_translation - npc_pos).normalize();
+                                            let ray = Ray::new(Point3::from(npc_pos + ray_dir * 1.0), ray_dir);
+                                            
+                                            let mut filter = QueryFilter::default().exclude_rigid_body(first_mesh.rigid_body_handle.unwrap());
+                                            
+                                            let mut has_los = false;
+                                            if let Some((handle, toi)) = self.query_pipeline.cast_ray(
+                                                &self.rigid_body_set,
+                                                &self.collider_set,
+                                                &ray,
+                                                dist,
+                                                true,
+                                                filter
+                                            ) {
+                                                if let Some(collider) = self.collider_set.get(handle) {
+                                                    if collider.parent() == Some(player_handle) {
+                                                        has_los = true;
+                                                    }
+                                                }
+                                            }
+
+                                            if has_los {
+                                                // Increase suspicion based on distance (closer = faster)
+                                                let suspicion_gain = (1.0 - (dist / behavior.config.detection_radius)) * dt * 2.0;
+                                                instance_npc_data.suspicion = (instance_npc_data.suspicion + suspicion_gain).min(1.0);
+                                                
+                                                if instance_npc_data.suspicion >= 1.0 {
+                                                    // Spotted!
+                                                    match behavior.config.combat_type {
+                                                        crate::game_behaviors::stateful::CombatType::Melee => {
+                                                            if behavior.melee_behavior.is_some() {
+                                                                behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Melee;
+                                                                self.alert_nearby_npcs(npc_pos, 30.0);
+                                                            }
+                                                        },
+                                                        crate::game_behaviors::stateful::CombatType::Ranged => {
+                                                            if behavior.ranged_behavior.is_some() {
+                                                                behavior.current_state = crate::game_behaviors::stateful::BehaviorState::Ranged;
+                                                                self.alert_nearby_npcs(npc_pos, 30.0);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                // Decay suspicion if out of sight
+                                                instance_npc_data.suspicion = (instance_npc_data.suspicion - dt * 0.5).max(0.0);
+                                            }
+                                        } else {
+                                             // Decay suspicion if out of range
+                                             instance_npc_data.suspicion = (instance_npc_data.suspicion - dt * 0.2).max(0.0);
+                                        }
+                                    } else {
+                                        // In combat, suspicion is effectively 1.0
+                                        instance_npc_data.suspicion = 1.0;
+                                    }
+                                }
+                            }
+
+                            if !instance_npc_data.is_talking && !instance_npc_data.is_dead {
+                                let (result, just_spotted) = instance_npc_data.test_behavior.update(
                                     &mut self.rigid_body_set,
                                     &self.collider_set,
                                     &self.query_pipeline,
@@ -916,6 +1038,12 @@ impl RendererState {
                                     dt,
                                     instance_npc_data.forward_axis,
                                 );
+
+                                if just_spotted {
+                                    let npc_pos = Vector3::new(position.x, position.y, position.z);
+                                    // Alert nearby NPCs within 30 units
+                                    self.alert_nearby_npcs(npc_pos, 30.0);
+                                }
 
                                 if let Some((damage, debug_line)) = result {
                                     if damage > 0.0 {
@@ -958,15 +1086,36 @@ impl RendererState {
                                 }
                             }
 
-                            let desired_animation_name = instance_npc_data.test_behavior.get_animation_name();
+                            let desired_animation_name = if instance_npc_data.is_dead {
+                                "Death"
+                            } else {
+                                instance_npc_data.test_behavior.get_animation_name()
+                            };
 
                             // Find the animation index in the model
-                            if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.contains(desired_animation_name)) {
+                            if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.to_lowercase().contains(&desired_animation_name.to_lowercase())) {
                                 // If the animation is not already playing, switch to it
                                 if instance_npc_data.animation_state.animation_index != animation_index {
                                     instance_npc_data.animation_state.animation_index = animation_index;
                                     instance_npc_data.animation_state.current_time = 0.0; // Reset time
                                 }
+                            }
+
+                            // Update debug spheres with suspicion color
+                            if let Some(sphere) = &mut instance_npc_data.debug_sphere {
+                                let color = if instance_npc_data.is_dead {
+                                    [0.2, 0.2, 0.2] // Grey for dead
+                                } else {
+                                    // Interpolate Green -> Yellow -> Red
+                                    if instance_npc_data.suspicion < 0.5 {
+                                        let t = instance_npc_data.suspicion * 2.0;
+                                        [t, 1.0, 0.0] // Green to Yellow
+                                    } else {
+                                        let t = (instance_npc_data.suspicion - 0.5) * 2.0;
+                                        [1.0, 1.0 - t, 0.0] // Yellow to Red
+                                    }
+                                };
+                                sphere.update_color(queue, 1.0, 16, 16, color);
                             }
                         }
                     }
