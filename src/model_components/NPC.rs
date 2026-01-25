@@ -50,6 +50,7 @@ impl NPCBehavior {
         current_stamina: f32,
         dt: f32,
         forward_axis: Vector3<f32>,
+        squad_leader_pos: Option<Point3<f32>>,
     ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) {
         match self {
             NPCBehavior::Melee(behavior) => (behavior.update(
@@ -91,6 +92,7 @@ impl NPCBehavior {
                 current_stamina,
                 dt,
                 forward_axis,
+                squad_leader_pos,
             ),
         }
     }
@@ -124,40 +126,17 @@ pub struct NPC {
     pub inventory: Inventory,
     pub is_talking: bool,
     pub is_dead: bool,
+    pub on_death_dropped: bool,
     pub suspicion: f32, // 0.0 to 1.0
+    pub squad_id: Option<String>,
+    pub is_squad_leader: bool,
     pub forward_axis: Vector3<f32>,
     pub debug_sphere: Option<Sphere>,
 }
 
 impl NPC {
-    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig) -> Self {
+    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig, squad_id: Option<String>) -> Self {
         // Default to a Stateful behavior
-        // let melee_stats = AttackStats {
-        //     damage: 15.0,
-        //     range: 3.0,
-        //     cooldown: 0.4,
-        //     wind_up_time: 0.1,
-        //     recovery_time: 0.3,
-        // };
-
-        // let ranged_stats = AttackStats {
-        //     damage: 10.0,
-        //     range: 18.0,
-        //     cooldown: 0.2,
-        //     wind_up_time: 0.1,
-        //     recovery_time: 0.1,
-        // };
-
-        // let config = BehaviorConfig {
-        //     aggressiveness: 0.8, // Fairly aggressive
-        //     combat_type: CombatType::Melee, // Default to melee
-        //     wander_radius: 12.0,
-        //     wander_speed: 100.0,
-        //     detection_radius: 15.0,
-        //     melee_stats: Some(melee_stats),
-        //     ranged_stats: Some(ranged_stats),
-        // };
-
         let stateful_behavior = StatefulBehavior::new(behavior_config);
         let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
@@ -176,7 +155,10 @@ impl NPC {
             inventory: Inventory::new(),
             is_talking: false,
             is_dead: false,
+            on_death_dropped: false,
             suspicion: 0.0,
+            squad_id,
+            is_squad_leader: false,
             // forward_axis: Vector3::z(),
             forward_axis: Vector3::x(),
             debug_sphere: None,

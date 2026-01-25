@@ -204,6 +204,7 @@ pub struct RendererState {
     pub display_debug_spheres: bool,
 
     pub quest_state: QuestState,
+    pub pending_loot_drops: Vec<(Vector3<f32>, ComponentData)>,
 }
 
 // impl<'a> RendererState<'a> {
@@ -398,7 +399,8 @@ impl RendererState {
             gizmo,
             display_debug_spheres: true,
             quest_state: QuestState::new(),
-            last_mouse_delta: (0.0, 0.0)
+            last_mouse_delta: (0.0, 0.0),
+            pending_loot_drops: Vec::new(),
         }
     }
 
@@ -581,6 +583,21 @@ impl RendererState {
             })
             .collect();
 
+        // Map squad leaders positions
+        let mut squad_leaders: HashMap<String, Point3<f32>> = HashMap::new();
+        for npc in &self.npcs {
+            if npc.is_dead { continue; }
+            if let Some(squad_id) = &npc.squad_id {
+                // First living NPC in squad becomes the leader for this frame if not already set
+                if !squad_leaders.contains_key(squad_id) {
+                    if let Some(rb) = self.rigid_body_set.get(npc.rigid_body_handle) {
+                        let pos = rb.translation();
+                        squad_leaders.insert(squad_id.clone(), Point3::new(pos.x, pos.y, pos.z));
+                    }
+                }
+            }
+        }
+
         let physics_update_duration = physics_update_time.elapsed();
 
         let physics_update_time = Instant::now();
@@ -633,6 +650,10 @@ impl RendererState {
                             // 3. Clamp Pitch to prevent the camera from flipping over
                             // 1.55 radians is approximately 89 degrees
                             self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
+
+                            // --- Apply Recoil ---
+                            let applied_pitch = self.camera_pitch + player_character.recoil_offset.y.to_radians();
+                            let applied_yaw = self.camera_yaw + player_character.recoil_offset.x.to_radians();
                             
                             // You should update self.last_mouse_position *after* calculating delta, 
                             // typically in your event loop, but often set here for simplicity if needed.
@@ -644,13 +665,13 @@ impl RendererState {
                             // --- Calculate New Camera Position using Spherical Coordinates ---
 
                             // Calculate horizontal component of the offset (projection onto XZ plane)
-                            let horizontal_distance = radius * self.camera_pitch.cos();
+                            let horizontal_distance = radius * applied_pitch.cos();
 
                             // Calculate the offsets
                             // Note: Assuming your Y-axis is UP (standard for many game engines)
-                            let x_offset = horizontal_distance * self.camera_yaw.sin();
-                            let y_offset = radius * self.camera_pitch.sin();
-                            let z_offset = horizontal_distance * self.camera_yaw.cos(); 
+                            let x_offset = horizontal_distance * applied_yaw.sin();
+                            let y_offset = radius * applied_pitch.sin();
+                            let z_offset = horizontal_distance * applied_yaw.cos(); 
 
                             // Create the new camera position (Point3 from nalgebra)
                             // The offsets are added to the player's position
@@ -729,12 +750,16 @@ impl RendererState {
                             // Clamp Pitch to prevent camera flipping
                             self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
 
+                            // --- Apply Recoil ---
+                            let applied_pitch = self.camera_pitch + player_character.recoil_offset.y.to_radians();
+                            let applied_yaw = self.camera_yaw + player_character.recoil_offset.x.to_radians();
+
                             // --- Calculate look direction from yaw and pitch ---
                             // Convert spherical angles to a direction vector
                             let direction = Vector3::new(
-                                self.camera_yaw.cos() * self.camera_pitch.cos(),
-                                self.camera_pitch.sin(),
-                                self.camera_yaw.sin() * self.camera_pitch.cos()
+                                applied_yaw.cos() * applied_pitch.cos(),
+                                applied_pitch.sin(),
+                                applied_yaw.sin() * applied_pitch.cos()
                             ).normalize();
 
                             // let in_front = direction * 0.25;
@@ -947,9 +972,27 @@ impl RendererState {
                             if instance_npc_data.stats.health <= 0.0 && !instance_npc_data.is_dead {
                                 instance_npc_data.is_dead = true;
                                 println!("NPC {:?} has died!", instance_npc_data.id);
+                            }
+
+                            if instance_npc_data.is_dead && !instance_npc_data.on_death_dropped {
+                                // Drop inventory items
+                                let npc_pos = Vector3::new(position.x, position.y, position.z);
                                 
-                                // Disable collision with player but keep it for ground/interaction?
-                                // For now, just let it be.
+                                // Transfer all items from NPC inventory to pending drops
+                                let items_to_drop: Vec<_> = instance_npc_data.inventory.items.drain(..).collect();
+                                for item in items_to_drop {
+                                    self.pending_loot_drops.push((npc_pos, item));
+                                }
+
+                                if let Some(weapon) = instance_npc_data.inventory.equipped_weapon.take() {
+                                    self.pending_loot_drops.push((npc_pos, weapon));
+                                }
+                                if let Some(armor) = instance_npc_data.inventory.equipped_armor.take() {
+                                    self.pending_loot_drops.push((npc_pos, armor));
+                                }
+
+                                instance_npc_data.on_death_dropped = true;
+                                println!("NPC {:?} dropped loot at {:?}", instance_npc_data.id, npc_pos);
                             }
 
                             // Stealth and Suspicion Logic
@@ -1025,6 +1068,23 @@ impl RendererState {
                             }
 
                             if !instance_npc_data.is_talking && !instance_npc_data.is_dead {
+                                let squad_leader_pos = if let Some(squad_id) = &instance_npc_data.squad_id {
+                                    squad_leaders.get(squad_id).map(|pos| *pos)
+                                } else {
+                                    None
+                                };
+
+                                // Don't follow yourself if you are the current leader in the map
+                                let squad_leader_pos = if let Some(leader_pos) = squad_leader_pos {
+                                    if nalgebra::distance(&Point3::from(position), &leader_pos) < 0.1 {
+                                        None
+                                    } else {
+                                        Some(leader_pos)
+                                    }
+                                } else {
+                                    None
+                                };
+
                                 let (result, just_spotted) = instance_npc_data.test_behavior.update(
                                     &mut self.rigid_body_set,
                                     &self.collider_set,
@@ -1040,6 +1100,7 @@ impl RendererState {
                                     instance_npc_data.stats.stamina, // Use NPC's actual stamina
                                     dt,
                                     instance_npc_data.forward_axis,
+                                    squad_leader_pos,
                                 );
 
                                 if just_spotted {

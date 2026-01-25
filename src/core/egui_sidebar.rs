@@ -1123,6 +1123,12 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 ranged_stats: if combat_type == CombatType::Ranged { attack_stats } else { None },
                             };
 
+                            let npc_props = NPCProperties {
+                                model_id: args.asset_id.clone(),
+                                behavior: behavior_config.clone(),
+                                squad_id: None
+                            };
+
                             let renderer_state = editor.renderer_state.as_mut().unwrap();
                             let gpu_resources = editor.gpu_resources.as_ref().unwrap();
                             let camera = editor.camera.as_ref().unwrap();
@@ -1139,7 +1145,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 model_scale,
                                 camera,
                                 None, // Script state
-                                behavior_config.clone()
+                                &npc_props
                             ));
 
                             // Update SavedState
@@ -1155,10 +1161,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                             rotation: rot,
                                             scale: scale,
                                         },
-                                        npc_properties: Some(NPCProperties {
-                                            model_id: args.asset_id,
-                                            behavior: behavior_config,
-                                        }),
+                                        npc_properties: Some(npc_props),
                                         ..Default::default()
                                     };
                                     
@@ -1238,6 +1241,12 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             ranged_stats: None,
                         };
 
+                        let npc_props = NPCProperties {
+                            model_id: args.asset_id.clone(),
+                            behavior: behavior_config.clone(),
+                            squad_id: None
+                        };
+
                         let renderer_state = editor.renderer_state.as_mut().unwrap();
                         let gpu_resources = editor.gpu_resources.as_ref().unwrap();
                         let camera = editor.camera.as_ref().unwrap();
@@ -1254,7 +1263,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             model_scale,
                             camera,
                             None,
-                            behavior_config.clone()
+                            &npc_props
                         ));
 
                         // Update SavedState
@@ -1269,10 +1278,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                         position: pos,
                                         ..Default::default()
                                     },
-                                    npc_properties: Some(NPCProperties {
-                                        model_id: args.asset_id.clone(),
-                                        behavior: behavior_config,
-                                    }),
+                                    npc_properties: Some(npc_props),
                                     ..Default::default()
                                 };
                                 

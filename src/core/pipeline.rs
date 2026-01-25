@@ -1695,6 +1695,60 @@ impl ExportPipeline {
     pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
+        
+        // Process pending loot drops
+        if !renderer_state.pending_loot_drops.is_empty() {
+            let loot_drops: Vec<_> = renderer_state.pending_loot_drops.drain(..).collect();
+            let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get gpu resources");
+            let project_id = editor.project_id.clone();
+            let camera = editor.camera.as_ref().expect("Couldn't get camera").clone();
+
+            for (pos, item) in loot_drops {
+                let mut item_comp = item.clone();
+                // Ensure unique ID for the world instance
+                item_comp.id = Uuid::new_v4().to_string();
+                
+                let isometry = Isometry3::translation(pos.x, pos.y, pos.z);
+                let scale = Vector3::new(
+                    item.generic_properties.scale[0],
+                    item.generic_properties.scale[1],
+                    item.generic_properties.scale[2]
+                );
+
+                // Find related stat
+                let dummy_stat = crate::helpers::saved_data::StatData::default();
+                let stat_id = item.collectable_properties.as_ref().and_then(|p| p.stat_id.clone());
+                let related_stat = if let Some(sid) = stat_id {
+                    editor.saved_state.as_ref()
+                        .and_then(|s| s.stats.as_ref())
+                        .and_then(|stats| stats.iter().find(|s| s.id == sid))
+                        .unwrap_or(&dummy_stat)
+                } else {
+                    &dummy_stat
+                };
+
+                pollster::block_on(crate::handlers::handle_add_collectable(
+                    renderer_state,
+                    &gpu_resources.device,
+                    &gpu_resources.queue,
+                    project_id.clone(),
+                    item.asset_id.clone(),
+                    item_comp.id.clone(),
+                    item.asset_id.clone(), // filename assumed to be asset_id for now if not specified? 
+                    // Actually handle_add_collectable uses modelFilename. 
+                    // Let's assume asset_id is the filename if modelFilename not in ComponentData
+                    // item.asset_id.clone(),
+                    isometry,
+                    scale,
+                    &camera,
+                    item.collectable_properties.as_ref().expect("No collectable properties"),
+                    related_stat,
+                    false, // hide_in_world
+                    item.script_state.clone()
+                ));
+            }
+        }
+
         let gpu_resources = self
             .gpu_resources
             .as_ref()

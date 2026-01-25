@@ -100,6 +100,9 @@ pub struct PlayerCharacter {
     pub is_grounded: bool,
     pub is_aiming: bool,
     pub aim_factor: f32,
+
+    pub recoil_offset: Vector3<f32>, // (pitch, yaw, 0)
+    pub recoil_velocity: Vector3<f32>,
 }
 
 impl PlayerCharacter {
@@ -218,6 +221,8 @@ impl PlayerCharacter {
             is_grounded: false,
             is_aiming: false,
             aim_factor: 0.0,
+            recoil_offset: Vector3::zeros(),
+            recoil_velocity: Vector3::zeros(),
         }
     }
 
@@ -313,6 +318,15 @@ impl PlayerCharacter {
 
             // Reset the attack timer only if we actually shoot
             self.attack_timer = Instant::now();
+
+            // Apply recoil kick
+            let mut rng = rand::thread_rng();
+            use rand::Rng;
+            let intensity = 1.0;
+            let kick_up = 5.0 * intensity;
+            let kick_side = rng.gen_range(-2.0..2.0) * intensity;
+            self.recoil_velocity.y += kick_up;
+            self.recoil_velocity.x += kick_side;
 
             // Ranged Attack (Raycast)
             // Use camera direction as the attack direction
@@ -419,6 +433,14 @@ impl PlayerCharacter {
         let target = if self.is_aiming { 1.0 } else { 0.0 };
         self.aim_factor += (target - self.aim_factor) * aim_speed * dt;
         self.aim_factor = self.aim_factor.clamp(0.0, 1.0);
+
+        // Recoil recovery (Spring-damper model)
+        let stiffness = 150.0;
+        let damping = 15.0;
+        
+        let force = -stiffness * self.recoil_offset - damping * self.recoil_velocity;
+        self.recoil_velocity += force * dt;
+        self.recoil_offset += self.recoil_velocity * dt;
     }
 
     pub fn reload(&mut self) {

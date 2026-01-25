@@ -299,6 +299,8 @@ pub struct SelectedObject {
 // }
 
 pub struct Editor {
+    pub project_id: String, 
+
     // games
     pub renderer_state: Option<RendererState>,
 
@@ -466,6 +468,7 @@ impl Editor {
 
 
         Editor {
+            project_id: project_id.clone(),
             renderer_state: None,
             saved_state: None,
             rhai_engine: RhaiEngine::new(project_id.clone()),

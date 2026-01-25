@@ -143,6 +143,7 @@ pub struct CollectableProperties {
 pub struct NPCProperties {
     pub model_id: String,
     pub behavior: BehaviorConfig,
+    pub squad_id: Option<String>,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

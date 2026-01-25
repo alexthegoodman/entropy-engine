@@ -102,6 +102,7 @@ impl StatefulBehavior {
         current_stamina: f32,
         dt: f32,
         forward_axis: Vector3<f32>,
+        squad_leader_pos: Option<Point3<f32>>,
     ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) { // Returns (CombatResult, just_spotted_player)
         let target_pos = if let Some(rb) = rigid_body_set.get(target_handle) {
             rb.translation().clone()
@@ -159,6 +160,14 @@ impl StatefulBehavior {
         // Execute current behavior
         let result = match self.current_state {
             BehaviorState::Wander => {
+                if let Some(leader_pos) = squad_leader_pos {
+                    let dist_to_leader = nalgebra::distance(&transform.position.into(), &leader_pos);
+                    if dist_to_leader > 10.0 {
+                        // Move towards leader
+                        self.wander_behavior.set_target_position(Vector3::new(leader_pos.x, leader_pos.y, leader_pos.z));
+                    }
+                }
+
                 self.wander_behavior.update(
                     rigid_body_set,
                     collider_set,

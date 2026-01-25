@@ -503,7 +503,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                                 model_scale,
                                                 camera,
                                                 component.script_state.clone(),
-                                                npc_properties.behavior
+                                                npc_properties
                                             ).await;
                                         }
                                     }

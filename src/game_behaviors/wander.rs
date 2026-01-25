@@ -274,4 +274,9 @@ impl WanderBehavior {
     pub fn get_animation_name(&self) -> &str {
         return "Walking"
     }
+
+    pub fn set_target_position(&mut self, pos: Vector3<f32>) {
+        self.target_position = pos;
+        self.last_update = Instant::now();
+    }
 }

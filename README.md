@@ -96,8 +96,8 @@ Example Game:
 
 ### TBD Game Mechanics:
 
+- NPC Swarm Systems (we do have the ability to spawn multiple NPCs at once, but no real swarm combat)
 - Score / Experience Points + Levels
-- NPC Swarm Systems
 - Interactive Objects (physics-based)
 - Attachments
 - Skill Points
