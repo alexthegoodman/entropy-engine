@@ -69,6 +69,10 @@ Example Game:
 - Vector animations
 - Video export
 - Do level design via LLM powered chat
+- NPC Swarm Systems
+- Enemy looting
+- Procedural recoil for ranged weapons
+- Ranged weapon types (manual, semi-automatic, automatic)
 - and more!
 
 ### TBD Features:
@@ -96,7 +100,6 @@ Example Game:
 
 ### TBD Game Mechanics:
 
-- NPC Swarm Systems (we do have the ability to spawn multiple NPCs at once, but no real swarm combat)
 - Score / Experience Points + Levels
 - Interactive Objects (physics-based)
 - Attachments
