@@ -903,6 +903,7 @@ impl WindowState {
         window.set_ime_allowed(ime);
 
         let ctx = EguiContext::default();
+        crate::core::egui_theme::setup_custom_theme(&ctx);
         let mut state = EguiState::new(ctx.clone(), ctx.viewport_id(), &window, None, None, None);
         
         let size = window.inner_size();
