@@ -21,3 +21,4 @@ pub mod AnimationState;
 pub mod skinned_pipeline;
 pub mod egui_sidebar;
 pub mod scattered_model_pipeline;
+pub mod execute_tool_call;

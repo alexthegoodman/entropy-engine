@@ -87,7 +87,7 @@ Example Game:
 - Air based particle effects (ex. dust, smoke, rain)
 - Fire (light procedural grass on fire, it burns for 15 seconds)
 - River water (via maps) (currently only have ocean water)
-- Maps for procedural grass (determine where it exists, variations)
+- Maps for procedural grass or any scattered model (determine where it exists, variations)
 - Vehicles (cars, planes, helicopters, motorcycles, tanks, mechs)
 - Destruction
 - Dynamic clothe (not out-of-the-box with Rapier?)
@@ -142,3 +142,4 @@ Example Game:
 
 - Instant shareable live link of any game (via WASM) (with expiration and analytics)
 - Live collaboration
+- Crash telemetry?
