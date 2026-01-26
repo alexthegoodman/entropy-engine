@@ -11,6 +11,7 @@ use deno_core::{
     ModuleSpecifier,
     ascii_str,
     FsModuleLoader,
+    ModuleId,
 };
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -214,6 +215,7 @@ pub struct DenoEngine {
     runtime: JsRuntime,
     pub project_id: String,
     failed_scripts: HashSet<String>,
+    loaded_modules: HashMap<String, ModuleId>,
 }
 
 impl DenoEngine {
@@ -234,6 +236,7 @@ impl DenoEngine {
             runtime,
             project_id,
             failed_scripts: HashSet::new(),
+            loaded_modules: HashMap::new(),
         }
     }
 
@@ -340,19 +343,33 @@ impl DenoEngine {
             // Execute script
             let module_url = format!("file:///{}", script_str.replace("\"", "/"));
             
-            let future = async {
-                let module_specifier = ModuleSpecifier::parse(&module_url).map_err(|e| AnyError::from(e))?;
-                let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
-                let _ = self.runtime.mod_evaluate(module_id).await?;
-                let namespace = self.runtime.get_module_namespace(module_id)?;
-                Ok::<_, AnyError>(namespace)
+            let module_id = if let Some(&id) = self.loaded_modules.get(&module_url) {
+                id
+            } else {
+                let future = async {
+                    let module_specifier = ModuleSpecifier::parse(&module_url).map_err(|e| AnyError::from(e))?;
+                    let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
+                    let _ = self.runtime.mod_evaluate(module_id).await?;
+                    Ok::<_, AnyError>(module_id)
+                };
+                
+                match pollster::block_on(future) {
+                    Ok(id) => {
+                        self.loaded_modules.insert(module_url.clone(), id);
+                        id
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading script {}: {}", script_str, e);
+                        self.failed_scripts.insert(script_str);
+                        return None;
+                    }
+                }
             };
-            
-            let namespace = match pollster::block_on(future) {
+
+            let namespace = match self.runtime.get_module_namespace(module_id) {
                 Ok(n) => n,
                 Err(e) => {
-                    eprintln!("Error loading script {}: {}", script_str, e);
-                    self.failed_scripts.insert(script_str);
+                    eprintln!("Error getting namespace for {}: {}", script_str, e);
                     return None;
                 }
             };
@@ -471,19 +488,33 @@ impl DenoEngine {
             self.runtime.op_state().borrow_mut().put(context);
 
             let module_url = format!("file:///{}", script_str.replace("\"", "/"));
-             let future = async {
-                let module_specifier = ModuleSpecifier::parse(&module_url).map_err(|e| AnyError::from(e))?;
-                let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
-                let _ = self.runtime.mod_evaluate(module_id).await?;
-                let namespace = self.runtime.get_module_namespace(module_id)?;
-                Ok::<_, AnyError>(namespace)
+            let module_id = if let Some(&id) = self.loaded_modules.get(&module_url) {
+                id
+            } else {
+                let future = async {
+                    let module_specifier = ModuleSpecifier::parse(&module_url).map_err(|e| AnyError::from(e))?;
+                    let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
+                    let _ = self.runtime.mod_evaluate(module_id).await?;
+                    Ok::<_, AnyError>(module_id)
+                };
+                
+                match pollster::block_on(future) {
+                    Ok(id) => {
+                        self.loaded_modules.insert(module_url.clone(), id);
+                        id
+                    }
+                    Err(e) => {
+                        eprintln!("Error loading script {}: {}", script_str, e);
+                        self.failed_scripts.insert(script_str);
+                        return;
+                    }
+                }
             };
-            
-            let namespace = match pollster::block_on(future) {
+
+            let namespace = match self.runtime.get_module_namespace(module_id) {
                 Ok(n) => n,
                 Err(e) => {
-                    eprintln!("Error loading script {}: {}", script_str, e);
-                    self.failed_scripts.insert(script_str);
+                    eprintln!("Error getting namespace for {}: {}", script_str, e);
                     return;
                 }
             };

@@ -1,5 +1,5 @@
 export function on_update(player, system, state) {
-    let weapon_name = player.get_equipped_weapon_name();
+    let weapon_name = player.equipped_weapon_name;
     
     // Check if Fire Staff is equipped
     if (weapon_name.includes("Fire Staff") || weapon_name.includes("fire staff")) {
@@ -18,10 +18,10 @@ export function on_update(player, system, state) {
 }
 
 export function on_attack(player, system, state) {
-    let weapon_name = player.get_equipped_weapon_name();
+    let weapon_name = player.equipped_weapon_name;
     
     if (weapon_name.includes("Fire Staff") || weapon_name.includes("fire staff")) {
-        let pos = player.get_position();  // Returns {x, y, z}
+        let pos = player.position;  // Returns {x, y, z}
         println("Attack!");
 
         system.spawn_particles(

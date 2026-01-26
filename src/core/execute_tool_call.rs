@@ -1290,7 +1290,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     if let Some(components) = level.components.as_mut() {
                                         if let Some(component) = components.iter_mut().find(|c| c.id == *component_id) {
                                             // let script_path = format!("scripts/{}", args.filename);
-                                            component.ts_script_path = Some(args.filename.clone()); // already relative to scripts folder now
+                                            component.js_script_path = Some(args.filename.clone()); // already relative to scripts folder now
                                         }
                                     }
                                 }

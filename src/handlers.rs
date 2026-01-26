@@ -247,7 +247,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                                  if let Some(components) = &level.components {
                                      for comp in components {
                                          if comp.id == state.dialogue_state.current_npc_id {
-                                             if let Some(script) = &comp.ts_script_path {
+                                             if let Some(script) = &comp.js_script_path {
                                                  script_path = script.clone();
                                              }
                                          }
@@ -1223,7 +1223,7 @@ fn handle_npc_interaction(state: &mut Editor) {
                              if let ComponentKind::NPC = kind {
                                 //  if let Some(props) = &comp.npc_properties {
                                      if comp.id == target_id {
-                                         if let Some(script) = &comp.ts_script_path {
+                                         if let Some(script) = &comp.js_script_path {
                                              target_script_path = Some(script.clone());
                                              target_npc_name = comp.generic_properties.name.clone();
                                          }
