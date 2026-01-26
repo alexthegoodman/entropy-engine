@@ -962,7 +962,7 @@ impl WindowState {
                 .with_visible(false)
                 .with_custom_protocol("asset".into(), move |web_view_id, request| {
                     let path = request.uri().path();
-                    let path = if path == "/" || path.is_empty() { "lexical.html" } else { &path[1..] };
+                    let path = if path == "/" || path.is_empty() { "rte.html" } else { &path[1..] };
                     let content = std::fs::read(format!("public/{}", path)).unwrap_or_else(|_| {
                         "<html><body>Asset not found</body></html>".as_bytes().to_vec()
                     });
@@ -972,7 +972,7 @@ impl WindowState {
                         .body(content.into())
                         .unwrap()
                 })
-                .with_url("asset://localhost/lexical.html")
+                .with_url("asset://localhost/rte.html")
                 .with_ipc_handler(move |msg| {
                     let _ = tx.send(msg.body().to_string());
                 });
