@@ -1,4 +1,4 @@
-export function on_update(player: any, system: any, state: any) {
+export function on_update(player, system, state) {
     let weapon_name = player.get_equipped_weapon_name();
     
     // Check if Fire Staff is equipped
@@ -17,7 +17,7 @@ export function on_update(player: any, system: any, state: any) {
     return state;
 }
 
-export function on_attack(player: any, system: any, state: any) {
+export function on_attack(player, system, state) {
     let weapon_name = player.get_equipped_weapon_name();
     
     if (weapon_name.includes("Fire Staff") || weapon_name.includes("fire staff")) {

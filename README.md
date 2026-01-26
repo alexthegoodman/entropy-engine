@@ -57,7 +57,7 @@ Example Game:
 - Sprinting/Stamina
 - Magic particle effects (ex. fire from heavens, snow, etc)
 - Dialogue (integrates with UI and scripting)
-- TypeScript Scripting (replaced previous Rhai scripting to allow for NPM modules in a bundle and more powerful add-ons)
+- JavaScript Scripting (replaced previous Rhai scripting to allow for TS and NPM modules in a JS bundle and more powerful add-ons)
 - Aiming (with crosshair ui), ammo, and reloading
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos

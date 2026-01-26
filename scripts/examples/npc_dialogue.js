@@ -1,4 +1,4 @@
-export function interact(d: any) {
+export function interact(d) {
     let node = d.get_node();
 
     if (node === "" || node === "start") {
