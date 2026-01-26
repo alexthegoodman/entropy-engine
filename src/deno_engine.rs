@@ -165,23 +165,46 @@ fn op_dialogue_get_node(state: &mut OpState) -> String {
 }
 
 #[op2(fast)]
-#[string]
-fn op_print(#[string] msg: String) {
+fn op_println(
+    state: &mut OpState,
+    #[string] msg: String
+) -> Result<(), deno_error::JsErrorBox> {
     println!("[DENO] {}", msg);
+    Ok(())
 }
+
+// #[op2]
+// fn op_use_state(
+//   state: &mut OpState,
+//   #[global] callback: v8::Global<v8::Function>,
+// ) -> Result<(), deno_error::JsErrorBox> {
+//   state.put(callback);
+//   Ok(())
+// }
+
+// #[op2(fast)]
+// fn op_use_state(
+//   state: &mut OpState,
+// //   #[global] callback: v8::Global<v8::Function>,
+// #[string] msg: String
+// ) -> Result<(), deno_error::JsErrorBox> {
+// //   state.put(callback);
+// println!("[DENO]");
+//   Ok(())
+// }
 
 extension!(
     entropy_engine,
     ops = [
-        op_vec3,
-        op_vec4,
+        // op_vec3,
+        // op_vec4,
         op_system_spawn_particles,
         op_dialogue_show,
         op_dialogue_add_option,
         op_dialogue_start_quest,
         op_dialogue_close,
         op_dialogue_get_node,
-        op_print
+        op_println
     ],
     esm_entry_point = "ext:entropy_engine/setup.js",
     esm = [ dir "src", "setup.js" ],
@@ -196,10 +219,13 @@ pub struct DenoEngine {
 impl DenoEngine {
     pub fn new(project_id: String) -> Self {
         let loader = Rc::new(FsModuleLoader);
+        let ext = entropy_engine::init_ops_and_esm();
+        // let ext = entropy_engine::init_ops();
+        println!("ext {:?} {:?} {:?}", ext.enabled, ext.esm_entry_point, ext.esm_files);
         let mut runtime = JsRuntime::new(RuntimeOptions {
             module_loader: Some(loader),
             extensions: vec![
-                entropy_engine::init_ops_and_esm(),
+                ext,
             ],
             ..Default::default()
         });

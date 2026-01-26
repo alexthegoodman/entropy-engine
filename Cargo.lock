@@ -1241,6 +1241,7 @@ dependencies = [
  "chrono",
  "cursor-icon",
  "deno_core",
+ "deno_error",
  "device_query",
  "directories",
  "egui",

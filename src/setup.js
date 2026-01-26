@@ -26,4 +26,7 @@ globalThis._createDialogue = () => {
     };
 };
 
-globalThis.println = (msg) => ops.op_print(String(msg));
+globalThis.println = (msg) => ops.op_println(String(msg));
+
+// Add this export to satisfy V8
+export {};
