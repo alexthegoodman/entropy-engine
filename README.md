@@ -74,6 +74,7 @@ Example Game:
 - Enemy looting
 - Procedural recoil for ranged weapons
 - Ranged weapon types (manual, semi-automatic, automatic)
+- Wry webview embed for advanced rich text editing
 - and more!
 
 ### TBD Features:

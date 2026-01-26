@@ -2861,7 +2861,7 @@ impl ExportPipeline {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add_space(8.0);
-                    if ui.selectable_label(self.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Game Engine").clicked() {
+                    if ui.selectable_label(self.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
                         self.current_workspace = Workspace::GameEngine;
                     }
                     ui.add_space(8.0);
@@ -2869,7 +2869,7 @@ impl ExportPipeline {
                         self.current_workspace = Workspace::Sophia;
                     }
                     ui.add_space(8.0);
-                    if ui.selectable_label(self.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Video)").clicked() {
+                    if ui.selectable_label(self.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
                         self.current_workspace = Workspace::Stunts;
                     }
                     ui.add_space(8.0);
