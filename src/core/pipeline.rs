@@ -2905,9 +2905,18 @@ impl ExportPipeline {
             Workspace::CentralChat => &mut self.central_chat_dock_state,
         };
 
+        let sidebar_width = match self.current_workspace {
+            Workspace::GameEngine => 400.0,
+            Workspace::CentralChat => 800.0,
+            Workspace::Sophia => 800.0,
+            Workspace::Stunts => 400.0,
+            _ => 400.0
+        };
+
         egui::SidePanel::right("dock_sidebar")
             .resizable(true)
-            .default_width(400.0)
+            .default_width(sidebar_width)
+            .width_range(sidebar_width..=(sidebar_width + 400.0))
             .show(ctx, |ui| {
                 DockArea::new(active_dock_state)
                     .style(Style::from_egui(ctx.style().as_ref()))

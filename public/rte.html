@@ -4,32 +4,222 @@
     <meta charset="UTF-8">
     <title>RTE Editor</title>
     <style>
-        body { margin: 0; padding: 0; font-family: sans-serif; background-color: #1e1e1e; color: #d4d4d4; }
-        #editor-container { width: 100%; height: 100vh; overflow: auto; }
+        * { box-sizing: border-box; }
+        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background-color: #0d1117; color: #c9d1d9; }
+        
+        #toolbar {
+            background: #161b22;
+            border-bottom: 1px solid #30363d;
+            padding: 12px 16px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .toolbar-group {
+            display: flex;
+            gap: 4px;
+            padding: 0 8px;
+            border-right: 1px solid #30363d;
+        }
+        
+        .toolbar-group:last-child { border-right: none; }
+        
+        .toolbar-btn {
+            background: transparent;
+            border: 1px solid #30363d;
+            color: #c9d1d9;
+            padding: 6px 12px;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .toolbar-btn:hover {
+            background: #21262d;
+            border-color: #58a6ff;
+        }
+        
+        .toolbar-btn.active {
+            background: #1f6feb;
+            border-color: #1f6feb;
+            color: white;
+        }
+        
+        .toolbar-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        #editor-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 32px 16px;
+            min-height: calc(100vh - 60px);
+        }
+        
         .editor-input {
-            width: 100%;
-            min-height: 100%;
-            padding: 20px;
-            box-sizing: border-box;
+            background: #0d1117;
+            padding: 24px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
             outline: none;
             font-size: 16px;
-            line-height: 1.5;
+            line-height: 1.6;
+            min-height: 500px;
         }
+        
+        .editor-input:focus {
+            border-color: #58a6ff;
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.1);
+        }
+        
+        .ProseMirror { outline: none; }
+        .ProseMirror p { margin: 0 0 1em; }
+        .ProseMirror h1 { font-size: 2em; margin: 0.67em 0; font-weight: 600; }
+        .ProseMirror h2 { font-size: 1.5em; margin: 0.75em 0; font-weight: 600; }
+        .ProseMirror h3 { font-size: 1.25em; margin: 0.83em 0; font-weight: 600; }
+        .ProseMirror ul, .ProseMirror ol { padding-left: 1.5em; margin: 1em 0; }
+        .ProseMirror blockquote {
+            border-left: 3px solid #58a6ff;
+            padding-left: 1em;
+            margin: 1em 0;
+            color: #8b949e;
+            font-style: italic;
+        }
+        .ProseMirror code {
+            background: #161b22;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+            color: #ff7b72;
+        }
+        .ProseMirror pre {
+            background: #161b22;
+            padding: 16px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 1em 0;
+        }
+        .ProseMirror pre code {
+            background: none;
+            padding: 0;
+            color: #c9d1d9;
+        }
+        .ProseMirror hr {
+            border: none;
+            border-top: 1px solid #30363d;
+            margin: 2em 0;
+        }
+        .ProseMirror strong { font-weight: 600; }
+        .ProseMirror a { color: #58a6ff; text-decoration: none; }
+        .ProseMirror a:hover { text-decoration: underline; }
     </style>
 </head>
 <body>
+    <div id="toolbar"></div>
     <div id="editor-container">
-        <div id="tiptap-editor" class="editor-input" contenteditable="true"></div>
+        <div id="tiptap-editor" class="editor-input"></div>
     </div>
     <script type="module">
         import { Editor } from 'https://esm.sh/@tiptap/core'
         import StarterKit from 'https://esm.sh/@tiptap/starter-kit'
+        import Link from 'https://esm.sh/@tiptap/extension-link'
+        import Underline from 'https://esm.sh/@tiptap/extension-underline'
+        import TextAlign from 'https://esm.sh/@tiptap/extension-text-align'
 
-        new Editor({
+        const editor = new Editor({
             element: document.querySelector('#tiptap-editor'),
-            extensions: [StarterKit],
-            content: '<p>Start writing...</p>',
+            extensions: [
+                StarterKit,
+                Link.configure({ openOnClick: false }),
+                Underline,
+                TextAlign.configure({ types: ['heading', 'paragraph'] })
+            ],
+            content: '<h1>Welcome to your enhanced editor!</h1><p>Start writing with full formatting support...</p>',
+            onUpdate: () => updateToolbar()
         })
+
+        const toolbar = document.getElementById('toolbar')
+        
+        const buttons = [
+            { group: 'text', items: [
+                { label: '𝐁', title: 'Bold (Ctrl+B)', action: () => editor.chain().focus().toggleBold().run(), isActive: 'bold' },
+                { label: '𝐼', title: 'Italic (Ctrl+I)', action: () => editor.chain().focus().toggleItalic().run(), isActive: 'italic' },
+                { label: 'U̲', title: 'Underline (Ctrl+U)', action: () => editor.chain().focus().toggleUnderline().run(), isActive: 'underline' },
+                { label: 'S̶', title: 'Strike', action: () => editor.chain().focus().toggleStrike().run(), isActive: 'strike' },
+                { label: 'Code', title: 'Code', action: () => editor.chain().focus().toggleCode().run(), isActive: 'code' }
+            ]},
+            { group: 'headings', items: [
+                { label: 'H1', title: 'Heading 1', action: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), isActive: { name: 'heading', attrs: { level: 1 }} },
+                { label: 'H2', title: 'Heading 2', action: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), isActive: { name: 'heading', attrs: { level: 2 }} },
+                { label: 'H3', title: 'Heading 3', action: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), isActive: { name: 'heading', attrs: { level: 3 }} },
+                { label: 'P', title: 'Paragraph', action: () => editor.chain().focus().setParagraph().run(), isActive: 'paragraph' }
+            ]},
+            { group: 'lists', items: [
+                { label: '• List', title: 'Bullet List', action: () => editor.chain().focus().toggleBulletList().run(), isActive: 'bulletList' },
+                { label: '1. List', title: 'Ordered List', action: () => editor.chain().focus().toggleOrderedList().run(), isActive: 'orderedList' }
+            ]},
+            { group: 'blocks', items: [
+                { label: 'Quote', title: 'Blockquote', action: () => editor.chain().focus().toggleBlockquote().run(), isActive: 'blockquote' },
+                { label: 'Code Block', title: 'Code Block', action: () => editor.chain().focus().toggleCodeBlock().run(), isActive: 'codeBlock' },
+                { label: 'HR', title: 'Horizontal Rule', action: () => editor.chain().focus().setHorizontalRule().run() }
+            ]},
+            { group: 'align', items: [
+                { label: '⬅', title: 'Align Left', action: () => editor.chain().focus().setTextAlign('left').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'left' }} },
+                { label: '⬌', title: 'Align Center', action: () => editor.chain().focus().setTextAlign('center').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'center' }} },
+                { label: '➡', title: 'Align Right', action: () => editor.chain().focus().setTextAlign('right').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'right' }} }
+            ]},
+            { group: 'actions', items: [
+                { label: '↶', title: 'Undo (Ctrl+Z)', action: () => editor.chain().focus().undo().run() },
+                { label: '↷', title: 'Redo (Ctrl+Y)', action: () => editor.chain().focus().redo().run() }
+            ]}
+        ]
+
+        buttons.forEach(group => {
+            const groupDiv = document.createElement('div')
+            groupDiv.className = 'toolbar-group'
+            
+            group.items.forEach(btn => {
+                const button = document.createElement('button')
+                button.className = 'toolbar-btn'
+                button.innerHTML = btn.label
+                button.title = btn.title
+                button.onclick = btn.action
+                button.dataset.isActive = JSON.stringify(btn.isActive)
+                groupDiv.appendChild(button)
+            })
+            
+            toolbar.appendChild(groupDiv)
+        })
+
+        function updateToolbar() {
+            document.querySelectorAll('.toolbar-btn').forEach(btn => {
+                const isActiveData = btn.dataset.isActive
+                if (isActiveData && isActiveData !== 'undefined') {
+                    try {
+                        const activeCheck = JSON.parse(isActiveData)
+                        if (typeof activeCheck === 'string') {
+                            btn.classList.toggle('active', editor.isActive(activeCheck))
+                        } else if (activeCheck.name) {
+                            btn.classList.toggle('active', editor.isActive(activeCheck.name, activeCheck.attrs))
+                        }
+                    } catch (e) {}
+                }
+            })
+        }
+
+        editor.on('selectionUpdate', updateToolbar)
+        updateToolbar()
     </script>
 </body>
 </html>
