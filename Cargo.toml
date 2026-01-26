@@ -88,7 +88,7 @@ egui-winit = "0.33.2"
 egui_dock = "0.18"
 device_query = "2.1.0"
 tokio = { version = "1.41.0", features = ["fs", "full"] }
-rhai = { version = "1.16.1", features = ["f32_float"] }
+deno_core = "0.332.0"
 rfd = "0.17.2"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -97,4 +97,3 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"
 js-sys = "0.3.83"
-rhai = { version = "1.16.1", features = ["wasm-bindgen", "f32_float"] }

@@ -27,7 +27,7 @@ use crate::core::HealthBar::HealthBar;
 use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
-use crate::rhai_engine::RhaiEngine;
+use crate::deno_engine::DenoEngine;
 use crate::game_ui::dialogue_state::DialogueState;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 
@@ -341,7 +341,7 @@ pub struct Editor {
     // pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
     pub saved_state: Option<SavedState>,
-    pub rhai_engine: RhaiEngine,
+    pub deno_engine: DenoEngine,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -471,7 +471,7 @@ impl Editor {
             project_id: project_id.clone(),
             renderer_state: None,
             saved_state: None,
-            rhai_engine: RhaiEngine::new(project_id.clone()),
+            deno_engine: DenoEngine::new(project_id.clone()),
             // st_capture,
             // exporter: None,
             // font_manager,

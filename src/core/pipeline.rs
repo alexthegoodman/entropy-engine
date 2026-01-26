@@ -59,7 +59,7 @@ pub enum Workspace {
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
 use crate::helpers::load_project::load_project;
-use crate::rhai_engine::{ComponentChanges, RhaiEngine};
+use crate::deno_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
@@ -1913,7 +1913,7 @@ impl ExportPipeline {
                                 for component in components.iter() {
                                     if component.kind == Some(ComponentKind::PlayerCharacter) {
                                         if let Some(script_path) = &component.rhai_script_path {
-                                            if let Some(change) = editor.rhai_engine.execute_component_script(
+                                            if let Some(change) = editor.deno_engine.execute_component_script(
                                                 renderer_state,
                                                 component,
                                                 script_path,
@@ -2095,7 +2095,7 @@ impl ExportPipeline {
                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                         for component in components.iter() {
                             if let Some(script_path) = &component.rhai_script_path {
-                                if let Some(change) = editor.rhai_engine.execute_component_script(
+                                if let Some(change) = editor.deno_engine.execute_component_script(
                                     renderer_state,
                                     component,
                                     script_path,

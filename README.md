@@ -56,7 +56,8 @@ Example Game:
 - Basic game behaviors (melee, chase, inventory, quests, etc)
 - Sprinting/Stamina
 - Magic particle effects (ex. fire from heavens, snow, etc)
-- Dialogue (integrates with UI and Rhai scripting)
+- Dialogue (integrates with UI and scripting)
+- TypeScript Scripting (replaced previous Rhai scripting to allow for NPM modules in a bundle and more powerful add-ons)
 - Aiming (with crosshair ui), ammo, and reloading
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos

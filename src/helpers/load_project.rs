@@ -24,7 +24,7 @@ pub async fn load_project(editor: &mut Editor, project_id: &str) {
 }
 
 pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
-            editor.rhai_engine.project_id = project_id.clone().to_string();
+            editor.deno_engine.project_id = project_id.clone().to_string();
 
             editor.saved_state = Some(loaded_state);
             

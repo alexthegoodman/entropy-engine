@@ -1,10 +1,10 @@
-# Open World Studio (previously called Entropy Engine)
+# Entropy Engine (Open World Studio, Sophia, and Stunts)
 
-This project was previously two separate projects, midpoint-engine (game engine) and stunts-engine (video engine), which are now in a unified codebase. It has landscapes, video, text, images, 3d models, lighting, and more.
+This project is a native editor, chat, and engine for videos, games, and writing projects, with plans for a future Rhai-based add-on marketplace for new, high-performance app experiences.
 
-Ultimately, this engine can power various editors, and even powers a chat UI which enables the user to do things via chat similar to MCP but without the hassle of MCP setup processes.
+Ultimately, this engine is similar to MCP but without the hassle of MCP setup processes. The central advantage is the easily-used agentic system, while each app / add-on may have its own benefits.
 
-Here's some info on the architecture:
+Here's some info on the current architecture:
 
 All the code is in /src/.
 
@@ -12,7 +12,7 @@ Within /src/, there are several directories:
 
 /art_assets/ handles GLB import and the wgpu Model creation as well as ScatteredModel (which distributes instances of a Model)
 /core/ handles all kinds of things from shaders to camera to Editor and RendererState, it also has the important pipeline.rs which contains the actual frame render function(s)
-/core/ also contains the egui_sidebar.rs which describes most of egui ui for the Chat as well as Properties, Projects, and Components and the AI Chat tool execution functions
+/core/ also contains the egui_sidebar.rs which describes most of egui ui for the Chat as well as Properties, Projects, and Components
 /game_behaviors/ is for in-game AI and mechanics
 /game_ui/ holds the UI pipeline's frontend implementations
 /heightfield_landscapes/ contains two landscape implementations (a quadtree version and a normal version). We are currently using the normal version in Landscape.rs

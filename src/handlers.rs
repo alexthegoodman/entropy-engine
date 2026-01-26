@@ -32,7 +32,7 @@ use crate::helpers::saved_data::{CollectableProperties, CollectableType, Compone
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
-use crate::rhai_engine::{ComponentChanges, RhaiEngine, ScriptParticleConfig};
+use crate::deno_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
@@ -259,7 +259,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                      
                      if !script_path.is_empty() {
                         if let Some(renderer_state) = state.renderer_state.as_mut() {
-                            state.rhai_engine.execute_interaction_script(
+                            state.deno_engine.execute_interaction_script(
                                 renderer_state,
                                 &mut state.dialogue_state,
                                 &script_path,
@@ -1242,7 +1242,7 @@ fn handle_npc_interaction(state: &mut Editor) {
     if let Some(script) = target_script_path {
         state.dialogue_state.npc_name = target_npc_name;
         state.dialogue_state.current_npc_id = target_id;
-        state.rhai_engine.execute_interaction_script(
+        state.deno_engine.execute_interaction_script(
             state.renderer_state.as_mut().unwrap(), // Need to pass renderer_state
             &mut state.dialogue_state,
             &script,
