@@ -48,6 +48,14 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Workspace {
+    GameEngine,
+    Sophia,
+    Stunts,
+    CentralChat,
+}
+
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
 use crate::helpers::load_project::load_project;
@@ -107,7 +115,12 @@ pub struct ExportPipeline {
     pub texture: Option<Arc<wgpu::Texture>>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
-    pub dock_state: DockState<Tab>,
+    pub game_dock_state: DockState<Tab>,
+    pub sophia_dock_state: DockState<Tab>,
+    pub stunts_dock_state: DockState<Tab>,
+    pub central_chat_dock_state: DockState<Tab>,
+    pub current_workspace: Workspace,
+    pub show_central_chat_overlay: bool,
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
@@ -148,6 +161,11 @@ impl ExportPipeline {
         let surface = dock_state.main_surface_mut();
         let [_, _] = surface.split_below(NodeIndex::root(), 0.5, vec![Tab::Properties, Tab::Chat]);
 
+        let game_dock_state = dock_state.clone();
+        let sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Chat]);
+        let stunts_dock_state = DockState::new(vec![Tab::VideoTimeline, Tab::Chat]);
+        let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
+
         ExportPipeline {
             // device: None,
             // queue: None,
@@ -159,7 +177,12 @@ impl ExportPipeline {
             texture: None,
             view: None,
             depth_view: None,
-            dock_state,
+            game_dock_state,
+            sophia_dock_state,
+            stunts_dock_state,
+            central_chat_dock_state,
+            current_workspace: Workspace::GameEngine,
+            show_central_chat_overlay: false,
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
@@ -2828,11 +2851,61 @@ impl ExportPipeline {
 
         let mut viewer = PipelineTabViewer { context };
 
+        egui::SidePanel::left("activity_bar")
+            .resizable(false)
+            .default_width(48.0)
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    if ui.selectable_label(self.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Game Engine").clicked() {
+                        self.current_workspace = Workspace::GameEngine;
+                    }
+                    ui.add_space(8.0);
+                    if ui.selectable_label(self.current_workspace == Workspace::Sophia, "✍").on_hover_text("Sophia (Writing)").clicked() {
+                        self.current_workspace = Workspace::Sophia;
+                    }
+                    ui.add_space(8.0);
+                    if ui.selectable_label(self.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Video)").clicked() {
+                        self.current_workspace = Workspace::Stunts;
+                    }
+                    ui.add_space(8.0);
+                    if ui.selectable_label(self.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
+                        self.current_workspace = Workspace::CentralChat;
+                    }
+
+                    ui.add_space(32.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+                    
+                    if ui.selectable_label(self.show_central_chat_overlay, "⚡").on_hover_text("Toggle Central Chat Overlay").clicked() {
+                        self.show_central_chat_overlay = !self.show_central_chat_overlay;
+                    }
+                });
+            });
+
+        if self.show_central_chat_overlay {
+            egui::Window::new("Central Chat")
+                .default_size([400.0, 600.0])
+                .open(&mut self.show_central_chat_overlay)
+                .show(ctx, |ui| {
+                    DockArea::new(&mut self.central_chat_dock_state)
+                        .style(Style::from_egui(ctx.style().as_ref()))
+                        .show_inside(ui, &mut viewer);
+                });
+        }
+
+        let active_dock_state = match self.current_workspace {
+            Workspace::GameEngine => &mut self.game_dock_state,
+            Workspace::Sophia => &mut self.sophia_dock_state,
+            Workspace::Stunts => &mut self.stunts_dock_state,
+            Workspace::CentralChat => &mut self.central_chat_dock_state,
+        };
+
         egui::SidePanel::right("dock_sidebar")
             .resizable(true)
             .default_width(300.0)
             .show(ctx, |ui| {
-                DockArea::new(&mut self.dock_state)
+                DockArea::new(active_dock_state)
                     .style(Style::from_egui(ctx.style().as_ref()))
                     .show_inside(ui, &mut viewer);
             });

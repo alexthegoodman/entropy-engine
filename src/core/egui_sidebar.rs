@@ -57,6 +57,8 @@ pub enum Tab {
     Chat,
     AssetLibrary,
     Controls,
+    Writing,
+    VideoTimeline,
 }
 
 #[cfg(target_os = "windows")]
@@ -944,6 +946,23 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                          }
                      });
                  }
+            }
+            Tab::Writing => {
+                ui.heading("Sophia Writing App");
+                ui.separator();
+                ui.label("Draft:");
+            }
+            Tab::VideoTimeline => {
+                ui.heading("Stunts Video Timeline");
+                ui.separator();
+                ui.label("Timeline visualization and keyframe management will appear here.");
+                ui.add_space(20.0);
+                ui.horizontal(|ui| {
+                    ui.button("⏮");
+                    ui.button("⏵");
+                    ui.button("⏸");
+                    ui.button("⏭");
+                });
             }
             _ => {
                 ui.label("Not implemented");
