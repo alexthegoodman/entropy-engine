@@ -165,7 +165,7 @@ impl ExportPipeline {
         
         let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
-        sophia_surface.split_right(NodeIndex::root(), 0.3, vec![Tab::Chat]);
+        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
 
         let stunts_dock_state = DockState::new(vec![Tab::VideoTimeline, Tab::Chat]);
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
