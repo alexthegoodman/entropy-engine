@@ -1,21 +1,34 @@
 # Entropy Engine
 
-![Entropy Chat UI](public/image-2.png "Entropy Chat UI")
+![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
 ![Entropy Engine / Chat Value](public/image.png "Entropy Engine / Chat Value")
 
-Create beautiful games easily.
+Vibe your startup with Entropy Engine
 
-Entropy Engine is all about energizing Rust + wgpu-based game development by providing you with out-of-the-box systems and mechanics which can be easily forked and extended. It is both an engine and a level editor. Entropy Engine is focused on open-world (or smaller) game types at this time, but better support for something like RTS could come in the future.
+- Shift from grunt work to creative leadership
+- Command and coordinate your business through a centralized, agentic chat
+- Built for the modern LLM-powered era with a semantic-first architecture
 
-Powering <a href="https://github.com/alexthegoodman/entropy-chat" target="_blank">Entropy Chat</a>, inspired by MCP, built for creatives.
+What’s included
 
-The purpose of Entropy Chat is simple. Real designers shouldn't have to make a dozen clicks for a single preview change. They should be creative, rather than technical. Check it out if you have a chance.
+- 3 starter experiences:
+    - Game engine
+    - Video editor
+    - Writing experience
+- Pre-built functionality with no plugins required
+- Native integration across tools for a unified workflow
+
+Why it matters
+
+- Replace fragmented tools with a single intelligent system
+- Instant cost savings upon adoption
+- Continued efficiency gains as your business grows
+- Compounding ROI through automation, reuse, and semantic coherence
 
 ## Run
 
-My current recommendation is to fork this engine and customize it for each game that you do. 
-Some controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
+Many controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
 
 Example Saved State JSON file to get you started:
 <a href="./example_project.json" target="_blank">example_project.json</a>
@@ -34,7 +47,7 @@ Example Game:
 ### Development Notes
 
 - Export animations in your GLB files with semantic labels (like LowerArm.r for the bone armature, or Walking for an animation name) as this will hook up automatically
-- Rhai scripting is in active development to make extending the engine easier and less involved (see `/scripts`)
+- JavaScript scripting is in active development to make extending the engine easier and less involved (see `/scripts`)
 
 ## Features
 
