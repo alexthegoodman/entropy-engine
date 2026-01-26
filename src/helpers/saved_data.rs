@@ -178,7 +178,7 @@ pub struct ComponentData {
     pub procedural_particle_properties: Option<ProceduralParticleProperties>,
     pub procedural_grass_properties: Option<ProceduralGrassProperties>,
     pub scatter: Option<ScatterSettings>,
-    pub rhai_script_path: Option<String>,
+    pub ts_script_path: Option<String>,
     pub script_state: Option<HashMap<String, String>>,
 }
 

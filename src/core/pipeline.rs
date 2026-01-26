@@ -1912,7 +1912,7 @@ impl ExportPipeline {
                             if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                                 for component in components.iter() {
                                     if component.kind == Some(ComponentKind::PlayerCharacter) {
-                                        if let Some(script_path) = &component.rhai_script_path {
+                                        if let Some(script_path) = &component.ts_script_path {
                                             if let Some(change) = editor.deno_engine.execute_component_script(
                                                 renderer_state,
                                                 component,
@@ -2094,7 +2094,7 @@ impl ExportPipeline {
                 if let Some(levels) = saved_state.levels.as_ref() {
                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                         for component in components.iter() {
-                            if let Some(script_path) = &component.rhai_script_path {
+                            if let Some(script_path) = &component.ts_script_path {
                                 if let Some(change) = editor.deno_engine.execute_component_script(
                                     renderer_state,
                                     component,
