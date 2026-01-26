@@ -663,6 +663,7 @@ pub fn handle_mouse_move_on_shift(dx: f32, dy: f32, state: &mut Editor) {
 
     // game_mode is handled in renderer_state step_physics_pipeline
     if !renderer_state.game_mode {
+        // println!("rotate cam");
         camera.rotate(dx, dy);
     }
 

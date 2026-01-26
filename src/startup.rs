@@ -469,6 +469,8 @@ impl ApplicationHandler<UserEvent> for Application {
             },
             WindowEvent::KeyboardInput { event, is_synthetic: false, .. } => {
                 let mods = window.modifiers;
+
+                // println!("KeyboardInput {:?}", mods.shift_key());
                 
                 if (mods.shift_key()) {
                     self.shift_active = true;
@@ -575,7 +577,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 window.cursor_left();
             },
             WindowEvent::CursorMoved { position, .. } => {
-                info!("Moved cursor to {position:?}");
+                // println!("Moved cursor to {position:?}");
                 window.cursor_moved(position);
 
                 let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
@@ -960,6 +962,7 @@ impl WindowState {
             
             let builder = wry::WebViewBuilder::new()
                 .with_visible(false)
+                .with_focused(false)
                 .with_custom_protocol("asset".into(), move |web_view_id, request| {
                     let path = request.uri().path();
                     let path = if path == "/" || path.is_empty() { "rte.html" } else { &path[1..] };
@@ -1030,6 +1033,8 @@ impl WindowState {
                 state.cursor_grab = CursorGrabMode::Locked;
             }
         }
+
+        state.window.focus_window();
 
         state.resize(size);
         Ok(state)
@@ -1303,7 +1308,7 @@ impl WindowState {
 
         #[cfg(target_os = "windows")]
         if let Some(webview) = &self.webview {
-            if let Some(editor) = &self.pipeline.export_editor {
+            if let Some(editor) = &mut self.pipeline.export_editor {
                 if let Some(bounds) = editor.writing_webview_bounds {
                     let scale_factor = self.window.scale_factor();
                     
@@ -1317,8 +1322,14 @@ impl WindowState {
                         size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width, height)),
                     });
                     webview.set_visible(true);
+                    editor.webview_visible = true;
                 } else {
+                    if editor.webview_visible {
+                        webview.focus_parent();
+                    }
+
                     webview.set_visible(false);
+                    editor.webview_visible = false;
                 }
             }
         }

@@ -60,17 +60,18 @@
         }
         
         #editor-container {
-            max-width: 900px;
+            max-width: 100%;
             margin: 0 auto;
             padding: 32px 16px;
             min-height: calc(100vh - 60px);
         }
         
         .editor-input {
-            background: #0d1117;
+            width: 100%;
+            background: rgb(26, 27, 38);
             padding: 24px;
             border-radius: 6px;
-            border: 1px solid #30363d;
+            border: 1px solid rgb(36, 40, 59);
             outline: none;
             font-size: 16px;
             line-height: 1.6;
@@ -145,7 +146,7 @@
                 Underline,
                 TextAlign.configure({ types: ['heading', 'paragraph'] })
             ],
-            content: '<h1>Welcome to your enhanced editor!</h1><p>Start writing with full formatting support...</p>',
+            content: '<h1>Welcome to Sophia!</h1><p>Start writing with full formatting support...</p>',
             onUpdate: () => updateToolbar()
         })
 

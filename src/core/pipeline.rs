@@ -162,7 +162,11 @@ impl ExportPipeline {
         let [_, _] = surface.split_below(NodeIndex::root(), 0.5, vec![Tab::Properties, Tab::Chat]);
 
         let game_dock_state = dock_state.clone();
-        let sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Chat]);
+        
+        let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
+        let sophia_surface = sophia_dock_state.main_surface_mut();
+        sophia_surface.split_right(NodeIndex::root(), 0.3, vec![Tab::Chat]);
+
         let stunts_dock_state = DockState::new(vec![Tab::VideoTimeline, Tab::Chat]);
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
 
@@ -2783,7 +2787,32 @@ impl ExportPipeline {
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
     
-        self.render_frame(Some(&view), 0.0, game_mode);
+        if self.current_workspace != Workspace::Sophia {
+            self.render_frame(Some(&view), 0.0, game_mode);
+        } else {
+            // Clear the screen for Writing workspace
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Clear Encoder"),
+            });
+            {
+                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Clear Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            gpu_resources.queue.submit(Some(encoder.finish()));
+        }
     
         if !game_mode {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2860,26 +2889,26 @@ impl ExportPipeline {
             .default_width(48.0)
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     if ui.selectable_label(self.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
                         self.current_workspace = Workspace::GameEngine;
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     if ui.selectable_label(self.current_workspace == Workspace::Sophia, "✍").on_hover_text("Sophia (Writing)").clicked() {
                         self.current_workspace = Workspace::Sophia;
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     if ui.selectable_label(self.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
                         self.current_workspace = Workspace::Stunts;
                     }
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     if ui.selectable_label(self.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
                         self.current_workspace = Workspace::CentralChat;
                     }
 
-                    ui.add_space(32.0);
+                    ui.add_space(24.0);
                     ui.separator();
-                    ui.add_space(8.0);
+                    ui.add_space(6.0);
                     
                     if ui.selectable_label(self.show_central_chat_overlay, "⚡").on_hover_text("Toggle Central Chat Overlay").clicked() {
                         self.show_central_chat_overlay = !self.show_central_chat_overlay;
@@ -2898,29 +2927,37 @@ impl ExportPipeline {
                 });
         }
 
-        let active_dock_state = match self.current_workspace {
-            Workspace::GameEngine => &mut self.game_dock_state,
-            Workspace::Sophia => &mut self.sophia_dock_state,
-            Workspace::Stunts => &mut self.stunts_dock_state,
-            Workspace::CentralChat => &mut self.central_chat_dock_state,
-        };
-
-        let sidebar_width = match self.current_workspace {
-            Workspace::GameEngine => 400.0,
-            Workspace::CentralChat => 800.0,
-            Workspace::Sophia => 800.0,
-            Workspace::Stunts => 400.0,
-            _ => 400.0
-        };
-
-        egui::SidePanel::right("dock_sidebar")
-            .resizable(true)
-            .default_width(sidebar_width)
-            .width_range(sidebar_width..=(sidebar_width + 400.0))
-            .show(ctx, |ui| {
-                DockArea::new(active_dock_state)
+        if self.current_workspace == Workspace::Sophia {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                DockArea::new(&mut self.sophia_dock_state)
                     .style(Style::from_egui(ctx.style().as_ref()))
                     .show_inside(ui, &mut viewer);
             });
+        } else {
+            let active_dock_state = match self.current_workspace {
+                Workspace::GameEngine => &mut self.game_dock_state,
+                Workspace::Sophia => &mut self.sophia_dock_state,
+                Workspace::Stunts => &mut self.stunts_dock_state,
+                Workspace::CentralChat => &mut self.central_chat_dock_state,
+            };
+
+            let sidebar_width = match self.current_workspace {
+                Workspace::GameEngine => 400.0,
+                Workspace::CentralChat => 800.0,
+                Workspace::Sophia => 800.0,
+                Workspace::Stunts => 400.0,
+                _ => 400.0
+            };
+
+            egui::SidePanel::right("dock_sidebar")
+                .resizable(true)
+                .default_width(sidebar_width)
+                .width_range(sidebar_width..=(sidebar_width + 400.0))
+                .show(ctx, |ui| {
+                    DockArea::new(active_dock_state)
+                        .style(Style::from_egui(ctx.style().as_ref()))
+                        .show_inside(ui, &mut viewer);
+                });
+        }
     }
 }
