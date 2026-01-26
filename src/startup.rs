@@ -47,6 +47,9 @@ use winit::platform::startup_notify::{
 #[cfg(x11_platform)]
 use winit::platform::x11::WindowAttributesExtX11;
 
+#[cfg(target_os = "windows")]
+use wry;
+
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
 
@@ -864,6 +867,8 @@ struct WindowState {
     cursor_hidden: bool,
     gui: Gui,
     game_mode: bool,
+    #[cfg(target_os = "windows")]
+    pub webview: Option<wry::WebView>,
 }
 
 impl WindowState {
@@ -949,6 +954,41 @@ impl WindowState {
             crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
         }
 
+        #[cfg(target_os = "windows")]
+        let webview = {
+            let (tx, rx) = std::sync::mpsc::channel();
+            
+            let builder = wry::WebViewBuilder::new()
+                .with_visible(false)
+                .with_custom_protocol("asset".into(), move |web_view_id, request| {
+                    let path = request.uri().path();
+                    let path = if path == "/" || path.is_empty() { "lexical.html" } else { &path[1..] };
+                    let content = std::fs::read(format!("public/{}", path)).unwrap_or_else(|_| {
+                        "<html><body>Asset not found</body></html>".as_bytes().to_vec()
+                    });
+                    
+                    wry::http::Response::builder()
+                        .header("content-type", "text/html")
+                        .body(content.into())
+                        .unwrap()
+                })
+                .with_url("asset://localhost/lexical.html")
+                .with_ipc_handler(move |msg| {
+                    let _ = tx.send(msg.body().to_string());
+                });
+            
+            let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
+            editor.webview_ipc_rx = Some(rx);
+            
+            match builder.build_as_child(&window) {
+                Ok(wv) => Some(wv),
+                Err(e) => {
+                    error!("Failed to create webview: {}", e);
+                    None
+                }
+            }
+        };
+
         let mut state = Self {
             #[cfg(macos_platform)]
             option_as_alt: window.option_as_alt(),
@@ -971,6 +1011,8 @@ impl WindowState {
             zoom: Default::default(),
             gui,
             game_mode,
+            #[cfg(target_os = "windows")]
+            webview,
         };
 
         if game_mode {
@@ -1258,6 +1300,28 @@ impl WindowState {
         }
 
         self.pipeline.render_display_frame(&mut self.gui, &self.window, self.game_mode);
+
+        #[cfg(target_os = "windows")]
+        if let Some(webview) = &self.webview {
+            if let Some(editor) = &self.pipeline.export_editor {
+                if let Some(bounds) = editor.writing_webview_bounds {
+                    let scale_factor = self.window.scale_factor();
+                    
+                    let x = (bounds[0] * scale_factor as f32) as i32;
+                    let y = (bounds[1] * scale_factor as f32) as i32;
+                    let width = (bounds[2] * scale_factor as f32) as u32;
+                    let height = (bounds[3] * scale_factor as f32) as u32;
+                    
+                    webview.set_bounds(wry::Rect {
+                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(x, y)),
+                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width, height)),
+                    });
+                    webview.set_visible(true);
+                } else {
+                    webview.set_visible(false);
+                }
+            }
+        }
 
         Ok(())
     }

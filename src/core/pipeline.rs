@@ -2790,6 +2790,10 @@ impl ExportPipeline {
                 label: Some("egui encoder"),
             });
             
+            if let Some(editor) = &mut self.export_editor {
+                editor.writing_webview_bounds = None;
+            }
+
             let raw_input = gui.state.take_egui_input(&window);
             let full_output = gui.ctx.run(raw_input, |ctx| {
                 self.ui(ctx);
@@ -2903,7 +2907,7 @@ impl ExportPipeline {
 
         egui::SidePanel::right("dock_sidebar")
             .resizable(true)
-            .default_width(300.0)
+            .default_width(400.0)
             .show(ctx, |ui| {
                 DockArea::new(active_dock_state)
                     .style(Style::from_egui(ctx.style().as_ref()))

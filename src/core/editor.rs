@@ -414,6 +414,8 @@ pub struct Editor {
     pub navigation_speed: f32,
 
     pub ui_model_bind_group_layout: Option<Arc<BindGroupLayout>>,
+    pub writing_webview_bounds: Option<[f32; 4]>,
+    pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
 }
 
 
@@ -572,7 +574,9 @@ impl Editor {
                 },
             },
             navigation_speed: 5.0,
-            ui_model_bind_group_layout: None
+            ui_model_bind_group_layout: None,
+            writing_webview_bounds: None,
+            webview_ipc_rx: None
         }
     }
 }

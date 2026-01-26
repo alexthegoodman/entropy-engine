@@ -951,6 +951,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 ui.heading("Sophia Writing App");
                 ui.separator();
                 ui.label("Draft:");
+
+                let rect = ui.available_rect_before_wrap();
+                let editor = self.context.export_editor.as_mut().unwrap();
+                editor.writing_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
             }
             Tab::VideoTimeline => {
                 ui.heading("Stunts Video Timeline");
