@@ -30,7 +30,7 @@ use serde_json;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-use crate::helpers::load_project::load_project;
+// use crate::helpers::load_project::load_game_project;
 use crate::deno_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
@@ -227,13 +227,13 @@ struct SpawnNPCSwarmArgs {
         features: Option<Vec<TerrainFeatureArgs>>,
     }
 
-    let mut saved_state_clone = None;
+    let mut world_state_clone = None;
 
     let mut project_id = None;
 
     if let Some(editor) = &mut self.context.export_editor {
-    let Editor { saved_state, renderer_state, .. } = editor;
-        if let Some(saved_data) = &editor.saved_state {
+    let Editor { world_state, renderer_state, .. } = editor;
+        if let Some(saved_data) = &editor.world_state {
             project_id = Some(saved_data.id.as_ref().expect("Couldn't get id").clone());
         }
     }
@@ -247,13 +247,13 @@ struct SpawnNPCSwarmArgs {
                     // if let Some(editor) = pipeline.export_editor.as_mut() {
                         // Update SavedState
                         if let Some(editor) = &mut self.context.export_editor {
-                            let Editor { saved_state, renderer_state, camera, .. } = editor;
+                            let Editor { world_state, renderer_state, camera, .. } = editor;
 
-                            if let (Some(saved_state), Some(renderer_state), Some(camera)) = (saved_state, renderer_state, camera) {
-                                let project_id = saved_state.id.clone().unwrap_or_default();
+                            if let (Some(world_state), Some(renderer_state), Some(camera)) = (world_state, renderer_state, camera) {
+                                let project_id = world_state.id.clone().unwrap_or_default();
                                 let mut component_modified = None;
 
-                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                                if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     if let Some(components) = level.components.as_mut() {
                                         if let Some(component) = components.iter_mut().find(|c| c.id == args.component_id) {
                                             if let Some(mut translation) = args.translation {
@@ -276,7 +276,7 @@ struct SpawnNPCSwarmArgs {
                                         }
                                     }
                                 }
-                                saved_state_clone = Some(saved_state.clone());
+                                world_state_clone = Some(world_state.clone());
 
                                 if let Some(component) = component_modified {
                                     let mut reimported = false;
@@ -300,7 +300,7 @@ struct SpawnNPCSwarmArgs {
                                             }
 
                                             let model_asset_id = component.asset_id.clone();
-                                            if let Some(model_file) = saved_state.models.iter().find(|m| m.id == model_asset_id) {
+                                            if let Some(model_file) = world_state.models.iter().find(|m| m.id == model_asset_id) {
                                                 let model_filename = model_file.fileName.clone();
                                                 let isometry = Isometry3::from_parts(
                                                     Translation3::from(Vector3::from(component.generic_properties.position)),
@@ -363,7 +363,7 @@ struct SpawnNPCSwarmArgs {
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         if let Some(renderer_state) = editor.renderer_state.as_mut() {
                             
                             // Check if we have any water planes
@@ -490,8 +490,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
 
                                 println!("Water plane configured {:?}", water_plane.config);
 
-                                if let Some(saved_state) = editor.saved_state.as_mut() {
-                                    saved_state_clone = Some(saved_state.clone());
+                                if let Some(world_state) = editor.world_state.as_mut() {
+                                    world_state_clone = Some(world_state.clone());
                                 }
                             }
                         }
@@ -508,9 +508,9 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+let Editor { world_state, renderer_state, .. } = editor;
+                        if let Some(world_state) = editor.world_state.as_mut() {
+                            if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                 if level.procedural_sky.is_none() {
                                     level.procedural_sky = Some(saved_data::ProceduralSkyConfig::default());
                                 }
@@ -522,7 +522,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     if let Some(intensity) = args.sun_intensity { sky.sun_intensity = intensity; }
                                 }
                             }
-                            saved_state_clone = Some(saved_state.clone());
+                            world_state_clone = Some(world_state.clone());
                         }
                     }
             //     }
@@ -537,12 +537,12 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         let mut new_tree_props = None;
                         
                         // Update SavedState
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                        if let Some(world_state) = editor.world_state.as_mut() {
+                            if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                 if let Some(components) = level.components.as_mut() {
                                     
                                     let mut found = false;
@@ -592,7 +592,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     }
                                 }
                             }
-                            saved_state_clone = Some(saved_state.clone());
+                            world_state_clone = Some(world_state.clone());
                         }
 
                         // Update RendererState (live update)
@@ -619,14 +619,14 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         // let project_id = editor.project_id.clone();
                         let project_id = project_id.as_ref().expect("Couldn't get project id");
                         let mut asset_file_name = String::new();
                         
                         // Find asset filename in SavedState
-                        if let Some(saved_state) = editor.saved_state.as_ref() {
-                            if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                        if let Some(world_state) = editor.world_state.as_ref() {
+                            if let Some(model) = world_state.models.iter().find(|m| m.id == args.asset_id) {
                                 asset_file_name = model.fileName.clone();
                             }
                         }
@@ -673,8 +673,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             ));
 
                             // Update SavedState
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     let new_component = ComponentData {
                                         id: component_id,
                                         kind: Some(ComponentKind::Model),
@@ -694,7 +694,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                         level.components = Some(vec![new_component]);
                                     }
                                 }
-                                saved_state_clone = Some(saved_state.clone());
+                                world_state_clone = Some(world_state.clone());
                             }
                         } else {
                             println!("Asset not found: {}", args.asset_id);
@@ -712,7 +712,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         let component_id = Uuid::new_v4().to_string();
                         let color = args.color.unwrap_or([1.0, 1.0, 1.0]);
                         let intensity = args.intensity.unwrap_or(1.0);
@@ -732,8 +732,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                         }
 
                         // Update SavedState
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                        if let Some(world_state) = editor.world_state.as_mut() {
+                            if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                 let new_component = ComponentData {
                                     id: component_id,
                                     kind: Some(ComponentKind::PointLight),
@@ -757,7 +757,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     level.components = Some(vec![new_component]);
                                 }
                             }
-                            saved_state_clone = Some(saved_state.clone());
+                            world_state_clone = Some(world_state.clone());
                         }
                     }
             //     }
@@ -772,18 +772,18 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         // let project_id = editor.project_id.clone();
                         let project_id = project_id.as_ref().expect("Couldn't get project id");
                         let mut asset_file_name = String::new();
                         let mut stat_data = None;
 
                         // Find asset and default stat in SavedState
-                        if let Some(saved_state) = editor.saved_state.as_ref() {
-                            if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                        if let Some(world_state) = editor.world_state.as_ref() {
+                            if let Some(model) = world_state.models.iter().find(|m| m.id == args.asset_id) {
                                 asset_file_name = model.fileName.clone();
                             }
-                            if let Some(stats) = &saved_state.stats {
+                            if let Some(stats) = &world_state.stats {
                                 if !stats.is_empty() {
                                     stat_data = Some(stats[0].clone()); // Pick first stat for now
                                 }
@@ -844,8 +844,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             ));
 
                             // Update SavedState
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     let new_component = ComponentData {
                                         id: component_id,
                                         kind: Some(ComponentKind::Collectable),
@@ -866,7 +866,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                         level.components = Some(vec![new_component]);
                                     }
                                 }
-                                saved_state_clone = Some(saved_state.clone());
+                                world_state_clone = Some(world_state.clone());
                             }
                         } else {
                             println!("Asset or Stats not found for collectable. AssetId: {}", args.asset_id);
@@ -884,7 +884,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         
                         // Update RendererState (Live)
                         if let Some(renderer_state) = editor.renderer_state.as_mut() {
@@ -899,8 +899,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                         }
 
                         // Update SavedState
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                        if let Some(world_state) = editor.world_state.as_mut() {
+                            if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                 if let Some(components) = level.components.as_mut() {
                                     // Find existing grass
                                     let mut found = false;
@@ -951,7 +951,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                     }
                                 }
                             }
-                            saved_state_clone = Some(saved_state.clone());
+                            world_state_clone = Some(world_state.clone());
                         }
                     }
             //     }
@@ -966,7 +966,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         let device = &editor.gpu_resources.as_ref().unwrap().device;
                         let queue = &editor.gpu_resources.as_ref().unwrap().queue;
                         let model_layout = editor.model_bind_group_layout.as_ref().unwrap();
@@ -1024,8 +1024,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 _ => println!("Unknown primitive type"),
                             }
                             
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                saved_state_clone = Some(saved_state.clone());
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                world_state_clone = Some(world_state.clone());
                             }
                         }
                     }
@@ -1041,13 +1041,13 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         let project_id = project_id.as_ref().expect("Couldn't get project id");
                          let mut asset_file_name = String::new();
 
                         // Find asset in SavedState
-                        if let Some(saved_state) = editor.saved_state.as_ref() {
-                            if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                        if let Some(world_state) = editor.world_state.as_ref() {
+                            if let Some(model) = world_state.models.iter().find(|m| m.id == args.asset_id) {
                                 asset_file_name = model.fileName.clone();
                             }
                         }
@@ -1125,8 +1125,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             ));
 
                             // Update SavedState
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     let new_component = ComponentData {
                                         id: component_id,
                                         kind: Some(ComponentKind::NPC),
@@ -1147,7 +1147,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                         level.components = Some(vec![new_component]);
                                     }
                                 }
-                                saved_state_clone = Some(saved_state.clone());
+                                world_state_clone = Some(world_state.clone());
                         }
                     } else {
                         println!("Asset not found for NPC: {}", args.asset_id);
@@ -1164,8 +1164,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                 let project_id = project_id.as_ref().expect("Couldn't get project id");
                 let mut asset_file_name = String::new();
 
-                if let Some(saved_state) = editor.saved_state.as_ref() {
-                    if let Some(model) = saved_state.models.iter().find(|m| m.id == args.asset_id) {
+                if let Some(world_state) = editor.world_state.as_ref() {
+                    if let Some(model) = world_state.models.iter().find(|m| m.id == args.asset_id) {
                         asset_file_name = model.fileName.clone();
                     }
                 }
@@ -1243,8 +1243,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                         ));
 
                         // Update SavedState
-                        if let Some(saved_state) = editor.saved_state.as_mut() {
-                            if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                        if let Some(world_state) = editor.world_state.as_mut() {
+                            if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                 let new_component = ComponentData {
                                     id: component_id,
                                     kind: Some(ComponentKind::NPC),
@@ -1266,8 +1266,8 @@ let Editor { saved_state, renderer_state, .. } = editor;
                             }
                         }
                     }
-                    if let Some(saved_state) = editor.saved_state.as_ref() {
-                        saved_state_clone = Some(saved_state.clone());
+                    if let Some(world_state) = editor.world_state.as_ref() {
+                        world_state_clone = Some(world_state.clone());
                     }
                 }
             }
@@ -1283,10 +1283,10 @@ let Editor { saved_state, renderer_state, .. } = editor;
                 //         let mut pipeline = pipeline_arc.borrow_mut();
                 //         if let Some(editor) = pipeline.export_editor.as_mut() {
                 if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                             // Update SavedState
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                if let Some(level) = saved_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                if let Some(level) = world_state.levels.as_mut().and_then(|l| l.get_mut(0)) {
                                     if let Some(components) = level.components.as_mut() {
                                         if let Some(component) = components.iter_mut().find(|c| c.id == *component_id) {
                                             // let script_path = format!("scripts/{}", args.filename);
@@ -1294,7 +1294,7 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                         }
                                     }
                                 }
-                                saved_state_clone = Some(saved_state.clone());
+                                world_state_clone = Some(world_state.clone());
                             }
                     //     }
                     // }
@@ -1334,19 +1334,19 @@ let Editor { saved_state, renderer_state, .. } = editor;
             //         let mut pipeline = pipeline_arc.borrow_mut();
             //         if let Some(editor) = pipeline.export_editor.as_mut() {
             if let Some(editor) = &mut self.context.export_editor {
-let Editor { saved_state, renderer_state, .. } = editor;
+let Editor { world_state, renderer_state, .. } = editor;
                         // 1. Find existing landscape info
                         let mut existing_info = None;
                         
                         if let Some(target_id) = &args.component_id {
-                             if let Some(saved_state) = editor.saved_state.as_ref() {
-                                if let Some(levels) = saved_state.levels.as_ref() {
+                             if let Some(world_state) = editor.world_state.as_ref() {
+                                if let Some(levels) = world_state.levels.as_ref() {
                                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                                         if let Some(component) = components.iter().find(|c| c.id == *target_id) {
                                              let position = component.generic_properties.position;
                                              let asset_id = component.asset_id.clone();
                                              
-                                             if let Some(landscapes) = saved_state.landscapes.as_ref() {
+                                             if let Some(landscapes) = world_state.landscapes.as_ref() {
                                                 if let Some(landscape_data) = landscapes.iter().find(|l| l.id == asset_id) {
                                                     if let Some(heightmap_file) = &landscape_data.heightmap {
                                                         existing_info = Some((position, asset_id, heightmap_file.fileName.clone()));
@@ -1359,13 +1359,13 @@ let Editor { saved_state, renderer_state, .. } = editor;
                              }
                         } else {
                              // Try to find first existing landscape if no ID specified
-                             if let Some(saved_state) = editor.saved_state.as_ref() {
-                                if let Some(levels) = saved_state.levels.as_ref() {
+                             if let Some(world_state) = editor.world_state.as_ref() {
+                                if let Some(levels) = world_state.levels.as_ref() {
                                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                                         if let Some(component) = components.iter().find(|c| c.kind == Some(saved_data::ComponentKind::Landscape)) {
                                             let position = component.generic_properties.position;
                                             let asset_id = component.asset_id.clone();
-                                            if let Some(landscapes) = saved_state.landscapes.as_ref() {
+                                            if let Some(landscapes) = world_state.landscapes.as_ref() {
                                                 if let Some(landscape_data) = landscapes.iter().find(|l| l.id == asset_id) {
                                                     if let Some(heightmap_file) = &landscape_data.heightmap {
                                                         existing_info = Some((position, asset_id, heightmap_file.fileName.clone()));
@@ -1503,14 +1503,14 @@ let Editor { saved_state, renderer_state, .. } = editor;
                                 queue,
                                 &asset_id,
                                 &landscape_data,
-                                position, // Use the position from saved_state
+                                position, // Use the position from world_state
                                 camera
                             );
                             
                             println!("Heightmap generated and loaded!");
                             
-                            if let Some(saved_state) = editor.saved_state.as_mut() {
-                                saved_state_clone = Some(saved_state.clone());
+                            if let Some(world_state) = editor.world_state.as_mut() {
+                                world_state_clone = Some(world_state.clone());
                             }
                         }
                     }

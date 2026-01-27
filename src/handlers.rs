@@ -241,8 +241,8 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                      
                      // Find script again - TODO: cache script path in dialogue_state
                      let mut script_path = String::new();
-                     if let Some(saved_state) = &state.saved_state {
-                         if let Some(levels) = &saved_state.levels {
+                     if let Some(world_state) = &state.world_state {
+                         if let Some(levels) = &world_state.levels {
                              if let Some(level) = levels.get(0) {
                                  if let Some(components) = &level.components {
                                      for comp in components {
@@ -445,8 +445,8 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                     renderer_state.selected_entity_id = Some(model.id.clone());
 
                                     // NOW FIND THE MATCHING COMPONENT ID
-                                    if let Some(saved_state) = &state.saved_state {
-                                        if let Some(levels) = &saved_state.levels {
+                                    if let Some(world_state) = &state.world_state {
+                                        if let Some(levels) = &world_state.levels {
                                             if let Some(level) = levels.get(0) {
                                                 if let Some(components) = &level.components {
                                                     // Find component where asset_id matches the model id
@@ -589,10 +589,10 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
                         }
 
                         if drag_ended {
-                            if let Some(saved_state) = state.saved_state.as_mut() {
-                                if let Some(project_id) = &saved_state.id {
+                            if let Some(world_state) = state.world_state.as_mut() {
+                                if let Some(project_id) = &world_state.id {
                                     let mut component_updated = false;
-                                    if let Some(levels) = saved_state.levels.as_mut() {
+                                    if let Some(levels) = world_state.levels.as_mut() {
                                         if let Some(level) = levels.get_mut(0) {
                                             if let Some(components) = level.components.as_mut() {
                                                 // if let Some(component) = components.iter_mut().find(|c| c.id == selected_id) {
@@ -616,7 +616,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
 
                                     if component_updated {
                                         // TODO: WASM version
-                                        if let Err(e) = utilities::update_project_state(project_id, saved_state) {
+                                        if let Err(e) = utilities::update_project_state(project_id, world_state) {
                                             println!("Failed to save project state: {}", e);
                                         } else {
                                             println!("Project state saved successfully after gizmo drag.");
@@ -1215,8 +1215,8 @@ fn handle_npc_interaction(state: &mut Editor) {
     let mut target_script_path = None;
     let mut target_npc_name = String::new();
     
-    if let Some(saved_state) = &state.saved_state {
-        if let Some(levels) = &saved_state.levels {
+    if let Some(world_state) = &state.world_state {
+        if let Some(levels) = &world_state.levels {
              if let Some(level) = levels.get(0) {
                  if let Some(components) = &level.components {
                      for comp in components {
@@ -1288,10 +1288,10 @@ fn handle_collectable_interaction(state: &mut Editor) {
     if let (Some(id), Some(index)) = (pickup_id, collectable_index) {
         println!("Picking up collectable: {:?}", id);
         
-        // Find ComponentData in saved_state
+        // Find ComponentData in world_state
         let mut component_data = None;
-        if let Some(saved_state) = &state.saved_state {
-            if let Some(levels) = &saved_state.levels {
+        if let Some(world_state) = &state.world_state {
+            if let Some(levels) = &world_state.levels {
                 if let Some(level) = levels.get(0) {
                     if let Some(components) = &level.components {
                         if let Some(comp) = components.iter().find(|c| c.id == id) {

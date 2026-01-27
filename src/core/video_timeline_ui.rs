@@ -48,14 +48,14 @@ impl VideoTimelineUi {
 
                     // Library of sequences that can be added
                     ui.label("Add Sequence:");
-                    if let Some(saved_state) = &mut editor.saved_state {
-                        if let Some(sequences) = &saved_state.sequences {
+                    if let Some(world_state) = &mut editor.world_state {
+                        if let Some(sequences) = &world_state.sequences {
                             for seq in sequences {
                                 if ui.button(&seq.name).on_hover_text("Add to timeline").clicked() {
-                                    if saved_state.timeline_state.is_none() {
-                                        saved_state.timeline_state = Some(SavedTimelineStateConfig::default());
+                                    if world_state.timeline_state.is_none() {
+                                        world_state.timeline_state = Some(SavedTimelineStateConfig::default());
                                     }
-                                    if let Some(ts_config) = &mut saved_state.timeline_state {
+                                    if let Some(ts_config) = &mut world_state.timeline_state {
                                         ts_config.timeline_sequences.push(TimelineSequence {
                                             id: Uuid::new_v4().to_string(),
                                             sequence_id: seq.id.clone(),
@@ -143,9 +143,9 @@ impl VideoTimelineUi {
 
                     // Draw Clips
                     let mut ts_to_delete = None;
-                    if let Some(saved_state) = &mut editor.saved_state {
-                        if let Some(timeline_state) = &mut saved_state.timeline_state {
-                            let sequences_map = saved_state.sequences.as_ref().map(|s| {
+                    if let Some(world_state) = &mut editor.world_state {
+                        if let Some(timeline_state) = &mut world_state.timeline_state {
+                            let sequences_map = world_state.sequences.as_ref().map(|s| {
                                 s.iter().map(|seq| (seq.id.clone(), seq)).collect::<std::collections::HashMap<_, _>>()
                             }).unwrap_or_default();
 
@@ -216,8 +216,8 @@ impl VideoTimelineUi {
                     }
 
                     if let Some(idx) = ts_to_delete {
-                        if let Some(saved_state) = &mut editor.saved_state {
-                            if let Some(ts_config) = &mut saved_state.timeline_state {
+                        if let Some(world_state) = &mut editor.world_state {
+                            if let Some(ts_config) = &mut world_state.timeline_state {
                                 ts_config.timeline_sequences.remove(idx);
                             }
                         }

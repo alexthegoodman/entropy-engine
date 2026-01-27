@@ -300,7 +300,6 @@ pub struct SelectedObject {
 
 pub struct Editor {
     pub project_id: String, 
-    pub app_experience: AppExperience,
 
     // games
     pub renderer_state: Option<RendererState>,
@@ -341,7 +340,9 @@ pub struct Editor {
     // pub cursor_dot: Option<RingDot>,
     // pub video_items: Vec<StVideo>,
     // pub dragging_video: Option<Uuid>,
-    pub saved_state: Option<SavedState>,
+    pub world_state: Option<SavedState>,
+    pub stunts_state: Option<SavedState>,
+    pub sophia_state: Option<SavedState>,
     pub deno_engine: DenoEngine,
     
     // resize handles system
@@ -476,9 +477,10 @@ impl Editor {
 
         Editor {
             project_id: project_id.clone(),
-            app_experience: AppExperience::OpenWorldStudio,
             renderer_state: None,
-            saved_state: None,
+            world_state: None,
+            stunts_state: None,
+            sophia_state: None,
             deno_engine: DenoEngine::new(project_id.clone()),
             // st_capture,
             // exporter: None,

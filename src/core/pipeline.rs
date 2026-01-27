@@ -58,7 +58,7 @@ pub enum Workspace {
 
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-use crate::helpers::load_project::load_project;
+// use crate::helpers::load_project::load_project;
 use crate::deno_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
@@ -168,9 +168,9 @@ impl ExportPipeline {
         
         let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
-        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat]);
 
-        let stunts_dock_state = DockState::new(vec![Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
 
@@ -1132,7 +1132,7 @@ impl ExportPipeline {
 
         // --- Procedural Sky Setup ---
         let procedural_sky_config_from_level = export_editor
-            .saved_state
+            .world_state
             .as_ref()
             .and_then(|state| state.levels.as_ref())
             .and_then(|levels| levels.get(0)) // Assuming we always work with the first level
@@ -1755,7 +1755,7 @@ impl ExportPipeline {
                 let dummy_stat = crate::helpers::saved_data::StatData::default();
                 let stat_id = item.collectable_properties.as_ref().and_then(|p| p.stat_id.clone());
                 let related_stat = if let Some(sid) = stat_id {
-                    editor.saved_state.as_ref()
+                    editor.world_state.as_ref()
                         .and_then(|s| s.stats.as_ref())
                         .and_then(|stats| stats.iter().find(|s| s.id == sid))
                         .unwrap_or(&dummy_stat)
@@ -1920,8 +1920,8 @@ impl ExportPipeline {
 
                     // Execute Rhai on_attack scripts for the player
                     let mut script_changes = Vec::new();
-                    if let Some(saved_state) = &editor.saved_state {
-                        if let Some(levels) = &saved_state.levels {
+                    if let Some(world_state) = &editor.world_state {
+                        if let Some(levels) = &world_state.levels {
                             if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                                 for component in components.iter() {
                                     if component.kind == Some(ComponentKind::PlayerCharacter) {
@@ -2038,7 +2038,7 @@ impl ExportPipeline {
         {
             // Update procedural sky uniform buffer if config is present
             let current_procedural_sky_config = editor
-                .saved_state
+                .world_state
                 .as_ref()
                 .and_then(|state| state.levels.as_ref())
                 .and_then(|levels| levels.get(0))
@@ -2103,8 +2103,8 @@ impl ExportPipeline {
 
             // Execute Rhai component scripts
             let mut changes: Vec<ComponentChanges> = Vec::new();
-            if let Some(saved_state) = editor.saved_state.as_ref() {
-                if let Some(levels) = saved_state.levels.as_ref() {
+            if let Some(world_state) = editor.world_state.as_ref() {
+                if let Some(levels) = world_state.levels.as_ref() {
                     if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
                         for component in components.iter() {
                             if let Some(script_path) = &component.js_script_path {
@@ -2783,6 +2783,35 @@ impl ExportPipeline {
         }
     }
 
+    pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {
+        if let Some(view) = target_view {
+            let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+
+            // NOTE: Clear the screen for now. TODO: add 2d and 3d rendering pipelines for video projects
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Clear Encoder"),
+            });
+            {
+                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Clear Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            gpu_resources.queue.submit(Some(encoder.finish()));
+        }
+    }
+
     #[cfg(target_arch = "wasm32")]
     pub fn render_display_frame(&mut self, game_mode: bool) {}
 
@@ -2813,11 +2842,13 @@ impl ExportPipeline {
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
     
-        if self.current_workspace != Workspace::Sophia {
+        if self.current_workspace == Workspace::GameEngine {
+            self.render_frame(Some(&view), 0.0, game_mode);
+        } else if self.current_workspace == Workspace::Stunts {
             let current_time_s = self.export_editor.as_ref()
                 .map(|e| e.video_current_time_ms as f64 / 1000.0)
                 .unwrap_or(0.0);
-            self.render_frame(Some(&view), current_time_s, game_mode);
+            self.render_stunts_frame(Some(&view), current_time_s, false);
         } else {
             // Clear the screen for Writing workspace
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {

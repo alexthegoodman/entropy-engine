@@ -11,11 +11,11 @@ use crate::{
     procedural_models::House::HouseConfig
 };
 
-pub async fn load_project(editor: &mut Editor, project_id: &str) {
+pub async fn load_game_project(editor: &mut Editor, project_id: &str) {
     // let editor = self.export_editor.as_mut().unwrap();
     match utilities::load_project_state(project_id).await {
         Ok(loaded_state) => {
-            place_project(editor, project_id, loaded_state).await;
+            place_game_project(editor, project_id, loaded_state).await;
             }
         Err(e) => {
             println!("Failed to load project: {}", e);
@@ -23,16 +23,16 @@ pub async fn load_project(editor: &mut Editor, project_id: &str) {
     }
 }
 
-pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
+pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
             editor.deno_engine.project_id = project_id.clone().to_string();
 
-            editor.saved_state = Some(loaded_state);
+            editor.world_state = Some(loaded_state);
             
             let renderer_state = editor.renderer_state.as_mut().unwrap();
 
             // Load game settings if available
-            if let Some(saved_state) = &editor.saved_state {
-                if let Some(game_settings) = &saved_state.game_settings {
+            if let Some(world_state) = &editor.world_state {
+                if let Some(game_settings) = &world_state.game_settings {
                     renderer_state.game_settings.ui_theme = game_settings.ui_theme.clone();
                     renderer_state.game_settings.third_person = game_settings.third_person;
                     renderer_state.game_settings.show_hitscan_line = game_settings.show_hitscan_line;
@@ -43,9 +43,9 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
             let gpu_resources = editor.gpu_resources.as_ref().unwrap();
 
             // now load landscapes
-            if let Some(saved_state) = &editor.saved_state {
-                if let Some(landscapes) = &saved_state.landscapes {
-                    if let Some(levels) = &saved_state.levels {
+            if let Some(world_state) = &editor.world_state {
+                if let Some(landscapes) = &world_state.landscapes {
+                    if let Some(levels) = &world_state.levels {
                         let level = &levels[0]; // assume one level for now
                         for landscape_data in landscapes {
                             if let Some(components) = &level.components {
@@ -76,7 +76,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                                 ).await;
 
                                                 // Existing texture loading for regular textures (optional, can be removed if fully PBR)
-                                                if let Some(textures) = &saved_state.textures {
+                                                if let Some(textures) = &world_state.textures {
                                                     let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
 
                                                     // if let Some(texture_id) = &landscape_properties.rockmap_texture_id {
@@ -116,7 +116,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                                 }
 
                                                 // NEW: Load PBR textures
-                                                if let Some(pbr_textures) = &saved_state.pbr_textures {
+                                                if let Some(pbr_textures) = &world_state.pbr_textures {
                                                     if let Some(mut landscape_obj) = renderer_state.landscapes.iter_mut().find(|l| l.id == component.id) {
                                                         let landscape_properties = component.landscape_properties.as_ref().expect("Couldn't get landscape properties");
 
@@ -405,7 +405,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                     }
 
                                     if let Some(ComponentKind::Model) = component.kind {
-                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let asset = world_state.models.iter().find(|m| m.id == component.asset_id);
                                         let physics_gap = 0.0;
                                         let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
@@ -446,7 +446,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                         }
                                     }
                                     if let Some(ComponentKind::PlayerCharacter) = component.kind {
-                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let asset = world_state.models.iter().find(|m| m.id == component.asset_id);
                                         let physics_gap = 2.0;
                                         let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
@@ -482,7 +482,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                         }
                                     }
                                     if let Some(ComponentKind::NPC) = component.kind {
-                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let asset = world_state.models.iter().find(|m| m.id == component.asset_id);
                                         let physics_gap = 2.0;
                                         let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1] + physics_gap, component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
@@ -508,7 +508,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
                                         }
                                     }
                                     if let Some(ComponentKind::Collectable) = component.kind {
-                                        let asset = saved_state.models.iter().find(|m| m.id == component.asset_id);
+                                        let asset = world_state.models.iter().find(|m| m.id == component.asset_id);
                                         let model_position = Translation3::new(component.generic_properties.position[0], component.generic_properties.position[1], component.generic_properties.position[2]);
                                         let model_rotation = UnitQuaternion::from_euler_angles(component.generic_properties.rotation[0].to_radians(), component.generic_properties.rotation[1].to_radians(), component.generic_properties.rotation[2].to_radians());
                                         let model_iso = Isometry3::from_parts(model_position, model_rotation);
@@ -516,7 +516,7 @@ pub async fn place_project(editor: &mut Editor, project_id: &str, loaded_state: 
 
                                         let collectable_properties = component.collectable_properties.as_ref().expect("Couldn't find collectable properties");
                                         let stat_id = collectable_properties.stat_id.as_ref().expect("Couldn't get collectable type");
-                                        let stats = saved_state.stats.as_ref().expect("Couldn't find any stats");
+                                        let stats = world_state.stats.as_ref().expect("Couldn't find any stats");
                                         let related_stat = stats.iter().find(|s| s.id == stat_id.clone());
                                         let related_stat = related_stat.as_ref().expect("Couldn't get related stat");
 

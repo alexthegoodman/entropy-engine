@@ -33,7 +33,7 @@ use tracing::error;
 use crate::core::gpu_resources::{self, GpuResources};
 use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{ExportPipeline};
-use crate::helpers::load_project::load_project;
+use crate::helpers::load_project::load_game_project;
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
 use pollster; // For pollster::block_on
@@ -802,7 +802,7 @@ impl ApplicationHandler<UserEvent> for Application {
             if let Some(project_id) = &self.project_id {
                 if let Some(window) = self.windows.values_mut().next() {
                     if let Some(editor) = window.pipeline.export_editor.as_mut() {
-                        pollster::block_on(load_project(editor, project_id));
+                        pollster::block_on(load_game_project(editor, project_id));
                         self.project_loaded = true;
                     }
                 }

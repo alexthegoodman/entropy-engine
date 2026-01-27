@@ -29,7 +29,7 @@ use serde_json;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-use crate::helpers::load_project::load_project;
+use crate::helpers::load_project::{load_game_project};
 use crate::deno_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
@@ -90,15 +90,16 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         match tab {
             Tab::Projects => {
                 let editor = self.context.export_editor.as_mut().unwrap();
-                if editor.saved_state.is_none() {
+
+                // Games
+                if self.context.current_app == AppExperience::OpenWorldStudio && editor.world_state.is_none() {
                     ui.label("Create New Project");
                     ui.text_edit_singleline(self.context.new_project_name);
                     if ui.button("Create New Project").clicked() {
                         if !self.context.new_project_name.is_empty() {
                             match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
-                                    editor.saved_state = Some(new_state);
-                                    editor.app_experience = self.context.current_app;
+                                    editor.world_state = Some(new_state);
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -121,24 +122,111 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         
                     for (project_name, project_id) in self.context.projects.iter() {
                         if ui.button(project_name).clicked() {
-                            pollster::block_on(load_project(editor, project_id));
-                            editor.app_experience = self.context.current_app;
+                            pollster::block_on(load_game_project(editor, project_id));
                         }
                     }
-                } else {
+                } else if self.context.current_app == AppExperience::OpenWorldStudio {
                     ui.label("Project Loaded");
-                    if let Some(saved_state) = &editor.saved_state {
-                         ui.label(format!("Project: {}", saved_state.project_name));
+                    if let Some(world_state) = &editor.world_state {
+                         ui.label(format!("Project: {}", world_state.project_name));
                     }
                     if ui.button("Close Project").clicked() {
-                         editor.saved_state = None;
+                         editor.world_state = None;
+                    }
+                }
+
+                // Videos
+                if self.context.current_app == AppExperience::Stunts && editor.stunts_state.is_none() {
+                    ui.label("Create New Project");
+                    ui.text_edit_singleline(self.context.new_project_name);
+                    if ui.button("Create New Project").clicked() {
+                        if !self.context.new_project_name.is_empty() {
+                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
+                                Ok(new_state) => {
+                                    editor.stunts_state = Some(new_state);
+                                }
+                                Err(e) => {
+                                    println!("Failed to create project: {}", e);
+                                }
+                            }
+                        }
+                    }
+        
+                    ui.separator();
+                    ui.label("Existing Projects");
+        
+                    self.context.projects.clear();
+                    if let Ok(registry) = utilities::load_project_registry() {
+                        for project in registry.projects {
+                            if project.app == self.context.current_app {
+                                self.context.projects.push((project.project_name, project.project_id));
+                            }
+                        }
+                    }
+        
+                    for (project_name, project_id) in self.context.projects.iter() {
+                        if ui.button(project_name).clicked() {
+                            // pollster::block_on(load_video_project(editor, project_id));
+                        }
+                    }
+                } else if self.context.current_app == AppExperience::Stunts {
+                    ui.label("Project Loaded");
+                    if let Some(stunts_state) = &editor.stunts_state {
+                         ui.label(format!("Project: {}", stunts_state.project_name));
+                    }
+                    if ui.button("Close Project").clicked() {
+                         editor.stunts_state = None;
+                    }
+                }
+
+                // Writing
+                if self.context.current_app == AppExperience::Sophia && editor.sophia_state.is_none() {
+                    ui.label("Create New Project");
+                    ui.text_edit_singleline(self.context.new_project_name);
+                    if ui.button("Create New Project").clicked() {
+                        if !self.context.new_project_name.is_empty() {
+                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
+                                Ok(new_state) => {
+                                    editor.sophia_state = Some(new_state);
+                                }
+                                Err(e) => {
+                                    println!("Failed to create project: {}", e);
+                                }
+                            }
+                        }
+                    }
+        
+                    ui.separator();
+                    ui.label("Existing Projects");
+        
+                    self.context.projects.clear();
+                    if let Ok(registry) = utilities::load_project_registry() {
+                        for project in registry.projects {
+                            if project.app == self.context.current_app {
+                                self.context.projects.push((project.project_name, project.project_id));
+                            }
+                        }
+                    }
+        
+                    for (project_name, project_id) in self.context.projects.iter() {
+                        if ui.button(project_name).clicked() {
+                            // pollster::block_on(load_writing_project(editor, project_id));
+                        }
+                    }
+                } else if self.context.current_app == AppExperience::Sophia {
+                    ui.label("Project Loaded");
+                    if let Some(sophia_state) = &editor.sophia_state {
+                         ui.label(format!("Project: {}", sophia_state.project_name));
+                    }
+                    if ui.button("Close Project").clicked() {
+                         editor.sophia_state = None;
                     }
                 }
             }
             Tab::Components => {
                 let editor = self.context.export_editor.as_mut().unwrap();
-                 if let Some(saved_state) = &mut editor.saved_state {
-                    if let Some(levels) = &mut saved_state.levels {
+                 if let Some(world_state) = &mut editor.world_state {
+                    if let Some(levels) = &mut world_state.levels {
                          // Workaround for levels cloning if needed, but here we can iterate
                          if !levels.is_empty() {
                              if let Some(components) = &mut levels[0].components {
@@ -158,12 +246,12 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::Properties => {
                  let editor = self.context.export_editor.as_mut().unwrap();
                  if let Some(selected_component_id) = self.context.selected_component_id {
-                    // Use disjoint borrow pattern to access saved_state and renderer_state simultaneously
-                    let Editor { saved_state, renderer_state, camera, .. } = editor;
+                    // Use disjoint borrow pattern to access world_state and renderer_state simultaneously
+                    let Editor { world_state, renderer_state, camera, .. } = editor;
 
-                    if let Some(saved_state) = saved_state {
-                        let project_id = saved_state.id.as_ref().expect("Couldn't get project id").clone();
-                        if let Some(levels) = &mut saved_state.levels {
+                    if let Some(world_state) = world_state {
+                        let project_id = world_state.id.as_ref().expect("Couldn't get project id").clone();
+                        if let Some(levels) = &mut world_state.levels {
                              if !levels.is_empty() {
                                 if let Some(components) = &mut levels[0].components {
                                     // Find the index of the selected component to mutate it
@@ -248,7 +336,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                         }
 
                                                         let model_asset_id = component.asset_id.clone();
-                                                        if let Some(model_file) = saved_state.models.iter().find(|m| m.id == model_asset_id) {
+                                                        if let Some(model_file) = world_state.models.iter().find(|m| m.id == model_asset_id) {
                                                             let model_filename = model_file.fileName.clone();
                                                             let isometry = Isometry3::from_parts(
                                                                 Translation3::from(Vector3::from(component.generic_properties.position)),
@@ -352,13 +440,13 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             }
             Tab::AssetLibrary => {
                 let editor = self.context.export_editor.as_mut().unwrap();
-                let mut saved_state_opt = editor.saved_state.clone(); 
+                let mut world_state_opt = editor.world_state.clone(); 
                 
-                if let Some(saved_state) = &mut saved_state_opt {
-                    let project_id = saved_state.id.clone().unwrap_or_default();
+                if let Some(world_state) = &mut world_state_opt {
+                    let project_id = world_state.id.clone().unwrap_or_default();
                     
                     egui::CollapsingHeader::new("Models").show(ui, |ui| {
-                        for model in &saved_state.models {
+                        for model in &world_state.models {
                             ui.label(&model.fileName);
                         }
                         if ui.button("Add Model").clicked() {
@@ -375,8 +463,8 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                             fileName: filename,
                                             ..Default::default()
                                         };
-                                        saved_state.models.push(new_file);
-                                        // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                        world_state.models.push(new_file);
+                                        // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                     }
                                 }
                             }
@@ -384,10 +472,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     });
 
                     egui::CollapsingHeader::new("Landscapes").show(ui, |ui| {
-                        if saved_state.landscapes.is_none() {
-                            saved_state.landscapes = Some(Vec::new());
+                        if world_state.landscapes.is_none() {
+                            world_state.landscapes = Some(Vec::new());
                         }
-                        let landscapes = saved_state.landscapes.as_mut().unwrap();
+                        let landscapes = world_state.landscapes.as_mut().unwrap();
                         
                         for landscape in landscapes.iter_mut() {
                             ui.collapsing(format!("Landscape: {}", landscape.id), |ui| {
@@ -408,7 +496,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                     fileName: filename,
                                                     ..Default::default()
                                                 });
-                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                             }
                                         }
                                     }
@@ -431,7 +519,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                     fileName: filename,
                                                     ..Default::default()
                                                 });
-                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                             }
                                         }
                                      }
@@ -454,7 +542,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                     fileName: filename,
                                                     ..Default::default()
                                                 });
-                                                // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                             }
                                         }
                                      }
@@ -469,15 +557,15 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                  rockmap: None,
                                  soil: None,
                              });
-                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                            //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                         }
                     });
 
                     egui::CollapsingHeader::new("Textures").show(ui, |ui| {
-                        if saved_state.textures.is_none() {
-                            saved_state.textures = Some(Vec::new());
+                        if world_state.textures.is_none() {
+                            world_state.textures = Some(Vec::new());
                         }
-                        let textures = saved_state.textures.as_mut().unwrap();
+                        let textures = world_state.textures.as_mut().unwrap();
 
                         for tex in textures {
                             ui.label(&tex.fileName);
@@ -497,10 +585,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                             fileName: filename,
                                             ..Default::default()
                                         };
-                                        if let Some(tex_vec) = saved_state.textures.as_mut() {
+                                        if let Some(tex_vec) = world_state.textures.as_mut() {
                                             tex_vec.push(new_file);
                                         }
-                                        // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                        // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                     }
                                 }
                             }
@@ -508,10 +596,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     });
 
                     egui::CollapsingHeader::new("PBR Textures").show(ui, |ui| {
-                        if saved_state.pbr_textures.is_none() {
-                            saved_state.pbr_textures = Some(Vec::new());
+                        if world_state.pbr_textures.is_none() {
+                            world_state.pbr_textures = Some(Vec::new());
                         }
-                        let pbr_textures = saved_state.pbr_textures.as_mut().unwrap();
+                        let pbr_textures = world_state.pbr_textures.as_mut().unwrap();
 
                         for pbr in pbr_textures.iter_mut() {
                              ui.collapsing(format!("PBR: {}", pbr.id), |ui| {
@@ -525,7 +613,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.diff = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -541,7 +629,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.nor_gl = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -557,7 +645,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.rough = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -573,7 +661,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.ao = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -589,7 +677,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.metallic = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -605,7 +693,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.disp = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -621,7 +709,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                  let dest_path = tex_dir.join(&filename);
                                                   if let Ok(_) = fs::copy(&path, &dest_path) {
                                                      pbr.arm = Some(saved_data::File { id: Uuid::new_v4().to_string(), fileName: filename, ..Default::default() });
-                                                    //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                                    //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                                   }
                                              }
                                          }
@@ -635,15 +723,15 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                  id: Uuid::new_v4().to_string(),
                                  ..Default::default()
                              });
-                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                            //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                         }
                     });
 
                     egui::CollapsingHeader::new("Stats").show(ui, |ui| {
-                        if saved_state.stats.is_none() {
-                            saved_state.stats = Some(Vec::new());
+                        if world_state.stats.is_none() {
+                            world_state.stats = Some(Vec::new());
                         }
-                        let stats = saved_state.stats.as_mut().unwrap();
+                        let stats = world_state.stats.as_mut().unwrap();
 
                         let mut to_remove_index = None;
                         
@@ -680,7 +768,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 }
 
                                 // if ui.button("Save Changes").clicked() {
-                                //     utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                                //     utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                                 // }
                                 if ui.button("Delete Stat").clicked() {
                                     to_remove_index = Some(i);
@@ -690,7 +778,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                         
                         if let Some(idx) = to_remove_index {
                             stats.remove(idx);
-                            // utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                            // utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                         }
 
                         if ui.button("Add New Stat").clicked() {
@@ -699,17 +787,17 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 name: "New Stat".to_string(),
                                 ..Default::default()
                             });
-                            //  utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                            //  utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                         }
                     });
 
                     if ui.button("Save Changes").clicked() {
-                        utilities::update_project_state(&project_id, saved_state).expect("Failed to save state");
+                        utilities::update_project_state(&project_id, world_state).expect("Failed to save state");
                     }
                 }
                 
-                if let Some(new_state) = saved_state_opt {
-                    editor.saved_state = Some(new_state);
+                if let Some(new_state) = world_state_opt {
+                    editor.world_state = Some(new_state);
                 }
             }
             Tab::Chat => {
@@ -737,9 +825,9 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     }
 
                     if let Some(editor) = self.context.export_editor.as_ref() {
-                        if let Some(saved_state) = &editor.saved_state {
-                             let project_id = saved_state.id.as_ref().expect("Couldn't get id").clone();
-                             let _ = update_project_state(&project_id, saved_state);
+                        if let Some(world_state) = &editor.world_state {
+                             let project_id = world_state.id.as_ref().expect("Couldn't get id").clone();
+                             let _ = update_project_state(&project_id, world_state);
                         }
                     }
                 }
@@ -779,7 +867,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                  if self.context.chat.current_session.is_none() {
                     if ui.button("Start New Session").clicked() {
                          let editor = self.context.export_editor.as_ref().unwrap();
-                         if let Some(saved_data) = &editor.saved_state {
+                         if let Some(saved_data) = &editor.world_state {
                              let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
                              let client = self.context.chat.client.clone();
                              let api_url = self.context.chat.api_url.clone();
@@ -810,7 +898,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                         ui.label("Previous Sessions");
                         if ui.button("Refresh").clicked() {
                             if let Some(editor) = self.context.export_editor.as_ref() {
-                                if let Some(saved_data) = &editor.saved_state {
+                                if let Some(saved_data) = &editor.world_state {
                                     let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
                                     let client = self.context.chat.client.clone();
                                     let api_url = self.context.chat.api_url.clone();
@@ -902,12 +990,12 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 let client = self.context.chat.client.clone();
                                 let api_url = self.context.chat.api_url.clone();
 
-                                let mut saved_state_cl = None;
+                                let mut world_state_cl = None;
                                 
                                 {
                                     // Get saved state for context
                                     let editor = self.context.export_editor.as_ref().unwrap();
-                                    let saved_state = editor.saved_state.as_ref().expect("Couldn't get saved state").clone();
+                                    let world_state = editor.world_state.as_ref().expect("Couldn't get saved state").clone();
                                     
                                     self.context.chat.messages.push(ChatMessage {
                                         id: Uuid::new_v4().to_string(),
@@ -918,7 +1006,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                     });
                                     
                                     // Clone for thread
-                                    saved_state_cl = Some(saved_state.clone());
+                                    world_state_cl = Some(world_state.clone());
                                 }
 
                                 let (tx, rx) = std::sync::mpsc::channel();
@@ -931,7 +1019,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                         let body = serde_json::json!({
                                             "role": "user",
                                             "content": content,
-                                            "saved_state": saved_state_cl
+                                            "world_state": world_state_cl
                                         });
                                         let res = client.post(&url).json(&body).send().await;
                                         if let Ok(resp) = res {
