@@ -893,6 +893,7 @@ impl WindowState {
             window_size,
             sequences,
             video_current_sequence_timeline,
+            60000,
             window_size.width, // video_width
             window_size.height, // video_height
             project_id,

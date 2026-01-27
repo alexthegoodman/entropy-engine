@@ -33,7 +33,7 @@ impl Exporter {
         saved_timeline_state_config: SavedTimelineStateConfig,
         video_width: u32,
         video_height: u32,
-        total_duration_s: f64,
+        video_total_duration_ms: i32,
         // progress_tx: UnboundedSender<ExportProgress>,
         project_id: String,
     ) -> Result<Arc<u32>, String> {
@@ -45,6 +45,7 @@ impl Exporter {
                 window_size,
                 sequences,
                 saved_timeline_state_config,
+                video_total_duration_ms,
                 video_width,
                 video_height,
                 project_id,
@@ -54,6 +55,7 @@ impl Exporter {
 
         // // Calculate total frames based on sequence duration
         const FPS: f64 = 60.0;
+        let total_duration_s = video_total_duration_ms as f64 / 1000.0;
         let total_frames = (total_duration_s * FPS).ceil() as u32;
 
         // println!("Preparing frame buffer...");

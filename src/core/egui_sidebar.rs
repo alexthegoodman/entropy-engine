@@ -70,6 +70,7 @@ pub struct UiContext<'a> {
     pub projects: &'a mut Vec<String>,
     pub selected_component_id: &'a mut Option<String>,
     pub chat: &'a mut Chat,
+    pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimelineUi,
     pub gpu_resources: &'a Option<Arc<GpuResources>>,
 }
 
@@ -957,16 +958,8 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 editor.writing_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
             }
             Tab::VideoTimeline => {
-                ui.heading("Stunts Video Timeline");
-                ui.separator();
-                ui.label("Timeline visualization and keyframe management will appear here.");
-                ui.add_space(20.0);
-                ui.horizontal(|ui| {
-                    ui.button("⏮");
-                    ui.button("⏵");
-                    ui.button("⏸");
-                    ui.button("⏭");
-                });
+                let editor = self.context.export_editor.as_mut().unwrap();
+                self.context.video_timeline_ui.show(ui, editor);
             }
             _ => {
                 ui.label("Not implemented");

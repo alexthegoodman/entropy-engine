@@ -119,6 +119,8 @@ pub struct ExportPipeline {
     pub sophia_dock_state: DockState<Tab>,
     pub stunts_dock_state: DockState<Tab>,
     pub central_chat_dock_state: DockState<Tab>,
+    pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi,
+    pub video_total_duration_ms: i32,
     pub current_workspace: Workspace,
     pub show_central_chat_overlay: bool,
     pub window_size_bind_group: Option<wgpu::BindGroup>,
@@ -185,6 +187,8 @@ impl ExportPipeline {
             sophia_dock_state,
             stunts_dock_state,
             central_chat_dock_state,
+            video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi::new(),
+            video_total_duration_ms: 60000,
             current_workspace: Workspace::GameEngine,
             show_central_chat_overlay: false,
             window_size_bind_group: None,
@@ -234,6 +238,7 @@ impl ExportPipeline {
         window_size: WindowSize,
         sequences: Vec<Sequence>,
         video_current_sequence_timeline: SavedTimelineStateConfig,
+        video_total_duration_ms: i32,
         video_width: u32,
         video_height: u32,
         project_id: String,
@@ -1462,6 +1467,7 @@ impl ExportPipeline {
         export_editor.video_start_playing_time = Some(now.clone());
 
         export_editor.video_current_sequence_timeline = Some(video_current_sequence_timeline);
+        export_editor.video_total_duration_ms = video_total_duration_ms;
         export_editor.video_current_sequences_data = Some(sequences);
 
         export_editor.video_is_playing = true;
@@ -2779,6 +2785,23 @@ impl ExportPipeline {
 
     #[cfg(target_os = "windows")]
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
+        let now = std::time::Instant::now();
+        if let Some(editor) = &mut self.export_editor {
+            let delta = if let Some(last) = editor.last_frame_time {
+                now.duration_since(last).as_millis() as i32
+            } else {
+                0
+            };
+            editor.last_frame_time = Some(now);
+
+            if editor.video_is_playing {
+                editor.video_current_time_ms += delta;
+                if editor.video_current_time_ms > editor.video_total_duration_ms {
+                    editor.video_current_time_ms = 0; // Loop or stop
+                }
+            }
+        }
+
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
     
         let output = gpu_resources.surface.as_ref().unwrap()
@@ -2788,7 +2811,10 @@ impl ExportPipeline {
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
     
         if self.current_workspace != Workspace::Sophia {
-            self.render_frame(Some(&view), 0.0, game_mode);
+            let current_time_s = self.export_editor.as_ref()
+                .map(|e| e.video_current_time_ms as f64 / 1000.0)
+                .unwrap_or(0.0);
+            self.render_frame(Some(&view), current_time_s, game_mode);
         } else {
             // Clear the screen for Writing workspace
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2879,6 +2905,7 @@ impl ExportPipeline {
             projects: &mut self.projects,
             selected_component_id: &mut self.selected_component_id,
             chat: &mut self.chat,
+            video_timeline_ui: &mut self.video_timeline_ui,
             gpu_resources: &self.gpu_resources,
         };
 

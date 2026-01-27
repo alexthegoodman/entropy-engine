@@ -387,6 +387,8 @@ pub struct Editor {
     pub start_playing_time: Option<Instant>,
     pub video_is_playing: bool,
     pub video_start_playing_time: Option<Instant>,
+    pub video_current_time_ms: i32,
+    pub video_total_duration_ms: i32,
     pub video_current_sequence_timeline: Option<SavedTimelineStateConfig>,
     pub video_current_sequences_data: Option<Vec<Sequence>>,
     pub control_mode: ControlMode,
@@ -534,6 +536,8 @@ impl Editor {
             // dragging_image: None,
             video_is_playing: false,
             video_start_playing_time: None,
+            video_current_time_ms: 0,
+            video_total_duration_ms: 60000, // 60 seconds default
             video_current_sequence_timeline: None,
             video_current_sequences_data: None,
             // dragging_path: None,
