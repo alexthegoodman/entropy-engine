@@ -9,4 +9,4 @@ We already have video import, export, and screen capture. We also have 2D and 3D
 
 - Slice, cut, and arrange clips with remote AI
 - Generate animations with remote AI
-- Generate clips with remmote AI
+- Generate clips with remote AI

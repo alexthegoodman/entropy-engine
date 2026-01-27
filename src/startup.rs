@@ -204,7 +204,7 @@ impl Application {
         let mut window_attributes = Window::default_attributes()
             .with_title("Entropy Engine")
             .with_transparent(false)
-            .with_inner_size(PhysicalSize::new(1024.0, 768.0));
+            .with_inner_size(PhysicalSize::new(1200.0, 768.0));
             // .with_window_icon(Some(self.icon.clone()));
 
         #[cfg(any(x11_platform, wayland_platform))]
@@ -886,7 +886,7 @@ impl WindowState {
         let project_id = uuid::Uuid::new_v4().to_string(); // Generate a new UUID for project_id
         
         // Use window size for camera initialization
-        let window_size = WindowSize { width: 1024, height: 768 };
+        let window_size = WindowSize { width: 1200, height: 768 };
 
         pollster::block_on(pipeline.initialize(
             Some(&window),
