@@ -32,4 +32,4 @@ Within /src/, there are several directories:
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)
-rhai_engine.rs has the Rhai glue code
+deno_engine.rs has the Deno JS glue code
