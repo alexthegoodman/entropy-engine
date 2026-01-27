@@ -4,7 +4,7 @@ use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
 use crate::helpers::landscapes::generate_landscape_data;
-use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
+use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties, AppExperience};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 #[cfg(target_os = "windows")]
 use crate::startup::Gui;
@@ -129,7 +129,7 @@ pub struct ExportPipeline {
     pub frame_buffer: Option<FrameCaptureBuffer>,
     pub chat: Chat,
     new_project_name: String,
-    projects: Vec<String>,
+    projects: Vec<(String, String)>,
 
     start_time: Instant,
 
@@ -2910,6 +2910,12 @@ impl ExportPipeline {
             chat: &mut self.chat,
             video_timeline_ui: &mut self.video_timeline_ui,
             gpu_resources: &self.gpu_resources,
+            current_app: match self.current_workspace {
+                Workspace::GameEngine => AppExperience::OpenWorldStudio,
+                Workspace::Sophia => AppExperience::Sophia,
+                Workspace::Stunts => AppExperience::Stunts,
+                Workspace::CentralChat => AppExperience::OpenWorldStudio,
+            },
         };
 
         let mut viewer = PipelineTabViewer { context };

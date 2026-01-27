@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::helpers::saved_data::{ComponentData, ProceduralSkyConfig};
 
-use super::saved_data::{LevelData, SavedState};
+use super::saved_data::{AppExperience, LevelData, ProjectRegistry, ProjectRegistryEntry, SavedState};
 #[cfg(target_arch = "wasm32")]
 use super::wasm_loaders;
 
@@ -21,6 +21,29 @@ pub fn get_common_os_dir() -> Option<PathBuf> {
             .expect("Couldn't check or create CommonOS directory");
         common_os
     })
+}
+
+pub fn get_project_registry_path() -> Option<PathBuf> {
+    get_common_os_dir().map(|dir| dir.join("projects.json"))
+}
+
+pub fn load_project_registry() -> Result<ProjectRegistry, Box<dyn std::error::Error>> {
+    let path = get_project_registry_path().ok_or("Could not find CommonOS directory")?;
+    
+    if !path.exists() {
+        return Ok(ProjectRegistry::default());
+    }
+    
+    let content = fs::read_to_string(path)?;
+    let registry: ProjectRegistry = serde_json::from_str(&content)?;
+    Ok(registry)
+}
+
+pub fn save_project_registry(registry: &ProjectRegistry) -> Result<(), Box<dyn std::error::Error>> {
+    let path = get_project_registry_path().ok_or("Could not find CommonOS directory")?;
+    let content = serde_json::to_string_pretty(registry)?;
+    fs::write(path, content)?;
+    Ok(())
 }
 
 pub fn get_projects_dir() -> Option<PathBuf> {
@@ -234,8 +257,9 @@ pub fn update_project_state(project_id: &str, saved_state: &SavedState) -> Resul
     Ok(())
 }
 
-pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
-    let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
+pub fn create_project_state(project_name: &str, app: AppExperience) -> Result<SavedState, Box<dyn std::error::Error>> {
+    let project_id = Uuid::new_v4().to_string();
+    let project_dir = get_project_dir(&project_id).expect("Couldn't get project directory");
 
     let empty_level = LevelData {
         id: Uuid::new_v4().to_string(),
@@ -247,8 +271,8 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
     levels.push(empty_level);
 
     let empty_saved_state = SavedState {
-        project_name: project_id.to_string(), // Initialize the new project_name field
-        id: Some(project_id.to_string()),
+        project_name: project_name.to_string(), 
+        id: Some(project_id.clone()),
         levels: Some(levels),
         // concepts: Vec::new(),
         // models: Vec::new(),
@@ -268,6 +292,15 @@ pub fn create_project_state(project_id: &str) -> Result<SavedState, Box<dyn std:
 
     let json = serde_json::to_string_pretty(&empty_saved_state)?;
     fs::write(project_dir.join("midpoint.json"), json)?;
+
+    // Update Registry
+    let mut registry = load_project_registry()?;
+    registry.projects.push(ProjectRegistryEntry {
+        project_name: project_name.to_string(),
+        project_id: project_id.clone(),
+        app,
+    });
+    save_project_registry(&registry)?;
 
     Ok(empty_saved_state)
 }

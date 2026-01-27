@@ -3,7 +3,7 @@ use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
 use crate::helpers::landscapes::generate_landscape_data;
-use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
+use crate::helpers::saved_data::{self, AppExperience, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
 use crate::helpers::utilities::{save_heightmap, save_rhai_script};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 use crate::water_plane::config::WaterConfig;
@@ -67,11 +67,12 @@ use crate::startup::Gui;
 pub struct UiContext<'a> {
     pub export_editor: &'a mut Option<Editor>,
     pub new_project_name: &'a mut String,
-    pub projects: &'a mut Vec<String>,
+    pub projects: &'a mut Vec<(String, String)>,
     pub selected_component_id: &'a mut Option<String>,
     pub chat: &'a mut Chat,
     pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimelineUi,
     pub gpu_resources: &'a Option<Arc<GpuResources>>,
+    pub current_app: AppExperience,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -94,9 +95,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     ui.text_edit_singleline(self.context.new_project_name);
                     if ui.button("Create New Project").clicked() {
                         if !self.context.new_project_name.is_empty() {
-                            match utilities::create_project_state(self.context.new_project_name) {
+                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
                                     editor.saved_state = Some(new_state);
+                                    editor.app_experience = self.context.current_app;
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -108,33 +110,28 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     ui.separator();
                     ui.label("Existing Projects");
         
-                    if let Some(projects_dir) = utilities::get_projects_dir() {
-                        self.context.projects.clear();
-                        if let Ok(entries) = fs::read_dir(projects_dir) {
-                            for entry in entries {
-                                if let Ok(entry) = entry {
-                                    let path = entry.path();
-                                    if path.is_dir() {
-                                        if let Some(name) = path.file_name() {
-                                            if let Some(name_str) = name.to_str() {
-                                                self.context.projects.push(name_str.to_string());
-                                            }
-                                        }
-                                    }
-                                }
+                    self.context.projects.clear();
+                    if let Ok(registry) = utilities::load_project_registry() {
+                        for project in registry.projects {
+                            if project.app == self.context.current_app {
+                                self.context.projects.push((project.project_name, project.project_id));
                             }
                         }
                     }
         
-                    for project_id in self.context.projects.iter() {
-                        if ui.button(project_id).clicked() {
+                    for (project_name, project_id) in self.context.projects.iter() {
+                        if ui.button(project_name).clicked() {
                             pollster::block_on(load_project(editor, project_id));
+                            editor.app_experience = self.context.current_app;
                         }
                     }
                 } else {
                     ui.label("Project Loaded");
                     if let Some(saved_state) = &editor.saved_state {
-                         ui.label(format!("Project: {}", saved_state.id.as_deref().unwrap_or("Unknown")));
+                         ui.label(format!("Project: {}", saved_state.project_name));
+                    }
+                    if ui.button("Close Project").clicked() {
+                         editor.saved_state = None;
                     }
                 }
             }

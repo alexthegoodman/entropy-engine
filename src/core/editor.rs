@@ -17,7 +17,7 @@ use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::camera::CameraBinding;
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::helpers::saved_data::SavedState;
+use crate::helpers::saved_data::{SavedState, AppExperience};
 use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
@@ -300,6 +300,7 @@ pub struct SelectedObject {
 
 pub struct Editor {
     pub project_id: String, 
+    pub app_experience: AppExperience,
 
     // games
     pub renderer_state: Option<RendererState>,
@@ -475,6 +476,7 @@ impl Editor {
 
         Editor {
             project_id: project_id.clone(),
+            app_experience: AppExperience::OpenWorldStudio,
             renderer_state: None,
             saved_state: None,
             deno_engine: DenoEngine::new(project_id.clone()),

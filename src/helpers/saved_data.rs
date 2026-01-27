@@ -205,10 +205,30 @@ pub struct ProjectData {
     pub project_name: String,
 }
 
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
-pub struct ProjectsDataFile {
-    pub projects: Vec<ProjectData>,
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
+pub enum AppExperience {
+    #[default]
+    OpenWorldStudio,
+    Sophia,
+    Stunts,
 }
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
+pub struct ProjectRegistryEntry {
+    pub project_name: String,
+    pub project_id: String,
+    pub app: AppExperience,
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
+pub struct ProjectRegistry {
+    pub projects: Vec<ProjectRegistryEntry>,
+}
+
+// #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug, Default)]
+// pub struct ProjectsDataFile {
+//     pub projects: Vec<ProjectData>,
+// }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct UIThemeProperties {
@@ -288,4 +308,6 @@ pub struct SavedState {
     pub sequences: Option<Vec<Sequence>>,
     pub timeline_state: Option<SavedTimelineStateConfig>,
     pub global_rhai_scripts: Option<Vec<String>>,
+    // TODO: writing
+    // pub chapters: Option<Vec<Chapter>>, // (w/markdown filenames)
 }
