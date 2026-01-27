@@ -1,7 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{game_behaviors::stateful::BehaviorConfig, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence, water_plane::config::WaterConfig};
+use crate::{
+    game_behaviors::stateful::BehaviorConfig,
+    water_plane::config::WaterConfig,
+    shape_primitives::polygon::SavedPolygonConfig,
+    renderer_text::text_due::SavedTextRendererConfig,
+    renderer_images::st_image::SavedStImageConfig,
+    vector_animations::animations::{SavedStVideoConfig, AnimationData},
+};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct ScatterSettings {
@@ -294,8 +301,8 @@ pub struct PBRTextureData {
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub struct SavedState {
     pub id: Option<String>,
-    pub project_name: String,
-    // games
+    pub project_name: String, // legacy, now stored in projects.json
+    // games (open world studio)
     pub concepts: Vec<File>, // counts as Assets
     pub models: Vec<File>, // counts as Assets
     pub landscapes: Option<Vec<LandscapeData>>, // counts as Assets
@@ -304,10 +311,14 @@ pub struct SavedState {
     pub stats: Option<Vec<StatData>>, // Stats can be used to record a value or change tied to whatever references it
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     pub game_settings: Option<GameSettings>,
-    // videos
-    pub sequences: Option<Vec<Sequence>>,
-    pub timeline_state: Option<SavedTimelineStateConfig>,
-    pub global_rhai_scripts: Option<Vec<String>>,
-    // TODO: writing
+    // videos (stunts)
+    pub object_motion_paths: Option<Vec<AnimationData>>,
+    pub active_polygons: Option<Vec<SavedPolygonConfig>>,
+    pub active_text_items: Option<Vec<SavedTextRendererConfig>>,
+    pub active_image_items: Option<Vec<SavedStImageConfig>>,
+    pub active_video_items: Option<Vec<SavedStVideoConfig>>,
+    // TODO: writing (sophia)
     // pub chapters: Option<Vec<Chapter>>, // (w/markdown filenames)
+    // Global
+    pub global_js_scripts: Option<Vec<String>>,
 }

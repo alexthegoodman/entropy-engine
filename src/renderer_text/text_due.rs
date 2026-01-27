@@ -62,6 +62,10 @@ pub struct SavedTextRendererConfig {
     pub layer: i32,
     pub color: [i32; 4],
     pub background_fill: Option<[i32; 4]>,
+    #[serde(default)]
+    pub start_time_ms: i32,
+    #[serde(default)]
+    pub duration_ms: i32,
 }
 
 pub struct TextRenderer {

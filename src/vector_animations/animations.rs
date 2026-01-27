@@ -27,6 +27,10 @@ pub struct SavedStVideoConfig {
     pub position: SavedPoint,
     pub layer: i32,
     pub mouse_path: Option<String>,
+    #[serde(default)]
+    pub start_time_ms: i32,
+    #[serde(default)]
+    pub duration_ms: i32,
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Debug)]

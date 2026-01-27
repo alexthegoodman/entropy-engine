@@ -889,4 +889,8 @@ pub struct SavedPolygonConfig {
     pub border_radius: i32,
     pub stroke: SavedStroke,
     pub layer: i32,
+    #[serde(default)]
+    pub start_time_ms: i32,
+    #[serde(default)]
+    pub duration_ms: i32,
 }

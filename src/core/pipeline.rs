@@ -243,8 +243,6 @@ impl ExportPipeline {
         canvas: Option<HtmlCanvasElement>,
 
         window_size: WindowSize,
-        sequences: Vec<Sequence>,
-        video_current_sequence_timeline: SavedTimelineStateConfig,
         video_total_duration_ms: i32,
         video_width: u32,
         video_height: u32,
@@ -1473,9 +1471,7 @@ impl ExportPipeline {
         
         export_editor.video_start_playing_time = Some(now.clone());
 
-        export_editor.video_current_sequence_timeline = Some(video_current_sequence_timeline);
         export_editor.video_total_duration_ms = video_total_duration_ms;
-        export_editor.video_current_sequences_data = Some(sequences);
 
         export_editor.video_is_playing = true;
 

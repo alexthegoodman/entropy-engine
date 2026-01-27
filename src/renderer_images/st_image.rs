@@ -41,6 +41,10 @@ pub struct SavedStImageConfig {
     pub path: String,
     pub position: SavedPoint,
     pub layer: i32,
+    #[serde(default)]
+    pub start_time_ms: i32,
+    #[serde(default)]
+    pub duration_ms: i32,
 }
 
 pub struct StImage {

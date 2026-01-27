@@ -383,7 +383,6 @@ pub struct Editor {
 
     // state
     pub is_playing: bool,
-    pub current_sequence_data: Option<Sequence>,
 
     pub last_frame_time: Option<Instant>,
     pub start_playing_time: Option<Instant>,
@@ -391,8 +390,6 @@ pub struct Editor {
     pub video_start_playing_time: Option<Instant>,
     pub video_current_time_ms: i32,
     pub video_total_duration_ms: i32,
-    pub video_current_sequence_timeline: Option<SavedTimelineStateConfig>,
-    pub video_current_sequences_data: Option<Vec<Sequence>>,
     pub control_mode: ControlMode,
     pub is_panning: bool,
     pub motion_mode: bool,
@@ -510,7 +507,6 @@ impl Editor {
             ndc: Point { x: 0.0, y: 0.0 },
             previous_top_left: Point { x: 0.0, y: 0.0 },
             is_playing: false,
-            current_sequence_data: None,
             last_frame_time: None,
             start_playing_time: None,
             model_bind_group_layout: None,
@@ -542,8 +538,6 @@ impl Editor {
             video_start_playing_time: None,
             video_current_time_ms: 0,
             video_total_duration_ms: 60000, // 60 seconds default
-            video_current_sequence_timeline: None,
-            video_current_sequences_data: None,
             // dragging_path: None,
             // dragging_path_handle: None,
             // on_handle_mouse_up: None,

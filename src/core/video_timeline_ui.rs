@@ -1,8 +1,5 @@
 use crate::core::editor::Editor;
-use crate::helpers::timelines::{TimelineSequence, TrackType, SavedTimelineStateConfig};
-use crate::vector_animations::animations::Sequence;
-use egui::{Ui, Rect, Pos2, Vec2, Color32, Stroke, Sense, PointerButton, Align2, FontId, Id, Shape, LayerId, Order};
-use uuid::Uuid;
+use egui::{Ui, Rect, Pos2, Vec2, Color32, Stroke, Sense, Align2, FontId, Id};
 
 pub struct VideoTimelineUi {
     pub zoom: f32, // ms per pixel
@@ -24,15 +21,13 @@ impl VideoTimelineUi {
     }
 
     pub fn show(&mut self, ui: &mut Ui, editor: &mut Editor) {
-        let available_rect = ui.available_rect_before_wrap();
-        
         egui::Frame::none()
             .fill(ui.visuals().window_fill())
             .stroke(ui.visuals().window_stroke())
             .show(ui, |ui| {
                 ui.set_min_height(300.0);
                 
-                // Top bar: Controls and Clips Library
+                // Top bar: Controls
                 ui.horizontal(|ui| {
                     ui.group(|ui| {
                         if ui.button(if editor.video_is_playing { "⏸" } else { "⏵" }).clicked() {
@@ -45,29 +40,6 @@ impl VideoTimelineUi {
                     });
 
                     ui.add_space(20.0);
-
-                    // Library of sequences that can be added
-                    ui.label("Add Sequence:");
-                    if let Some(world_state) = &mut editor.world_state {
-                        if let Some(sequences) = &world_state.sequences {
-                            for seq in sequences {
-                                if ui.button(&seq.name).on_hover_text("Add to timeline").clicked() {
-                                    if world_state.timeline_state.is_none() {
-                                        world_state.timeline_state = Some(SavedTimelineStateConfig::default());
-                                    }
-                                    if let Some(ts_config) = &mut world_state.timeline_state {
-                                        ts_config.timeline_sequences.push(TimelineSequence {
-                                            id: Uuid::new_v4().to_string(),
-                                            sequence_id: seq.id.clone(),
-                                            track_type: TrackType::Video,
-                                            track_index: 0,
-                                            start_time_ms: editor.video_current_time_ms,
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                          ui.add(egui::Slider::new(&mut self.zoom, 1.0..=200.0).text("Zoom"));
@@ -142,83 +114,98 @@ impl VideoTimelineUi {
                     }
 
                     // Draw Clips
-                    let mut ts_to_delete = None;
+                    let mut item_to_delete = None;
                     if let Some(world_state) = &mut editor.world_state {
-                        if let Some(timeline_state) = &mut world_state.timeline_state {
-                            let sequences_map = world_state.sequences.as_ref().map(|s| {
-                                s.iter().map(|seq| (seq.id.clone(), seq)).collect::<std::collections::HashMap<_, _>>()
-                            }).unwrap_or_default();
+                        
+                        // Helper for rendering clips
+                        let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: i32, layer: i32, color: Color32, target_type: DeleteTarget| {
+                            let track_idx = layer.clamp(0, 5);
+                            let clip_start_x = time_to_x(*start_time);
+                            let clip_width = (duration as f32 / self.zoom).max(5.0);
+                            let clip_y = tracks_top + (track_idx as f32 * self.track_height) + 4.0;
+                            let clip_rect = Rect::from_min_size(
+                                Pos2::new(clip_start_x, clip_y),
+                                Vec2::new(clip_width, self.track_height - 8.0)
+                            );
 
-                            for (idx, ts) in timeline_state.timeline_sequences.iter_mut().enumerate() {
-                                if let Some(seq) = sequences_map.get(&ts.sequence_id) {
-                                    let track_idx = match ts.track_type {
-                                        TrackType::Video => ts.track_index.min(2),
-                                        TrackType::Audio => 3 + ts.track_index.min(2),
-                                    };
+                            let clip_id = Id::new("clip_v3").with(id);
+                            let clip_res = ui.interact(clip_rect, clip_id, Sense::click_and_drag());
+                            
+                            if clip_res.clicked() {
+                                self.selected_ts_id = Some(id.to_string());
+                            }
 
-                                    let clip_start_x = time_to_x(ts.start_time_ms);
-                                    let clip_width = (seq.duration_ms as f32 / self.zoom).max(5.0);
-                                    let clip_y = tracks_top + (track_idx as f32 * self.track_height) + 4.0;
-                                    let clip_rect = Rect::from_min_size(
-                                        Pos2::new(clip_start_x, clip_y),
-                                        Vec2::new(clip_width, self.track_height - 8.0)
-                                    );
+                            if clip_res.dragged() {
+                                let delta_x = clip_res.drag_delta().x;
+                                let delta_time = (delta_x * self.zoom) as i32;
+                                *start_time = (*start_time + delta_time).max(0);
+                                self.selected_ts_id = Some(id.to_string());
+                            }
 
-                                    let clip_id = Id::new("clip_v2").with(&ts.id);
-                                    let clip_res = ui.interact(clip_rect, clip_id, Sense::click_and_drag());
-                                    
-                                    if clip_res.clicked() {
-                                        self.selected_ts_id = Some(ts.id.clone());
-                                    }
-
-                                    if clip_res.dragged() {
-                                        let delta_x = clip_res.drag_delta().x;
-                                        let delta_time = (delta_x * self.zoom) as i32;
-                                        ts.start_time_ms = (ts.start_time_ms + delta_time).max(0);
-                                        self.selected_ts_id = Some(ts.id.clone());
-                                    }
-
-                                    clip_res.context_menu(|ui| {
-                                        if ui.button("Delete Clip").clicked() {
-                                            ts_to_delete = Some(idx);
-                                            ui.close_menu();
-                                        }
-                                    });
-
-                                    let is_selected = self.selected_ts_id.as_ref() == Some(&ts.id);
-                                    let mut fill_color = if ts.track_type == TrackType::Video {
-                                        Color32::from_rgb(60, 100, 180)
-                                    } else {
-                                        Color32::from_rgb(100, 180, 60)
-                                    };
-                                    
-                                    if is_selected {
-                                        fill_color = fill_color.linear_multiply(1.5);
-                                    }
-
-                                    painter.rect_filled(clip_rect, 2.0, fill_color);
-                                    let stroke_color = if is_selected { Color32::WHITE } else { Color32::from_rgb(200, 200, 200) };
-                                    painter.rect_stroke(clip_rect, 2.0, Stroke::new(if is_selected { 2.0 } else { 1.0 }, stroke_color), egui::StrokeKind::Middle);
-                                    
-                                    // Clip Name
-                                    let text_rect = clip_rect.shrink(4.0);
-                                    let p = painter.with_clip_rect(clip_rect);
-                                    p.text(
-                                        text_rect.left_top(),
-                                        Align2::LEFT_TOP,
-                                        &seq.name,
-                                        FontId::proportional(11.0),
-                                        Color32::WHITE,
-                                    );
+                            clip_res.context_menu(|ui| {
+                                if ui.button("Delete").clicked() {
+                                    item_to_delete = Some(target_type);
+                                    ui.close_menu();
                                 }
+                            });
+
+                            let is_selected = self.selected_ts_id.as_ref() == Some(&id.to_string());
+                            let mut fill_color = color;
+                            if is_selected {
+                                fill_color = fill_color.linear_multiply(1.5);
+                            }
+
+                            painter.rect_filled(clip_rect, 2.0, fill_color);
+                            let stroke_color = if is_selected { Color32::WHITE } else { Color32::from_rgb(200, 200, 200) };
+                            painter.rect_stroke(clip_rect, 2.0, Stroke::new(if is_selected { 2.0 } else { 1.0 }, stroke_color), egui::StrokeKind::Middle);
+                            
+                            let text_rect = clip_rect.shrink(4.0);
+                            let p = painter.with_clip_rect(clip_rect);
+                            p.text(
+                                text_rect.left_top(),
+                                Align2::LEFT_TOP,
+                                name,
+                                FontId::proportional(11.0),
+                                Color32::WHITE,
+                            );
+                        };
+
+                        // Polygons
+                        if let Some(polygons) = &mut world_state.active_polygons {
+                            for (idx, poly) in polygons.iter_mut().enumerate() {
+                                render_clip(&poly.id, &poly.name, &mut poly.start_time_ms, poly.duration_ms, poly.layer, Color32::from_rgb(60, 100, 180), DeleteTarget::Polygon(idx));
+                            }
+                        }
+
+                        // Text
+                        if let Some(text_items) = &mut world_state.active_text_items {
+                            for (idx, text) in text_items.iter_mut().enumerate() {
+                                render_clip(&text.id, &text.name, &mut text.start_time_ms, text.duration_ms, text.layer, Color32::from_rgb(100, 180, 60), DeleteTarget::Text(idx));
+                            }
+                        }
+
+                        // Images
+                        if let Some(images) = &mut world_state.active_image_items {
+                            for (idx, img) in images.iter_mut().enumerate() {
+                                render_clip(&img.id, &img.name, &mut img.start_time_ms, img.duration_ms, img.layer, Color32::from_rgb(180, 100, 60), DeleteTarget::Image(idx));
+                            }
+                        }
+
+                        // Videos
+                        if let Some(videos) = &mut world_state.active_video_items {
+                            for (idx, vid) in videos.iter_mut().enumerate() {
+                                render_clip(&vid.id, &vid.name, &mut vid.start_time_ms, vid.duration_ms, vid.layer, Color32::from_rgb(180, 60, 100), DeleteTarget::Video(idx));
                             }
                         }
                     }
 
-                    if let Some(idx) = ts_to_delete {
+                    if let Some(target) = item_to_delete {
                         if let Some(world_state) = &mut editor.world_state {
-                            if let Some(ts_config) = &mut world_state.timeline_state {
-                                ts_config.timeline_sequences.remove(idx);
+                            match target {
+                                DeleteTarget::Polygon(idx) => { world_state.active_polygons.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Text(idx) => { world_state.active_text_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Image(idx) => { world_state.active_image_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Video(idx) => { world_state.active_video_items.as_mut().map(|v| v.remove(idx)); },
                             }
                         }
                     }
@@ -239,4 +226,12 @@ impl VideoTimelineUi {
                 });
             });
     }
+}
+
+#[derive(Clone, Copy)]
+enum DeleteTarget {
+    Polygon(usize),
+    Text(usize),
+    Image(usize),
+    Video(usize),
 }

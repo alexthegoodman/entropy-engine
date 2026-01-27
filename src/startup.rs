@@ -878,11 +878,6 @@ impl WindowState {
         let window = Arc::new(window);
 
         let mut pipeline = ExportPipeline::new();
-        // Dummy data for now. Real sequences will be loaded later.
-        let sequences = Vec::new();
-        let video_current_sequence_timeline = crate::helpers::timelines::SavedTimelineStateConfig {
-            timeline_sequences: Vec::new()
-        };
         let project_id = uuid::Uuid::new_v4().to_string(); // Generate a new UUID for project_id
         
         // Use window size for camera initialization
@@ -891,8 +886,6 @@ impl WindowState {
         pollster::block_on(pipeline.initialize(
             Some(&window),
             window_size,
-            sequences,
-            video_current_sequence_timeline,
             60000,
             window_size.width, // video_width
             window_size.height, // video_height

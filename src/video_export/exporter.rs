@@ -3,7 +3,7 @@ use std::sync::Arc;
 // use tokio::sync::mpsc::{UnboundedSender};
 
 // use super::{encode::VideoEncoder, frame_buffer::FrameCaptureBuffer};
-use crate::{core::{editor::WindowSize, pipeline::ExportPipeline}, helpers::timelines::SavedTimelineStateConfig, vector_animations::animations::Sequence};
+use crate::{core::{editor::WindowSize, pipeline::ExportPipeline}};
 
 // Progress message sent from export thread to UI
 #[derive(Debug, Clone)]
@@ -29,8 +29,6 @@ impl Exporter {
     pub async fn run(
         &mut self,
         window_size: WindowSize,
-        sequences: Vec<Sequence>,
-        saved_timeline_state_config: SavedTimelineStateConfig,
         video_width: u32,
         video_height: u32,
         video_total_duration_ms: i32,
@@ -43,8 +41,6 @@ impl Exporter {
             .initialize(
                 None,
                 window_size,
-                sequences,
-                saved_timeline_state_config,
                 video_total_duration_ms,
                 video_width,
                 video_height,
