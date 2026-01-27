@@ -118,6 +118,7 @@ pub struct ExportPipeline {
     pub game_dock_state: DockState<Tab>,
     pub sophia_dock_state: DockState<Tab>,
     pub stunts_dock_state: DockState<Tab>,
+    pub video_timeline_dock_state: DockState<Tab>,
     pub central_chat_dock_state: DockState<Tab>,
     pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi,
     pub video_total_duration_ms: i32,
@@ -169,7 +170,8 @@ impl ExportPipeline {
         let sophia_surface = sophia_dock_state.main_surface_mut();
         sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
 
-        let stunts_dock_state = DockState::new(vec![Tab::VideoTimeline, Tab::Chat]);
+        let stunts_dock_state = DockState::new(vec![Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
 
         ExportPipeline {
@@ -186,6 +188,7 @@ impl ExportPipeline {
             game_dock_state,
             sophia_dock_state,
             stunts_dock_state,
+            video_timeline_dock_state,
             central_chat_dock_state,
             video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi::new(),
             video_total_duration_ms: 60000,
@@ -2961,6 +2964,17 @@ impl ExportPipeline {
                     .show_inside(ui, &mut viewer);
             });
         } else {
+            if self.current_workspace == Workspace::Stunts {
+                egui::TopBottomPanel::bottom("video_timeline_panel")
+                    .resizable(true)
+                    .default_height(300.0)
+                    .show(ctx, |ui| {
+                        DockArea::new(&mut self.video_timeline_dock_state)
+                            .style(Style::from_egui(ctx.style().as_ref()))
+                            .show_inside(ui, &mut viewer);
+                    });
+            }
+
             let active_dock_state = match self.current_workspace {
                 Workspace::GameEngine => &mut self.game_dock_state,
                 Workspace::Sophia => &mut self.sophia_dock_state,
