@@ -247,7 +247,8 @@ impl ExportPipeline {
         video_width: u32,
         video_height: u32,
         project_id: String,
-        game_mode: bool
+        game_mode: bool,
+        is_playing: bool,
     ) {
         let mut camera = Camera::new(
             Point3::new(0.0, 0.5, -5.0),
@@ -1473,11 +1474,11 @@ impl ExportPipeline {
 
         export_editor.video_total_duration_ms = video_total_duration_ms;
 
-        export_editor.video_is_playing = true;
+        export_editor.video_is_playing = is_playing;
 
         // also set motion path playing
         export_editor.start_playing_time = Some(now);
-        export_editor.is_playing = true;
+        export_editor.is_playing = is_playing;
         export_editor.ui_model_bind_group_layout = Some(ui_model_bind_group_layout);
         
 
@@ -2101,7 +2102,7 @@ impl ExportPipeline {
                 );
             }
 
-            // Execute Rhai component scripts
+            // Execute JS component scripts
             let mut changes: Vec<ComponentChanges> = Vec::new();
             if let Some(world_state) = editor.world_state.as_ref() {
                 if let Some(levels) = world_state.levels.as_ref() {
@@ -2784,16 +2785,32 @@ impl ExportPipeline {
     }
 
     pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {
-        if let Some(view) = target_view {
-            let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+        let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+        editor.sync_stunts_objects();
 
-            // NOTE: Clear the screen for now. TODO: add 2d and 3d rendering pipelines for video projects
-            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Clear Encoder"),
+        let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
+        let device = &gpu_resources.device;
+        let queue = &gpu_resources.queue;
+
+        // Update video frames if playing
+        if editor.video_is_playing {
+            for video in &mut editor.stunts_videos {
+                if !video.hidden && editor.video_current_time_ms >= video.start_time_ms && editor.video_current_time_ms <= video.start_time_ms + video.duration_ms {
+                    // For now, just draw every frame. 
+                    // TODO: implement more precise frame timing based on source_frame_rate
+                    let _ = video.draw_video_frame(device, queue);
+                }
+            }
+        }
+
+        if let Some(view) = target_view {
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Stunts Render Encoder"),
             });
+
             {
-                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Clear Pass"),
+                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Stunts Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &view,
                         resolve_target: None,
@@ -2803,12 +2820,34 @@ impl ExportPipeline {
                         },
                         depth_slice: None,
                     })],
-                    depth_stencil_attachment: None,
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: self.depth_view.as_ref().expect("No depth view"),
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
+
+                if let Some(ui_pipeline) = &self.ui_pipeline {
+                    let camera_binding = editor.camera_binding.as_ref().expect("No camera binding");
+                    let window_size_bind_group = self.window_size_bind_group.as_ref().expect("No window size bind group");
+
+                    ui_pipeline.render_stunts(
+                        &mut rpass,
+                        editor,
+                        &camera_binding.bind_group,
+                        window_size_bind_group,
+                        queue,
+                        editor.video_current_time_ms,
+                    );
+                }
             }
-            gpu_resources.queue.submit(Some(encoder.finish()));
+
+            queue.submit(Some(encoder.finish()));
         }
     }
 

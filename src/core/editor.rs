@@ -311,10 +311,14 @@ pub struct Editor {
     pub polygons: Vec<Polygon>,
     // pub dragging_polygon: Option<Uuid>,
     pub ui_polygons: Vec<Polygon>,
+    pub stunts_polygons: Vec<Polygon>,
     // pub project_selected: Option<Uuid>,
     pub ui_textboxes: Vec<TextRenderer>,
+    pub stunts_textboxes: Vec<TextRenderer>,
     // pub dragging_text: Option<Uuid>,
     pub ui_images: Vec<StImage>,
+    pub stunts_images: Vec<StImage>,
+    pub stunts_videos: Vec<crate::renderer_videos::st_video::StVideo>,
     pub health_bar: Option<HealthBar>,
     pub enemy_health_bar: Option<HealthBar>,
     pub crosshair: Option<Crosshair>,
@@ -445,6 +449,107 @@ pub enum InputValue {
 }
 
 impl Editor {
+    pub fn sync_stunts_objects(&mut self) {
+        if let Some(world_state) = &self.world_state {
+            let gpu_resources = self.gpu_resources.as_ref().expect("No gpu resources");
+            let device = &gpu_resources.device;
+            let queue = &gpu_resources.queue;
+            let model_bind_group_layout = self.model_bind_group_layout.as_ref().expect("No model bind group layout");
+            let group_bind_group_layout = self.group_bind_group_layout.as_ref().expect("No group bind group layout");
+            let camera = self.camera.as_ref().expect("No camera");
+            let window_size = camera.viewport.window_size;
+
+            // Sync Polygons
+            if let Some(saved_polygons) = &world_state.active_polygons {
+                // simple sync: if id not in stunts_polygons, add it.
+                // for now, let's just rebuild if lengths differ or always? 
+                // Better: only add if missing.
+                for saved in saved_polygons {
+                    if !self.stunts_polygons.iter().any(|p| p.id.to_string() == saved.id) {
+                        let poly = Polygon::from_saved_config(
+                            saved,
+                            &window_size,
+                            device,
+                            queue,
+                            model_bind_group_layout,
+                            group_bind_group_layout,
+                            camera,
+                        );
+                        self.stunts_polygons.push(poly);
+                    }
+                }
+                // remove if not in saved
+                self.stunts_polygons.retain(|p| saved_polygons.iter().any(|s| s.id == p.id.to_string()));
+            } else {
+                self.stunts_polygons.clear();
+            }
+
+            // Sync Text
+            if let Some(saved_text) = &world_state.active_text_items {
+                for saved in saved_text {
+                    if !self.stunts_textboxes.iter().any(|t| t.id.to_string() == saved.id) {
+                        let font_data = self.font_manager.get_font_by_name(&saved.font_family).expect("Font not found");
+                        let text = TextRenderer::from_saved_config(
+                            saved,
+                            &window_size,
+                            device,
+                            queue,
+                            model_bind_group_layout,
+                            group_bind_group_layout,
+                            camera,
+                            font_data,
+                        );
+                        self.stunts_textboxes.push(text);
+                    }
+                }
+                self.stunts_textboxes.retain(|t| saved_text.iter().any(|s| s.id == t.id.to_string()));
+            } else {
+                self.stunts_textboxes.clear();
+            }
+
+            // Sync Images
+            if let Some(saved_images) = &world_state.active_image_items {
+                for saved in saved_images {
+                    if !self.stunts_images.iter().any(|i| i.id == saved.id) {
+                        let img = StImage::from_saved_config(
+                            saved,
+                            &window_size,
+                            device,
+                            queue,
+                            model_bind_group_layout,
+                            group_bind_group_layout,
+                        );
+                        self.stunts_images.push(img);
+                    }
+                }
+                self.stunts_images.retain(|i| saved_images.iter().any(|s| s.id == i.id));
+            } else {
+                self.stunts_images.clear();
+            }
+
+            // Sync Videos
+            if let Some(saved_videos) = &world_state.active_video_items {
+                for saved in saved_videos {
+                    if !self.stunts_videos.iter().any(|v| v.id == saved.id) {
+                        if let Ok(vid) = crate::renderer_videos::st_video::StVideo::from_saved_config(
+                            saved,
+                            &window_size,
+                            device,
+                            queue,
+                            model_bind_group_layout,
+                            group_bind_group_layout,
+                        ) {
+                            self.stunts_videos.push(vid);
+                        }
+                    }
+                }
+                self.stunts_videos.retain(|v| saved_videos.iter().any(|s| s.id == v.id));
+            } else {
+                self.stunts_videos.clear();
+            }
+        }
+    }
+
     pub fn new(
         viewport: Arc<Mutex<Viewport>>,
         project_id: String
@@ -516,12 +621,16 @@ impl Editor {
             window_size_buffer: None,
             render_pipeline: None,
             ui_polygons: Vec::new(),
+            stunts_polygons: Vec::new(),
             // on_mouse_up: None,
             current_view: "manage_projects".to_string(),
             // project_selected: None,
             ui_textboxes: Vec::new(),
+            stunts_textboxes: Vec::new(),
             // dragging_text: None,
             ui_images: Vec::new(),
+            stunts_images: Vec::new(),
+            stunts_videos: Vec::new(),
             health_bar: None,
             enemy_health_bar: None,
             crosshair: None,

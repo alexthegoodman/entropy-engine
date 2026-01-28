@@ -95,6 +95,8 @@ pub struct TextRenderer {
     pub font_size: i32,
     pub group_bind_group: BindGroup,
     pub background_polygon: Polygon,
+    pub start_time_ms: i32,
+    pub duration_ms: i32,
 }
 
 impl TextRenderer {
@@ -279,6 +281,8 @@ impl TextRenderer {
             font_size: text_config.font_size,
             group_bind_group: tmp_group_bind_group,
             background_polygon,
+            start_time_ms: 0,
+            duration_ms: 0,
         }
     }
 
@@ -665,5 +669,49 @@ impl TextRenderer {
             Uuid::from_str(&selected_sequence_id).expect("Couldn't convert string to uuid"),
             camera,
         )
+    }
+
+    pub fn from_saved_config(
+        config: &SavedTextRendererConfig,
+        window_size: &WindowSize,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        camera: &Camera,
+        font_data: &[u8],
+    ) -> TextRenderer {
+        let renderer_config = TextRendererConfig {
+            id: Uuid::from_str(&config.id).expect("Couldn't convert string to uuid"),
+            name: config.name.clone(),
+            text: config.text.clone(),
+            font_family: config.font_family.clone(),
+            font_size: config.font_size,
+            dimensions: (config.dimensions.0 as f32, config.dimensions.1 as f32),
+            position: Point {
+                x: config.position.x as f32,
+                y: config.position.y as f32,
+            },
+            layer: config.layer,
+            color: config.color,
+            background_fill: config.background_fill.unwrap_or([0, 0, 0, 0]),
+        };
+
+        let mut tr = TextRenderer::new(
+            device,
+            queue,
+            model_bind_group_layout,
+            group_bind_group_layout,
+            font_data,
+            window_size,
+            config.text.clone(),
+            renderer_config,
+            Uuid::from_str(&config.id).expect("Couldn't convert string to uuid"),
+            Uuid::nil(), // Stunts mode doesn't use sequence_id anymore
+            camera,
+        );
+        tr.start_time_ms = config.start_time_ms;
+        tr.duration_ms = config.duration_ms;
+        tr
     }
 }

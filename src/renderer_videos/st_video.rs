@@ -19,6 +19,7 @@ use crate::core::editor::{Point, WindowSize};
 use crate::shape_primitives::polygon::SavedPoint;
 use crate::core::transform::{create_empty_group_transform};
 use crate::core::vertex::Vertex;
+use crate::vector_animations::animations::SavedStVideoConfig;
 use crate::{
     core::editor::{CANVAS_HORIZ_OFFSET, CANVAS_VERT_OFFSET},
 };
@@ -70,6 +71,8 @@ pub struct StVideo {
     pub dynamic_alpha: f32,
     pub num_frames_drawn: u32,
     pub original_dimensions: (u32, u32),
+    pub start_time_ms: i32,
+    pub duration_ms: i32,
     #[cfg(target_os = "windows")]
     pub source_reader: IMFSourceReader,
     // #[cfg(target_arch = "wasm32")]
@@ -301,7 +304,9 @@ impl StVideo {
             frame_timer: None,
             dynamic_alpha: 0.01,
             num_frames_drawn: 0,
-            original_dimensions: video_config.dimensions
+            original_dimensions: video_config.dimensions,
+            start_time_ms: 0,
+            duration_ms: 0
         })
     }
 
@@ -721,6 +726,45 @@ impl StVideo {
             layer: self.layer,
             mouse_path: self.mouse_path.clone(),
         }
+    }
+
+    pub fn from_saved_config(
+        config: &SavedStVideoConfig,
+        window_size: &WindowSize,
+        device: &Device,
+        queue: &Queue,
+        bind_group_layout: &wgpu::BindGroupLayout,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+    ) -> Result<Self, windows::core::Error> {
+        let video_config = StVideoConfig {
+            id: config.id.clone(),
+            name: config.name.clone(),
+            dimensions: config.dimensions,
+            position: Point {
+                x: config.position.x as f32,
+                y: config.position.y as f32,
+            },
+            path: config.path.clone(),
+            layer: config.layer,
+            mouse_path: config.mouse_path.clone(),
+        };
+
+        StVideo::new(
+            device,
+            queue,
+            Path::new(&config.path),
+            video_config,
+            window_size,
+            bind_group_layout,
+            group_bind_group_layout,
+            -2.0,
+            config.id.clone(),
+            Uuid::nil(), // Stunts mode doesn't use sequence_id anymore
+        ).map(|mut v| {
+            v.start_time_ms = config.start_time_ms;
+            v.duration_ms = config.duration_ms;
+            v
+        })
     }
 }
 

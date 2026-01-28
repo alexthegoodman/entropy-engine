@@ -47,10 +47,10 @@ impl VideoTimelineUi {
 
                     ui.add_space(20.0);
 
-                    if let Some(world_state) = &mut editor.world_state {
+                    if let Some(stunts_state) = &mut editor.stunts_state {
                         ui.label("Add:");
                         if ui.button("Polygon").clicked() {
-                            let polygons = world_state.active_polygons.get_or_insert_with(Vec::new);
+                            let polygons = stunts_state.active_polygons.get_or_insert_with(Vec::new);
                             polygons.push(SavedPolygonConfig {
                                 id: Uuid::new_v4().to_string(),
                                 name: format!("Polygon {}", polygons.len() + 1),
@@ -65,7 +65,7 @@ impl VideoTimelineUi {
                             });
                         }
                         if ui.button("Text").clicked() {
-                            let text_items = world_state.active_text_items.get_or_insert_with(Vec::new);
+                            let text_items = stunts_state.active_text_items.get_or_insert_with(Vec::new);
                             text_items.push(SavedTextRendererConfig {
                                 id: Uuid::new_v4().to_string(),
                                 name: format!("Text {}", text_items.len() + 1),
@@ -86,7 +86,7 @@ impl VideoTimelineUi {
                                 .add_filter("Image", &["png", "jpg", "jpeg"])
                                 .pick_file() 
                             {
-                                let images = world_state.active_image_items.get_or_insert_with(Vec::new);
+                                let images = stunts_state.active_image_items.get_or_insert_with(Vec::new);
                                 images.push(SavedStImageConfig {
                                     id: Uuid::new_v4().to_string(),
                                     name: path.file_name().unwrap().to_string_lossy().to_string(),
@@ -104,7 +104,7 @@ impl VideoTimelineUi {
                                 .add_filter("Video", &["mp4"])
                                 .pick_file() 
                             {
-                                let videos = world_state.active_video_items.get_or_insert_with(Vec::new);
+                                let videos = stunts_state.active_video_items.get_or_insert_with(Vec::new);
                                 videos.push(SavedStVideoConfig {
                                     id: Uuid::new_v4().to_string(),
                                     name: path.file_name().unwrap().to_string_lossy().to_string(),
@@ -194,7 +194,7 @@ impl VideoTimelineUi {
 
                     // Draw Clips
                     let mut item_to_delete = None;
-                    if let Some(world_state) = &mut editor.world_state {
+                    if let Some(stunts_state) = &mut editor.stunts_state {
                         
                         // Helper for rendering clips
                         let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: i32, layer: i32, color: Color32, target_type: DeleteTarget| {
@@ -250,28 +250,28 @@ impl VideoTimelineUi {
                         };
 
                         // Polygons
-                        if let Some(polygons) = &mut world_state.active_polygons {
+                        if let Some(polygons) = &mut stunts_state.active_polygons {
                             for (idx, poly) in polygons.iter_mut().enumerate() {
                                 render_clip(&poly.id, &poly.name, &mut poly.start_time_ms, poly.duration_ms, poly.layer, Color32::from_rgb(60, 100, 180), DeleteTarget::Polygon(idx));
                             }
                         }
 
                         // Text
-                        if let Some(text_items) = &mut world_state.active_text_items {
+                        if let Some(text_items) = &mut stunts_state.active_text_items {
                             for (idx, text) in text_items.iter_mut().enumerate() {
                                 render_clip(&text.id, &text.name, &mut text.start_time_ms, text.duration_ms, text.layer, Color32::from_rgb(100, 180, 60), DeleteTarget::Text(idx));
                             }
                         }
 
                         // Images
-                        if let Some(images) = &mut world_state.active_image_items {
+                        if let Some(images) = &mut stunts_state.active_image_items {
                             for (idx, img) in images.iter_mut().enumerate() {
                                 render_clip(&img.id, &img.name, &mut img.start_time_ms, img.duration_ms, img.layer, Color32::from_rgb(180, 100, 60), DeleteTarget::Image(idx));
                             }
                         }
 
                         // Videos
-                        if let Some(videos) = &mut world_state.active_video_items {
+                        if let Some(videos) = &mut stunts_state.active_video_items {
                             for (idx, vid) in videos.iter_mut().enumerate() {
                                 render_clip(&vid.id, &vid.name, &mut vid.start_time_ms, vid.duration_ms, vid.layer, Color32::from_rgb(180, 60, 100), DeleteTarget::Video(idx));
                             }
@@ -279,12 +279,12 @@ impl VideoTimelineUi {
                     }
 
                     if let Some(target) = item_to_delete {
-                        if let Some(world_state) = &mut editor.world_state {
+                        if let Some(stunts_state) = &mut editor.stunts_state {
                             match target {
-                                DeleteTarget::Polygon(idx) => { world_state.active_polygons.as_mut().map(|v| v.remove(idx)); },
-                                DeleteTarget::Text(idx) => { world_state.active_text_items.as_mut().map(|v| v.remove(idx)); },
-                                DeleteTarget::Image(idx) => { world_state.active_image_items.as_mut().map(|v| v.remove(idx)); },
-                                DeleteTarget::Video(idx) => { world_state.active_video_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Polygon(idx) => { stunts_state.active_polygons.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Text(idx) => { stunts_state.active_text_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Image(idx) => { stunts_state.active_image_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Video(idx) => { stunts_state.active_video_items.as_mut().map(|v| v.remove(idx)); },
                             }
                         }
                     }

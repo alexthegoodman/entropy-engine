@@ -65,6 +65,8 @@ pub struct StImage {
     pub layer: i32,
     pub group_bind_group: wgpu::BindGroup,
     pub original_dimensions: (u32, u32),
+    pub start_time_ms: i32,
+    pub duration_ms: i32,
 }
 
 impl StImage {
@@ -286,7 +288,9 @@ impl StImage {
             hidden: false,
             layer: image_config.layer - 0,
             group_bind_group: tmp_group_bind_group,
-            original_dimensions: dimensions
+            original_dimensions: dimensions,
+            start_time_ms: 0,
+            duration_ms: 0,
         }
     }
 
@@ -477,5 +481,42 @@ impl StImage {
             config.id.clone(),
             Uuid::from_str(&selected_sequence_id).expect("Couldn't convert string to uuid"),
         )
+    }
+
+    pub fn from_saved_config(
+        config: &SavedStImageConfig,
+        window_size: &WindowSize,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+    ) -> StImage {
+        let image_config = StImageConfig {
+            id: config.id.clone(),
+            name: config.name.clone(),
+            dimensions: config.dimensions,
+            position: Point {
+                x: config.position.x as f32,
+                y: config.position.y as f32,
+            },
+            path: config.path.clone(),
+            layer: config.layer,
+        };
+
+        let mut img = StImage::new(
+            device,
+            queue,
+            Path::new(&config.path),
+            image_config,
+            window_size,
+            model_bind_group_layout,
+            group_bind_group_layout,
+            -2.0,
+            config.id.clone(),
+            Uuid::nil(), // Stunts mode doesn't use sequence_id anymore
+        );
+        img.start_time_ms = config.start_time_ms;
+        img.duration_ms = config.duration_ms;
+        img
     }
 }

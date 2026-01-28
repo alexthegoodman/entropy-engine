@@ -3,6 +3,7 @@ use crate::core::vertex::Vertex;
 use crate::shape_primitives::polygon::Polygon;
 use crate::renderer_text::text_due::TextRenderer;
 use crate::renderer_images::st_image::StImage;
+use crate::renderer_videos::st_video::StVideo;
 use wgpu::RenderPipeline;
 
 pub struct UiPipeline {
@@ -247,6 +248,81 @@ impl UiPipeline {
                 render_pass.set_vertex_buffer(0, ammo_display.text_renderer.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(ammo_display.text_renderer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 render_pass.draw_indexed(0..ammo_display.text_renderer.indices.len() as u32, 0, 0..1);
+            }
+        }
+    }
+
+    pub fn render_stunts<'rp>(
+        &'rp self,
+        render_pass: &mut wgpu::RenderPass<'rp>,
+        editor: &'rp Editor,
+        camera_bind_group: &'rp wgpu::BindGroup,
+        window_size_bind_group: &'rp wgpu::BindGroup,
+        queue: &wgpu::Queue,
+        current_time_ms: i32,
+    ) {
+        render_pass.set_pipeline(&self.pipeline);
+        render_pass.set_bind_group(0, camera_bind_group, &[]);
+        render_pass.set_bind_group(2, window_size_bind_group, &[]);
+
+        // Render Stunts Polygons
+        for polygon in &editor.stunts_polygons {
+            if !polygon.hidden && current_time_ms >= polygon.start_time_ms && current_time_ms <= polygon.start_time_ms + polygon.duration_ms {
+                polygon.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &polygon.bind_group, &[]);
+                render_pass.set_bind_group(3, &polygon.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, polygon.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..polygon.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // Render Stunts Text
+        for text_item in &editor.stunts_textboxes {
+            if !text_item.hidden && current_time_ms >= text_item.start_time_ms && current_time_ms <= text_item.start_time_ms + text_item.duration_ms {
+                // Background polygon first
+                if !text_item.background_polygon.hidden {
+                    text_item.background_polygon.transform.update_uniform_buffer(queue);
+                    render_pass.set_bind_group(1, &text_item.background_polygon.bind_group, &[]);
+                    render_pass.set_bind_group(3, &text_item.background_polygon.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, text_item.background_polygon.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(text_item.background_polygon.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    render_pass.draw_indexed(0..text_item.background_polygon.indices.len() as u32, 0, 0..1);
+                }
+
+                // Text
+                text_item.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &text_item.bind_group, &[]);
+                render_pass.set_bind_group(3, &text_item.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, text_item.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(text_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..text_item.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // Render Stunts Images
+        for image_item in &editor.stunts_images {
+            if !image_item.hidden && current_time_ms >= image_item.start_time_ms && current_time_ms <= image_item.start_time_ms + image_item.duration_ms {
+                image_item.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &image_item.bind_group, &[]);
+                render_pass.set_bind_group(3, &image_item.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, image_item.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(image_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..image_item.indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        // Render Stunts Videos
+        for video_item in &editor.stunts_videos {
+            if !video_item.hidden && current_time_ms >= video_item.start_time_ms && current_time_ms <= video_item.start_time_ms + video_item.duration_ms {
+                // we probably want to call draw_video_frame here if video is playing
+                // but let's just render the current frame for now
+                video_item.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &video_item.bind_group, &[]);
+                render_pass.set_bind_group(3, &video_item.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, video_item.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(video_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..video_item.indices.len() as u32, 0, 0..1);
             }
         }
     }

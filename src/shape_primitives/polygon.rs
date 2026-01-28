@@ -482,6 +482,8 @@ impl Polygon {
             layer: transform_layer,
             group_bind_group: tmp_group_bind_group,
             active_group_position: [0, 0],
+            start_time_ms: 0,
+            duration_ms: 0,
         }
     }
 
@@ -797,6 +799,60 @@ impl Polygon {
             Uuid::from_str(&selected_sequence_id).expect("Couldn't convert string to uuid"),
         )
     }
+
+    pub fn from_saved_config(
+        config: &SavedPolygonConfig,
+        window_size: &WindowSize,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        camera: &Camera,
+    ) -> Polygon {
+        let mut poly = Polygon::new(
+            window_size,
+            device,
+            queue,
+            model_bind_group_layout,
+            group_bind_group_layout,
+            camera,
+            vec![
+                Point { x: 0.0, y: 0.0 },
+                Point { x: 1.0, y: 0.0 },
+                Point { x: 1.0, y: 1.0 },
+                Point { x: 0.0, y: 1.0 },
+            ],
+            (config.dimensions.0 as f32, config.dimensions.1 as f32),
+            Point {
+                x: config.position.x as f32,
+                y: config.position.y as f32,
+            },
+            (0.0, 0.0, 0.0),
+            config.border_radius as f32,
+            [
+                config.fill[0] as f32 / 255.0,
+                config.fill[1] as f32 / 255.0,
+                config.fill[2] as f32 / 255.0,
+                config.fill[3] as f32 / 255.0,
+            ],
+            Stroke {
+                thickness: config.stroke.thickness as f32,
+                fill: [
+                    config.stroke.fill[0] as f32 / 255.0,
+                    config.stroke.fill[1] as f32 / 255.0,
+                    config.stroke.fill[2] as f32 / 255.0,
+                    config.stroke.fill[3] as f32 / 255.0,
+                ],
+            },
+            config.layer,
+            config.name.clone(),
+            Uuid::from_str(&config.id).expect("Couldn't convert string to uuid"),
+            Uuid::nil(), // Stunts mode doesn't use sequence_id anymore, but we need something
+        );
+        poly.start_time_ms = config.start_time_ms;
+        poly.duration_ms = config.duration_ms;
+        poly
+    }
 }
 
 // Helper function to calculate the distance from a point to a line segment
@@ -843,6 +899,8 @@ pub struct Polygon {
     pub layer: i32,
     pub group_bind_group: wgpu::BindGroup,
     pub active_group_position: [i32; 2],
+    pub start_time_ms: i32,
+    pub duration_ms: i32,
 }
 
 #[derive(Clone, Copy, Debug)]

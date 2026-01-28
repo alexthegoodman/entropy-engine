@@ -890,7 +890,8 @@ impl WindowState {
             window_size.width, // video_width
             window_size.height, // video_height
             project_id,
-            game_mode
+            game_mode,
+            false
         ));
         // End WGPU Initialization
 
