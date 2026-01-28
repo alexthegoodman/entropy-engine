@@ -4,7 +4,6 @@ We already have video import, export, and screen capture. We also have 2D and 3D
 
 ## Needs
 
-- Video Clip Timeline / Sequencer
 - Keyframe Timeline
 
 - Slice, cut, and arrange clips with remote AI

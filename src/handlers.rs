@@ -20,10 +20,12 @@ use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{cell::RefCell, collections::HashMap};
 use noise::{Fbm, NoiseFn, Perlin, Worley};
 use noise::MultiFractal;
+use std::str::FromStr;
 
 use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 use crate::core::SimpleCamera::to_row_major_f64;
-use crate::core::editor::{self, Editor};
+use crate::core::editor::{self, Editor, SelectedObject, Shape, WindowSize};
+use crate::vector_animations::animations::ObjectType;
 use crate::core::gpu_resources;
 use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
@@ -421,6 +423,77 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         match button {
             EntropyMouseButton::Left => {
                 if let Some(mouse_pos) = renderer_state.current_mouse_position {
+                    println!("Check for Stunts objects");
+
+                    let camera = state.camera.as_ref().unwrap();
+                    let window_size_struct = WindowSize { width: window_size.width, height: window_size.height };
+                    let ray = crate::core::editor::visualize_ray_intersection(&window_size_struct, mouse_pos.x, mouse_pos.y, camera);
+                    let hit_point = ray.top_left;
+
+                    let mut hit_stunts_obj = None;
+
+                    // Check polygons
+                    for poly in state.stunts_polygons.iter().rev() {
+                        if poly.contains_point(&hit_point, camera) {
+                            hit_stunts_obj = Some(SelectedObject {
+                                object_id: poly.id,
+                                object_type: ObjectType::Polygon,
+                            });
+                            break;
+                        }
+                    }
+
+                    if hit_stunts_obj.is_none() {
+                        // Check textboxes
+                        for text in state.stunts_textboxes.iter().rev() {
+                            if text.contains_point(&hit_point, camera) {
+                                hit_stunts_obj = Some(SelectedObject {
+                                    object_id: text.id,
+                                    object_type: ObjectType::TextItem,
+                                });
+                                break;
+                            }
+                        }
+                    }
+
+                    if hit_stunts_obj.is_none() {
+                        // Check images
+                        for img in state.stunts_images.iter().rev() {
+                            if img.contains_point(&hit_point) {
+                                if let Ok(id) = Uuid::from_str(&img.id) {
+                                    hit_stunts_obj = Some(SelectedObject {
+                                        object_id: id,
+                                        object_type: ObjectType::ImageItem,
+                                    });
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    if hit_stunts_obj.is_none() {
+                        // Check videos
+                        for vid in state.stunts_videos.iter().rev() {
+                            if vid.contains_point(&hit_point, camera) {
+                                if let Ok(id) = Uuid::from_str(&vid.id) {
+                                    hit_stunts_obj = Some(SelectedObject {
+                                        object_id: id,
+                                        object_type: ObjectType::VideoItem,
+                                    });
+                                }
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Some(obj) = hit_stunts_obj {
+                        state.selected_object = Some(obj);
+                        renderer_state.selected_entity_id = None;
+                        renderer_state.selected_component_id = None;
+                        println!("Selected Stunts object: {:?}", state.selected_object);
+                        return;
+                    }
+
                     println!("Check ray");
 
                     // Perform raycast
@@ -531,6 +604,110 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
 
     renderer_state.mouse_state.is_dragging = current_is_dragging;
     renderer_state.mouse_state.drag_started = drag_started;
+
+    if current_is_dragging {
+        if let Some(selected) = &state.selected_object {
+            match selected.object_type {
+                ObjectType::Polygon => {
+                    if let Some(poly) = state.stunts_polygons.iter_mut().find(|p| p.id == selected.object_id) {
+                        poly.transform.position.x += dx;
+                        poly.transform.position.y += dy;
+                        poly.transform.update_uniform_buffer(&gpu_resources.queue);
+                    }
+                }
+                ObjectType::TextItem => {
+                    if let Some(text) = state.stunts_textboxes.iter_mut().find(|t| t.id == selected.object_id) {
+                        text.transform.position.x += dx;
+                        text.transform.position.y += dy;
+                        text.transform.update_uniform_buffer(&gpu_resources.queue);
+                        
+                        // Also update background polygon
+                        text.background_polygon.transform.position.x += dx;
+                        text.background_polygon.transform.position.y += dy;
+                        text.background_polygon.transform.update_uniform_buffer(&gpu_resources.queue);
+                    }
+                }
+                ObjectType::ImageItem => {
+                    if let Some(img) = state.stunts_images.iter_mut().find(|i| i.id == selected.object_id.to_string()) {
+                        img.transform.position.x += dx;
+                        img.transform.position.y += dy;
+                        img.transform.update_uniform_buffer(&gpu_resources.queue);
+                    }
+                }
+                ObjectType::VideoItem => {
+                    if let Some(vid) = state.stunts_videos.iter_mut().find(|v| v.id == selected.object_id.to_string()) {
+                        vid.transform.position.x += dx;
+                        vid.transform.position.y += dy;
+                        vid.transform.update_uniform_buffer(&gpu_resources.queue);
+                    }
+                }
+            }
+        }
+    }
+
+    if drag_ended {
+        if let Some(selected) = &state.selected_object {
+            if let Some(stunts_state) = state.stunts_state.as_mut() {
+                let mut updated = false;
+                match selected.object_type {
+                    ObjectType::Polygon => {
+                        if let Some(poly) = state.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+                            if let Some(saved_polys) = &mut stunts_state.active_polygons {
+                                if let Some(saved) = saved_polys.iter_mut().find(|p| p.id == poly.id.to_string()) {
+                                    saved.position.x = poly.transform.position.x as i32;
+                                    saved.position.y = poly.transform.position.y as i32;
+                                    updated = true;
+                                }
+                            }
+                        }
+                    }
+                    ObjectType::TextItem => {
+                        if let Some(text) = state.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+                            if let Some(saved_texts) = &mut stunts_state.active_text_items {
+                                if let Some(saved) = saved_texts.iter_mut().find(|t| t.id == text.id.to_string()) {
+                                    saved.position.x = text.transform.position.x as i32;
+                                    saved.position.y = text.transform.position.y as i32;
+                                    updated = true;
+                                }
+                            }
+                        }
+                    }
+                    ObjectType::ImageItem => {
+                        if let Some(img) = state.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+                            if let Some(saved_imgs) = &mut stunts_state.active_image_items {
+                                if let Some(saved) = saved_imgs.iter_mut().find(|i| i.id == img.id) {
+                                    saved.position.x = img.transform.position.x as i32;
+                                    saved.position.y = img.transform.position.y as i32;
+                                    updated = true;
+                                }
+                            }
+                        }
+                    }
+                    ObjectType::VideoItem => {
+                        if let Some(vid) = state.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+                            if let Some(saved_vids) = &mut stunts_state.active_video_items {
+                                if let Some(saved) = saved_vids.iter_mut().find(|v| v.id == vid.id) {
+                                    saved.position.x = vid.transform.position.x as i32;
+                                    saved.position.y = vid.transform.position.y as i32;
+                                    updated = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if updated {
+                    if let Some(project_id) = &stunts_state.id {
+                        if let Err(e) = utilities::update_project_state(project_id, stunts_state) {
+                            println!("Failed to save stunts state: {}", e);
+                        } else {
+                            println!("Stunts state saved successfully after drag.");
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     if let Some(currentPosition) = currentPosition {
         if let Some(component_id) = &renderer_state.selected_component_id {
