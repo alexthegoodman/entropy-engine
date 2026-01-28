@@ -47,7 +47,7 @@ impl VideoTimelineUi {
 
                     ui.add_space(20.0);
 
-                    
+                    if editor.stunts_state.is_some() {
                         ui.label("Add:");
                         if ui.button("Polygon").clicked() {
                             if let Some(stunts_state) = &mut editor.stunts_state {
@@ -130,7 +130,7 @@ impl VideoTimelineUi {
                                 editor.sync_stunts_objects();
                             }
                         }
-                    
+                    }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                          ui.add(egui::Slider::new(&mut self.zoom, 1.0..=200.0).text("Zoom"));
