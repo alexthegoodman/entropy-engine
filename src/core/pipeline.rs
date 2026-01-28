@@ -2972,7 +2972,7 @@ impl ExportPipeline {
 
     fn ui(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::top("command_bar").show(ctx, |ui| {
-            ui.horizontal(|ui| {
+            ui.horizontal_centered(|ui| {
                  // Check if we need to load projects
                  if self.projects.is_empty() {
                      if let Ok(registry) = utilities::load_project_registry() {

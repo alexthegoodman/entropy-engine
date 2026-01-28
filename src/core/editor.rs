@@ -23,6 +23,8 @@ use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
 use crate::core::HealthBar::HealthBar;
+use crate::renderer_videos::st_video::StVideo;
+use crate::screen_capture::capture::{MousePosition, SourceData};
 // use crate::renderer_videos::st_video::StVideo;
 use crate::shape_primitives::polygon::Polygon;
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
@@ -534,7 +536,33 @@ impl Editor {
             if let Some(saved_videos) = &stunts_state.active_video_items {
                 for saved in saved_videos {
                     if !self.stunts_videos.iter().any(|v| v.id == saved.id) {
-                        if let Ok(vid) = crate::renderer_videos::st_video::StVideo::from_saved_config(
+                        let mut source_data_path = None;
+                        let mut stored_mouse_positions = None;
+                        if let Some(mouse_path) = &saved.mouse_path {
+                            let mut mouse_pathbuf = Path::new(&mouse_path).to_path_buf();
+                            mouse_pathbuf.pop();
+                            source_data_path = Some(mouse_pathbuf.join("sourceData.json"));
+
+                            if let Ok(positions) = fs::read_to_string(mouse_path) {
+                                if let Ok(mouse_positions) =
+                                    serde_json::from_str::<Vec<MousePosition>>(&positions)
+                                {
+                                    // saved_mouse_path = Some(mouse_path);
+                                    stored_mouse_positions = Some(mouse_positions);
+                                }
+                            }
+                        }
+
+                        let mut stored_source_data = None;
+                        if let Some(source_path) = &source_data_path {
+                            if let Ok(source_data) = fs::read_to_string(source_path) {
+                                if let Ok(data) = serde_json::from_str::<SourceData>(&source_data) {
+                                    stored_source_data = Some(data);
+                                }
+                            }
+                        }
+
+                        if let Ok(mut vid) = StVideo::from_saved_config(
                             saved,
                             &window_size,
                             device,
@@ -542,6 +570,17 @@ impl Editor {
                             ui_model_bind_group_layout,
                             group_bind_group_layout,
                         ) {
+                            // set window data from capture
+                            vid.source_data = stored_source_data;
+
+                            // set mouse positions
+                            vid.mouse_positions = stored_mouse_positions;
+
+                            // render 1 frame to provide preview image
+                            vid
+                                .draw_video_frame(device, queue)
+                                .expect("Couldn't draw video frame");
+
                             self.stunts_videos.push(vid);
                         }
                     }
