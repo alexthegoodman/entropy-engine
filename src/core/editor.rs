@@ -489,7 +489,7 @@ impl Editor {
                 for saved in saved_text {
                     if !self.stunts_textboxes.iter().any(|t| t.id.to_string() == saved.id) {
                         let font_data = self.font_manager.get_font_by_name(&saved.font_family).expect("Font not found");
-                        let text = TextRenderer::from_saved_config(
+                        let mut text = TextRenderer::from_saved_config(
                             saved,
                             &window_size,
                             device,
@@ -499,6 +499,9 @@ impl Editor {
                             camera,
                             font_data,
                         );
+
+                        text.render_text(&device, &queue);
+
                         self.stunts_textboxes.push(text);
                     }
                 }
