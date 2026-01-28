@@ -26,7 +26,7 @@ use crate::core::HealthBar::HealthBar;
 use crate::renderer_videos::st_video::StVideo;
 use crate::screen_capture::capture::{MousePosition, SourceData};
 // use crate::renderer_videos::st_video::StVideo;
-use crate::shape_primitives::polygon::Polygon;
+use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 use crate::deno_engine::DenoEngine;
@@ -42,7 +42,7 @@ use uuid::Uuid;
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-const NUM_INFERENCE_FEATURES: usize = 7;
+pub const NUM_INFERENCE_FEATURES: usize = 7;
 pub const CANVAS_HORIZ_OFFSET: f32 = 0.0;
 pub const CANVAS_VERT_OFFSET: f32 = 0.0;
 
@@ -451,6 +451,63 @@ pub enum InputValue {
 }
 
 impl Editor {
+    pub fn replace_background(&mut self, sequence_id: Uuid, fill: [f32; 4]) {
+        println!("replace background {:?} {:?}", sequence_id, fill);
+
+        let camera = self.camera.as_ref().expect("Couldn't get camera");
+        let window_size = camera.viewport.window_size;
+        let model_bind_group_layout = self
+            .model_bind_group_layout
+            .as_ref()
+            .expect("Couldn't get bind group layout");
+        let group_bind_group_layout = self
+            .group_bind_group_layout
+            .as_ref()
+            .expect("Couldn't get bind group layout");
+
+        // Remove existing background
+        self.polygons
+            .retain(|p| p.name != "canvas_background");
+
+        let gpu_resources = self
+            .gpu_resources
+            .as_ref()
+            .expect("Couldn't get gpu resources");
+
+        let canvas_polygon = Polygon::new(
+            &window_size,
+            &gpu_resources.device,
+            &gpu_resources.queue,
+            &model_bind_group_layout,
+            &group_bind_group_layout,
+            &camera,
+            vec![
+                Point { x: 0.0, y: 0.0 },
+                Point { x: 1.0, y: 0.0 },
+                Point { x: 1.0, y: 1.0 },
+                Point { x: 0.0, y: 1.0 },
+            ],
+            // (800.0 as f32, 450.0 as f32),
+            // Point { x: 400.0, y: 225.0 },
+            (1000.0 as f32, 600.0 as f32),
+            Point { x: 500.0, y: 350.0 },
+            (0.0, 0.0, 0.0),
+            0.0,
+            fill,
+            Stroke {
+                thickness: 0.0,
+                fill: rgb_to_wgpu(0, 0, 0, 255.0),
+            },
+            // 0.0,
+            1, // camera far is -100
+            "canvas_background".to_string(),
+            sequence_id,
+            Uuid::nil(),
+        );
+
+        self.polygons.push(canvas_polygon);
+    }
+
     pub fn sync_stunts_objects(&mut self) {
         if let Some(stunts_state) = &self.stunts_state {
             let gpu_resources = self.gpu_resources.as_ref().expect("No gpu resources");
