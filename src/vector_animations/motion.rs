@@ -310,7 +310,7 @@ impl Motion {
 
     pub fn create_motion_paths_from_predictions(
         &self,
-        editor: Editor,
+        editor: &Editor,
         predictions: Vec<f32>,
         // is_choreographed: bool,
     ) -> Vec<AnimationData> {
@@ -423,8 +423,8 @@ impl Motion {
 
         // Process each object
         for object_idx in 0..current_positions.len() {
-            let item_id = self.get_item_id(object_idx);
-            let object_type = self.get_object_type(object_idx);
+            let item_id = self.get_item_id(editor, object_idx);
+            let object_type = self.get_object_type(editor, object_idx);
 
             let total_duration = match object_type.clone().expect("Couldn't get object type") {
                 ObjectType::VideoItem => {
@@ -659,7 +659,7 @@ impl Motion {
     }
 
     // Helper function to get item ID based on object index
-    fn get_item_id(&self, editor: Editor, object_idx: usize) -> Option<String> {
+    fn get_item_id(&self, editor: &Editor, object_idx: usize) -> Option<String> {
         // let polygon_count = editor.stunts_polygons.len();
         // let text_count = editor.stunts_textboxes.len();
         let visible_polygons: Vec<&Polygon> = editor.stunts_polygons.iter().filter(|p| !p.hidden).collect();
@@ -696,7 +696,7 @@ impl Motion {
     }
 
     // Helper function to get object type based on object index
-    fn get_object_type(&self, editor: Editor, object_idx: usize) -> Option<ObjectType> {
+    fn get_object_type(&self, editor: &Editor, object_idx: usize) -> Option<ObjectType> {
         // let polygon_count = editor.stunts_polygons.len();
         // let text_count = editor.stunts_textboxes.len();
 
@@ -713,172 +713,6 @@ impl Motion {
                 Some(ObjectType::VideoItem)
             }
             _ => None,
-        }
-    }
-
-    pub fn step_video_animations(&mut self, editor: Editor, camera: &Camera, provided_current_time_s: Option<f64>) {
-        if !editor.video_is_playing {
-            return;
-        }
-
-        let now = std::time::Instant::now();
-        // let dt = if let Some(last_time) = self.last_frame_time {
-        //     (now - last_time).as_secs_f32()
-        // } else {
-        //     0.0
-        // };
-        // let dt = if let Some(provided_dt) = provided_dt {
-        //     provided_dt
-        // } else {
-        //     dt
-        // };
-        let total_dt = if let Some(video_start_playing_time) = editor.video_start_playing_time {
-            (now - video_start_playing_time).as_secs_f32()
-        } else {
-            0.0
-        };
-        // self.last_frame_time = Some(now);
-
-        let sequence_timeline = self
-            .video_current_sequence_timeline
-            .as_ref()
-            .expect("Couldn't get current sequence timeline");
-
-        // Convert total_dt from seconds to milliseconds for comparison with timeline
-        let current_time_ms = if let Some(provided_current_time_s) = provided_current_time_s {
-            (provided_current_time_s * 1000.0) as i32
-        } else {
-            (total_dt * 1000.0) as i32
-        };
-
-        // Get the sequences data
-        let video_current_sequences_data = match self.video_current_sequences_data.as_ref() {
-            Some(data) => data,
-            None => return,
-        };
-
-        // let mut elapsed = 0;
-        // let mut current_found = false;
-
-        let mut update_background = false;
-
-        if total_dt <= 1.0 / 60.0 {
-            println!("Update initial background...");
-            update_background = true;
-        }
-
-        // Iterate through timeline sequences in order
-        for ts in &sequence_timeline.timeline_sequences {
-            // Skip audio tracks as we're only handling video
-            if ts.track_type != TrackType::Video {
-                continue;
-            }
-
-            // slow?
-            let duration_ms = video_current_sequences_data
-                .iter()
-                .find(|s| s.id == ts.sequence_id)
-                .map(|s| s.duration_ms)
-                .unwrap_or(0);
-
-            // dynamic start times
-            // if let Some(current_sequence) = &self.current_sequence_data {
-            //     if !current_found {
-            //         elapsed = elapsed + ts.duration_ms;
-            //     }
-
-            //     if current_sequence.id == ts.sequence_id {
-            //         current_found = true;
-            //     }
-            // } else {
-            //     current_found = true;
-            // }
-
-            // if current_found {}
-            // Check if this sequence should be playing at the current time
-            if current_time_ms >= ts.start_time_ms
-                && current_time_ms < (ts.start_time_ms + duration_ms)
-            {
-                // Find the corresponding sequence data
-                if let Some(sequence) = video_current_sequences_data
-                    .iter()
-                    .find(|s| s.id == ts.sequence_id)
-                {
-                    // Calculate local time within this sequence
-                    let sequence_local_time = (current_time_ms - ts.start_time_ms) as f32 / 1000.0;
-                    if let Some(current_sequence) = &self.current_sequence_data {
-                        // need to somehow efficiently restore polygons for the sequence
-                        // Check id to avoid unnecessary cloning
-                        // plan is to preload with a hidden attribute or similar
-                        if sequence.id != current_sequence.id {
-                            self.current_sequence_data = Some(sequence.clone());
-                            // set hidden attribute on relevant objects
-                            let current_sequence_id = sequence.id.clone();
-
-                            for polygon in editor.stunts_polygons.iter_mut() {
-                                if polygon.current_sequence_id.to_string() == current_sequence_id {
-                                    polygon.hidden = false;
-                                } else {
-                                    polygon.hidden = true;
-                                }
-                            }
-                            for text in editor.stunts_textboxes.iter_mut() {
-                                if text.current_sequence_id.to_string() == current_sequence_id {
-                                    text.hidden = false;
-                                } else {
-                                    text.hidden = true;
-                                }
-                            }
-                            for image in editor.stunts_images.iter_mut() {
-                                if image.current_sequence_id.to_string() == current_sequence_id {
-                                    image.hidden = false;
-                                } else {
-                                    image.hidden = true;
-                                }
-                            }
-                            for video in editor.stunts_videos.iter_mut() {
-                                if video.current_sequence_id.to_string() == current_sequence_id {
-                                    video.hidden = false;
-                                } else {
-                                    video.hidden = true;
-                                }
-                            }
-
-                            update_background = true;
-                        }
-                    } else {
-                        self.current_sequence_data = Some(sequence.clone());
-                    }
-                }
-            }
-        }
-
-        {
-            if update_background {
-                if let Some(current_sequence) = &self.current_sequence_data {
-                    match current_sequence
-                        .background_fill
-                        .as_ref()
-                        .expect("Couldn't get default background fill")
-                    {
-                        BackgroundFill::Color(fill) => {
-                            editor.replace_background(
-                                Uuid::from_str(&current_sequence.id)
-                                    .expect("Couldn't convert string to uuid"),
-                                rgb_to_wgpu(
-                                    fill[0] as u8,
-                                    fill[1] as u8,
-                                    fill[2] as u8,
-                                    fill[3] as f32,
-                                ),
-                            );
-                        }
-                        _ => {
-                            println!("Not supported yet...");
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -921,19 +755,23 @@ impl Motion {
             .gpu_resources
             .as_ref()
             .expect("Couldn't get GPU Resources");
-        let sequence = self
-            .current_sequence_data
+        let state = editor
+            .stunts_state
+            .as_ref()
+            .expect("Couldn't get sequence");
+        let paths = state
+            .object_motion_paths
             .as_ref()
             .expect("Couldn't get sequence");
 
         // Update each animation path
-        for animation in &sequence.polygon_motion_paths {
+        for animation in paths {
             // Group transform position
             let path_group_position = animation.position;
 
             // Get current time within animation duration
             let current_time =
-                Duration::from_secs_f32(total_dt % (sequence.duration_ms / 1000) as f32);
+                Duration::from_secs_f32(total_dt as f32);
             let start_time = Duration::from_millis(animation.start_time_ms as u64);
 
             // Check if the current time is within the animation's active period
