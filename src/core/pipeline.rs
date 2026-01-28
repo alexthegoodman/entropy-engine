@@ -8,6 +8,7 @@ use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, Colle
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 #[cfg(target_os = "windows")]
 use crate::startup::Gui;
+use crate::vector_animations::motion::Motion;
 use crate::water_plane::config::WaterConfig;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
@@ -159,6 +160,8 @@ pub struct ExportPipeline {
 
     pub directional_light_position: [f32; 3],
     pub selected_component_id: Option<String>,
+
+    pub vector_motion: Motion,
 }
 
 impl ExportPipeline {
@@ -231,6 +234,8 @@ impl ExportPipeline {
             debug_sphere_pipeline: None,
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
+
+            vector_motion: Motion::new()
         }
     }
 
@@ -2792,15 +2797,9 @@ impl ExportPipeline {
         let device = &gpu_resources.device;
         let queue = &gpu_resources.queue;
 
-        // Update video frames if playing
+        // Update video frames and animations if playing
         if editor.video_is_playing {
-            for video in &mut editor.stunts_videos {
-                if !video.hidden && editor.video_current_time_ms >= video.start_time_ms && editor.video_current_time_ms <= video.start_time_ms + video.duration_ms {
-                    // For now, just draw every frame. 
-                    // TODO: implement more precise frame timing based on source_frame_rate
-                    let _ = video.draw_video_frame(device, queue);
-                }
-            }
+            self.vector_motion.step_motion_path_animations(editor, Some(current_time));
         }
 
         if let Some(view) = target_view {

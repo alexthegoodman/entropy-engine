@@ -70,9 +70,7 @@ pub enum InputValue {
 }
 
 impl Motion {
-    pub fn new(
-        project_id: String
-    ) -> Self {
+    pub fn new() -> Self {
         Motion {
             last_motion_arrow_object_id: Uuid::nil(),
             last_motion_arrow_object_type: ObjectType::Polygon,
@@ -719,7 +717,6 @@ impl Motion {
     pub fn step_motion_path_animations(
         &mut self,
         editor: &mut Editor,
-        camera: &Camera,
         provided_current_time_s: Option<f64>,
     ) {
         if !editor.is_playing {
@@ -745,12 +742,12 @@ impl Motion {
         };
         editor.last_frame_time = Some(now);
 
-        self.step_animate_sequence(editor, total_dt as f32, camera);
+        self.step_animate_sequence(editor, total_dt as f32);
     }
 
     /// Steps the currently selected sequence unless one is provided
     /// TODO: make more efficient
-    pub fn step_animate_sequence(&mut self, editor: &mut Editor, total_dt: f32, camera: &Camera) {
+    pub fn step_animate_sequence(&mut self, editor: &mut Editor, total_dt: f32) {
         let gpu_resources = editor
             .gpu_resources
             .as_ref()
@@ -763,6 +760,7 @@ impl Motion {
             .object_motion_paths
             .as_ref()
             .expect("Couldn't get sequence");
+        let camera = editor.camera.as_ref().expect("Couldn't get camera");
 
         // Update each animation path
         for animation in paths {
