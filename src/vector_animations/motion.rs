@@ -756,522 +756,522 @@ impl Motion {
             .stunts_state
             .as_ref()
             .expect("Couldn't get sequence");
-        let paths = state
-            .object_motion_paths
-            .as_ref()
-            .expect("Couldn't get sequence");
-        let camera = editor.camera.as_ref().expect("Couldn't get camera");
+                let camera = editor.camera.as_ref().expect("Couldn't get camera");
 
-        // Update each animation path
-        for animation in paths {
-            // Group transform position
-            let path_group_position = animation.position;
 
-            // Get current time within animation duration
-            let current_time =
-                Duration::from_secs_f32(total_dt as f32);
-            let start_time = Duration::from_millis(animation.start_time_ms as u64);
+        if let Some(paths) = &state
+            .object_motion_paths {
+            // Update each animation path
+            for animation in paths {
+                // Group transform position
+                let path_group_position = animation.position;
 
-            // Check if the current time is within the animation's active period
-            if current_time < start_time || current_time > start_time + animation.duration {
-                continue;
-            }
+                // Get current time within animation duration
+                let current_time =
+                    Duration::from_secs_f32(total_dt as f32);
+                let start_time = Duration::from_millis(animation.start_time_ms as u64);
 
-            // Find the polygon to update
-            let object_idx = match animation.object_type {
-                ObjectType::Polygon => editor
-                    .stunts_polygons
-                    .iter()
-                    .position(|p| p.id.to_string() == animation.polygon_id),
-                ObjectType::TextItem => editor
-                    .stunts_textboxes
-                    .iter()
-                    .position(|t| t.id.to_string() == animation.polygon_id),
-                ObjectType::ImageItem => editor
-                    .stunts_images
-                    .iter()
-                    .position(|i| i.id.to_string() == animation.polygon_id),
-                ObjectType::VideoItem => editor
-                    .stunts_videos
-                    .iter()
-                    .position(|i| i.id.to_string() == animation.polygon_id),
-            };
+                // Check if the current time is within the animation's active period
+                if current_time < start_time || current_time > start_time + animation.duration {
+                    continue;
+                }
 
-            let Some(object_idx) = object_idx else {
-                continue;
-            };
+                // Find the polygon to update
+                let object_idx = match animation.object_type {
+                    ObjectType::Polygon => editor
+                        .stunts_polygons
+                        .iter()
+                        .position(|p| p.id.to_string() == animation.polygon_id),
+                    ObjectType::TextItem => editor
+                        .stunts_textboxes
+                        .iter()
+                        .position(|t| t.id.to_string() == animation.polygon_id),
+                    ObjectType::ImageItem => editor
+                        .stunts_images
+                        .iter()
+                        .position(|i| i.id.to_string() == animation.polygon_id),
+                    ObjectType::VideoItem => editor
+                        .stunts_videos
+                        .iter()
+                        .position(|i| i.id.to_string() == animation.polygon_id),
+                };
 
-            // Determine whether to draw the video frame based on the frame rate and current time
-            // step rate is throttled to 60FPS
-            // if video frame rate is 60FPS, then call draw on each frame
-            // if video frame rate is 30FPS, then call draw on every other frame
-            let mut animate_properties = false;
+                let Some(object_idx) = object_idx else {
+                    continue;
+                };
 
-            if animation.object_type == ObjectType::VideoItem {
-                let frame_rate = editor.stunts_videos[object_idx].source_frame_rate;
-                let source_duration_ms = editor.stunts_videos[object_idx].source_duration_ms;
-                let frame_interval = Duration::from_secs_f64(1.0 / frame_rate as f64);
+                // Determine whether to draw the video frame based on the frame rate and current time
+                // step rate is throttled to 60FPS
+                // if video frame rate is 60FPS, then call draw on each frame
+                // if video frame rate is 30FPS, then call draw on every other frame
+                let mut animate_properties = false;
 
-                // Calculate the number of frames that should have been displayed by now
-                let elapsed_time: Duration = current_time - start_time;
-                let current_frame_time = editor.stunts_videos[object_idx].num_frames_drawn as f64
-                    * frame_interval.as_secs_f64();
-                // let last_frame_time = self.last_frame_time.expect("Couldn't get last frame time");
+                if animation.object_type == ObjectType::VideoItem {
+                    let frame_rate = editor.stunts_videos[object_idx].source_frame_rate;
+                    let source_duration_ms = editor.stunts_videos[object_idx].source_duration_ms;
+                    let frame_interval = Duration::from_secs_f64(1.0 / frame_rate as f64);
 
-                // println!(
-                //     "current times {:?} frame: {:?}",
-                //     current_time.as_secs_f64(),
-                //     current_frame_time
-                // );
+                    // Calculate the number of frames that should have been displayed by now
+                    let elapsed_time: Duration = current_time - start_time;
+                    let current_frame_time = editor.stunts_videos[object_idx].num_frames_drawn as f64
+                        * frame_interval.as_secs_f64();
+                    // let last_frame_time = self.last_frame_time.expect("Couldn't get last frame time");
 
-                // Only draw the frame if the current time is within the frame's display interval
-                if current_time.as_secs_f64() >= current_frame_time
-                    && current_time.as_secs_f64()
-                        < current_frame_time + frame_interval.as_secs_f64()
-                {
-                    if current_time.as_millis() + 1000 < source_duration_ms as u128 {
-                        editor.stunts_videos[object_idx]
-                            .draw_video_frame(&gpu_resources.device, &gpu_resources.queue)
-                            .expect("Couldn't draw video frame");
+                    // println!(
+                    //     "current times {:?} frame: {:?}",
+                    //     current_time.as_secs_f64(),
+                    //     current_frame_time
+                    // );
 
-                        animate_properties = true;
-                        editor.stunts_videos[object_idx].num_frames_drawn += 1;
-                    }
-                } else {
-                    // TODO: deteermine distance between current_time and current_frame_time to determine
-                    // how many video frames to draw to catch up
-                    let difference = current_time.as_secs_f64() - current_frame_time;
-                    let catch_up_frames =
-                        (difference / frame_interval.as_secs_f64()).floor() as u32;
-
-                    // Only catch up if we're behind and within the video duration
-                    if catch_up_frames > 0
-                        && current_time.as_millis() + 1000 < source_duration_ms as u128
+                    // Only draw the frame if the current time is within the frame's display interval
+                    if current_time.as_secs_f64() >= current_frame_time
+                        && current_time.as_secs_f64()
+                            < current_frame_time + frame_interval.as_secs_f64()
                     {
-                        // Limit the maximum number of frames to catch up to avoid excessive CPU usage
-                        let max_catch_up = 5;
-                        let frames_to_draw = catch_up_frames.min(max_catch_up);
-
-                        // println!("frames_to_draw {:?}", frames_to_draw);
-
-                        for _ in 0..frames_to_draw {
+                        if current_time.as_millis() + 1000 < source_duration_ms as u128 {
                             editor.stunts_videos[object_idx]
                                 .draw_video_frame(&gpu_resources.device, &gpu_resources.queue)
-                                .expect("Couldn't draw catch-up video frame");
+                                .expect("Couldn't draw video frame");
 
+                            animate_properties = true;
                             editor.stunts_videos[object_idx].num_frames_drawn += 1;
                         }
+                    } else {
+                        // TODO: deteermine distance between current_time and current_frame_time to determine
+                        // how many video frames to draw to catch up
+                        let difference = current_time.as_secs_f64() - current_frame_time;
+                        let catch_up_frames =
+                            (difference / frame_interval.as_secs_f64()).floor() as u32;
 
-                        animate_properties = true;
+                        // Only catch up if we're behind and within the video duration
+                        if catch_up_frames > 0
+                            && current_time.as_millis() + 1000 < source_duration_ms as u128
+                        {
+                            // Limit the maximum number of frames to catch up to avoid excessive CPU usage
+                            let max_catch_up = 5;
+                            let frames_to_draw = catch_up_frames.min(max_catch_up);
 
-                        // println!(
-                        //     "Caught up {} frames out of {} needed",
-                        //     frames_to_draw, catch_up_frames
-                        // );
+                            // println!("frames_to_draw {:?}", frames_to_draw);
+
+                            for _ in 0..frames_to_draw {
+                                editor.stunts_videos[object_idx]
+                                    .draw_video_frame(&gpu_resources.device, &gpu_resources.queue)
+                                    .expect("Couldn't draw catch-up video frame");
+
+                                editor.stunts_videos[object_idx].num_frames_drawn += 1;
+                            }
+
+                            animate_properties = true;
+
+                            // println!(
+                            //     "Caught up {} frames out of {} needed",
+                            //     frames_to_draw, catch_up_frames
+                            // );
+                        }
                     }
-                }
-            } else {
-                animate_properties = true;
-            }
-
-            // let mut animate_properties = false;
-
-            // Modified video drawing code
-            // if animation.object_type == ObjectType::VideoItem {
-            //     let frame_rate = editor.stunts_videos[object_idx].source_frame_rate;
-            //     let source_duration_ms = editor.stunts_videos[object_idx].source_duration_ms;
-
-            //     // Initialize frame timer if not exists
-            //     if editor.stunts_videos[object_idx].frame_timer.is_none() {
-            //         editor.stunts_videos[object_idx].frame_timer = Some(FrameTimer::new());
-            //     }
-
-            //     // Get number of frames to draw this step
-            //     let frames_to_draw = editor.stunts_videos[object_idx]
-            //         .frame_timer
-            //         .as_mut()
-            //         .expect("Couldn't get frame timer")
-            //         .update_and_get_frames_to_draw(current_time, frame_rate as f32);
-
-            //     // Draw the required number of frames
-            //     if frames_to_draw > 0
-            //         && current_time.as_millis() + 1000 < source_duration_ms as u128
-            //     {
-            //         println!("frames_to_draw {:?}", frames_to_draw);
-            //         // Draw each frame
-            //         for _ in 0..frames_to_draw {
-            //             editor.stunts_videos[object_idx]
-            //                 .draw_video_frame(&gpu_resources.device, &gpu_resources.queue)
-            //                 .expect("Couldn't draw video frame");
-            //         }
-
-            //         animate_properties = true;
-            //     }
-            // }
-
-            if !animate_properties {
-                return;
-            }
-
-            // Go through each property
-            for property in &animation.properties {
-                if property.keyframes.len() < 2 {
-                    continue;
-                }
-
-                if start_time > current_time {
-                    continue;
-                }
-
-                // Find the surrounding keyframes
-                let (start_frame, end_frame) = self.get_surrounding_keyframes(
-                    &mut property.keyframes.clone(), // do not love clone in loop
-                    current_time - start_time,
-                );
-                let Some((start_frame, end_frame)) = start_frame.zip(end_frame) else {
-                    continue;
-                };
-
-                // Calculate interpolation progress
-                let duration = (end_frame.time - start_frame.time).as_secs_f32(); // duration between keyframes
-                let elapsed = (current_time - start_time - start_frame.time).as_secs_f32(); // elapsed since start keyframe
-                let mut progress = elapsed / duration;
-
-                // Apply easing (EaseInOut)
-                progress = if progress < 0.5 {
-                    2.0 * progress * progress
                 } else {
-                    1.0 - (-2.0 * progress + 2.0).powi(2) / 2.0
-                };
+                    animate_properties = true;
+                }
 
-                // do not update a property when start and end are the same
-                // TODO: make this a setting for zooms so the center_point can continue its interpolation?
-                // if start_frame.value == end_frame.value {
-                //     continue;
+                // let mut animate_properties = false;
+
+                // Modified video drawing code
+                // if animation.object_type == ObjectType::VideoItem {
+                //     let frame_rate = editor.stunts_videos[object_idx].source_frame_rate;
+                //     let source_duration_ms = editor.stunts_videos[object_idx].source_duration_ms;
+
+                //     // Initialize frame timer if not exists
+                //     if editor.stunts_videos[object_idx].frame_timer.is_none() {
+                //         editor.stunts_videos[object_idx].frame_timer = Some(FrameTimer::new());
+                //     }
+
+                //     // Get number of frames to draw this step
+                //     let frames_to_draw = editor.stunts_videos[object_idx]
+                //         .frame_timer
+                //         .as_mut()
+                //         .expect("Couldn't get frame timer")
+                //         .update_and_get_frames_to_draw(current_time, frame_rate as f32);
+
+                //     // Draw the required number of frames
+                //     if frames_to_draw > 0
+                //         && current_time.as_millis() + 1000 < source_duration_ms as u128
+                //     {
+                //         println!("frames_to_draw {:?}", frames_to_draw);
+                //         // Draw each frame
+                //         for _ in 0..frames_to_draw {
+                //             editor.stunts_videos[object_idx]
+                //                 .draw_video_frame(&gpu_resources.device, &gpu_resources.queue)
+                //                 .expect("Couldn't draw video frame");
+                //         }
+
+                //         animate_properties = true;
+                //     }
                 // }
 
-                // Apply the interpolated value to the object's property
-                match (&start_frame.value, &end_frame.value) {
-                    (KeyframeValue::Position(start), KeyframeValue::Position(end)) => {
-                        let x = self.lerp(start[0], end[0], progress);
-                        let y = self.lerp(start[1], end[1], progress);
+                if !animate_properties {
+                    return;
+                }
 
-                        let position = Point {
-                            x: CANVAS_HORIZ_OFFSET + x + path_group_position[0] as f32,
-                            y: CANVAS_VERT_OFFSET + y + path_group_position[1] as f32,
-                        };
+                // Go through each property
+                for property in &animation.properties {
+                    if property.keyframes.len() < 2 {
+                        continue;
+                    }
 
-                        match animation.object_type {
-                            ObjectType::Polygon => {
-                                editor.stunts_polygons[object_idx]
-                                    .transform
-                                    .update_position([position.x, position.y, 0.0]);
-                            }
-                            ObjectType::TextItem => {
-                                editor.stunts_textboxes[object_idx]
-                                    .transform
-                                    .update_position([position.x, position.y, 0.0]);
-                                editor.stunts_textboxes[object_idx]
-                                    .background_polygon
-                                    .transform
-                                    .update_position([position.x, position.y, 0.0]);
-                            }
-                            ObjectType::ImageItem => {
-                                editor.stunts_images[object_idx]
-                                    .transform
-                                    .update_position([position.x, position.y, 0.0]);
-                            }
-                            ObjectType::VideoItem => {
-                                editor.stunts_videos[object_idx]
-                                    .transform
-                                    .update_position([position.x, position.y, 0.0]);
+                    if start_time > current_time {
+                        continue;
+                    }
+
+                    // Find the surrounding keyframes
+                    let (start_frame, end_frame) = self.get_surrounding_keyframes(
+                        &mut property.keyframes.clone(), // do not love clone in loop
+                        current_time - start_time,
+                    );
+                    let Some((start_frame, end_frame)) = start_frame.zip(end_frame) else {
+                        continue;
+                    };
+
+                    // Calculate interpolation progress
+                    let duration = (end_frame.time - start_frame.time).as_secs_f32(); // duration between keyframes
+                    let elapsed = (current_time - start_time - start_frame.time).as_secs_f32(); // elapsed since start keyframe
+                    let mut progress = elapsed / duration;
+
+                    // Apply easing (EaseInOut)
+                    progress = if progress < 0.5 {
+                        2.0 * progress * progress
+                    } else {
+                        1.0 - (-2.0 * progress + 2.0).powi(2) / 2.0
+                    };
+
+                    // do not update a property when start and end are the same
+                    // TODO: make this a setting for zooms so the center_point can continue its interpolation?
+                    // if start_frame.value == end_frame.value {
+                    //     continue;
+                    // }
+
+                    // Apply the interpolated value to the object's property
+                    match (&start_frame.value, &end_frame.value) {
+                        (KeyframeValue::Position(start), KeyframeValue::Position(end)) => {
+                            let x = self.lerp(start[0], end[0], progress);
+                            let y = self.lerp(start[1], end[1], progress);
+
+                            let position = Point {
+                                x: CANVAS_HORIZ_OFFSET + x + path_group_position[0] as f32,
+                                y: CANVAS_VERT_OFFSET + y + path_group_position[1] as f32,
+                            };
+
+                            match animation.object_type {
+                                ObjectType::Polygon => {
+                                    editor.stunts_polygons[object_idx]
+                                        .transform
+                                        .update_position([position.x, position.y, 0.0]);
+                                }
+                                ObjectType::TextItem => {
+                                    editor.stunts_textboxes[object_idx]
+                                        .transform
+                                        .update_position([position.x, position.y, 0.0]);
+                                    editor.stunts_textboxes[object_idx]
+                                        .background_polygon
+                                        .transform
+                                        .update_position([position.x, position.y, 0.0]);
+                                }
+                                ObjectType::ImageItem => {
+                                    editor.stunts_images[object_idx]
+                                        .transform
+                                        .update_position([position.x, position.y, 0.0]);
+                                }
+                                ObjectType::VideoItem => {
+                                    editor.stunts_videos[object_idx]
+                                        .transform
+                                        .update_position([position.x, position.y, 0.0]);
+                                }
                             }
                         }
-                    }
-                    (KeyframeValue::Rotation(start), KeyframeValue::Rotation(end)) => {
-                        // rotation is stored as degrees
-                        let new_rotation = self.lerp(*start, *end, progress);
+                        (KeyframeValue::Rotation(start), KeyframeValue::Rotation(end)) => {
+                            // rotation is stored as degrees
+                            let new_rotation = self.lerp(*start, *end, progress);
 
-                        let new_rotation_rad = new_rotation.to_radians();
+                            let new_rotation_rad = new_rotation.to_radians();
 
-                        match animation.object_type {
-                            ObjectType::Polygon => {
-                                editor.stunts_polygons[object_idx]
-                                    .transform
-                                    .update_rotation([new_rotation_rad, 0.0, 0.0]);
-                            }
-                            ObjectType::TextItem => {
-                                editor.stunts_textboxes[object_idx]
-                                    .transform
-                                    .update_rotation([new_rotation_rad, 0.0, 0.0]);
-                                editor.stunts_textboxes[object_idx]
-                                    .background_polygon
-                                    .transform
-                                    .update_rotation([new_rotation_rad, 0.0, 0.0]);
-                            }
-                            ObjectType::ImageItem => {
-                                editor.stunts_images[object_idx]
-                                    .transform
-                                    .update_rotation([new_rotation_rad, 0.0, 0.0]);
-                            }
-                            ObjectType::VideoItem => {
-                                editor.stunts_videos[object_idx]
-                                    .transform
-                                    .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                            match animation.object_type {
+                                ObjectType::Polygon => {
+                                    editor.stunts_polygons[object_idx]
+                                        .transform
+                                        .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                                }
+                                ObjectType::TextItem => {
+                                    editor.stunts_textboxes[object_idx]
+                                        .transform
+                                        .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                                    editor.stunts_textboxes[object_idx]
+                                        .background_polygon
+                                        .transform
+                                        .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                                }
+                                ObjectType::ImageItem => {
+                                    editor.stunts_images[object_idx]
+                                        .transform
+                                        .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                                }
+                                ObjectType::VideoItem => {
+                                    editor.stunts_videos[object_idx]
+                                        .transform
+                                        .update_rotation([new_rotation_rad, 0.0, 0.0]);
+                                }
                             }
                         }
-                    }
-                    (KeyframeValue::Scale(start), KeyframeValue::Scale(end)) => {
-                        // scale is stored out 100 (100 being standard size, ie. 100%)
-                        let new_scale = self.lerp(*start, *end, progress) as f32 / 100.0;
+                        (KeyframeValue::Scale(start), KeyframeValue::Scale(end)) => {
+                            // scale is stored out 100 (100 being standard size, ie. 100%)
+                            let new_scale = self.lerp(*start, *end, progress) as f32 / 100.0;
 
-                        // TODO: verify scale on all objects as some treat it differently as-is
+                            // TODO: verify scale on all objects as some treat it differently as-is
 
-                        match animation.object_type {
-                            ObjectType::Polygon => {
-                                editor.stunts_polygons[object_idx]
-                                    .transform
-                                    .update_scale([new_scale, new_scale, 1.0]);
-                            }
-                            ObjectType::TextItem => {
-                                editor.stunts_textboxes[object_idx]
-                                    .transform
-                                    .update_scale([new_scale, new_scale, 1.0]);
-                                editor.stunts_textboxes[object_idx]
-                                    .background_polygon
-                                    .transform
-                                    .update_scale([new_scale, new_scale, 1.0]);
-                            }
-                            ObjectType::ImageItem => {
-                                let original_scale = editor.stunts_images[object_idx].dimensions;
-                                editor.stunts_images[object_idx].transform.update_scale([
-                                    original_scale.0 as f32 * new_scale,
-                                    original_scale.1 as f32 * new_scale,
-                                    1.0
-                                ]);
-                            }
-                            ObjectType::VideoItem => {
-                                let original_scale = editor.stunts_videos[object_idx].dimensions;
-                                editor.stunts_videos[object_idx].transform.update_scale([
-                                    original_scale.0 as f32 * new_scale,
-                                    original_scale.1 as f32 * new_scale,
-                                    1.0
-                                ]);
-                            }
-                        }
-                    }
-                    (KeyframeValue::Opacity(start), KeyframeValue::Opacity(end)) => {
-                        // opacity is out 100 (100%)
-                        let opacity = self.lerp(*start, *end, progress) / 100.0;
-
-                        let gpu_resources = editor
-                            .gpu_resources
-                            .as_ref()
-                            .expect("Couldn't get gpu resources");
-
-                        match animation.object_type {
-                            ObjectType::Polygon => {
-                                editor.stunts_polygons[object_idx]
-                                    .update_opacity(&gpu_resources.queue, opacity);
-                            }
-                            ObjectType::TextItem => {
-                                editor.stunts_textboxes[object_idx]
-                                    .update_opacity(&gpu_resources.queue, opacity);
-                                editor.stunts_textboxes[object_idx]
-                                    .background_polygon
-                                    .update_opacity(&gpu_resources.queue, opacity);
-                            }
-                            ObjectType::ImageItem => {
-                                editor.stunts_images[object_idx]
-                                    .update_opacity(&gpu_resources.queue, opacity);
-                            }
-                            ObjectType::VideoItem => {
-                                editor.stunts_videos[object_idx]
-                                    .update_opacity(&gpu_resources.queue, opacity);
+                            match animation.object_type {
+                                ObjectType::Polygon => {
+                                    editor.stunts_polygons[object_idx]
+                                        .transform
+                                        .update_scale([new_scale, new_scale, 1.0]);
+                                }
+                                ObjectType::TextItem => {
+                                    editor.stunts_textboxes[object_idx]
+                                        .transform
+                                        .update_scale([new_scale, new_scale, 1.0]);
+                                    editor.stunts_textboxes[object_idx]
+                                        .background_polygon
+                                        .transform
+                                        .update_scale([new_scale, new_scale, 1.0]);
+                                }
+                                ObjectType::ImageItem => {
+                                    let original_scale = editor.stunts_images[object_idx].dimensions;
+                                    editor.stunts_images[object_idx].transform.update_scale([
+                                        original_scale.0 as f32 * new_scale,
+                                        original_scale.1 as f32 * new_scale,
+                                        1.0
+                                    ]);
+                                }
+                                ObjectType::VideoItem => {
+                                    let original_scale = editor.stunts_videos[object_idx].dimensions;
+                                    editor.stunts_videos[object_idx].transform.update_scale([
+                                        original_scale.0 as f32 * new_scale,
+                                        original_scale.1 as f32 * new_scale,
+                                        1.0
+                                    ]);
+                                }
                             }
                         }
-                    }
-                    (KeyframeValue::Zoom(start), KeyframeValue::Zoom(end)) => {
-                        let zoom = self.lerp(*start, *end, progress) / 100.0;
+                        (KeyframeValue::Opacity(start), KeyframeValue::Opacity(end)) => {
+                            // opacity is out 100 (100%)
+                            let opacity = self.lerp(*start, *end, progress) / 100.0;
 
-                        let gpu_resources = editor
-                            .gpu_resources
-                            .as_ref()
-                            .expect("Couldn't get gpu resources");
+                            let gpu_resources = editor
+                                .gpu_resources
+                                .as_ref()
+                                .expect("Couldn't get gpu resources");
 
-                        match animation.object_type {
-                            ObjectType::VideoItem => {
-                                let video_item = &mut editor.stunts_videos[object_idx];
-                                let elapsed_ms = current_time.as_millis() as u128;
+                            match animation.object_type {
+                                ObjectType::Polygon => {
+                                    editor.stunts_polygons[object_idx]
+                                        .update_opacity(&gpu_resources.queue, opacity);
+                                }
+                                ObjectType::TextItem => {
+                                    editor.stunts_textboxes[object_idx]
+                                        .update_opacity(&gpu_resources.queue, opacity);
+                                    editor.stunts_textboxes[object_idx]
+                                        .background_polygon
+                                        .update_opacity(&gpu_resources.queue, opacity);
+                                }
+                                ObjectType::ImageItem => {
+                                    editor.stunts_images[object_idx]
+                                        .update_opacity(&gpu_resources.queue, opacity);
+                                }
+                                ObjectType::VideoItem => {
+                                    editor.stunts_videos[object_idx]
+                                        .update_opacity(&gpu_resources.queue, opacity);
+                                }
+                            }
+                        }
+                        (KeyframeValue::Zoom(start), KeyframeValue::Zoom(end)) => {
+                            let zoom = self.lerp(*start, *end, progress) / 100.0;
 
-                                let autofollow_delay = 150;
+                            let gpu_resources = editor
+                                .gpu_resources
+                                .as_ref()
+                                .expect("Couldn't get gpu resources");
 
-                                if let (Some(mouse_positions), Some(source_data)) = (
-                                    video_item.mouse_positions.as_ref(),
-                                    video_item.source_data.as_ref(),
-                                ) {
-                                    // Check if we need to update the shift points
-                                    let should_update_shift = match video_item.last_shift_time {
-                                        Some(last_shift_time) => {
-                                            elapsed_ms - last_shift_time > autofollow_delay
-                                        }
-                                        None => {
-                                            video_item.last_shift_time = Some(elapsed_ms);
+                            match animation.object_type {
+                                ObjectType::VideoItem => {
+                                    let video_item = &mut editor.stunts_videos[object_idx];
+                                    let elapsed_ms = current_time.as_millis() as u128;
 
+                                    let autofollow_delay = 150;
+
+                                    if let (Some(mouse_positions), Some(source_data)) = (
+                                        video_item.mouse_positions.as_ref(),
+                                        video_item.source_data.as_ref(),
+                                    ) {
+                                        // Check if we need to update the shift points
+                                        let should_update_shift = match video_item.last_shift_time {
+                                            Some(last_shift_time) => {
+                                                elapsed_ms - last_shift_time > autofollow_delay
+                                            }
+                                            None => {
+                                                video_item.last_shift_time = Some(elapsed_ms);
+
+                                                if let Some((start_point, end_point)) = mouse_positions
+                                                    .iter()
+                                                    .filter(|p| p.timestamp >= elapsed_ms)
+                                                    .zip(mouse_positions.iter().filter(|p| {
+                                                        p.timestamp >= elapsed_ms + autofollow_delay
+                                                    }))
+                                                    .next()
+                                                    .map(|(start, end)| {
+                                                        ((*start).clone(), (*end).clone())
+                                                    })
+                                                {
+                                                    video_item.last_start_point = Some(start_point);
+                                                    video_item.last_end_point = Some(end_point);
+                                                }
+
+                                                false
+                                            }
+                                        };
+
+                                        let delay_offset = 500; // Potential time offset for a consistent lag
+                                        let min_distance = 100.0; // Distance to incur a shift
+                                        let base_alpha = 0.01; // Your current default value
+                                        let max_alpha = 0.1; // Maximum blending speed
+                                        let scaling_factor = 0.01; // Controls how quickly alpha increases with distance
+
+                                        // Update shift points if needed
+                                        if should_update_shift {
                                             if let Some((start_point, end_point)) = mouse_positions
                                                 .iter()
-                                                .filter(|p| p.timestamp >= elapsed_ms)
+                                                .filter(|p| {
+                                                    p.timestamp
+                                                        >= (elapsed_ms - autofollow_delay)
+                                                            + delay_offset
+                                                        && p.timestamp
+                                                            < video_item.source_duration_ms as u128
+                                                })
                                                 .zip(mouse_positions.iter().filter(|p| {
-                                                    p.timestamp >= elapsed_ms + autofollow_delay
+                                                    p.timestamp >= elapsed_ms + delay_offset
+                                                        && p.timestamp
+                                                            < video_item.source_duration_ms as u128
                                                 }))
                                                 .next()
-                                                .map(|(start, end)| {
-                                                    ((*start).clone(), (*end).clone())
-                                                })
+                                                .map(|(start, end)| ((*start).clone(), (*end).clone()))
                                             {
-                                                video_item.last_start_point = Some(start_point);
-                                                video_item.last_end_point = Some(end_point);
-                                            }
-
-                                            false
-                                        }
-                                    };
-
-                                    let delay_offset = 500; // Potential time offset for a consistent lag
-                                    let min_distance = 100.0; // Distance to incur a shift
-                                    let base_alpha = 0.01; // Your current default value
-                                    let max_alpha = 0.1; // Maximum blending speed
-                                    let scaling_factor = 0.01; // Controls how quickly alpha increases with distance
-
-                                    // Update shift points if needed
-                                    if should_update_shift {
-                                        if let Some((start_point, end_point)) = mouse_positions
-                                            .iter()
-                                            .filter(|p| {
-                                                p.timestamp
-                                                    >= (elapsed_ms - autofollow_delay)
-                                                        + delay_offset
-                                                    && p.timestamp
-                                                        < video_item.source_duration_ms as u128
-                                            })
-                                            .zip(mouse_positions.iter().filter(|p| {
-                                                p.timestamp >= elapsed_ms + delay_offset
-                                                    && p.timestamp
-                                                        < video_item.source_duration_ms as u128
-                                            }))
-                                            .next()
-                                            .map(|(start, end)| ((*start).clone(), (*end).clone()))
-                                        {
-                                            if let Some(last_start_point) =
-                                                video_item.last_start_point
-                                            {
-                                                if let Some(last_end_point) =
-                                                    video_item.last_end_point
+                                                if let Some(last_start_point) =
+                                                    video_item.last_start_point
                                                 {
-                                                    let dx = start_point.x - last_start_point.x;
-                                                    let dy = start_point.y - last_start_point.y;
-                                                    let distance = (dx * dx + dy * dy).sqrt(); // Euclidean distance
-
-                                                    let dx2 = end_point.x - last_end_point.x;
-                                                    let dy2 = end_point.y - last_end_point.y;
-                                                    let distance2 = (dx2 * dx2 + dy2 * dy2).sqrt(); // Euclidean distance
-
-                                                    if distance >= min_distance
-                                                        || distance2 >= min_distance
+                                                    if let Some(last_end_point) =
+                                                        video_item.last_end_point
                                                     {
-                                                        video_item.last_shift_time =
-                                                            Some(elapsed_ms);
+                                                        let dx = start_point.x - last_start_point.x;
+                                                        let dy = start_point.y - last_start_point.y;
+                                                        let distance = (dx * dx + dy * dy).sqrt(); // Euclidean distance
 
-                                                        video_item.last_start_point =
-                                                            Some(start_point);
-                                                        video_item.last_end_point = Some(end_point);
+                                                        let dx2 = end_point.x - last_end_point.x;
+                                                        let dy2 = end_point.y - last_end_point.y;
+                                                        let distance2 = (dx2 * dx2 + dy2 * dy2).sqrt(); // Euclidean distance
 
-                                                        // Use the larger of the two distances
-                                                        let max_distance = distance.max(distance2);
+                                                        if distance >= min_distance
+                                                            || distance2 >= min_distance
+                                                        {
+                                                            video_item.last_shift_time =
+                                                                Some(elapsed_ms);
 
-                                                        // Exponential smoothing that plateaus
-                                                        let dynamic_alpha = base_alpha
-                                                            + (max_alpha - base_alpha)
-                                                                * (1.0
-                                                                    - (-scaling_factor
-                                                                        * max_distance)
-                                                                        .exp());
+                                                            video_item.last_start_point =
+                                                                Some(start_point);
+                                                            video_item.last_end_point = Some(end_point);
 
-                                                        video_item.dynamic_alpha = dynamic_alpha;
+                                                            // Use the larger of the two distances
+                                                            let max_distance = distance.max(distance2);
+
+                                                            // Exponential smoothing that plateaus
+                                                            let dynamic_alpha = base_alpha
+                                                                + (max_alpha - base_alpha)
+                                                                    * (1.0
+                                                                        - (-scaling_factor
+                                                                            * max_distance)
+                                                                            .exp());
+
+                                                            video_item.dynamic_alpha = dynamic_alpha;
+                                                        }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
 
-                                    // Always interpolate between the current shift points
-                                    if let (Some(start), Some(end)) =
-                                        (&video_item.last_start_point, &video_item.last_end_point)
-                                    {
-                                        let clamped_elapsed_ms =
-                                            elapsed_ms.clamp(start.timestamp, end.timestamp);
-
-                                        let time_progress = (clamped_elapsed_ms - start.timestamp)
-                                            as f32
-                                            / (end.timestamp - start.timestamp) as f32;
-
-                                        let interpolated_x =
-                                            start.x + (end.x - start.x) * time_progress;
-                                        let interpolated_y =
-                                            start.y + (end.y - start.y) * time_progress;
-
-                                        let dimensions = video_item.dimensions;
-                                        let source_dimensions = video_item.source_dimensions;
-
-                                        let new_center_point = Point {
-                                            x: ((interpolated_x - source_data.x as f32)
-                                                / source_dimensions.0 as f32)
-                                                * dimensions.0 as f32,
-                                            y: ((interpolated_y - source_data.y as f32)
-                                                / source_dimensions.1 as f32)
-                                                * dimensions.1 as f32,
-                                        };
-
-                                        // Smooth transition with existing center point
-                                        let blended_center_point = if let Some(last_center_point) =
-                                            video_item.last_center_point
+                                        // Always interpolate between the current shift points
+                                        if let (Some(start), Some(end)) =
+                                            (&video_item.last_start_point, &video_item.last_end_point)
                                         {
-                                            // need to calculate a dynamic alpha based on distance between start and and end point
-                                            // let alpha = 0.01; // this was a close value, but not quite right depending on distance
-                                            let alpha = video_item.dynamic_alpha;
+                                            let clamped_elapsed_ms =
+                                                elapsed_ms.clamp(start.timestamp, end.timestamp);
 
-                                            Point {
-                                                x: last_center_point.x * (1.0 - alpha)
-                                                    + new_center_point.x * alpha,
-                                                y: last_center_point.y * (1.0 - alpha)
-                                                    + new_center_point.y * alpha,
-                                            }
-                                        } else {
-                                            new_center_point
-                                        };
+                                            let time_progress = (clamped_elapsed_ms - start.timestamp)
+                                                as f32
+                                                / (end.timestamp - start.timestamp) as f32;
 
-                                        video_item.update_zoom(
-                                            &gpu_resources.queue,
-                                            zoom,
-                                            blended_center_point,
-                                        );
-                                        video_item.last_center_point = Some(blended_center_point);
+                                            let interpolated_x =
+                                                start.x + (end.x - start.x) * time_progress;
+                                            let interpolated_y =
+                                                start.y + (end.y - start.y) * time_progress;
 
-                                        // video_item.update_popout(
-                                        //     &gpu_resources.queue,
-                                        //     blended_center_point,
-                                        //     1.5,
-                                        //     (200.0, 200.0),
-                                        // );
+                                            let dimensions = video_item.dimensions;
+                                            let source_dimensions = video_item.source_dimensions;
+
+                                            let new_center_point = Point {
+                                                x: ((interpolated_x - source_data.x as f32)
+                                                    / source_dimensions.0 as f32)
+                                                    * dimensions.0 as f32,
+                                                y: ((interpolated_y - source_data.y as f32)
+                                                    / source_dimensions.1 as f32)
+                                                    * dimensions.1 as f32,
+                                            };
+
+                                            // Smooth transition with existing center point
+                                            let blended_center_point = if let Some(last_center_point) =
+                                                video_item.last_center_point
+                                            {
+                                                // need to calculate a dynamic alpha based on distance between start and and end point
+                                                // let alpha = 0.01; // this was a close value, but not quite right depending on distance
+                                                let alpha = video_item.dynamic_alpha;
+
+                                                Point {
+                                                    x: last_center_point.x * (1.0 - alpha)
+                                                        + new_center_point.x * alpha,
+                                                    y: last_center_point.y * (1.0 - alpha)
+                                                        + new_center_point.y * alpha,
+                                                }
+                                            } else {
+                                                new_center_point
+                                            };
+
+                                            video_item.update_zoom(
+                                                &gpu_resources.queue,
+                                                zoom,
+                                                blended_center_point,
+                                            );
+                                            video_item.last_center_point = Some(blended_center_point);
+
+                                            // video_item.update_popout(
+                                            //     &gpu_resources.queue,
+                                            //     blended_center_point,
+                                            //     1.5,
+                                            //     (200.0, 200.0),
+                                            // );
+                                        }
                                     }
                                 }
-                            }
-                            _ => {
-                                // println!("Zoom not supported here");
+                                _ => {
+                                    // println!("Zoom not supported here");
+                                }
                             }
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
