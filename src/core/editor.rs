@@ -454,7 +454,7 @@ impl Editor {
             let gpu_resources = self.gpu_resources.as_ref().expect("No gpu resources");
             let device = &gpu_resources.device;
             let queue = &gpu_resources.queue;
-            let model_bind_group_layout = self.model_bind_group_layout.as_ref().expect("No model bind group layout");
+            let ui_model_bind_group_layout = self.ui_model_bind_group_layout.as_ref().expect("No model bind group layout");
             let group_bind_group_layout = self.group_bind_group_layout.as_ref().expect("No group bind group layout");
             let camera = self.camera.as_ref().expect("No camera");
             let window_size = camera.viewport.window_size;
@@ -471,7 +471,7 @@ impl Editor {
                             &window_size,
                             device,
                             queue,
-                            model_bind_group_layout,
+                            ui_model_bind_group_layout,
                             group_bind_group_layout,
                             camera,
                         );
@@ -494,7 +494,7 @@ impl Editor {
                             &window_size,
                             device,
                             queue,
-                            model_bind_group_layout,
+                            ui_model_bind_group_layout,
                             group_bind_group_layout,
                             camera,
                             font_data,
@@ -516,7 +516,7 @@ impl Editor {
                             &window_size,
                             device,
                             queue,
-                            model_bind_group_layout,
+                            ui_model_bind_group_layout,
                             group_bind_group_layout,
                         );
                         self.stunts_images.push(img);
@@ -536,7 +536,7 @@ impl Editor {
                             &window_size,
                             device,
                             queue,
-                            model_bind_group_layout,
+                            ui_model_bind_group_layout,
                             group_bind_group_layout,
                         ) {
                             self.stunts_videos.push(vid);
