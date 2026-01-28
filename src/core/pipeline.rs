@@ -2786,7 +2786,6 @@ impl ExportPipeline {
 
     pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-        editor.sync_stunts_objects();
 
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
         let device = &gpu_resources.device;

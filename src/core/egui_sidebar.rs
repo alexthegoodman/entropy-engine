@@ -29,7 +29,7 @@ use serde_json;
 
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-use crate::helpers::load_project::{load_game_project};
+use crate::helpers::load_project::{load_game_project, load_video_project};
 use crate::deno_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
@@ -144,6 +144,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                             match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
                                     editor.stunts_state = Some(new_state);
+                                    editor.sync_stunts_objects();
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -166,7 +167,8 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         
                     for (project_name, project_id) in self.context.projects.iter() {
                         if ui.button(project_name).clicked() {
-                            // pollster::block_on(load_video_project(editor, project_id));
+                            load_video_project(editor, project_id);
+                            editor.sync_stunts_objects();
                         }
                     }
                 } else if self.context.current_app == AppExperience::Stunts {

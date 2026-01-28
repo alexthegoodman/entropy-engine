@@ -7,9 +7,17 @@ use crate::{
     handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_particle_system, handle_add_player, handle_add_scattered_model, handle_add_trees, handle_add_water_plane}, 
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, 
     helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
-    saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities},
+    saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities::{self, load_project_state_native}},
     procedural_models::House::HouseConfig
 };
+
+pub fn load_video_project(editor: &mut Editor, project_id: &str) {
+    let state = load_project_state_native(project_id);
+
+    if let Ok(state) = state {
+        editor.stunts_state = Some(state);
+    }
+}
 
 pub async fn load_game_project(editor: &mut Editor, project_id: &str) {
     // let editor = self.export_editor.as_mut().unwrap();

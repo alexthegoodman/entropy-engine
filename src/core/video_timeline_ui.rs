@@ -47,56 +47,65 @@ impl VideoTimelineUi {
 
                     ui.add_space(20.0);
 
-                    if let Some(stunts_state) = &mut editor.stunts_state {
+                    
                         ui.label("Add:");
                         if ui.button("Polygon").clicked() {
-                            let polygons = stunts_state.active_polygons.get_or_insert_with(Vec::new);
-                            polygons.push(SavedPolygonConfig {
-                                id: Uuid::new_v4().to_string(),
-                                name: format!("Polygon {}", polygons.len() + 1),
-                                fill: [255, 255, 255, 255],
-                                dimensions: (100, 100),
-                                position: SavedPoint { x: 0, y: 0 },
-                                border_radius: 0,
-                                stroke: SavedStroke { thickness: 0, fill: [0, 0, 0, 255] },
-                                layer: 0,
-                                start_time_ms: editor.video_current_time_ms,
-                                duration_ms: 3000,
-                            });
+                            if let Some(stunts_state) = &mut editor.stunts_state {
+                                let polygons = stunts_state.active_polygons.get_or_insert_with(Vec::new);
+                                polygons.push(SavedPolygonConfig {
+                                    id: Uuid::new_v4().to_string(),
+                                    name: format!("Polygon {}", polygons.len() + 1),
+                                    fill: [255, 255, 255, 255],
+                                    dimensions: (100, 100),
+                                    position: SavedPoint { x: 0, y: 0 },
+                                    border_radius: 0,
+                                    stroke: SavedStroke { thickness: 0, fill: [0, 0, 0, 255] },
+                                    layer: 0,
+                                    start_time_ms: editor.video_current_time_ms,
+                                    duration_ms: 3000,
+                                });
+                            }
+                            editor.sync_stunts_objects();
                         }
                         if ui.button("Text").clicked() {
-                            let text_items = stunts_state.active_text_items.get_or_insert_with(Vec::new);
-                            text_items.push(SavedTextRendererConfig {
-                                id: Uuid::new_v4().to_string(),
-                                name: format!("Text {}", text_items.len() + 1),
-                                text: "New Text".to_string(),
-                                font_family: "Inter-Regular".to_string(),
-                                font_size: 32,
-                                dimensions: (200, 50),
-                                position: SavedPoint { x: 0, y: 0 },
-                                layer: 1,
-                                color: [255, 255, 255, 255],
-                                background_fill: None,
-                                start_time_ms: editor.video_current_time_ms,
-                                duration_ms: 3000,
-                            });
+                            if let Some(stunts_state) = &mut editor.stunts_state {
+                                let text_items = stunts_state.active_text_items.get_or_insert_with(Vec::new);
+                                text_items.push(SavedTextRendererConfig {
+                                    id: Uuid::new_v4().to_string(),
+                                    name: format!("Text {}", text_items.len() + 1),
+                                    text: "New Text".to_string(),
+                                    font_family: "Inter-Regular".to_string(),
+                                    font_size: 32,
+                                    dimensions: (200, 50),
+                                    position: SavedPoint { x: 0, y: 0 },
+                                    layer: 1,
+                                    color: [255, 255, 255, 255],
+                                    background_fill: None,
+                                    start_time_ms: editor.video_current_time_ms,
+                                    duration_ms: 3000,
+                                });
+                            }
+                            editor.sync_stunts_objects();
                         }
                         if ui.button("Image").clicked() {
                             if let Some(path) = FileDialog::new()
                                 .add_filter("Image", &["png", "jpg", "jpeg"])
                                 .pick_file() 
                             {
-                                let images = stunts_state.active_image_items.get_or_insert_with(Vec::new);
-                                images.push(SavedStImageConfig {
-                                    id: Uuid::new_v4().to_string(),
-                                    name: path.file_name().unwrap().to_string_lossy().to_string(),
-                                    path: path.to_string_lossy().to_string(),
-                                    dimensions: (200, 200),
-                                    position: SavedPoint { x: 0, y: 0 },
-                                    layer: 2,
-                                    start_time_ms: editor.video_current_time_ms,
-                                    duration_ms: 3000,
-                                });
+                                if let Some(stunts_state) = &mut editor.stunts_state {
+                                    let images = stunts_state.active_image_items.get_or_insert_with(Vec::new);
+                                    images.push(SavedStImageConfig {
+                                        id: Uuid::new_v4().to_string(),
+                                        name: path.file_name().unwrap().to_string_lossy().to_string(),
+                                        path: path.to_string_lossy().to_string(),
+                                        dimensions: (200, 200),
+                                        position: SavedPoint { x: 0, y: 0 },
+                                        layer: 2,
+                                        start_time_ms: editor.video_current_time_ms,
+                                        duration_ms: 3000,
+                                    });
+                                }
+                                editor.sync_stunts_objects();
                             }
                         }
                         if ui.button("Video").clicked() {
@@ -104,21 +113,24 @@ impl VideoTimelineUi {
                                 .add_filter("Video", &["mp4"])
                                 .pick_file() 
                             {
-                                let videos = stunts_state.active_video_items.get_or_insert_with(Vec::new);
-                                videos.push(SavedStVideoConfig {
-                                    id: Uuid::new_v4().to_string(),
-                                    name: path.file_name().unwrap().to_string_lossy().to_string(),
-                                    path: path.to_string_lossy().to_string(),
-                                    dimensions: (320, 180),
-                                    position: SavedPoint { x: 0, y: 0 },
-                                    layer: 3,
-                                    mouse_path: None,
-                                    start_time_ms: editor.video_current_time_ms,
-                                    duration_ms: 5000,
-                                });
+                                if let Some(stunts_state) = &mut editor.stunts_state {
+                                    let videos = stunts_state.active_video_items.get_or_insert_with(Vec::new);
+                                    videos.push(SavedStVideoConfig {
+                                        id: Uuid::new_v4().to_string(),
+                                        name: path.file_name().unwrap().to_string_lossy().to_string(),
+                                        path: path.to_string_lossy().to_string(),
+                                        dimensions: (320, 180),
+                                        position: SavedPoint { x: 0, y: 0 },
+                                        layer: 3,
+                                        mouse_path: None,
+                                        start_time_ms: editor.video_current_time_ms,
+                                        duration_ms: 5000,
+                                    });
+                                }
+                                editor.sync_stunts_objects();
                             }
                         }
-                    }
+                    
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                          ui.add(egui::Slider::new(&mut self.zoom, 1.0..=200.0).text("Zoom"));

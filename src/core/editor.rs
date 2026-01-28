@@ -450,7 +450,7 @@ pub enum InputValue {
 
 impl Editor {
     pub fn sync_stunts_objects(&mut self) {
-        if let Some(world_state) = &self.world_state {
+        if let Some(stunts_state) = &self.stunts_state {
             let gpu_resources = self.gpu_resources.as_ref().expect("No gpu resources");
             let device = &gpu_resources.device;
             let queue = &gpu_resources.queue;
@@ -460,7 +460,7 @@ impl Editor {
             let window_size = camera.viewport.window_size;
 
             // Sync Polygons
-            if let Some(saved_polygons) = &world_state.active_polygons {
+            if let Some(saved_polygons) = &stunts_state.active_polygons {
                 // simple sync: if id not in stunts_polygons, add it.
                 // for now, let's just rebuild if lengths differ or always? 
                 // Better: only add if missing.
@@ -485,7 +485,7 @@ impl Editor {
             }
 
             // Sync Text
-            if let Some(saved_text) = &world_state.active_text_items {
+            if let Some(saved_text) = &stunts_state.active_text_items {
                 for saved in saved_text {
                     if !self.stunts_textboxes.iter().any(|t| t.id.to_string() == saved.id) {
                         let font_data = self.font_manager.get_font_by_name(&saved.font_family).expect("Font not found");
@@ -508,7 +508,7 @@ impl Editor {
             }
 
             // Sync Images
-            if let Some(saved_images) = &world_state.active_image_items {
+            if let Some(saved_images) = &stunts_state.active_image_items {
                 for saved in saved_images {
                     if !self.stunts_images.iter().any(|i| i.id == saved.id) {
                         let img = StImage::from_saved_config(
@@ -528,7 +528,7 @@ impl Editor {
             }
 
             // Sync Videos
-            if let Some(saved_videos) = &world_state.active_video_items {
+            if let Some(saved_videos) = &stunts_state.active_video_items {
                 for saved in saved_videos {
                     if !self.stunts_videos.iter().any(|v| v.id == saved.id) {
                         if let Ok(vid) = crate::renderer_videos::st_video::StVideo::from_saved_config(

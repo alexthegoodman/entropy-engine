@@ -222,6 +222,26 @@ pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn 
     wasm_loaders::load_project_state_wasm(project_id).await
 }
 
+pub fn load_project_state_native(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error + Send>> {
+    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+    let project_dir = sync_dir.join("midpoint/projects").join(project_id);
+    let json_path = project_dir.join("midpoint.json");
+
+    // Check if the project directory and json file exist
+    // if !project_dir.exists() {
+    //     return Err(format!("Project directory '{}' not found", project_id).into());
+    // }
+    // if !json_path.exists() {
+    //     return Err(format!("midpoint.json not found in project '{}'", project_id).into());
+    // }
+
+    // Read and parse the JSON file - now using tokio::fs
+    let json_content = fs::read_to_string(json_path);
+    let json_content = json_content.as_ref().expect("Couldn't get json");
+    let state: SavedState = serde_json::from_str(&json_content).expect("Couldn't get state");
+
+    Ok(state)
+}
 
 pub fn update_project_state_component(project_id: &str, component: &ComponentData) -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
