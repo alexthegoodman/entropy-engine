@@ -254,6 +254,26 @@ pub struct GameSettings {
     pub ui_theme: Option<UIThemeProperties>,
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+pub struct VideoRenderSize {
+    pub width: i32,
+    pub height: i32
+}
+
+impl Default for VideoRenderSize {
+    fn default() -> Self {
+        Self {
+            width: 900,
+            height: 500,
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+pub struct VideoSettings {
+    pub render_size: VideoRenderSize
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default, Copy)]
 pub struct AttackStats {
     pub damage: f32, // TODO: should be determined be equipped weapon
@@ -317,6 +337,7 @@ pub struct SavedState {
     pub active_text_items: Option<Vec<SavedTextRendererConfig>>,
     pub active_image_items: Option<Vec<SavedStImageConfig>>,
     pub active_video_items: Option<Vec<SavedStVideoConfig>>,
+    pub video_settings: Option<VideoSettings>,
     // TODO: writing (sophia)
     // pub chapters: Option<Vec<Chapter>>, // (w/markdown filenames)
     // Global

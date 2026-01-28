@@ -52,12 +52,18 @@ impl VideoTimelineUi {
                         if ui.button("Polygon").clicked() {
                             if let Some(stunts_state) = &mut editor.stunts_state {
                                 let polygons = stunts_state.active_polygons.get_or_insert_with(Vec::new);
+                                let settings = stunts_state.video_settings.clone().unwrap_or_default();
+                                let default_size = 100;
+                                let center = SavedPoint {
+                                    x: (settings.render_size.width - default_size) / 2,
+                                    y: (settings.render_size.height - default_size) / 2
+                                };
                                 polygons.push(SavedPolygonConfig {
                                     id: Uuid::new_v4().to_string(),
                                     name: format!("Polygon {}", polygons.len() + 1),
                                     fill: [255, 255, 255, 255],
-                                    dimensions: (100, 100),
-                                    position: SavedPoint { x: 0, y: 0 },
+                                    dimensions: (default_size, default_size),
+                                    position: center,
                                     border_radius: 0,
                                     stroke: SavedStroke { thickness: 0, fill: [0, 0, 0, 255] },
                                     layer: 0,
@@ -70,14 +76,20 @@ impl VideoTimelineUi {
                         if ui.button("Text").clicked() {
                             if let Some(stunts_state) = &mut editor.stunts_state {
                                 let text_items = stunts_state.active_text_items.get_or_insert_with(Vec::new);
+                                let settings = stunts_state.video_settings.clone().unwrap_or_default();
+                                let default_size = (200, 50);
+                                let center = SavedPoint {
+                                    x: (settings.render_size.width - default_size.0) / 2,
+                                    y: (settings.render_size.height - default_size.1) / 2
+                                };
                                 text_items.push(SavedTextRendererConfig {
                                     id: Uuid::new_v4().to_string(),
                                     name: format!("Text {}", text_items.len() + 1),
                                     text: "New Text".to_string(),
-                                    font_family: "Inter-Regular".to_string(),
+                                    font_family: "Aleo".to_string(),
                                     font_size: 32,
-                                    dimensions: (200, 50),
-                                    position: SavedPoint { x: 0, y: 0 },
+                                    dimensions: default_size,
+                                    position: center,
                                     layer: 1,
                                     color: [255, 255, 255, 255],
                                     background_fill: None,
@@ -94,12 +106,18 @@ impl VideoTimelineUi {
                             {
                                 if let Some(stunts_state) = &mut editor.stunts_state {
                                     let images = stunts_state.active_image_items.get_or_insert_with(Vec::new);
+                                    let settings = stunts_state.video_settings.clone().unwrap_or_default();
+                                    let default_size = (200, 200);
+                                    let center = SavedPoint {
+                                        x: (settings.render_size.width - default_size.0) / 2,
+                                        y: (settings.render_size.height - default_size.1) / 2
+                                    };
                                     images.push(SavedStImageConfig {
                                         id: Uuid::new_v4().to_string(),
                                         name: path.file_name().unwrap().to_string_lossy().to_string(),
                                         path: path.to_string_lossy().to_string(),
-                                        dimensions: (200, 200),
-                                        position: SavedPoint { x: 0, y: 0 },
+                                        dimensions: (default_size.0 as u32, default_size.1 as u32),
+                                        position: center,
                                         layer: 2,
                                         start_time_ms: editor.video_current_time_ms,
                                         duration_ms: 3000,
@@ -115,12 +133,18 @@ impl VideoTimelineUi {
                             {
                                 if let Some(stunts_state) = &mut editor.stunts_state {
                                     let videos = stunts_state.active_video_items.get_or_insert_with(Vec::new);
+                                    let settings = stunts_state.video_settings.clone().unwrap_or_default();
+                                    let default_size = (320, 180);
+                                    let center = SavedPoint {
+                                        x: (settings.render_size.width - default_size.0) / 2,
+                                        y: (settings.render_size.height - default_size.1) / 2
+                                    };
                                     videos.push(SavedStVideoConfig {
                                         id: Uuid::new_v4().to_string(),
                                         name: path.file_name().unwrap().to_string_lossy().to_string(),
                                         path: path.to_string_lossy().to_string(),
-                                        dimensions: (320, 180),
-                                        position: SavedPoint { x: 0, y: 0 },
+                                        dimensions: (default_size.0 as u32, default_size.1 as u32),
+                                        position: center,
                                         layer: 3,
                                         mouse_path: None,
                                         start_time_ms: editor.video_current_time_ms,
