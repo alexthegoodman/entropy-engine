@@ -12,7 +12,7 @@ use crate::water_plane::config::WaterConfig;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::Sequence, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::{Sequence, ObjectType}, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -20,6 +20,7 @@ use crate::core::ui_pipeline::UiPipeline;
 use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
 use std::{fs, sync::{Arc, Mutex}};
+use egui::StrokeKind;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use transform_gizmo::{EnumSet, GizmoMode};
@@ -3162,6 +3163,69 @@ impl ExportPipeline {
                             .show_inside(ui, &mut viewer);
                     });
             }
+
+            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
+                // Draw selection highlight for Stunts objects
+                if let Some(editor) = &viewer.context.export_editor {
+                    if let Some(selected) = &editor.selected_object {
+                        let mut rect_pos = None;
+                        let mut rect_size = None;
+
+                        match selected.object_type {
+                            ObjectType::Polygon => {
+                                if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+                                    rect_pos = Some(poly.transform.position);
+                                    rect_size = Some(poly.dimensions);
+                                }
+                            }
+                            ObjectType::TextItem => {
+                                if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+                                    rect_pos = Some(text.transform.position);
+                                    rect_size = Some(text.dimensions);
+                                }
+                            }
+                            ObjectType::ImageItem => {
+                                if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+                                    rect_pos = Some(img.transform.position);
+                                    rect_size = Some((img.transform.scale.x, img.transform.scale.y));
+                                }
+                            }
+                            ObjectType::VideoItem => {
+                                if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+                                    rect_pos = Some(vid.transform.position);
+                                    rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
+                                }
+                            }
+                        }
+
+                        if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
+                            let screen_rect = egui::Rect::from_center_size(
+                                egui::pos2(pos.x, pos.y),
+                                egui::vec2(size.0, size.1)
+                            );
+                            
+                            let painter = ui.painter();
+                            painter.rect_stroke(
+                                screen_rect.expand(2.0),
+                                2.0,
+                                egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
+                                StrokeKind::Middle
+                            );
+
+                            // Draw tiny handles at corners
+                            let handle_color = egui::Color32::WHITE;
+                            let handle_size = 6.0;
+                            for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
+                                painter.rect_filled(
+                                    egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
+                                    1.0,
+                                    handle_color
+                                );
+                            }
+                        }
+                    }
+                }
+            });
 
             let active_dock_state = match self.current_workspace {
                 Workspace::GameEngine => &mut self.game_dock_state,

@@ -27,6 +27,13 @@ impl VideoTimelineUi {
     }
 
     pub fn show(&mut self, ui: &mut Ui, editor: &mut Editor) {
+        // Sync selected_ts_id from editor.selected_object
+        if let Some(selected) = &editor.selected_object {
+            self.selected_ts_id = Some(selected.object_id.to_string());
+        } else {
+            // self.selected_ts_id = None; // Optional: deselect if nothing selected in viewport
+        }
+
         egui::Frame::none()
             .fill(ui.visuals().window_fill())
             .stroke(ui.visuals().window_stroke())
@@ -248,6 +255,17 @@ impl VideoTimelineUi {
                             
                             if clip_res.clicked() {
                                 self.selected_ts_id = Some(id.to_string());
+                                // Sync with editor selection
+                                let obj_type = match target_type {
+                                    DeleteTarget::Polygon(_) => crate::vector_animations::animations::ObjectType::Polygon,
+                                    DeleteTarget::Text(_) => crate::vector_animations::animations::ObjectType::TextItem,
+                                    DeleteTarget::Image(_) => crate::vector_animations::animations::ObjectType::ImageItem,
+                                    DeleteTarget::Video(_) => crate::vector_animations::animations::ObjectType::VideoItem,
+                                };
+                                editor.selected_object = Some(crate::core::editor::SelectedObject {
+                                    object_id: Uuid::parse_str(id).unwrap_or_default(),
+                                    object_type: obj_type,
+                                });
                             }
 
                             if clip_res.dragged() {
@@ -255,6 +273,17 @@ impl VideoTimelineUi {
                                 let delta_time = (delta_x * self.zoom) as i32;
                                 *start_time = (*start_time + delta_time).max(0);
                                 self.selected_ts_id = Some(id.to_string());
+                                // Sync with editor selection
+                                let obj_type = match target_type {
+                                    DeleteTarget::Polygon(_) => crate::vector_animations::animations::ObjectType::Polygon,
+                                    DeleteTarget::Text(_) => crate::vector_animations::animations::ObjectType::TextItem,
+                                    DeleteTarget::Image(_) => crate::vector_animations::animations::ObjectType::ImageItem,
+                                    DeleteTarget::Video(_) => crate::vector_animations::animations::ObjectType::VideoItem,
+                                };
+                                editor.selected_object = Some(crate::core::editor::SelectedObject {
+                                    object_id: Uuid::parse_str(id).unwrap_or_default(),
+                                    object_type: obj_type,
+                                });
                             }
 
                             clip_res.context_menu(|ui| {

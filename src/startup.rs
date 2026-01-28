@@ -500,6 +500,7 @@ impl ApplicationHandler<UserEvent> for Application {
                                 winit::keyboard::NamedKey::ArrowLeft => Some("ArrowLeft"),
                                 winit::keyboard::NamedKey::ArrowRight => Some("ArrowRight"),
                                 winit::keyboard::NamedKey::Space => Some(" "),
+                                winit::keyboard::NamedKey::Delete => Some("Delete"),
                                 _ => None,
                             }
                         },

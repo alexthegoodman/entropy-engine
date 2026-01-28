@@ -192,15 +192,41 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             }
         }
         return;
-    } else if key_code == "e" {
+    } else if key_code == "Delete" {
         if is_pressed {
-            let game_mode = state.renderer_state.as_ref().map(|r| r.game_mode).unwrap_or(false);
-            if game_mode {
-                // Interaction
-                handle_npc_interaction(state);
-                handle_collectable_interaction(state);
+            if let Some(selected) = state.selected_object.clone() {
+                if let Some(stunts_state) = state.stunts_state.as_mut() {
+                    match selected.object_type {
+                        ObjectType::Polygon => {
+                            if let Some(polys) = &mut stunts_state.active_polygons {
+                                polys.retain(|p| p.id != selected.object_id.to_string());
+                            }
+                        }
+                        ObjectType::TextItem => {
+                            if let Some(texts) = &mut stunts_state.active_text_items {
+                                texts.retain(|t| t.id != selected.object_id.to_string());
+                            }
+                        }
+                        ObjectType::ImageItem => {
+                            if let Some(imgs) = &mut stunts_state.active_image_items {
+                                imgs.retain(|i| i.id != selected.object_id.to_string());
+                            }
+                        }
+                        ObjectType::VideoItem => {
+                            if let Some(vids) = &mut stunts_state.active_video_items {
+                                vids.retain(|v| v.id != selected.object_id.to_string());
+                            }
+                        }
+                    }
+                    if let Some(project_id) = &stunts_state.id {
+                        let _ = utilities::update_project_state(project_id, stunts_state);
+                    }
+                    state.selected_object = None;
+                    state.sync_stunts_objects();
+                }
             }
         }
+        return;
     }
 
     let camera = state.camera.as_mut().expect("Couldn't get camera");

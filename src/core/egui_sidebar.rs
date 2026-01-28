@@ -6,6 +6,7 @@ use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AppExperience, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
 use crate::helpers::utilities::{save_heightmap, save_rhai_script};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
+use crate::vector_animations::animations::ObjectType;
 use crate::water_plane::config::WaterConfig;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
@@ -247,7 +248,252 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             }
             Tab::Properties => {
                  let editor = self.context.export_editor.as_mut().unwrap();
-                 if let Some(selected_component_id) = self.context.selected_component_id {
+                 
+                 // Handle Stunts Objects
+                 if let Some(selected) = editor.selected_object.clone() {
+                    ui.heading(format!("Selected: {:?}", selected.object_type));
+                    
+                    let mut updated = false;
+                    let gpu_resources = self.context.gpu_resources.as_ref().unwrap();
+
+                    match selected.object_type {
+                        ObjectType::Polygon => {
+                            if let Some(poly) = editor.stunts_polygons.iter_mut().find(|p| p.id == selected.object_id) {
+                                ui.label("Name");
+                                ui.text_edit_singleline(&mut poly.name);
+                                
+                                ui.label("Position");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut poly.transform.position.x)).changed() |
+                                    ui.add(egui::DragValue::new(&mut poly.transform.position.y)).changed()
+                                }).inner {
+                                    poly.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.label("Dimensions");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut poly.dimensions.0).prefix("W: ")).changed() |
+                                    ui.add(egui::DragValue::new(&mut poly.dimensions.1).prefix("H: ")).changed()
+                                }).inner {
+                                    // Update polygon data based on new dimensions
+                                    poly.update_data_from_dimensions(
+                                        &editor.camera.as_ref().unwrap().viewport.window_size,
+                                        &gpu_resources.device,
+                                        &gpu_resources.queue,
+                                        editor.ui_model_bind_group_layout.as_ref().unwrap(),
+                                        poly.dimensions,
+                                        editor.camera.as_ref().unwrap()
+                                    );
+                                    updated = true;
+                                }
+
+                                ui.label("Fill Color");
+                                if ui.color_edit_button_rgba_unmultiplied(&mut [
+                                    (poly.fill[0] * 255.0),
+                                    (poly.fill[1] * 255.0),
+                                    (poly.fill[2] * 255.0),
+                                    (poly.fill[3] * 255.0),
+                                ]).changed() {
+                                    // Color editing logic here if needed
+                                }
+
+                                ui.separator();
+                                ui.label("Layering");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Bring Forward").clicked() {
+                                        poly.layer += 1;
+                                        updated = true;
+                                    }
+                                    if ui.button("Send Backward").clicked() {
+                                        poly.layer = (poly.layer - 1).max(0);
+                                        updated = true;
+                                    }
+                                });
+                            }
+                        }
+                        ObjectType::TextItem => {
+                            if let Some(text) = editor.stunts_textboxes.iter_mut().find(|t| t.id == selected.object_id) {
+                                ui.label("Text");
+                                if ui.text_edit_multiline(&mut text.text).changed() {
+                                    text.render_text(&gpu_resources.device, &gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.label("Font Size");
+                                if ui.add(egui::DragValue::new(&mut text.font_size)).changed() {
+                                    text.render_text(&gpu_resources.device, &gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.label("Position");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut text.transform.position.x)).changed() |
+                                    ui.add(egui::DragValue::new(&mut text.transform.position.y)).changed()
+                                }).inner {
+                                    text.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    // Also update background
+                                    text.background_polygon.transform.position.x = text.transform.position.x;
+                                    text.background_polygon.transform.position.y = text.transform.position.y;
+                                    text.background_polygon.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.separator();
+                                ui.label("Layering");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Bring Forward").clicked() {
+                                        text.update_layer(text.layer + 1);
+                                        updated = true;
+                                    }
+                                    if ui.button("Send Backward").clicked() {
+                                        text.update_layer((text.layer - 1).max(0));
+                                        updated = true;
+                                    }
+                                });
+                            }
+                        }
+                        ObjectType::ImageItem => {
+                            if let Some(img) = editor.stunts_images.iter_mut().find(|i| i.id == selected.object_id.to_string()) {
+                                ui.label(format!("Path: {}", img.path));
+                                
+                                ui.label("Position");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut img.transform.position.x)).changed() |
+                                    ui.add(egui::DragValue::new(&mut img.transform.position.y)).changed()
+                                }).inner {
+                                    img.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.label("Scale");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut img.transform.scale.x).prefix("X: ")).changed() |
+                                    ui.add(egui::DragValue::new(&mut img.transform.scale.y).prefix("Y: ")).changed()
+                                }).inner {
+                                    img.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.separator();
+                                ui.label("Layering");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Bring Forward").clicked() {
+                                        img.layer += 1;
+                                        updated = true;
+                                    }
+                                    if ui.button("Send Backward").clicked() {
+                                        img.layer = (img.layer - 1).max(0);
+                                        updated = true;
+                                    }
+                                });
+                            }
+                        }
+                        ObjectType::VideoItem => {
+                            if let Some(vid) = editor.stunts_videos.iter_mut().find(|v| v.id == selected.object_id.to_string()) {
+                                ui.label(format!("Video: {}", vid.name));
+                                
+                                ui.label("Position");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut vid.transform.position.x)).changed() |
+                                    ui.add(egui::DragValue::new(&mut vid.transform.position.y)).changed()
+                                }).inner {
+                                    vid.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.label("Scale");
+                                if ui.horizontal(|ui| {
+                                    ui.add(egui::DragValue::new(&mut vid.transform.scale.x).prefix("X: ")).changed() |
+                                    ui.add(egui::DragValue::new(&mut vid.transform.scale.y).prefix("Y: ")).changed()
+                                }).inner {
+                                    vid.transform.update_uniform_buffer(&gpu_resources.queue);
+                                    updated = true;
+                                }
+
+                                ui.separator();
+                                ui.label("Layering");
+                                ui.horizontal(|ui| {
+                                    if ui.button("Bring Forward").clicked() {
+                                        vid.layer += 1;
+                                        updated = true;
+                                    }
+                                    if ui.button("Send Backward").clicked() {
+                                        vid.layer = (vid.layer - 1).max(0);
+                                        updated = true;
+                                    }
+                                });
+                            }
+                        }
+                    }
+
+                    if updated {
+                        if let Some(stunts_state) = editor.stunts_state.as_mut() {
+                            // Sync state back to saved data
+                            match selected.object_type {
+                                ObjectType::Polygon => {
+                                    if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+                                        if let Some(saved_polys) = &mut stunts_state.active_polygons {
+                                            if let Some(saved) = saved_polys.iter_mut().find(|p| p.id == poly.id.to_string()) {
+                                                saved.position.x = poly.transform.position.x as i32;
+                                                saved.position.y = poly.transform.position.y as i32;
+                                                saved.dimensions = (poly.dimensions.0 as i32, poly.dimensions.1 as i32);
+                                                saved.name = poly.name.clone();
+                                                saved.layer = poly.layer;
+                                            }
+                                        }
+                                    }
+                                }
+                                ObjectType::TextItem => {
+                                    if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+                                        if let Some(saved_texts) = &mut stunts_state.active_text_items {
+                                            if let Some(saved) = saved_texts.iter_mut().find(|t| t.id == text.id.to_string()) {
+                                                saved.position.x = text.transform.position.x as i32;
+                                                saved.position.y = text.transform.position.y as i32;
+                                                saved.text = text.text.clone();
+                                                saved.font_size = text.font_size;
+                                                saved.layer = text.layer;
+                                            }
+                                        }
+                                    }
+                                }
+                                ObjectType::ImageItem => {
+                                    if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+                                        if let Some(saved_imgs) = &mut stunts_state.active_image_items {
+                                            if let Some(saved) = saved_imgs.iter_mut().find(|i| i.id == img.id) {
+                                                saved.position.x = img.transform.position.x as i32;
+                                                saved.position.y = img.transform.position.y as i32;
+                                                saved.dimensions = (img.transform.scale.x as u32, img.transform.scale.y as u32);
+                                                saved.layer = img.layer;
+                                            }
+                                        }
+                                    }
+                                }
+                                ObjectType::VideoItem => {
+                                    if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+                                        if let Some(saved_vids) = &mut stunts_state.active_video_items {
+                                            if let Some(saved) = saved_vids.iter_mut().find(|v| v.id == vid.id) {
+                                                saved.position.x = vid.transform.position.x as i32;
+                                                saved.position.y = vid.transform.position.y as i32;
+                                                saved.dimensions = (vid.transform.scale.x as u32, vid.transform.scale.y as u32);
+                                                saved.layer = vid.layer;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(project_id) = &stunts_state.id {
+                                let _ = utilities::update_project_state(project_id, stunts_state);
+                            }
+                        }
+                    }
+
+                    ui.separator();
+                    if ui.button("Deselect").clicked() {
+                        editor.selected_object = None;
+                    }
+
+                 } else if let Some(selected_component_id) = self.context.selected_component_id {
                     // Use disjoint borrow pattern to access world_state and renderer_state simultaneously
                     let Editor { world_state, renderer_state, camera, .. } = editor;
 
