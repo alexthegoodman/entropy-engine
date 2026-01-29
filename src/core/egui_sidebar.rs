@@ -59,6 +59,7 @@ pub enum Tab {
     AssetLibrary,
     Controls,
     Writing,
+    Addons,
     VideoTimeline,
 }
 
@@ -1289,6 +1290,34 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 let rect = ui.available_rect_before_wrap();
                 let editor = self.context.export_editor.as_mut().unwrap();
                 editor.writing_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+            }
+            Tab::Addons => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                ui.heading("Entropy Addons");
+                
+                if ui.button("Load Addon Bundle").clicked() {
+                    if let Some(path) = FileDialog::new()
+                        .add_filter("JavaScript", &["js", "bundle"])
+                        .pick_file() {
+                        
+                        println!("Loading addon from: {:?}", path);
+                        // Block on the async load for now, similar to load_game_project
+                        let res = pollster::block_on(editor.addon_engine.load_addon(&path));
+                        match res {
+                            Ok(_) => println!("Addon loaded successfully"),
+                            Err(e) => println!("Failed to load addon: {}", e),
+                        }
+                    }
+                }
+                
+                ui.separator();
+                ui.label("Active Addons:");
+                
+                // We need to access the registered addons from the AddonEngine context
+                // But AddonEngine holds the OpState which holds the context.
+                // For now, we can just display a placeholder or add a method to AddonEngine to get metadata.
+                // Since we can't easily peek into OpState from here without some helper, 
+                // we will leave the list empty for this iteration or use a simple cached list in AddonEngine if we add one.
             }
             Tab::VideoTimeline => {
                 let editor = self.context.export_editor.as_mut().unwrap();

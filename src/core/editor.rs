@@ -30,6 +30,7 @@ use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 use crate::deno::script_engine::DenoEngine;
+use crate::deno::addon_engine::AddonEngine;
 use crate::game_ui::dialogue_state::DialogueState;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 
@@ -350,6 +351,7 @@ pub struct Editor {
     pub stunts_state: Option<SavedState>,
     pub sophia_state: Option<SavedState>,
     pub deno_engine: DenoEngine,
+    pub addon_engine: AddonEngine,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -683,6 +685,7 @@ impl Editor {
             stunts_state: None,
             sophia_state: None,
             deno_engine: DenoEngine::new(project_id.clone()),
+            addon_engine: AddonEngine::new(project_id.clone()),
             // st_capture,
             // exporter: None,
             // font_manager,
