@@ -12,11 +12,12 @@ Entropy Addons must abide by some UX requirements, including:
 - Register semantic handlers for all of the functionality enabled by your UI or more
 - Do not require 3rd party accounts for addon users (there will be an API key automatically provided to each addon for each user so that the addon can associate data)
 
-The Addon API will include egui abstractions which enable the JavaScript addon developer to create egui windows on the Rust side, for example.
+The Addon API will include egui abstractions which enable the JavaScript addon developer to create egui windows on the Rust side, for example. Or use rfd via the JavaScript API
+so the user can select files. Or even the Windows Foundation API, thanks to all resources being manged Rust-side.
 
 ## Entropy Addons API
 
-A powerful JavaScript API for managing Rust-side graphics resources via Deno integration.
+A powerful JavaScript API for managing Rust-side graphics resources via Deno integration. Here are most of the features it should have early on.
 
 ### Design Philosophy
 
@@ -37,11 +38,12 @@ Create and manage graphics pipelines for rendering:
 ```javascript
 const pipelineId = await Entropy.Pipeline.create({
   name: "my_pipeline",
-  vertexShader: "shaders/vertex.wgsl",
+  vertexShader: "shaders/vertex.wgsl", // or include the shader code directly in the JavaScript?
   fragmentShader: "shaders/fragment.wgsl",
   vertexLayout: [
-    { attribute: "position", format: "float3", offset: 0 },
-    { attribute: "color", format: "float4", offset: 12 }
+    // fetch supported vertex layouts?
+    { attribute: "position", format: "float3" }, // auto-calculate the offset
+    { attribute: "color", format: "float4" }
   ],
   blendState: {
     enabled: true,
@@ -63,6 +65,7 @@ const modelId = await Entropy.Model.load({
   options: {
     scale: [1, 1, 1],
     rotation: [0, 0, 0]
+    // add option to specify vertex layout used?
   }
 });
 
@@ -70,8 +73,8 @@ const modelId = await Entropy.Model.load({
 const cubeId = await Entropy.Model.createProcedural({
   type: "cube",
   parameters: {
-    size: 2.0,
-    subdivisions: 1
+    size: 2.0
+    // add option to specify vertex layout used?
   }
 });
 ```
@@ -82,12 +85,14 @@ Create and manage GPU buffers:
 
 ```javascript
 const buffer = await Entropy.Buffer.create({
-  type: "vertex",
+  type: "vertex", // also will need uniforms
   size: 4096,
   dynamic: true
 });
 
-// Write data (data source is Rust-side)
+// Write data 
+// data source is Rust-side in this case, but can be JS side. 
+// We just want to avoid sending heavy data from Rust into the JS
 await Entropy.Buffer.write(buffer, {
   dataSource: rustDataHandle,
   offset: 0
