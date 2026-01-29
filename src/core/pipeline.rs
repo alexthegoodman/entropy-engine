@@ -2059,7 +2059,7 @@ impl ExportPipeline {
             }
         }
 
-        editor.addon_engine.update(renderer_state, camera);
+        // editor.addon_engine.update(renderer_state, camera);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
@@ -2844,6 +2844,171 @@ impl ExportPipeline {
         }
     }
 
+    pub fn render_addon_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
+        let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+        let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
+        let gpu_resources = self
+            .gpu_resources
+            .as_ref()
+            .expect("Couldn't get gpu resources");
+        let device = &gpu_resources.device;
+        let queue = &gpu_resources.queue;
+        // let device = self.device.as_ref().expect("Couldn't get device");
+        // let queue = self.queue.as_ref().expect("Couldn't get queue");
+        let view = if let Some(target_view) = target_view {
+            target_view
+        } else {
+            self.view.as_ref().expect("Couldn't get texture view")
+        };
+        let depth_view = self
+            .depth_view
+            .as_ref()
+            .expect("Couldn't get depth texture view");
+        // let render_pipeline = self
+        //     .render_pipeline
+        //     .as_ref()
+        //     .expect("Couldn't get render pipeline");
+        let geometry_pipeline = self
+            .geometry_pipeline
+            .as_ref()
+            .expect("Couldn't get geometry pipeline");
+        // let camera_binding = self
+        //     .camera_binding
+        //     .as_ref()
+        //     .expect("Couldn't get camera binding");
+        let camera = editor
+            .camera
+            .as_mut()
+            .expect("Couldn't get camera");
+        let camera_binding = editor
+            .camera_binding
+            .as_mut()
+            .expect("Couldn't get camera binding");
+        let window_size_bind_group = self
+            .window_size_bind_group
+            .as_ref()
+            .expect("Couldn't get window size bind group");
+        // let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
+        let texture = self.texture.as_ref().expect("Couldn't get texture");
+        
+        editor.addon_engine.update(renderer_state, camera);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            
+            let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
+            let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
+            let gbuffer_pbr_material_view = self.g_buffer_pbr_material_view.as_ref().unwrap();
+
+            let clear_color = wgpu::Color::BLACK;
+
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Geometry Pass"),
+                color_attachments: &[
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: gbuffer_position_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: gbuffer_normal_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: gbuffer_albedo_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    }),
+                    Some(wgpu::RenderPassColorAttachment {
+                        view: gbuffer_pbr_material_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(clear_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None
+                    }),
+                ],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view, // This is the depth texture view
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0), // Clear to max depth
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None, // Set this if using stencil
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            render_pass.set_pipeline(&geometry_pipeline);
+
+            render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+            render_pass.set_bind_group(2, window_size_bind_group, &[]);
+
+            // draw addon cubes
+            for (addon_name, cubes) in &renderer_state.addon_cubes {
+                for cube in cubes {
+                    // Check if cube has a custom pipeline
+                    let mut pipeline_set = false;
+                    if let Some(pid) = &cube.pipeline_id {
+                        if pid != "default" {
+                            let mut op_state = editor.addon_engine.runtime.op_state();
+                            let op_state = op_state.borrow();
+                            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                                if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(custom_pipeline);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !pipeline_set {
+                        render_pass.set_pipeline(&geometry_pipeline);
+                    }
+
+                    cube.transform.update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        cube.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+                }
+            }
+
+            // Drop the render pass before doing texture copies
+            drop(render_pass);
+
+            if self.frame_buffer.is_some() {
+                let frame_buffer = self
+                    .frame_buffer
+                    .as_ref()
+                    .expect("Couldn't get frame buffer");
+                frame_buffer.capture_frame(device, queue, texture, &mut encoder);
+            }
+
+            let command_buffer = encoder.finish();
+            queue.submit(std::iter::once(command_buffer));
+        }
+    }
+
     pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
 
@@ -2941,7 +3106,7 @@ impl ExportPipeline {
                 .map(|e| e.video_current_time_ms as f64 / 1000.0)
                 .unwrap_or(0.0);
             self.render_stunts_frame(Some(&view), current_time_s, false);
-        } else {
+        } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
             // Clear the screen for Writing workspace
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Clear Encoder"),
@@ -2964,6 +3129,8 @@ impl ExportPipeline {
                 });
             }
             gpu_resources.queue.submit(Some(encoder.finish()));
+        } else { // Addons
+            self.render_addon_frame(Some(&view), 0.0);
         }
     
         if !game_mode {
