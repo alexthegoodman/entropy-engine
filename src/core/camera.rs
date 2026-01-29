@@ -316,6 +316,7 @@ impl Camera3D {
     }
 }
 
+use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use cgmath::SquareMatrix;
 
@@ -358,7 +359,7 @@ impl CameraUniform {
 pub struct CameraBinding {
     pub buffer: wgpu::Buffer,
     pub bind_group: wgpu::BindGroup,
-    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub uniform: CameraUniform,
 }
 
@@ -375,7 +376,7 @@ impl CameraBinding {
         });
 
         // Create bind group layout
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let bind_group_layout = Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Camera Bind Group Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -390,7 +391,7 @@ impl CameraBinding {
                 },
                 count: None,
             }],
-        });
+        }));
 
         // Create bind group
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {

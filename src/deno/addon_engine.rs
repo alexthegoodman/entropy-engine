@@ -30,6 +30,9 @@ pub struct AddonMetadata {
     pub capabilities: HashMap<String, bool>,
 }
 
+use crate::core::addon_pipeline::create_addon_pipeline;
+use wgpu::RenderPipeline;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PipelineConfig {
     pub name: String,
@@ -41,6 +44,8 @@ pub struct PipelineConfig {
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
+    pub pipelines: HashMap<String, RenderPipeline>,
+    pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: global/camera?
 }
 
 #[op2]
@@ -57,14 +62,36 @@ fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
 fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> Result<String, deno_error::JsErrorBox> {
     println!("Creating pipeline: {:?}", config);
     
-    // In a real implementation, we would access gpu_resources here
-    // let ctx = state.borrow::<AddonContext>();
-    // if let Some(gpu) = &ctx.gpu_resources {
-    //     // Compile shaders and create pipeline
-    // }
+    // We need to borrow context mutably to insert the pipeline, but we also need to access gpu_resources
+    // Splitting borrows is tricky with OpState.
+    // We can extract what we need first? No, ctx owns it.
     
-    // Return a mock ID for now
-    Ok(format!("pipeline_{}", uuid::Uuid::new_v4()))
+    // Let's rely on internal mutability if needed, or just borrow mut.
+    let ctx = state.borrow_mut::<AddonContext>();
+    
+    if let Some(gpu) = &ctx.gpu_resources {
+        let device = &gpu.device;
+        let layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+        
+        // TODO: Pass correct output format. For now hardcoded to likely SwapChain or GBuffer format.
+        let format = wgpu::TextureFormat::Bgra8UnormSrgb; // Common surface format
+        let depth = Some(wgpu::TextureFormat::Depth32Float);
+
+        let pipeline = create_addon_pipeline(
+            device,
+            &config,
+            &layouts,
+            format,
+            depth
+        );
+        
+        let id = format!("pipeline_{}", uuid::Uuid::new_v4());
+        ctx.pipelines.insert(id.clone(), pipeline);
+        
+        Ok(id)
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
+    }
 }
 
 #[op2(fast)]
@@ -108,6 +135,8 @@ impl AddonEngine {
         let context = AddonContext {
             registered_addons: HashMap::new(),
             gpu_resources: None,
+            pipelines: HashMap::new(),
+            bind_group_layouts: Vec::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -117,11 +146,12 @@ impl AddonEngine {
         }
     }
 
-    pub fn set_gpu_resources(&mut self, gpu_resources: Arc<GpuResources>) {
+    pub fn set_resources(&mut self, gpu_resources: Arc<GpuResources>, bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>) {
         let mut op_state = self.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             ctx.gpu_resources = Some(gpu_resources);
+            ctx.bind_group_layouts = bind_group_layouts;
         }
     }
 

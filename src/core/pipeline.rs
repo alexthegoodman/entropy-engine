@@ -1449,7 +1449,15 @@ impl ExportPipeline {
         export_editor.model_bind_group_layout = Some(model_bind_group_layout.clone());
         export_editor.group_bind_group_layout = Some(group_bind_group_layout.clone());
         export_editor.gpu_resources = Some(gpu_resources.clone());
-        export_editor.addon_engine.set_gpu_resources(gpu_resources.clone());
+        
+        export_editor.addon_engine.set_resources(
+            gpu_resources.clone(),
+            vec![
+                model_bind_group_layout.clone(),
+                group_bind_group_layout.clone(),
+                camera_binding.bind_group_layout.clone(),
+            ]
+        );
 
         // let gpu_resources = export_editor
         //     .gpu_resources
