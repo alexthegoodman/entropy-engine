@@ -34,7 +34,7 @@ use crate::helpers::saved_data::{CollectableProperties, CollectableType, Compone
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
-use crate::deno_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
+use crate::deno::script_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;

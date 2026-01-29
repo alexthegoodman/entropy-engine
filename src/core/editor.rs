@@ -29,7 +29,7 @@ use crate::screen_capture::capture::{MousePosition, SourceData};
 use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
-use crate::deno_engine::DenoEngine;
+use crate::deno::script_engine::DenoEngine;
 use crate::game_ui::dialogue_state::DialogueState;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 
