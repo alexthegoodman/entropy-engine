@@ -2259,6 +2259,25 @@ impl ExportPipeline {
             // draw addon cubes
             for (addon_name, cubes) in &renderer_state.addon_cubes {
                 for cube in cubes {
+                    // Check if cube has a custom pipeline
+                    let mut pipeline_set = false;
+                    if let Some(pid) = &cube.pipeline_id {
+                        if pid != "default" {
+                            let mut op_state = editor.addon_engine.runtime.op_state();
+                            let op_state = op_state.borrow();
+                            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                                if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(custom_pipeline);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !pipeline_set {
+                        render_pass.set_pipeline(&geometry_pipeline);
+                    }
+
                     cube.transform.update_uniform_buffer(&queue);
                     render_pass.set_bind_group(1, &cube.bind_group, &[]);
                     render_pass.set_bind_group(3, &cube.group_bind_group, &[]);

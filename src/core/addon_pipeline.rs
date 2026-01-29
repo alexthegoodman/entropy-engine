@@ -11,12 +11,33 @@ pub fn create_addon_pipeline(
 ) -> RenderPipeline {
     let vertex_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some(&format!("{} Vertex Shader", config.name)),
-        source: ShaderSource::Wgsl(config.vertex_shader.as_str().into()),
+        source: ShaderSource::Wgsl(config.vertex_shader.as_deref().unwrap_or("
+            struct VertexInput {
+                @location(0) position: vec3<f32>,
+                @location(3) color: vec4<f32>,
+            };
+            struct VertexOutput {
+                @builtin(position) clip_position: vec4<f32>,
+                @location(0) color: vec4<f32>,
+            };
+            @vertex
+            fn vs_main(model: VertexInput) -> VertexOutput {
+                var out: VertexOutput;
+                out.clip_position = vec4<f32>(model.position, 1.0);
+                out.color = model.color;
+                return out;
+            }
+        ").into()),
     });
 
     let fragment_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some(&format!("{} Fragment Shader", config.name)),
-        source: ShaderSource::Wgsl(config.fragment_shader.as_str().into()),
+        source: ShaderSource::Wgsl(config.fragment_shader.as_deref().unwrap_or("
+            @fragment
+            fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+                return color;
+            }
+        ").into()),
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {

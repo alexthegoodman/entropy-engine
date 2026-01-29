@@ -12,7 +12,8 @@ globalThis.Entropy = {
                         if (config.type === "cube") {
                             ops.op_cube_spawn(metadata.name, {
                                 position: config.parameters?.position || [0, 0, 0],
-                                scale: config.parameters?.scale || [1, 1, 1]
+                                scale: config.parameters?.scale || [1, 1, 1],
+                                pipeline_id: config.pipelineId || null
                             });
                         }
                     }

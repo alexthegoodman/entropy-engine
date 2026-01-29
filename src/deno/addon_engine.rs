@@ -38,15 +38,16 @@ pub struct AddonMetadata {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PipelineConfig {
     pub name: String,
-    pub vertex_shader: String,
-    pub fragment_shader: String,
-    // Add more fields as needed: layout, blend state, etc.
+    pub vertex_shader: Option<String>,
+    pub fragment_shader: Option<String>,
+    pub use_default: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CubeConfig {
     pub position: [f32; 3],
     pub scale: [f32; 3],
+    pub pipeline_id: Option<String>,
 }
 
 pub struct AddonContext {
@@ -79,6 +80,10 @@ fn op_addon_on_init(state: &mut OpState, #[global] callback: v8::Global<v8::Func
 fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> Result<String, deno_error::JsErrorBox> {
     println!("Creating pipeline: {:?}", config);
     
+    if config.use_default.unwrap_or(false) {
+        return Ok("default".to_string());
+    }
+
     let ctx = state.borrow_mut::<AddonContext>();
     
     if let Some(gpu) = &ctx.gpu_resources {
@@ -135,7 +140,7 @@ extension!(
 );
 
 pub struct AddonEngine {
-    runtime: JsRuntime,
+    pub runtime: JsRuntime,
     pub project_id: String,
 }
 
@@ -192,6 +197,7 @@ impl AddonEngine {
                     );
                     cube.transform.update_position(config.position);
                     cube.transform.update_scale(config.scale);
+                    cube.pipeline_id = config.pipeline_id;
                     
                     renderer_state.addon_cubes
                         .entry(addon_name)
