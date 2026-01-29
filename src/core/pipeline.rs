@@ -1449,6 +1449,9 @@ impl ExportPipeline {
         export_editor.model_bind_group_layout = Some(model_bind_group_layout.clone());
         export_editor.group_bind_group_layout = Some(group_bind_group_layout.clone());
         export_editor.gpu_resources = Some(gpu_resources.clone());
+        if let Some(rs) = &mut export_editor.renderer_state {
+            rs.gpu_resources = Some(gpu_resources.clone());
+        }
         
         export_editor.addon_engine.set_resources(
             gpu_resources.clone(),
@@ -2055,6 +2058,8 @@ impl ExportPipeline {
                 }
             }
         }
+
+        editor.addon_engine.update(renderer_state, camera);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {

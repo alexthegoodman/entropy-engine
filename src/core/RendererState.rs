@@ -146,6 +146,7 @@ pub struct RendererState {
     pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
+    pub gpu_resources: Option<Arc<crate::core::gpu_resources::GpuResources>>,
     pub skinned_pipeline: Option<SkinnedPipeline>,
     pub scattered_model_pipeline: Option<crate::core::scattered_model_pipeline::ScatteredModelPipeline>,
 
@@ -332,6 +333,7 @@ impl RendererState {
             regular_texture_render_mode_buffer,
             texture_render_mode_buffer,
             color_render_mode_buffer,
+            gpu_resources: None,
             skinned_pipeline: Some(skinned_pipeline),
             scattered_model_pipeline: Some(scattered_model_pipeline),
             // camera_uniform_buffer,
