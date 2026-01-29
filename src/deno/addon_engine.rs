@@ -20,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::core::gpu_resources::GpuResources;
-use crate::core::addon_pipeline::create_addon_pipeline;
+use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use wgpu::RenderPipeline;
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
@@ -89,16 +89,13 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
         let layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
-        
-        let format = wgpu::TextureFormat::Bgra8UnormSrgb; 
-        let depth = Some(wgpu::TextureFormat::Depth32Float);
-
+         
         let pipeline = create_addon_pipeline(
             device,
             &config,
             &layouts,
-            format,
-            depth
+            GBUFFER_FORMATS,
+            Some(wgpu::TextureFormat::Depth24Plus)
         );
         
         let id = format!("pipeline_{}", uuid::Uuid::new_v4());

@@ -2,11 +2,19 @@ use wgpu::{self, Device, RenderPipeline, ShaderModuleDescriptor, ShaderSource};
 use crate::deno::addon_engine::PipelineConfig;
 use crate::core::vertex::Vertex; // Assuming standard vertex for now
 
+// Add GBuffer format constants at the top or pass them in
+pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
+    wgpu::TextureFormat::Rgba16Float,  // Position/Albedo
+    wgpu::TextureFormat::Rgba16Float,  // Normals
+    wgpu::TextureFormat::Rgba8Unorm,   // Material properties
+    wgpu::TextureFormat::Rgba8Unorm,   // Additional data
+];
+
 pub fn create_addon_pipeline(
     device: &Device,
     config: &PipelineConfig,
     bind_group_layouts: &[&wgpu::BindGroupLayout],
-    format: wgpu::TextureFormat, // Output format (e.g. Surface or GBuffer)
+    formats: [wgpu::TextureFormat; 4], // Changed to slice to support multiple
     depth_format: Option<wgpu::TextureFormat>,
 ) -> RenderPipeline {
     let vertex_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -30,12 +38,24 @@ pub fn create_addon_pipeline(
         ").into()),
     });
 
+    // Update default fragment shader to output to all GBuffer targets
     let fragment_shader = device.create_shader_module(ShaderModuleDescriptor {
         label: Some(&format!("{} Fragment Shader", config.name)),
         source: ShaderSource::Wgsl(config.fragment_shader.as_deref().unwrap_or("
+            struct FragmentOutput {
+                @location(0) color0: vec4<f32>,
+                @location(1) color1: vec4<f32>,
+                @location(2) color2: vec4<f32>,
+                @location(3) color3: vec4<f32>,
+            }
             @fragment
-            fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-                return color;
+            fn fs_main(@location(0) color: vec4<f32>) -> FragmentOutput {
+                var output: FragmentOutput;
+                output.color0 = color;
+                output.color1 = vec4<f32>(0.0, 0.0, 1.0, 1.0); // Default normal
+                output.color2 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                output.color3 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                return output;
             }
         ").into()),
     });
@@ -52,16 +72,14 @@ pub fn create_addon_pipeline(
         alpha: wgpu::BlendComponent::REPLACE,
     });
 
-    // For now, assuming G-Buffer output format if multiple targets are needed, 
-    // or just using the passed format for a single target.
-    // If the addon renders to the main pass, it might need to match G-Buffer.
-    // Let's assume for this initial implementation it renders to a forward pass or overlay.
-    
-    let targets = [Some(wgpu::ColorTargetState {
-        format,
-        blend: blend_state,
-        write_mask: wgpu::ColorWrites::ALL,
-    })];
+    // Create targets for all GBuffer attachments
+    let targets: Vec<_> = formats.iter().map(|&format| {
+        Some(wgpu::ColorTargetState {
+            format,
+            blend: blend_state,
+            write_mask: wgpu::ColorWrites::ALL,
+        })
+    }).collect();
 
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(&config.name),

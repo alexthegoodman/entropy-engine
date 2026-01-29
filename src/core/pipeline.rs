@@ -691,6 +691,8 @@ impl ExportPipeline {
                 }],
             });
 
+        let window_size_bind_group_layout = Arc::new(window_size_bind_group_layout);
+
         let window_size_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &window_size_bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
@@ -1456,9 +1458,10 @@ impl ExportPipeline {
         export_editor.addon_engine.set_resources(
             gpu_resources.clone(),
             vec![
-                model_bind_group_layout.clone(),
-                group_bind_group_layout.clone(),
-                camera_binding.bind_group_layout.clone(),
+                camera_binding.bind_group_layout.clone(), // 0
+                model_bind_group_layout.clone(), // 1
+                window_size_bind_group_layout.clone(), // 2
+                group_bind_group_layout.clone(), // 3
             ]
         );
 
