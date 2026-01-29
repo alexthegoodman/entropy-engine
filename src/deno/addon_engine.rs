@@ -95,4 +95,14 @@ impl AddonEngine {
         let _ = self.runtime.mod_evaluate(module_id).await?;
         Ok(module_id)
     }
+
+    pub fn get_registered_addons(&mut self) -> Vec<AddonMetadata> {
+        let op_state = self.runtime.op_state();
+        let op_state = op_state.borrow();
+        if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+            ctx.registered_addons.values().cloned().collect()
+        } else {
+            Vec::new()
+        }
+    }
 }

@@ -50,12 +50,13 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Workspace {
     GameEngine,
     Sophia,
     Stunts,
     CentralChat,
+    Addon(String),
 }
 
 use crate::shape_primitives::Cube::Cube;
@@ -122,10 +123,12 @@ pub struct ExportPipeline {
     pub stunts_dock_state: DockState<Tab>,
     pub video_timeline_dock_state: DockState<Tab>,
     pub central_chat_dock_state: DockState<Tab>,
+    pub addon_dock_state: DockState<Tab>,
     pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi,
     pub video_total_duration_ms: i32,
     pub current_workspace: Workspace,
     pub show_central_chat_overlay: bool,
+    pub show_addon_manager: bool,
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
@@ -179,6 +182,7 @@ impl ExportPipeline {
         let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
+        let addon_dock_state = DockState::new(vec![Tab::Addons]);
 
         ExportPipeline {
             // device: None,
@@ -196,10 +200,12 @@ impl ExportPipeline {
             stunts_dock_state,
             video_timeline_dock_state,
             central_chat_dock_state,
+            addon_dock_state,
             video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi::new(),
-            video_total_duration_ms: 60000,
+            video_total_duration_ms: 0,
             current_workspace: Workspace::GameEngine,
             show_central_chat_overlay: false,
+            show_addon_manager: false,
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
@@ -3092,11 +3098,12 @@ impl ExportPipeline {
             chat: &mut self.chat,
             video_timeline_ui: &mut self.video_timeline_ui,
             gpu_resources: &self.gpu_resources,
-            current_app: match self.current_workspace {
+            current_app: match &self.current_workspace {
                 Workspace::GameEngine => AppExperience::OpenWorldStudio,
                 Workspace::Sophia => AppExperience::Sophia,
                 Workspace::Stunts => AppExperience::Stunts,
                 Workspace::CentralChat => AppExperience::OpenWorldStudio,
+                Workspace::Addon(_) => AppExperience::OpenWorldStudio, // Default for addons
             },
         };
 
@@ -3112,7 +3119,7 @@ impl ExportPipeline {
                         self.current_workspace = Workspace::GameEngine;
                     }
                     ui.add_space(6.0);
-                    if ui.selectable_label(self.current_workspace == Workspace::Sophia, "✍").on_hover_text("Sophia (Writing)").clicked() {
+                    if ui.selectable_label(self.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
                         self.current_workspace = Workspace::Sophia;
                     }
                     ui.add_space(6.0);
@@ -3124,15 +3131,85 @@ impl ExportPipeline {
                         self.current_workspace = Workspace::CentralChat;
                     }
 
-                    ui.add_space(24.0);
-                    ui.separator();
-                    ui.add_space(6.0);
-                    
-                    if ui.selectable_label(self.show_central_chat_overlay, "⚡").on_hover_text("Toggle Central Chat Overlay").clicked() {
-                        self.show_central_chat_overlay = !self.show_central_chat_overlay;
+                    // Render Addon Workspaces
+                    if let Some(editor) = &mut viewer.context.export_editor {
+                        let addons = editor.addon_engine.get_registered_addons();
+                        for addon in addons {
+                            // Only show if it has UI/workspace capability (assume yes for now or check metadata)
+                            // We use the first letter of the name as the icon for now
+                            let icon = addon.name.chars().next().unwrap_or('?').to_string();
+                            let is_active = if let Workspace::Addon(name) = &self.current_workspace {
+                                name == &addon.name
+                            } else {
+                                false
+                            };
+                            
+                            ui.add_space(6.0);
+                            if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
+                                self.current_workspace = Workspace::Addon(addon.name.clone());
+                            }
+                        }
                     }
+
+                    ui.add_space(6.0);
+                    if ui.selectable_label(self.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
+                        self.show_addon_manager = !self.show_addon_manager;
+                    }
+
+                    // ui.add_space(24.0);
+                    // ui.separator();
+                    // ui.add_space(6.0);
+                    
+                    // if ui.selectable_label(self.show_central_chat_overlay, "⚡").on_hover_text("Toggle Central Chat Overlay").clicked() {
+                    //     self.show_central_chat_overlay = !self.show_central_chat_overlay;
+                    // }
                 });
             });
+
+        if self.show_addon_manager {
+            egui::Window::new("Entropy Addons")
+                .default_size([400.0, 500.0])
+                .open(&mut self.show_addon_manager)
+                .show(ctx, |ui| {
+                    ui.heading("Manage Addons");
+                    ui.separator();
+                    
+                    if ui.button("Load Addon Bundle").clicked() {
+                         if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("JavaScript", &["js", "bundle"])
+                            .pick_file() {
+                            
+                            if let Some(editor) = &mut viewer.context.export_editor {
+                                println!("Loading addon from: {:?}", path);
+                                let res = pollster::block_on(editor.addon_engine.load_addon(&path));
+                                match res {
+                                    Ok(_) => println!("Addon loaded successfully"),
+                                    Err(e) => println!("Failed to load addon: {}", e),
+                                }
+                            }
+                        }
+                    }
+
+                    ui.separator();
+                    ui.label("Registered Addons:");
+                    
+                    if let Some(editor) = &mut viewer.context.export_editor {
+                        let addons = editor.addon_engine.get_registered_addons();
+                        if addons.is_empty() {
+                            ui.label("No addons registered.");
+                        } else {
+                            for addon in addons {
+                                ui.group(|ui| {
+                                    ui.strong(&addon.name);
+                                    ui.label(format!("Version: {}", addon.version));
+                                    ui.label(&addon.description);
+                                    ui.label(format!("Author: {}", addon.author.join(", ")));
+                                });
+                            }
+                        }
+                    }
+                });
+        }
 
         if self.show_central_chat_overlay {
             egui::Window::new("Central Chat")
@@ -3231,6 +3308,7 @@ impl ExportPipeline {
                 Workspace::Sophia => &mut self.sophia_dock_state,
                 Workspace::Stunts => &mut self.stunts_dock_state,
                 Workspace::CentralChat => &mut self.central_chat_dock_state,
+                Workspace::Addon(_) => &mut self.addon_dock_state,
             };
 
             let sidebar_width = match self.current_workspace {
