@@ -23,26 +23,15 @@ Entropy.Addon.onInit(async () => {
         }
     });
 
-    // 2. Create a custom pipeline
-    // This is a very simple red-tinting shader
+    // 2. Create a custom non-PBR pipeline
+    // This renders directly to the screen instead of using the G-buffer
     const customPipeline = await Entropy.Pipeline.create({
         name: "red_tint",
+        pbr: false,
         fragmentShader: `
-            struct FragmentOutput {
-                @location(0) color0: vec4<f32>,
-                @location(1) color1: vec4<f32>,
-                @location(2) color2: vec4<f32>,
-                @location(3) color3: vec4<f32>,
-            }
-
             @fragment
-            fn fs_main(@location(0) color: vec4<f32>) -> FragmentOutput {
-                var output: FragmentOutput;
-                output.color0 = vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
-                output.color1 = vec4<f32>(0.0, 0.0, 0.0, 0.0); // Empty/default
-                output.color2 = vec4<f32>(0.0, 0.0, 0.0, 0.0); // Empty/default
-                output.color3 = vec4<f32>(0.0, 0.0, 0.0, 0.0); // Empty/default
-                return output;
+            fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+                return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Pure Red
             }
         `
     });

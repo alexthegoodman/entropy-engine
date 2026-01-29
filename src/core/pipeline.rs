@@ -1462,7 +1462,14 @@ impl ExportPipeline {
                 model_bind_group_layout.clone(), // 1
                 window_size_bind_group_layout.clone(), // 2
                 group_bind_group_layout.clone(), // 3
-            ]
+            ],
+            vec![
+                Arc::new(lighting_bind_group_layout.clone()), // 0
+                Arc::new(g_buffer_bind_group_layout.clone()), // 1
+                camera_binding.bind_group_layout.clone(), // 2
+                Arc::new(shadow_pipeline_data.shadow_bind_group_layout.clone()), // 3
+            ],
+            swapchain_format,
         );
 
         // let gpu_resources = export_editor
@@ -2897,7 +2904,37 @@ impl ExportPipeline {
         editor.addon_engine.update(renderer_state, camera);
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        
+        let mut pbr_cubes = Vec::new();
+        let mut non_pbr_cubes = Vec::new();
+
         {
+            let mut op_state = editor.addon_engine.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                for (addon_name, cubes) in &renderer_state.addon_cubes {
+                    for cube in cubes {
+                        let mut is_pbr = true;
+                        if let Some(pid) = &cube.pipeline_id {
+                            if pid != "default" {
+                                if let Some(config) = ctx.pipeline_configs.get(pid) {
+                                    is_pbr = config.pbr.unwrap_or(true);
+                                }
+                            }
+                        }
+                        
+                        if is_pbr {
+                            pbr_cubes.push(cube);
+                        } else {
+                            non_pbr_cubes.push(cube);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. Geometry Pass for PBR objects
+        if !pbr_cubes.is_empty() {
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            
             let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
@@ -2906,7 +2943,7 @@ impl ExportPipeline {
             let clear_color = wgpu::Color::BLACK;
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Geometry Pass"),
+                label: Some("Addon PBR Geometry Pass"),
                 color_attachments: &[
                     Some(wgpu::RenderPassColorAttachment {
                         view: gbuffer_position_view,
@@ -2946,70 +2983,183 @@ impl ExportPipeline {
                     }),
                 ],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view, // This is the depth texture view
+                    view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0), // Clear to max depth
+                        load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
-                    stencil_ops: None, // Set this if using stencil
+                    stencil_ops: None,
                 }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
 
-            render_pass.set_pipeline(&geometry_pipeline);
+            render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+            render_pass.set_bind_group(2, window_size_bind_group, &[]);
+
+            for cube in &pbr_cubes {
+                let mut pipeline_set = false;
+                if let Some(pid) = &cube.pipeline_id {
+                    if pid != "default" {
+                        let mut op_state = editor.addon_engine.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                render_pass.set_pipeline(custom_pipeline);
+                                pipeline_set = true;
+                            }
+                        }
+                    }
+                }
+
+                if !pipeline_set {
+                    render_pass.set_pipeline(&geometry_pipeline);
+                }
+
+                cube.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    cube.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+            }
+            drop(render_pass);
+
+            // 2. Lighting Pass for PBR objects
+            let mut custom_lighting_pid = None;
+            
+            {
+                let mut op_state = editor.addon_engine.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                    // Find if any used pipeline has a custom lighting pipeline
+                    for cube in &pbr_cubes {
+                        if let Some(pid) = &cube.pipeline_id {
+                            if ctx.lighting_pipelines.contains_key(pid) {
+                                custom_lighting_pid = Some(pid.clone());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            let lighting_bind_group = self.lighting_bind_group.as_ref().unwrap();
+            let g_buffer_bind_group = self.g_buffer_bind_group.as_ref().unwrap();
+            let shadow_pipeline_data = self.shadow_pipeline_data.as_ref().unwrap();
+            let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
+
+            let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Addon Lighting Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+
+            if let Some(pid) = custom_lighting_pid {
+                let mut op_state = editor.addon_engine.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                    if let Some(lp) = ctx.lighting_pipelines.get(&pid) {
+                        lighting_pass.set_pipeline(lp);
+                    }
+                }
+            } else {
+                lighting_pass.set_pipeline(self.lighting_pipeline.as_ref().unwrap());
+            }
+
+            lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
+            lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
+            lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
+            lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
+            lighting_pass.draw(0..3, 0..1);
+            drop(lighting_pass);
+        }
+
+        // 3. Pass for non-PBR objects
+        if !non_pbr_cubes.is_empty() {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Addon non-PBR Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: if pbr_cubes.is_empty() { wgpu::LoadOp::Clear(wgpu::Color::BLACK) } else { wgpu::LoadOp::Load },
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: if pbr_cubes.is_empty() { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
 
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
-            // draw addon cubes
-            for (addon_name, cubes) in &renderer_state.addon_cubes {
-                for cube in cubes {
-                    // Check if cube has a custom pipeline
-                    let mut pipeline_set = false;
-                    if let Some(pid) = &cube.pipeline_id {
-                        if pid != "default" {
-                            let mut op_state = editor.addon_engine.runtime.op_state();
-                            let op_state = op_state.borrow();
-                            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                                if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                    render_pass.set_pipeline(custom_pipeline);
-                                    pipeline_set = true;
-                                }
+            for cube in non_pbr_cubes {
+                let mut pipeline_set = false;
+                if let Some(pid) = &cube.pipeline_id {
+                    if pid != "default" {
+                        let mut op_state = editor.addon_engine.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                render_pass.set_pipeline(custom_pipeline);
+                                pipeline_set = true;
                             }
                         }
                     }
-
-                    if !pipeline_set {
-                        render_pass.set_pipeline(&geometry_pipeline);
-                    }
-
-                    cube.transform.update_uniform_buffer(&queue);
-                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
-                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        cube.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
                 }
-            }
 
-            // Drop the render pass before doing texture copies
+                if !pipeline_set {
+                    // Non-PBR with default pipeline is not ideal as geometry_pipeline expects G-buffer targets
+                    // But we'll use it if nothing else is set
+                    render_pass.set_pipeline(&geometry_pipeline);
+                }
+
+                cube.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    cube.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+            }
             drop(render_pass);
-
-            if self.frame_buffer.is_some() {
-                let frame_buffer = self
-                    .frame_buffer
-                    .as_ref()
-                    .expect("Couldn't get frame buffer");
-                frame_buffer.capture_frame(device, queue, texture, &mut encoder);
-            }
-
-            let command_buffer = encoder.finish();
-            queue.submit(std::iter::once(command_buffer));
         }
+
+        if self.frame_buffer.is_some() {
+            let frame_buffer = self
+                .frame_buffer
+                .as_ref()
+                .expect("Couldn't get frame buffer");
+            frame_buffer.capture_frame(device, queue, texture, &mut encoder);
+        }
+
+        let command_buffer = encoder.finish();
+        queue.submit(std::iter::once(command_buffer));
     }
 
     pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {

@@ -36,14 +36,18 @@ pub struct AddonMetadata {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PipelineConfig {
     pub name: String,
     pub vertex_shader: Option<String>,
     pub fragment_shader: Option<String>,
     pub use_default: Option<bool>,
+    pub pbr: Option<bool>,
+    pub lighting_shader: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct CubeConfig {
     pub position: [f32; 3],
     pub scale: [f32; 3],
@@ -54,7 +58,11 @@ pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub pipelines: HashMap<String, RenderPipeline>,
+    pub pipeline_configs: HashMap<String, PipelineConfig>,
+    pub lighting_pipelines: HashMap<String, RenderPipeline>,
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
+    pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+    pub surface_format: Option<wgpu::TextureFormat>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
 }
@@ -84,22 +92,74 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         return Ok("default".to_string());
     }
 
-    let ctx = state.borrow_mut::<AddonContext>();
+    let id = format!("pipeline_{}", uuid::Uuid::new_v4());
+    let mut ctx = state.borrow_mut::<AddonContext>();
     
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
         let layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
          
+        let is_pbr = config.pbr.unwrap_or(true); // Default to PBR for backward compatibility or as engine default
+        let formats = if is_pbr {
+            GBUFFER_FORMATS.as_slice()
+        } else {
+            std::slice::from_ref(ctx.surface_format.as_ref().unwrap_or(&wgpu::TextureFormat::Rgba8Unorm))
+        };
+
         let pipeline = create_addon_pipeline(
             device,
             &config,
             &layouts,
-            GBUFFER_FORMATS,
+            formats,
             Some(wgpu::TextureFormat::Depth24Plus)
         );
         
-        let id = format!("pipeline_{}", uuid::Uuid::new_v4());
         ctx.pipelines.insert(id.clone(), pipeline);
+
+        // If a lighting shader is provided, create a lighting pipeline
+        if let Some(lighting_shader_source) = &config.lighting_shader {
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some(&format!("{} Lighting Shader", config.name)),
+                source: wgpu::ShaderSource::Wgsl(lighting_shader_source.as_str().into()),
+            });
+
+            let lighting_layouts: Vec<&wgpu::BindGroupLayout> = ctx.lighting_bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+            let lighting_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some(&format!("{} Lighting Pipeline Layout", config.name)),
+                bind_group_layouts: &lighting_layouts,
+                push_constant_ranges: &[],
+            });
+
+            let lighting_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(&format!("{} Lighting Pipeline", config.name)),
+                layout: Some(&lighting_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: ctx.surface_format.unwrap_or(wgpu::TextureFormat::Rgba8Unorm),
+                        blend: Some(wgpu::BlendState::REPLACE),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            });
+
+            ctx.lighting_pipelines.insert(id.clone(), lighting_pipeline);
+        }
+        
+        ctx.pipeline_configs.insert(id.clone(), config);
         
         Ok(id)
     } else {
@@ -158,7 +218,11 @@ impl AddonEngine {
             registered_addons: HashMap::new(),
             gpu_resources: None,
             pipelines: HashMap::new(),
+            pipeline_configs: HashMap::new(),
+            lighting_pipelines: HashMap::new(),
             bind_group_layouts: Vec::new(),
+            lighting_bind_group_layouts: Vec::new(),
+            surface_format: None,
             pending_cubes: Vec::new(),
             on_init_callbacks: Vec::new(),
         };
@@ -205,12 +269,20 @@ impl AddonEngine {
         }
     }
 
-    pub fn set_resources(&mut self, gpu_resources: Arc<GpuResources>, bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>) {
+    pub fn set_resources(
+        &mut self, 
+        gpu_resources: Arc<GpuResources>, 
+        bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+        lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+        surface_format: wgpu::TextureFormat,
+    ) {
         let mut op_state = self.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             ctx.gpu_resources = Some(gpu_resources);
             ctx.bind_group_layouts = bind_group_layouts;
+            ctx.lighting_bind_group_layouts = lighting_bind_group_layouts;
+            ctx.surface_format = Some(surface_format);
         }
     }
 

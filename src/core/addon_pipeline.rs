@@ -14,7 +14,7 @@ pub fn create_addon_pipeline(
     device: &Device,
     config: &PipelineConfig,
     bind_group_layouts: &[&wgpu::BindGroupLayout],
-    formats: [wgpu::TextureFormat; 4], // Changed to slice to support multiple
+    formats: &[wgpu::TextureFormat],
     depth_format: Option<wgpu::TextureFormat>,
 ) -> RenderPipeline {
     let vertex_shader = device.create_shader_module(ShaderModuleDescriptor {
@@ -22,26 +22,47 @@ pub fn create_addon_pipeline(
         source: ShaderSource::Wgsl(config.vertex_shader.as_deref().unwrap_or("
             struct VertexInput {
                 @location(0) position: vec3<f32>,
+                @location(1) normal: vec3<f32>,
+                @location(2) tex_coords: vec2<f32>,
                 @location(3) color: vec4<f32>,
             };
+            struct CameraUniform {
+                view_proj: mat4x4<f32>,
+                view: mat4x4<f32>,
+                proj: mat4x4<f32>,
+            };
+            @group(0) @binding(0)
+            var<uniform> camera: CameraUniform;
+
+            struct ModelUniform {
+                model_matrix: mat4x4<f32>,
+                normal_matrix: mat4x4<f32>,
+            };
+            @group(1) @binding(0)
+            var<uniform> model: ModelUniform;
+
             struct VertexOutput {
                 @builtin(position) clip_position: vec4<f32>,
                 @location(0) color: vec4<f32>,
+                @location(1) world_position: vec3<f32>,
+                @location(2) world_normal: vec3<f32>,
             };
             @vertex
-            fn vs_main(model: VertexInput) -> VertexOutput {
+            fn vs_main(input: VertexInput) -> VertexOutput {
                 var out: VertexOutput;
-                out.clip_position = vec4<f32>(model.position, 1.0);
-                out.color = model.color;
+                let world_pos = model.model_matrix * vec4<f32>(input.position, 1.0);
+                out.clip_position = camera.view_proj * world_pos;
+                out.world_position = world_pos.xyz;
+                out.world_normal = (model.normal_matrix * vec4<f32>(input.normal, 0.0)).xyz;
+                out.color = input.color;
                 return out;
             }
         ").into()),
     });
 
-    // Update default fragment shader to output to all GBuffer targets
-    let fragment_shader = device.create_shader_module(ShaderModuleDescriptor {
-        label: Some(&format!("{} Fragment Shader", config.name)),
-        source: ShaderSource::Wgsl(config.fragment_shader.as_deref().unwrap_or("
+    // Update default fragment shader to output to appropriate number of targets
+    let mut frag_shader_source = if formats.len() > 1 {
+        "
             struct FragmentOutput {
                 @location(0) color0: vec4<f32>,
                 @location(1) color1: vec4<f32>,
@@ -49,15 +70,31 @@ pub fn create_addon_pipeline(
                 @location(3) color3: vec4<f32>,
             }
             @fragment
-            fn fs_main(@location(0) color: vec4<f32>) -> FragmentOutput {
+            fn fs_main(@location(0) color: vec4<f32>, @location(1) world_pos: vec3<f32>, @location(2) world_normal: vec3<f32>) -> FragmentOutput {
                 var output: FragmentOutput;
-                output.color0 = color;
-                output.color1 = vec4<f32>(0.0, 0.0, 1.0, 1.0); // Default normal
-                output.color2 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+                output.color0 = vec4<f32>(world_pos, 1.0);
+                output.color1 = vec4<f32>(normalize(world_normal), 1.0);
+                output.color2 = color;
                 output.color3 = vec4<f32>(0.0, 0.0, 0.0, 1.0);
                 return output;
             }
-        ").into()),
+        ".to_string()
+    } else {
+        "
+            @fragment
+            fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+                return color;
+            }
+        ".to_string()
+    };
+
+    if let Some(custom_frag) = &config.fragment_shader {
+        frag_shader_source = custom_frag.clone();
+    }
+
+    let fragment_shader = device.create_shader_module(ShaderModuleDescriptor {
+        label: Some(&format!("{} Fragment Shader", config.name)),
+        source: ShaderSource::Wgsl(frag_shader_source.into()),
     });
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -72,7 +109,7 @@ pub fn create_addon_pipeline(
         alpha: wgpu::BlendComponent::REPLACE,
     });
 
-    // Create targets for all GBuffer attachments
+    // Create targets for all attachments
     let targets: Vec<_> = formats.iter().map(|&format| {
         Some(wgpu::ColorTargetState {
             format,
