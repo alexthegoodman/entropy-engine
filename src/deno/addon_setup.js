@@ -12,6 +12,11 @@ globalThis.Entropy = {
             // TODO: implement lifecycle hooks
         }
     },
+    Pipeline: {
+        create: async (config) => {
+            return ops.op_pipeline_create(config);
+        }
+    },
     println: (msg) => {
         ops.op_println(String(msg));
     }
