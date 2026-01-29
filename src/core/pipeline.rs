@@ -2256,6 +2256,21 @@ impl ExportPipeline {
                 // }
             }
 
+            // draw addon cubes
+            for (addon_name, cubes) in &renderer_state.addon_cubes {
+                for cube in cubes {
+                    cube.transform.update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        cube.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+                }
+            }
+
             // draw spheres
             for sphere in &renderer_state.spheres {
                 sphere.transform.update_uniform_buffer(&queue);

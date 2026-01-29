@@ -1,6 +1,6 @@
 // Example Entropy Addon
 
-Entropy.Addon.register({
+const addon = await Entropy.Addon.register({
     name: "Cube Spawner",
     version: "1.0.0",
     description: "Spawns a cube in the scene",
@@ -14,8 +14,8 @@ Entropy.Addon.register({
 Entropy.Addon.onInit(() => {
     Entropy.println("Example Addon Initialized!");
 
-    // Spawn a cube at the center
-    Entropy.Model.createProcedural({
+    // Spawn a cube at the center using the scoped API
+    addon.Model.createProcedural({
         type: "cube",
         parameters: {
             position: [0.0, 5.0, 0.0],

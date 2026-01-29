@@ -121,6 +121,7 @@ pub struct DebugRay {
 // #[derive(std::ops::DerefMut)]
 pub struct RendererState {
     pub cubes: Vec<Cube>,
+    pub addon_cubes: HashMap<String, Vec<Cube>>,
     pub spheres: Vec<Sphere>,
     pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
@@ -304,6 +305,7 @@ impl RendererState {
 
         Self {
             cubes,
+            addon_cubes: HashMap::new(),
             spheres,
             debug_rays: Vec::new(),
             pyramids,

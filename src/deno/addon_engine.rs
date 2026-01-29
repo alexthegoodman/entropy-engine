@@ -54,7 +54,7 @@ pub struct AddonContext {
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub pipelines: HashMap<String, RenderPipeline>,
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
-    pub pending_cubes: Vec<CubeConfig>,
+    pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
 }
 
@@ -86,7 +86,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         let layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
         
         let format = wgpu::TextureFormat::Bgra8UnormSrgb; 
-        let depth = Some(wgpu::TextureFormat::Depth24Plus);
+        let depth = Some(wgpu::TextureFormat::Depth32Float);
 
         let pipeline = create_addon_pipeline(
             device,
@@ -106,9 +106,9 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
 }
 
 #[op2]
-fn op_cube_spawn(state: &mut OpState, #[serde] config: CubeConfig) {
+fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] config: CubeConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.pending_cubes.push(config);
+        ctx.pending_cubes.push((addon_name, config));
     }
 }
 
@@ -181,7 +181,7 @@ impl AddonEngine {
 
         if !pending.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
-                for config in pending {
+                for (addon_name, config) in pending {
                     let mut cube = Cube::new(
                         &gpu.device,
                         &gpu.queue,
@@ -192,7 +192,11 @@ impl AddonEngine {
                     );
                     cube.transform.update_position(config.position);
                     cube.transform.update_scale(config.scale);
-                    renderer_state.cubes.push(cube);
+                    
+                    renderer_state.addon_cubes
+                        .entry(addon_name)
+                        .or_insert_with(Vec::new)
+                        .push(cube);
                 }
             }
         }
