@@ -169,23 +169,23 @@ pub struct ExportPipeline {
 
 impl ExportPipeline {
     pub fn new() -> Self {
-        let mut dock_state = DockState::new(vec![Tab::Viewport]);
+        let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
         let surface = dock_state.main_surface_mut();
-        let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Components, Tab::AssetLibrary]);
+        let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Components, Tab::AssetLibrary]);
         let [_, _] = surface.split_below(NodeIndex::root(), 0.7, vec![Tab::Properties, Tab::Chat]);
 
         let game_dock_state = dock_state.clone();
         
-        let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
+        let mut sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Projects]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
-        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
+        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
         // let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         // let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
 
-        let mut stunts_dock_state = DockState::new(vec![Tab::Viewport]);
+        let mut stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
         let surface2 = stunts_dock_state.main_surface_mut();
-        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Animations, Tab::Properties, Tab::Chat]);
+        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Animations, Tab::Properties, Tab::Chat]);
         let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
 
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
