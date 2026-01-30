@@ -121,7 +121,7 @@ pub struct ExportPipeline {
     pub game_dock_state: DockState<Tab>,
     pub sophia_dock_state: DockState<Tab>,
     pub stunts_dock_state: DockState<Tab>,
-    pub video_timeline_dock_state: DockState<Tab>,
+    // pub video_timeline_dock_state: DockState<Tab>,
     pub central_chat_dock_state: DockState<Tab>,
     pub addon_dock_state: DockState<Tab>,
     pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi,
@@ -180,10 +180,16 @@ impl ExportPipeline {
         let sophia_surface = sophia_dock_state.main_surface_mut();
         sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
-        let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
-        let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
+        // let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        // let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
+
+        let mut stunts_dock_state = DockState::new(vec![Tab::Viewport]);
+        let surface2 = stunts_dock_state.main_surface_mut();
+        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Properties, Tab::Chat]);
+        let [_, _] = surface2.split_below(NodeIndex::root(), 0.5, vec![Tab::VideoTimeline]);
+
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
-        let addon_dock_state = DockState::new(vec![Tab::Addons]);
+        let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
 
         ExportPipeline {
             // device: None,
@@ -199,7 +205,7 @@ impl ExportPipeline {
             game_dock_state,
             sophia_dock_state,
             stunts_dock_state,
-            video_timeline_dock_state,
+            // video_timeline_dock_state,
             central_chat_dock_state,
             addon_dock_state,
             video_timeline_ui: crate::core::video_timeline_ui::VideoTimelineUi::new(),
@@ -3258,7 +3264,8 @@ impl ExportPipeline {
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+                            // load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.85, g: 0.05, b: 0.05, a: 1.0 }),
+                            load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None,
@@ -3276,8 +3283,10 @@ impl ExportPipeline {
                 });
 
                 if let Some(rect) = viewport_rect {
-                    // rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                     rpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+
+                    // println!("viewport_rect {:?}", rect);
 
                     // if let Some(camera) = &mut editor.camera {
                     //     camera.aspect_ratio = rect[2] / rect[3];
@@ -3291,7 +3300,7 @@ impl ExportPipeline {
                     //     }
                     // }
                 }
-
+                
                 if let Some(ui_pipeline) = &self.ui_pipeline {
                     let camera_binding = editor.camera_binding.as_ref().expect("No camera binding");
                     let window_size_bind_group = self.window_size_bind_group.as_ref().expect("No window size bind group");
@@ -3307,7 +3316,8 @@ impl ExportPipeline {
                 }
             }
 
-            queue.submit(Some(encoder.finish()));
+            let command_buffer = encoder.finish();
+            queue.submit(std::iter::once(command_buffer));
         }
     }
 
@@ -3420,28 +3430,28 @@ impl ExportPipeline {
                 .unwrap_or(0.0);
             self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
         } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
-            // ... (rest of the code)
-            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Clear Encoder"),
-            });
-            {
-                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Clear Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            }
-            gpu_resources.queue.submit(Some(encoder.finish()));
+            // // ... (rest of the code)
+            // let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            //     label: Some("Clear Encoder"),
+            // });
+            // {
+            //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //         label: Some("Clear Pass"),
+            //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //             view: &view,
+            //             resolve_target: None,
+            //             ops: wgpu::Operations {
+            //                 load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+            //                 store: wgpu::StoreOp::Store,
+            //             },
+            //             depth_slice: None,
+            //         })],
+            //         depth_stencil_attachment: None,
+            //         timestamp_writes: None,
+            //         occlusion_query_set: None,
+            //     });
+            // }
+            // gpu_resources.queue.submit(Some(encoder.finish()));
         } else { // Addons
             self.render_addon_frame(Some(&view), 0.0, viewport_rect);
         }
@@ -3714,16 +3724,16 @@ impl ExportPipeline {
                 }
             }
         } else {
-            if self.current_workspace == Workspace::Stunts {
-                egui::TopBottomPanel::bottom("video_timeline_panel")
-                    .resizable(true)
-                    .default_height(300.0)
-                    .show(ctx, |ui| {
-                        DockArea::new(&mut self.video_timeline_dock_state)
-                            .style(Style::from_egui(ctx.style().as_ref()))
-                            .show_inside(ui, &mut viewer);
-                    });
-            }
+            // if self.current_workspace == Workspace::Stunts {
+            //     egui::TopBottomPanel::bottom("video_timeline_panel")
+            //         .resizable(true)
+            //         .default_height(300.0)
+            //         .show(ctx, |ui| {
+            //             DockArea::new(&mut self.video_timeline_dock_state)
+            //                 .style(Style::from_egui(ctx.style().as_ref()))
+            //                 .show_inside(ui, &mut viewer);
+            //         });
+            // }
 
             let active_dock_state = match self.current_workspace {
                 Workspace::GameEngine => &mut self.game_dock_state,

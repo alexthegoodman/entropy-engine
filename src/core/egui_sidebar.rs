@@ -132,6 +132,8 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 let rect = ui.available_rect_before_wrap();
                 editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+
+                // println!("editor.viewport_tab_rect {:?}", editor.viewport_tab_rect);
                 
                 // Keep the UI busy so it redraws
                 ui.ctx().request_repaint();
