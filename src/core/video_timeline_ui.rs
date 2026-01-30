@@ -13,6 +13,20 @@ pub struct VideoTimelineUi {
     pub track_height: f32,
     pub header_height: f32,
     pub selected_ts_id: Option<String>,
+    pub dragging_state: Option<DraggingState>,
+    pub properties_open: bool,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum DraggingState {
+    Moving,
+    ResizingLeft,
+    ResizingRight,
+    DraggingKeyframe {
+        anim_id: Uuid,
+        prop_idx: usize,
+        kf_idx: usize,
+    },
 }
 
 impl VideoTimelineUi {
@@ -23,6 +37,8 @@ impl VideoTimelineUi {
             track_height: 50.0,
             header_height: 30.0,
             selected_ts_id: None,
+            dragging_state: None,
+            properties_open: true,
         }
     }
 
@@ -161,6 +177,9 @@ impl VideoTimelineUi {
                                 editor.sync_stunts_objects();
                             }
                         }
+                        
+                        ui.separator();
+                        ui.toggle_value(&mut self.properties_open, "Properties");
                     }
                     
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -171,9 +190,20 @@ impl VideoTimelineUi {
                 ui.separator();
 
                 // Main Timeline Area with horizontal scrolling
-                egui::ScrollArea::horizontal().show(ui, |ui| {
+                egui::ScrollArea::both().show(ui, |ui| {
+                    let mut timeline_height = 300.0;
+                    if self.properties_open && self.selected_ts_id.is_some() {
+                        if let Some(stunts_state) = &editor.stunts_state {
+                            if let Some(animation_paths) = &stunts_state.object_motion_paths {
+                                if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == self.selected_ts_id.as_ref().unwrap().as_str()) {
+                                    timeline_height += anim.properties.len() as f32 * 25.0 + 20.0;
+                                }
+                            }
+                        }
+                    }
+
                     let timeline_width = (editor.video_total_duration_ms as f32 / self.zoom).max(ui.available_width());
-                    let (response, painter) = ui.allocate_painter(Vec2::new(timeline_width, 250.0), Sense::click_and_drag());
+                    let (response, painter) = ui.allocate_painter(Vec2::new(timeline_width, timeline_height), Sense::click_and_drag());
                     let timeline_rect = response.rect;
 
                     let time_to_x = |time_ms: i32| -> f32 {
@@ -182,6 +212,15 @@ impl VideoTimelineUi {
 
                     let x_to_time = |x: f32| -> i32 {
                         ((x - timeline_rect.min.x) * self.zoom) as i32
+                    };
+
+                    let snap_to_playhead = |time_ms: i32| -> i32 {
+                        let snap_threshold = (5.0 * self.zoom) as i32; // 5 pixels snap
+                        if (time_ms - editor.video_current_time_ms).abs() < snap_threshold {
+                            editor.video_current_time_ms
+                        } else {
+                            time_ms
+                        }
                     };
 
                     // Background
@@ -227,6 +266,9 @@ impl VideoTimelineUi {
 
                     // Tracks lines
                     let tracks_top = timeline_rect.min.y + self.header_height;
+                    let mut current_y = tracks_top;
+                    
+                    // Main tracks
                     for i in 0..6 {
                         let y = tracks_top + (i as f32 * self.track_height);
                         painter.line_segment(
@@ -234,16 +276,17 @@ impl VideoTimelineUi {
                             Stroke::new(1.0, Color32::from_rgb(50, 50, 50)),
                         );
                     }
+                    current_y += 6.0 * self.track_height;
 
                     // Draw Clips
                     let mut item_to_delete = None;
                     if let Some(stunts_state) = &mut editor.stunts_state {
                         
                         // Helper for rendering clips
-                        let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: i32, layer: i32, color: Color32, target_type: DeleteTarget| {
+                        let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: &mut i32, layer: i32, color: Color32, target_type: DeleteTarget| {
                             let track_idx = layer.clamp(0, 5);
                             let clip_start_x = time_to_x(*start_time);
-                            let clip_width = (duration as f32 / self.zoom).max(5.0);
+                            let clip_width = (*duration as f32 / self.zoom).max(5.0);
                             let clip_y = tracks_top + (track_idx as f32 * self.track_height) + 4.0;
                             let clip_rect = Rect::from_min_size(
                                 Pos2::new(clip_start_x, clip_y),
@@ -253,6 +296,29 @@ impl VideoTimelineUi {
                             let clip_id = Id::new("clip_v3").with(id);
                             let clip_res = ui.interact(clip_rect, clip_id, Sense::click_and_drag());
                             
+                            // Edge detection for resizing
+                            let edge_threshold = 8.0;
+                            let is_on_left_edge = clip_res.hovered() && ui.input(|i| i.pointer.hover_pos()).map_or(false, |pos| pos.x < clip_rect.min.x + edge_threshold);
+                            let is_on_right_edge = clip_res.hovered() && ui.input(|i| i.pointer.hover_pos()).map_or(false, |pos| pos.x > clip_rect.max.x - edge_threshold);
+
+                            if is_on_left_edge || is_on_right_edge {
+                                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+                            }
+
+                            if clip_res.drag_started() {
+                                if is_on_left_edge {
+                                    self.dragging_state = Some(DraggingState::ResizingLeft);
+                                } else if is_on_right_edge {
+                                    self.dragging_state = Some(DraggingState::ResizingRight);
+                                } else {
+                                    self.dragging_state = Some(DraggingState::Moving);
+                                }
+                            }
+
+                            if clip_res.drag_released() {
+                                self.dragging_state = None;
+                            }
+
                             if clip_res.clicked() {
                                 self.selected_ts_id = Some(id.to_string());
                                 // Sync with editor selection
@@ -271,7 +337,29 @@ impl VideoTimelineUi {
                             if clip_res.dragged() {
                                 let delta_x = clip_res.drag_delta().x;
                                 let delta_time = (delta_x * self.zoom) as i32;
-                                *start_time = (*start_time + delta_time).max(0);
+
+                                match self.dragging_state {
+                                    Some(DraggingState::Moving) => {
+                                        let new_start = *start_time + delta_time;
+                                        *start_time = snap_to_playhead(new_start).max(0);
+                                    }
+                                    Some(DraggingState::ResizingLeft) => {
+                                        let new_start = *start_time + delta_time;
+                                        let snapped_start = snap_to_playhead(new_start).max(0);
+                                        let actual_delta = snapped_start - *start_time;
+                                        if *duration - actual_delta > 10 {
+                                            *start_time = snapped_start;
+                                            *duration -= actual_delta;
+                                        }
+                                    }
+                                    Some(DraggingState::ResizingRight) => {
+                                        let new_duration = *duration + delta_time;
+                                        let snapped_end = snap_to_playhead(*start_time + new_duration);
+                                        *duration = (snapped_end - *start_time).max(10);
+                                    }
+                                    _ => {}
+                                }
+
                                 self.selected_ts_id = Some(id.to_string());
                                 // Sync with editor selection
                                 let obj_type = match target_type {
@@ -303,6 +391,12 @@ impl VideoTimelineUi {
                             let stroke_color = if is_selected { Color32::WHITE } else { Color32::from_rgb(200, 200, 200) };
                             painter.rect_stroke(clip_rect, 2.0, Stroke::new(if is_selected { 2.0 } else { 1.0 }, stroke_color), egui::StrokeKind::Middle);
                             
+                            // Visual feedback for edges
+                            if is_selected {
+                                painter.line_segment([clip_rect.left_top(), clip_rect.left_bottom()], Stroke::new(2.0, Color32::WHITE));
+                                painter.line_segment([clip_rect.right_top(), clip_rect.right_bottom()], Stroke::new(2.0, Color32::WHITE));
+                            }
+
                             let text_rect = clip_rect.shrink(4.0);
                             let p = painter.with_clip_rect(clip_rect);
                             p.text(
@@ -312,33 +406,130 @@ impl VideoTimelineUi {
                                 FontId::proportional(11.0),
                                 Color32::WHITE,
                             );
+
+                            // Draw Keyframes if they exist for this object
+                            if let Some(stunts_state) = &editor.stunts_state {
+                                if let Some(animation_paths) = &stunts_state.object_motion_paths {
+                                    if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == id) {
+                                        for prop in &anim.properties {
+                                            for kf in &prop.keyframes {
+                                                let kf_time_ms = kf.time.as_millis() as i32;
+                                                let kf_x = time_to_x(*start_time + kf_time_ms);
+                                                
+                                                // Diamond shape for keyframe
+                                                let kf_pos = Pos2::new(kf_x, clip_rect.bottom() - 4.0);
+                                                let diamond_points = vec![
+                                                    Pos2::new(kf_pos.x, kf_pos.y - 4.0),
+                                                    Pos2::new(kf_pos.x + 4.0, kf_pos.y),
+                                                    Pos2::new(kf_pos.x, kf_pos.y + 4.0),
+                                                    Pos2::new(kf_pos.x - 4.0, kf_pos.y),
+                                                ];
+                                                painter.add(egui::Shape::convex_polygon(
+                                                    diamond_points,
+                                                    Color32::WHITE,
+                                                    Stroke::new(1.0, Color32::BLACK)
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         };
 
                         // Polygons
                         if let Some(polygons) = &mut stunts_state.active_polygons {
                             for (idx, poly) in polygons.iter_mut().enumerate() {
-                                render_clip(&poly.id, &poly.name, &mut poly.start_time_ms, poly.duration_ms, poly.layer, Color32::from_rgb(60, 100, 180), DeleteTarget::Polygon(idx));
+                                render_clip(&poly.id, &poly.name, &mut poly.start_time_ms, &mut poly.duration_ms, poly.layer, Color32::from_rgb(60, 100, 180), DeleteTarget::Polygon(idx));
                             }
                         }
 
                         // Text
                         if let Some(text_items) = &mut stunts_state.active_text_items {
                             for (idx, text) in text_items.iter_mut().enumerate() {
-                                render_clip(&text.id, &text.name, &mut text.start_time_ms, text.duration_ms, text.layer, Color32::from_rgb(100, 180, 60), DeleteTarget::Text(idx));
+                                render_clip(&text.id, &text.name, &mut text.start_time_ms, &mut text.duration_ms, text.layer, Color32::from_rgb(100, 180, 60), DeleteTarget::Text(idx));
                             }
                         }
 
                         // Images
                         if let Some(images) = &mut stunts_state.active_image_items {
                             for (idx, img) in images.iter_mut().enumerate() {
-                                render_clip(&img.id, &img.name, &mut img.start_time_ms, img.duration_ms, img.layer, Color32::from_rgb(180, 100, 60), DeleteTarget::Image(idx));
+                                render_clip(&img.id, &img.name, &mut img.start_time_ms, &mut img.duration_ms, img.layer, Color32::from_rgb(180, 100, 60), DeleteTarget::Image(idx));
                             }
                         }
 
                         // Videos
                         if let Some(videos) = &mut stunts_state.active_video_items {
                             for (idx, vid) in videos.iter_mut().enumerate() {
-                                render_clip(&vid.id, &vid.name, &mut vid.start_time_ms, vid.duration_ms, vid.layer, Color32::from_rgb(180, 60, 100), DeleteTarget::Video(idx));
+                                render_clip(&vid.id, &vid.name, &mut vid.start_time_ms, &mut vid.duration_ms, vid.layer, Color32::from_rgb(180, 60, 100), DeleteTarget::Video(idx));
+                            }
+                        }
+
+                        // Property tracks for selected item
+                        if self.properties_open {
+                            if let Some(selected_id) = &self.selected_ts_id {
+                                if let Some(animation_paths) = &stunts_state.object_motion_paths {
+                                    if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == *selected_id) {
+                                        // Header
+                                        painter.rect_filled(
+                                            Rect::from_min_size(Pos2::new(timeline_rect.min.x, current_y), Vec2::new(timeline_rect.width(), 20.0)),
+                                            0.0,
+                                            Color32::from_rgb(35, 35, 35)
+                                        );
+                                        painter.text(
+                                            Pos2::new(timeline_rect.min.x + 5.0, current_y + 2.0),
+                                            Align2::LEFT_TOP,
+                                            "Properties",
+                                            FontId::proportional(12.0),
+                                            Color32::LIGHT_GRAY
+                                        );
+                                        current_y += 20.0;
+
+                                        // Tracks
+                                        for prop in &anim.properties {
+                                            let track_rect = Rect::from_min_size(Pos2::new(timeline_rect.min.x, current_y), Vec2::new(timeline_rect.width(), 25.0));
+                                            painter.rect_filled(track_rect, 0.0, Color32::from_rgb(30, 30, 30));
+                                            painter.line_segment(
+                                                [Pos2::new(timeline_rect.min.x, current_y + 25.0), Pos2::new(timeline_rect.max.x, current_y + 25.0)],
+                                                Stroke::new(1.0, Color32::from_rgb(45, 45, 45))
+                                            );
+                                            
+                                            painter.text(
+                                                Pos2::new(timeline_rect.min.x + 15.0, current_y + 5.0),
+                                                Align2::LEFT_TOP,
+                                                &prop.name,
+                                                FontId::proportional(11.0),
+                                                Color32::GRAY
+                                            );
+
+                                            // Draw keyframes for this specific property
+                                            for kf in &prop.keyframes {
+                                                let kf_time_ms = kf.time.as_millis() as i32;
+                                                let start_time_ms = stunts_state.active_polygons.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms)
+                                                    .or_else(|| stunts_state.active_text_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                                    .or_else(|| stunts_state.active_image_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                                    .or_else(|| stunts_state.active_video_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                                    .unwrap_or(0);
+
+                                                let kf_x = time_to_x(start_time_ms + kf_time_ms);
+                                                let kf_pos = Pos2::new(kf_x, current_y + 12.5);
+                                                
+                                                let diamond_points = vec![
+                                                    Pos2::new(kf_pos.x, kf_pos.y - 5.0),
+                                                    Pos2::new(kf_pos.x + 5.0, kf_pos.y),
+                                                    Pos2::new(kf_pos.x, kf_pos.y + 5.0),
+                                                    Pos2::new(kf_pos.x - 5.0, kf_pos.y),
+                                                ];
+                                                painter.add(egui::Shape::convex_polygon(
+                                                    diamond_points,
+                                                    Color32::from_rgb(200, 200, 200),
+                                                    Stroke::new(1.0, Color32::BLACK)
+                                                ));
+                                            }
+
+                                            current_y += 25.0;
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
