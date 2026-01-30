@@ -52,6 +52,7 @@ use rfd::FileDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Tab {
+    Viewport,
     Projects,
     Components,
     Properties,
@@ -127,6 +128,14 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         }
 
         match tab {
+            Tab::Viewport => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let rect = ui.available_rect_before_wrap();
+                editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                
+                // Keep the UI busy so it redraws
+                ui.ctx().request_repaint();
+            }
             Tab::Projects => {
                 let editor = self.context.export_editor.as_mut().unwrap();
 

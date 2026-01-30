@@ -169,20 +169,21 @@ pub struct ExportPipeline {
 
 impl ExportPipeline {
     pub fn new() -> Self {
-        let mut dock_state = DockState::new(vec![Tab::Projects, Tab::Components, Tab::AssetLibrary]);
+        let mut dock_state = DockState::new(vec![Tab::Viewport]);
         let surface = dock_state.main_surface_mut();
+        let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Components, Tab::AssetLibrary]);
         let [_, _] = surface.split_below(NodeIndex::root(), 0.5, vec![Tab::Properties, Tab::Chat]);
 
         let game_dock_state = dock_state.clone();
         
-        let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
+        let mut sophia_dock_state = DockState::new(vec![Tab::Viewport, Tab::Writing]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
         sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
-        let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
-        let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
-        let addon_dock_state = DockState::new(vec![Tab::Addons]);
+        let central_chat_dock_state = DockState::new(vec![Tab::Viewport, Tab::Chat]);
+        let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
 
         ExportPipeline {
             // device: None,
@@ -1763,7 +1764,7 @@ impl ExportPipeline {
         }
     }
 
-    pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool) {
+    pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool, viewport_rect: Option<[f32; 4]>) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
         
@@ -1857,6 +1858,17 @@ impl ExportPipeline {
             .camera_binding
             .as_mut()
             .expect("Couldn't get camera binding");
+
+        if let Some(rect) = viewport_rect {
+            camera.aspect_ratio = rect[2] / rect[3];
+            camera.viewport.width = rect[2];
+            camera.viewport.height = rect[3];
+            camera.viewport.window_size.width = rect[2] as u32;
+            camera.viewport.window_size.height = rect[3] as u32;
+            camera.update();
+            camera_binding.update_3d(queue, camera);
+        }
+
         let window_size_bind_group = self
             .window_size_bind_group
             .as_ref()
@@ -2244,6 +2256,11 @@ impl ExportPipeline {
                 occlusion_query_set: None,
             });
 
+            if let Some(rect) = viewport_rect {
+                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            }
+
             render_pass.set_pipeline(&geometry_pipeline);
 
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
@@ -2589,6 +2606,11 @@ impl ExportPipeline {
                     occlusion_query_set: None,
                 });
 
+                if let Some(rect) = viewport_rect {
+                    lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                }
+
                 lighting_pass.set_pipeline(lighting_pipeline);
                 lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
                 lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
@@ -2626,6 +2648,11 @@ impl ExportPipeline {
                             occlusion_query_set: None,
                         });
 
+                        if let Some(rect) = viewport_rect {
+                            sky_render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                            sky_render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                        }
+
                         sky_render_pass.set_pipeline(procedural_sky_pipeline);
                         sky_render_pass.set_bind_group(0, procedural_sky_bind_group, &[]);
                         sky_render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
@@ -2657,6 +2684,11 @@ impl ExportPipeline {
                         timestamp_writes: None,
                         occlusion_query_set: None,
                     });
+
+                    if let Some(rect) = viewport_rect {
+                        debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        debug_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
 
                     debug_pass.set_pipeline(pipeline);
                     debug_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
@@ -2787,6 +2819,11 @@ impl ExportPipeline {
                     occlusion_query_set: None,
                 });
 
+                if let Some(rect) = viewport_rect {
+                    gizmo_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    gizmo_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                }
+
                 gizmo_pass.set_pipeline(self.gizmo_pipeline.as_ref().unwrap());
                 gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
                 gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
@@ -2827,6 +2864,11 @@ impl ExportPipeline {
                         occlusion_query_set: None,
                     });
 
+                    if let Some(rect) = viewport_rect {
+                        ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        ui_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+
                     ui_pipeline.render(
                         &mut ui_pass,
                         editor,
@@ -2854,7 +2896,7 @@ impl ExportPipeline {
         }
     }
 
-    pub fn render_addon_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64) {
+    pub fn render_addon_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
         let gpu_resources = self
@@ -2894,6 +2936,17 @@ impl ExportPipeline {
             .camera_binding
             .as_mut()
             .expect("Couldn't get camera binding");
+
+        if let Some(rect) = viewport_rect {
+            camera.aspect_ratio = rect[2] / rect[3];
+            camera.viewport.width = rect[2];
+            camera.viewport.height = rect[3];
+            camera.viewport.window_size.width = rect[2] as u32;
+            camera.viewport.window_size.height = rect[3] as u32;
+            camera.update();
+            camera_binding.update_3d(queue, camera);
+        }
+
         let window_size_bind_group = self
             .window_size_bind_group
             .as_ref()
@@ -2994,6 +3047,11 @@ impl ExportPipeline {
                 occlusion_query_set: None,
             });
 
+            if let Some(rect) = viewport_rect {
+                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            }
+
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
@@ -3068,6 +3126,11 @@ impl ExportPipeline {
                 occlusion_query_set: None,
             });
 
+            if let Some(rect) = viewport_rect {
+                lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            }
+
             if let Some(pid) = custom_lighting_pid {
                 let mut op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
@@ -3112,6 +3175,11 @@ impl ExportPipeline {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
+
+            if let Some(rect) = viewport_rect {
+                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            }
 
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
@@ -3162,7 +3230,7 @@ impl ExportPipeline {
         queue.submit(std::iter::once(command_buffer));
     }
 
-    pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool) {
+    pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool, viewport_rect: Option<[f32; 4]>) {
         let editor = self.export_editor.as_mut().expect("Couldn't get editor");
 
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
@@ -3202,6 +3270,23 @@ impl ExportPipeline {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
+
+                if let Some(rect) = viewport_rect {
+                    rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    rpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+
+                    if let Some(camera) = &mut editor.camera {
+                        camera.aspect_ratio = rect[2] / rect[3];
+                        camera.viewport.width = rect[2];
+                        camera.viewport.height = rect[3];
+                        camera.viewport.window_size.width = rect[2] as u32;
+                        camera.viewport.window_size.height = rect[3] as u32;
+                        camera.update();
+                        if let Some(camera_binding) = &mut editor.camera_binding {
+                            camera_binding.update_3d(queue, camera);
+                        }
+                    }
+                }
 
                 if let Some(ui_pipeline) = &self.ui_pipeline {
                     let camera_binding = editor.camera_binding.as_ref().expect("No camera binding");
@@ -3251,16 +3336,28 @@ impl ExportPipeline {
             .expect("Failed to get current swap chain texture");
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let scale_factor = window.scale_factor() as f32;
+        let viewport_rect = if let Some(editor) = &self.export_editor {
+            editor.viewport_tab_rect.map(|r| [
+                r[0] * scale_factor,
+                r[1] * scale_factor,
+                r[2] * scale_factor,
+                r[3] * scale_factor,
+            ])
+        } else {
+            None
+        };
     
         if self.current_workspace == Workspace::GameEngine {
-            self.render_frame(Some(&view), 0.0, game_mode);
+            self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
         } else if self.current_workspace == Workspace::Stunts {
             let current_time_s = self.export_editor.as_ref()
                 .map(|e| e.video_current_time_ms as f64 / 1000.0)
                 .unwrap_or(0.0);
-            self.render_stunts_frame(Some(&view), current_time_s, false);
+            self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
         } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
-            // Clear the screen for Writing workspace
+            // ... (rest of the code)
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Clear Encoder"),
             });
@@ -3283,7 +3380,7 @@ impl ExportPipeline {
             }
             gpu_resources.queue.submit(Some(encoder.finish()));
         } else { // Addons
-            self.render_addon_frame(Some(&view), 0.0);
+            self.render_addon_frame(Some(&view), 0.0, viewport_rect);
         }
     
         if !game_mode {
@@ -3293,6 +3390,7 @@ impl ExportPipeline {
             
             if let Some(editor) = &mut self.export_editor {
                 editor.writing_webview_bounds = None;
+                editor.viewport_tab_rect = None;
             }
 
             let raw_input = gui.state.take_egui_input(&window);
