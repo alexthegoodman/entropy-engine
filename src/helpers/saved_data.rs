@@ -318,6 +318,32 @@ pub struct PBRTextureData {
     pub arm: Option<File>, // png, tiff, and jpg seem stable
 }
 
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct ResearchResult {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub text: String,
+    pub highlights: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct GrammarIssue {
+    pub original: String,
+    pub suggestion: String,
+    pub explanation: String,
+    pub start_index: usize,
+    pub end_index: usize,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct SophiaData {
+    pub research_results: Vec<ResearchResult>,
+    pub subjects: Vec<String>,
+    pub keywords: Vec<String>,
+    pub grammar_issues: Vec<GrammarIssue>,
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
 pub struct SavedState {
     pub id: Option<String>,
@@ -338,8 +364,8 @@ pub struct SavedState {
     pub active_image_items: Option<Vec<SavedStImageConfig>>,
     pub active_video_items: Option<Vec<SavedStVideoConfig>>,
     pub video_settings: Option<VideoSettings>,
-    // TODO: writing (sophia)
-    // pub chapters: Option<Vec<Chapter>>, // (w/markdown filenames)
+    // writing (sophia)
+    pub sophia_data: Option<SophiaData>,
     // Global
     pub global_js_scripts: Option<Vec<String>>,
 }

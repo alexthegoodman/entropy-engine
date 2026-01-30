@@ -61,6 +61,11 @@ pub enum Tab {
     Writing,
     Addons,
     VideoTimeline,
+    Research,
+    Publish,
+    Grammar,
+    Manage,
+    Citations,
 }
 
 #[cfg(target_os = "windows")]
@@ -89,6 +94,38 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
+        let editor = self.context.export_editor.as_mut().unwrap();
+        
+        // Poll Webview IPC
+        if let Some(rx) = &editor.webview_ipc_rx {
+            while let Ok(msg) = rx.try_recv() {
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
+                    if json["type"] == "analysis" {
+                        let data = &json["data"];
+                        let sophia = &mut editor.sophia_app_state;
+                        
+                        if let Some(subjects) = data["subjects"].as_array() {
+                            sophia.subjects = subjects.iter().map(|s| s.as_str().unwrap_or_default().to_string()).collect();
+                        }
+                        if let Some(keywords) = data["keywords"].as_array() {
+                            sophia.keywords = keywords.iter().map(|s| s.as_str().unwrap_or_default().to_string()).collect();
+                        }
+                        if let Some(grammar) = data["grammar"].as_array() {
+                            sophia.grammar_issues = grammar.iter().map(|g| {
+                                crate::helpers::saved_data::GrammarIssue {
+                                    original: g["original"].as_str().unwrap_or_default().to_string(),
+                                    suggestion: g["suggestion"].as_str().unwrap_or_default().to_string(),
+                                    explanation: g["explanation"].as_str().unwrap_or_default().to_string(),
+                                    start_index: g["startIndex"].as_u64().unwrap_or(0) as usize,
+                                    end_index: g["endIndex"].as_u64().unwrap_or(0) as usize,
+                                }
+                            }).collect();
+                        }
+                    }
+                }
+            }
+        }
+
         match tab {
             Tab::Projects => {
                 let editor = self.context.export_editor.as_mut().unwrap();
@@ -1283,12 +1320,22 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                  }
             }
             Tab::Writing => {
-                ui.heading("Sophia Writing App");
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let sophia = &mut editor.sophia_app_state;
+
+                ui.horizontal(|ui| {
+                    ui.heading("Sophia Writing App");
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.checkbox(&mut sophia.quiet_mode, "Quiet Mode").changed() {
+                            println!("Quiet Mode: {}", sophia.quiet_mode);
+                        }
+                    });
+                });
+                
                 ui.separator();
                 ui.label("Draft:");
 
                 let rect = ui.available_rect_before_wrap();
-                let editor = self.context.export_editor.as_mut().unwrap();
                 editor.writing_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
             }
             Tab::Addons => {
@@ -1322,6 +1369,128 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::VideoTimeline => {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 self.context.video_timeline_ui.show(ui, editor);
+            }
+            Tab::Research => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let sophia = &mut editor.sophia_app_state;
+
+                // Check for results
+                if let Some(rx) = &sophia.research_rx {
+                    if let Ok(results) = rx.try_recv() {
+                        sophia.research_results = results;
+                        sophia.is_searching = false;
+                        sophia.research_rx = None;
+                    }
+                }
+
+                ui.heading("Research");
+                ui.horizontal(|ui| {
+                    ui.text_edit_singleline(&mut sophia.research_query);
+                    if ui.button("Search").clicked() && !sophia.is_searching {
+                        sophia.is_searching = true;
+                        let query = sophia.research_query.clone();
+                        let client = self.context.chat.client.clone();
+                        let api_url = self.context.chat.api_url.clone();
+                        let (tx, rx) = std::sync::mpsc::channel();
+                        sophia.research_rx = Some(rx);
+
+                        std::thread::spawn(move || {
+                            let rt = tokio::runtime::Runtime::new().unwrap();
+                            rt.block_on(async {
+                                let url = format!("{}/api/exa", api_url);
+                                let body = serde_json::json!({ "query": query });
+                                if let Ok(res) = client.post(&url).json(&body).send().await {
+                                    if let Ok(data) = res.json::<serde_json::Value>().await {
+                                        if let Some(results) = data["results"].as_array() {
+                                            let mapped: Vec<crate::helpers::saved_data::ResearchResult> = results.iter().map(|r| {
+                                                crate::helpers::saved_data::ResearchResult {
+                                                    id: r["id"].as_str().unwrap_or_default().to_string(),
+                                                    title: r["title"].as_str().unwrap_or_default().to_string(),
+                                                    url: r["url"].as_str().unwrap_or_default().to_string(),
+                                                    text: r["text"].as_str().unwrap_or_default().to_string(),
+                                                    highlights: r["highlights"].as_array().unwrap_or(&vec![]).iter().map(|h| h.as_str().unwrap_or_default().to_string()).collect(),
+                                                }
+                                            }).collect();
+                                            let _ = tx.send(mapped);
+                                        }
+                                    }
+                                }
+                            });
+                        });
+                    }
+                });
+
+                if sophia.is_searching {
+                    ui.label("Searching...");
+                }
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    for result in &sophia.research_results {
+                        ui.group(|ui| {
+                            ui.hyperlink_to(&result.title, &result.url);
+                            for highlight in &result.highlights {
+                                ui.label(egui::RichText::new(highlight).italics());
+                            }
+                        });
+                    }
+                });
+            }
+            Tab::Publish => {
+                ui.heading("Publish");
+                ui.separator();
+                ui.label("Export options:");
+                if ui.button("Export to PDF").clicked() {
+                    println!("Exporting to PDF...");
+                }
+                if ui.button("Export to Ebook (EPUB)").clicked() {
+                    println!("Exporting to EPUB...");
+                }
+                if ui.button("Print Preparation").clicked() {
+                    println!("Preparing for print...");
+                }
+            }
+            Tab::Grammar => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let sophia = &mut editor.sophia_app_state;
+
+                ui.heading("Grammar & Style");
+                if ui.button("Scan Text").clicked() {
+                    println!("Scanning text...");
+                    // Implementation for scanning text via OpenAI would go here
+                }
+
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    if sophia.grammar_issues.is_empty() {
+                        ui.label("No issues found.");
+                    }
+                    for issue in &sophia.grammar_issues {
+                        ui.group(|ui| {
+                            ui.label(format!("Original: {}", issue.original));
+                            ui.label(egui::RichText::new(format!("Suggestion: {}", issue.suggestion)).color(egui::Color32::GREEN));
+                            ui.label(&issue.explanation);
+                        });
+                    }
+                });
+            }
+            Tab::Manage => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let sophia = &mut editor.sophia_app_state;
+
+                ui.heading("Manage Elements");
+                ui.collapsing("Subjects", |ui| {
+                    for subject in &sophia.subjects {
+                        ui.label(subject);
+                    }
+                });
+                ui.collapsing("Keywords", |ui| {
+                    for keyword in &sophia.keywords {
+                        ui.label(keyword);
+                    }
+                });
+            }
+            Tab::Citations => {
+                ui.heading("Citations");
+                ui.label("Organize and manage your project citations here.");
             }
             _ => {
                 ui.label("Not implemented");

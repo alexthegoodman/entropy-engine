@@ -25,3 +25,4 @@ pub mod video_timeline_ui;
 pub mod scattered_model_pipeline;
 pub mod execute_tool_call;
 pub mod addon_pipeline;
+pub mod sophia;

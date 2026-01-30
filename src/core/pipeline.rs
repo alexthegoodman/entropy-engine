@@ -177,7 +177,7 @@ impl ExportPipeline {
         
         let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
-        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat]);
+        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
         let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
@@ -3591,11 +3591,21 @@ impl ExportPipeline {
         }
 
         if self.current_workspace == Workspace::Sophia {
-            egui::CentralPanel::default().show(ctx, |ui| {
-                DockArea::new(&mut self.sophia_dock_state)
-                    .style(Style::from_egui(ctx.style().as_ref()))
-                    .show_inside(ui, &mut viewer);
-            });
+            if let Some(editor) = &mut viewer.context.export_editor {
+                let quiet_mode = editor.sophia_app_state.quiet_mode;
+
+                if quiet_mode {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        viewer.ui(ui, &mut Tab::Writing);
+                    });
+                } else {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        DockArea::new(&mut self.sophia_dock_state)
+                            .style(Style::from_egui(ctx.style().as_ref()))
+                            .show_inside(ui, &mut viewer);
+                    });
+                }
+            }
         } else {
             if self.current_workspace == Workspace::Stunts {
                 egui::TopBottomPanel::bottom("video_timeline_panel")

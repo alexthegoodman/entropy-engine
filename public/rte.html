@@ -137,6 +137,7 @@
         import Link from 'https://esm.sh/@tiptap/extension-link'
         import Underline from 'https://esm.sh/@tiptap/extension-underline'
         import TextAlign from 'https://esm.sh/@tiptap/extension-text-align'
+        import Highlight from 'https://esm.sh/@tiptap/extension-highlight'
 
         const editor = new Editor({
             element: document.querySelector('#tiptap-editor'),
@@ -144,7 +145,8 @@
                 StarterKit,
                 Link.configure({ openOnClick: false }),
                 Underline,
-                TextAlign.configure({ types: ['heading', 'paragraph'] })
+                TextAlign.configure({ types: ['heading', 'paragraph'] }),
+                Highlight.configure({ multicolor: true })
             ],
             content: '<h1>Welcome to Sophia!</h1><p>Start writing with full formatting support...</p>',
             onUpdate: () => updateToolbar()
@@ -179,6 +181,56 @@
                 { label: '⬅', title: 'Align Left', action: () => editor.chain().focus().setTextAlign('left').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'left' }} },
                 { label: '⬌', title: 'Align Center', action: () => editor.chain().focus().setTextAlign('center').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'center' }} },
                 { label: '➡', title: 'Align Right', action: () => editor.chain().focus().setTextAlign('right').run(), isActive: { name: 'textAlign', attrs: { textAlign: 'right' }} }
+            ]},
+            { group: 'ai', items: [
+                { 
+                    label: '✨ Scan', 
+                    title: 'Analyze text with OpenAI', 
+                    action: async () => {
+                        const text = editor.getText()
+                        const btn = document.querySelector('button[title="Analyze text with OpenAI"]')
+                        btn.disabled = true
+                        btn.innerHTML = '⌛ Scanning...'
+                        
+                        try {
+                            const response = await fetch('http://localhost:3000/api/analyze', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ text })
+                            })
+                            const data = await response.json()
+                            
+                            // Clear existing highlights if needed
+                            // (Actually Tiptap handles it if we target specific text)
+                            
+                            // Highlight subjects (e.g., light blue)
+                            if (data.subjects) {
+                                // Simple string matching for demo, ideally we use indices from OpenAI
+                                // But OpenAI indices might be off due to HTML vs Text.
+                                // For now, let's just use the suggestion to highlight.
+                            }
+
+                            // Highlight grammar issues (e.g., light red)
+                            if (data.grammar) {
+                                data.grammar.forEach(issue => {
+                                    // This is a naive way to find and highlight. 
+                                    // In a real app, we'd use the indices carefully.
+                                    editor.chain().focus().setHighlight({ color: '#ffcccb' }).run() // Placeholder color
+                                })
+                            }
+                            
+                            // Send data back to Rust if window.ipc is available
+                            if (window.ipc) {
+                                window.ipc.postMessage(JSON.stringify({ type: 'analysis', data }))
+                            }
+                        } catch (e) {
+                            console.error(e)
+                        } finally {
+                            btn.disabled = false
+                            btn.innerHTML = '✨ Scan'
+                        }
+                    }
+                }
             ]},
             { group: 'actions', items: [
                 { label: '↶', title: 'Undo (Ctrl+Z)', action: () => editor.chain().focus().undo().run() },

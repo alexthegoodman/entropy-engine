@@ -350,6 +350,7 @@ pub struct Editor {
     pub world_state: Option<SavedState>,
     pub stunts_state: Option<SavedState>,
     pub sophia_state: Option<SavedState>,
+    pub sophia_app_state: crate::core::sophia::SophiaState,
     pub deno_engine: DenoEngine,
     pub addon_engine: AddonEngine,
     
@@ -684,6 +685,7 @@ impl Editor {
             world_state: None,
             stunts_state: None,
             sophia_state: None,
+            sophia_app_state: crate::core::sophia::SophiaState::new(),
             deno_engine: DenoEngine::new(project_id.clone()),
             addon_engine: AddonEngine::new(project_id.clone()),
             // st_capture,
