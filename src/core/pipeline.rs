@@ -176,14 +176,14 @@ impl ExportPipeline {
 
         let game_dock_state = dock_state.clone();
         
-        let mut sophia_dock_state = DockState::new(vec![Tab::Viewport, Tab::Writing]);
+        let mut sophia_dock_state = DockState::new(vec![Tab::Writing]);
         let sophia_surface = sophia_dock_state.main_surface_mut();
         sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
-        let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        let stunts_dock_state = DockState::new(vec![Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
         let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
-        let central_chat_dock_state = DockState::new(vec![Tab::Viewport, Tab::Chat]);
-        let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
+        let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
+        let addon_dock_state = DockState::new(vec![Tab::Addons]);
 
         ExportPipeline {
             // device: None,
@@ -3722,69 +3722,6 @@ impl ExportPipeline {
                     });
             }
 
-            egui::CentralPanel::default().frame(egui::Frame::none()).show(ctx, |ui| {
-                // Draw selection highlight for Stunts objects
-                if let Some(editor) = &viewer.context.export_editor {
-                    if let Some(selected) = &editor.selected_object {
-                        let mut rect_pos = None;
-                        let mut rect_size = None;
-
-                        match selected.object_type {
-                            ObjectType::Polygon => {
-                                if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
-                                    rect_pos = Some(poly.transform.position);
-                                    rect_size = Some(poly.dimensions);
-                                }
-                            }
-                            ObjectType::TextItem => {
-                                if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
-                                    rect_pos = Some(text.transform.position);
-                                    rect_size = Some(text.dimensions);
-                                }
-                            }
-                            ObjectType::ImageItem => {
-                                if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
-                                    rect_pos = Some(img.transform.position);
-                                    rect_size = Some((img.transform.scale.x, img.transform.scale.y));
-                                }
-                            }
-                            ObjectType::VideoItem => {
-                                if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
-                                    rect_pos = Some(vid.transform.position);
-                                    rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
-                                }
-                            }
-                        }
-
-                        if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
-                            let screen_rect = egui::Rect::from_center_size(
-                                egui::pos2(pos.x, pos.y),
-                                egui::vec2(size.0, size.1)
-                            );
-                            
-                            let painter = ui.painter();
-                            painter.rect_stroke(
-                                screen_rect.expand(2.0),
-                                2.0,
-                                egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
-                                StrokeKind::Middle
-                            );
-
-                            // Draw tiny handles at corners
-                            let handle_color = egui::Color32::WHITE;
-                            let handle_size = 6.0;
-                            for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
-                                painter.rect_filled(
-                                    egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
-                                    1.0,
-                                    handle_color
-                                );
-                            }
-                        }
-                    }
-                }
-            });
-
             let active_dock_state = match self.current_workspace {
                 Workspace::GameEngine => &mut self.game_dock_state,
                 Workspace::Sophia => &mut self.sophia_dock_state,
@@ -3801,15 +3738,91 @@ impl ExportPipeline {
                 _ => 400.0
             };
 
-            egui::SidePanel::right("dock_sidebar")
-                .resizable(true)
-                .default_width(sidebar_width)
-                .width_range(sidebar_width..=(sidebar_width + 400.0))
-                .show(ctx, |ui| {
+            // egui::SidePanel::right("dock_sidebar")
+            //     .resizable(true)
+            //     .default_width(sidebar_width)
+            //     .width_range(sidebar_width..=(sidebar_width + 400.0))
+            //     .show(ctx, |ui| {
+            //         DockArea::new(active_dock_state)
+            //             .style(Style::from_egui(ctx.style().as_ref()))
+            //             .show_inside(ui, &mut viewer);
+            //     });
+
+             // if let Some(editor) = &mut viewer.context.export_editor {
+
+                egui::CentralPanel::default()
+                    // .frame(egui::Frame::none())
+                    .show(ctx, |ui| {
+                    
+                    // viewer.ui(ui, &mut Tab::Viewport);
+
                     DockArea::new(active_dock_state)
                         .style(Style::from_egui(ctx.style().as_ref()))
                         .show_inside(ui, &mut viewer);
+
+                    // Draw selection highlight for Stunts objects
+                    if let Some(editor) = &viewer.context.export_editor {
+                        if let Some(selected) = &editor.selected_object {
+                            let mut rect_pos = None;
+                            let mut rect_size = None;
+
+                            match selected.object_type {
+                                ObjectType::Polygon => {
+                                    if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+                                        rect_pos = Some(poly.transform.position);
+                                        rect_size = Some(poly.dimensions);
+                                    }
+                                }
+                                ObjectType::TextItem => {
+                                    if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+                                        rect_pos = Some(text.transform.position);
+                                        rect_size = Some(text.dimensions);
+                                    }
+                                }
+                                ObjectType::ImageItem => {
+                                    if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+                                        rect_pos = Some(img.transform.position);
+                                        rect_size = Some((img.transform.scale.x, img.transform.scale.y));
+                                    }
+                                }
+                                ObjectType::VideoItem => {
+                                    if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+                                        rect_pos = Some(vid.transform.position);
+                                        rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
+                                    }
+                                }
+                            }
+
+                            if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
+                                let screen_rect = egui::Rect::from_center_size(
+                                    egui::pos2(pos.x, pos.y),
+                                    egui::vec2(size.0, size.1)
+                                );
+                                
+                                let painter = ui.painter();
+                                painter.rect_stroke(
+                                    screen_rect.expand(2.0),
+                                    2.0,
+                                    egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
+                                    StrokeKind::Middle
+                                );
+
+                                // Draw tiny handles at corners
+                                let handle_color = egui::Color32::WHITE;
+                                let handle_size = 6.0;
+                                for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
+                                    painter.rect_filled(
+                                        egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
+                                        1.0,
+                                        handle_color
+                                    );
+                                }
+                            }
+                        }
+                    }
                 });
+
+            // }
         }
     }
 }
