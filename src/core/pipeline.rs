@@ -1731,35 +1731,39 @@ impl ExportPipeline {
             self.window_size_bind_group = Some(window_size_bind_group);
     
             if let Some(editor) = self.export_editor.as_mut() {
-                if let Some(camera) = editor.camera.as_mut() {
-                    // camera.aspect = new_size.width as f32 / new_size.height as f32;
-                    camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
-                    camera.viewport.width = new_size.width as f32;
-                    camera.viewport.height = new_size.height as f32;
-                    camera.viewport.window_size.width = new_size.width;
-                    camera.viewport.window_size.height = new_size.height;
+                if editor.viewport_tab_rect.is_none() {
+                    if let Some(camera) = editor.camera.as_mut() {
+                        // camera.aspect = new_size.width as f32 / new_size.height as f32;
+                        camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
+                        camera.viewport.width = new_size.width as f32;
+                        camera.viewport.height = new_size.height as f32;
+                        camera.viewport.window_size.width = new_size.width;
+                        camera.viewport.window_size.height = new_size.height;
+                    }
                 }
             }
 
             // resize ui elements
             let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-            let window_size = WindowSize { width: new_size.width, height: new_size.height };
+            if editor.viewport_tab_rect.is_none() {
+                let window_size = WindowSize { width: new_size.width, height: new_size.height };
 
-            if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
-                enemy_health_bar.bar.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
-                enemy_health_bar.background.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
-            }
+                if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
+                    enemy_health_bar.bar.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
+                    enemy_health_bar.background.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
+                }
 
-            if let Some(crosshair) = &mut editor.crosshair {
-                crosshair.resize(&gpu_resources.queue, &window_size);
-            }
+                if let Some(crosshair) = &mut editor.crosshair {
+                    crosshair.resize(&gpu_resources.queue, &window_size);
+                }
 
-            if let Some(ammo_display) = &mut editor.ammo_display {
-                ammo_display.resize(&gpu_resources.queue, &window_size);
-            }
+                if let Some(ammo_display) = &mut editor.ammo_display {
+                    ammo_display.resize(&gpu_resources.queue, &window_size);
+                }
 
-            if let Some(mini_map) = &mut editor.mini_map {
-                mini_map.resize(&gpu_resources.queue, &window_size);
+                if let Some(mini_map) = &mut editor.mini_map {
+                    mini_map.resize(&gpu_resources.queue, &window_size);
+                }
             }
         }
     }
@@ -3349,39 +3353,7 @@ impl ExportPipeline {
             None
         };
     
-        if self.current_workspace == Workspace::GameEngine {
-            self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
-        } else if self.current_workspace == Workspace::Stunts {
-            let current_time_s = self.export_editor.as_ref()
-                .map(|e| e.video_current_time_ms as f64 / 1000.0)
-                .unwrap_or(0.0);
-            self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
-        } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
-            // ... (rest of the code)
-            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Clear Encoder"),
-            });
-            {
-                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Clear Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            }
-            gpu_resources.queue.submit(Some(encoder.finish()));
-        } else { // Addons
-            self.render_addon_frame(Some(&view), 0.0, viewport_rect);
-        }
+        
     
         if !game_mode {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -3435,6 +3407,40 @@ impl ExportPipeline {
             // drop(rpass);
         
             gpu_resources.queue.submit(Some(encoder.finish()));
+        }
+
+        if self.current_workspace == Workspace::GameEngine {
+            self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
+        } else if self.current_workspace == Workspace::Stunts {
+            let current_time_s = self.export_editor.as_ref()
+                .map(|e| e.video_current_time_ms as f64 / 1000.0)
+                .unwrap_or(0.0);
+            self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
+        } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
+            // ... (rest of the code)
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Clear Encoder"),
+            });
+            {
+                let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Clear Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+            }
+            gpu_resources.queue.submit(Some(encoder.finish()));
+        } else { // Addons
+            self.render_addon_frame(Some(&view), 0.0, viewport_rect);
         }
 
         output.present();
