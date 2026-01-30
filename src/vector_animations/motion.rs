@@ -719,7 +719,7 @@ impl Motion {
         editor: &mut Editor,
         provided_current_time_s: Option<f64>,
     ) {
-        if !editor.is_playing {
+        if !editor.video_is_playing {
             return;
         }
 

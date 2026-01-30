@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use crate::core::editor::Editor;
 use crate::shape_primitives::polygon::{SavedPolygonConfig, SavedPoint, SavedStroke};
@@ -62,6 +63,10 @@ impl VideoTimeline {
                 ui.horizontal(|ui| {
                     ui.group(|ui| {
                         if ui.button(if editor.video_is_playing { "⏸" } else { "⏵" }).clicked() {
+                            let now = Instant::now();
+                            editor.video_start_playing_time = Some(now.clone());
+                            editor.start_playing_time = Some(now);
+                            editor.is_playing = !editor.is_playing;
                             editor.video_is_playing = !editor.video_is_playing;
                         }
                         if ui.button("⏮").clicked() {

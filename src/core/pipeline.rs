@@ -172,7 +172,7 @@ impl ExportPipeline {
         let mut dock_state = DockState::new(vec![Tab::Viewport]);
         let surface = dock_state.main_surface_mut();
         let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Components, Tab::AssetLibrary]);
-        let [_, _] = surface.split_below(NodeIndex::root(), 0.5, vec![Tab::Properties, Tab::Chat]);
+        let [_, _] = surface.split_below(NodeIndex::root(), 0.7, vec![Tab::Properties, Tab::Chat]);
 
         let game_dock_state = dock_state.clone();
         
@@ -185,8 +185,8 @@ impl ExportPipeline {
 
         let mut stunts_dock_state = DockState::new(vec![Tab::Viewport]);
         let surface2 = stunts_dock_state.main_surface_mut();
-        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Properties, Tab::Chat]);
-        let [_, _] = surface2.split_below(NodeIndex::root(), 0.5, vec![Tab::VideoTimeline]);
+        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Projects, Tab::Animations, Tab::Properties, Tab::Chat]);
+        let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
 
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
         let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
@@ -3469,118 +3469,118 @@ impl ExportPipeline {
 
 
     fn ui(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::top("command_bar").show(ctx, |ui| {
-            ui.horizontal_centered(|ui| {
-                 // Check if we need to load projects
-                 if self.projects.is_empty() {
-                     if let Ok(registry) = utilities::load_project_registry() {
-                         for project in registry.projects {
-                             self.projects.push((project.project_name, project.project_id));
-                         }
-                     }
-                 }
+        // egui::TopBottomPanel::top("command_bar").show(ctx, |ui| {
+        //     ui.horizontal_centered(|ui| {
+        //          // Check if we need to load projects
+        //          if self.projects.is_empty() {
+        //              if let Ok(registry) = utilities::load_project_registry() {
+        //                  for project in registry.projects {
+        //                      self.projects.push((project.project_name, project.project_id));
+        //                  }
+        //              }
+        //          }
 
-                 let mut selected_text = "All Projects".to_string();
-                 if let Some(id) = &self.command_bar_project_id {
-                     if let Some((name, _)) = self.projects.iter().find(|(_, pid)| pid == id) {
-                         selected_text = name.clone();
-                     }
-                 }
+        //          let mut selected_text = "All Projects".to_string();
+        //          if let Some(id) = &self.command_bar_project_id {
+        //              if let Some((name, _)) = self.projects.iter().find(|(_, pid)| pid == id) {
+        //                  selected_text = name.clone();
+        //              }
+        //          }
 
-                 egui::ComboBox::from_id_source("command_bar_project_combo")
-                    .selected_text(selected_text)
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.command_bar_project_id, None, "All Projects");
-                        for (name, id) in &self.projects {
-                             ui.selectable_value(&mut self.command_bar_project_id, Some(id.clone()), name);
-                        }
-                    });
+        //          egui::ComboBox::from_id_source("command_bar_project_combo")
+        //             .selected_text(selected_text)
+        //             .show_ui(ui, |ui| {
+        //                 ui.selectable_value(&mut self.command_bar_project_id, None, "All Projects");
+        //                 for (name, id) in &self.projects {
+        //                      ui.selectable_value(&mut self.command_bar_project_id, Some(id.clone()), name);
+        //                 }
+        //             });
 
-                 let response = ui.add_sized(
-                     ui.available_size(),
-                     egui::TextEdit::multiline(&mut self.command_bar_input).desired_rows(2).hint_text("Enter AI command (Ctrl+K to focus)...")
-                 );
+        //          let response = ui.add_sized(
+        //              ui.available_size(),
+        //              egui::TextEdit::multiline(&mut self.command_bar_input).desired_rows(2).hint_text("Enter AI command (Ctrl+K to focus)...")
+        //          );
                  
-                 if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::K)) {
-                     response.request_focus();
-                 }
+        //          if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::K)) {
+        //              response.request_focus();
+        //          }
 
-                 if response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-                     if !self.command_bar_input.trim().is_empty() {
-                         let content = self.command_bar_input.clone();
-                         self.command_bar_input.clear();
+        //          if response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        //              if !self.command_bar_input.trim().is_empty() {
+        //                  let content = self.command_bar_input.clone();
+        //                  self.command_bar_input.clear();
                          
-                         self.chat.is_loading = true;
+        //                  self.chat.is_loading = true;
                          
-                         let client = self.chat.client.clone();
-                         let api_url = self.chat.api_url.clone();
+        //                  let client = self.chat.client.clone();
+        //                  let api_url = self.chat.api_url.clone();
                          
-                         // Determine project ID
-                         let project_id_to_use = self.command_bar_project_id.clone()
-                             .or_else(|| self.export_editor.as_ref().and_then(|e| e.world_state.as_ref()).and_then(|ws| ws.id.clone()));
+        //                  // Determine project ID
+        //                  let project_id_to_use = self.command_bar_project_id.clone()
+        //                      .or_else(|| self.export_editor.as_ref().and_then(|e| e.world_state.as_ref()).and_then(|ws| ws.id.clone()));
                         
-                        // TODO: need to load the correct state depending on either the chosen project, or, if All Projects is chosen, then it needs to
-                        // use an AI endpoint to decide which project is relevant to the AI command, then here we use that info to finally send the relevant state
-                        // probably easiest to just freshly load the relevant project's state direct from file once it is chosen / determined
-                         let mut world_state_cl = None;
-                         if let Some(editor) = self.export_editor.as_ref() {
-                             if let Some(ws) = &editor.world_state {
-                                 world_state_cl = Some(ws.clone());
-                             }
-                         }
+        //                 // TODO: need to load the correct state depending on either the chosen project, or, if All Projects is chosen, then it needs to
+        //                 // use an AI endpoint to decide which project is relevant to the AI command, then here we use that info to finally send the relevant state
+        //                 // probably easiest to just freshly load the relevant project's state direct from file once it is chosen / determined
+        //                  let mut world_state_cl = None;
+        //                  if let Some(editor) = self.export_editor.as_ref() {
+        //                      if let Some(ws) = &editor.world_state {
+        //                          world_state_cl = Some(ws.clone());
+        //                      }
+        //                  }
                          
-                         let current_session = self.chat.current_session.clone();
-                         let (tx, rx) = std::sync::mpsc::channel();
-                         self.chat.rx = Some(rx);
+        //                  let current_session = self.chat.current_session.clone();
+        //                  let (tx, rx) = std::sync::mpsc::channel();
+        //                  self.chat.rx = Some(rx);
 
-                         // Add user message to chat immediately for UI feedback
-                         self.chat.messages.push(ChatMessage {
-                             id: Uuid::new_v4().to_string(),
-                             role: "user".to_string(),
-                             content: Some(content.clone()),
-                             tool_call_id: None,
-                             tool_calls: None,
-                         });
+        //                  // Add user message to chat immediately for UI feedback
+        //                  self.chat.messages.push(ChatMessage {
+        //                      id: Uuid::new_v4().to_string(),
+        //                      role: "user".to_string(),
+        //                      content: Some(content.clone()),
+        //                      tool_call_id: None,
+        //                      tool_calls: None,
+        //                  });
 
-                         std::thread::spawn(move || {
-                             let rt = tokio::runtime::Runtime::new().unwrap();
-                             rt.block_on(async {
-                                 let mut session_id = None;
+        //                  std::thread::spawn(move || {
+        //                      let rt = tokio::runtime::Runtime::new().unwrap();
+        //                      rt.block_on(async {
+        //                          let mut session_id = None;
                                  
-                                 if let Some(s) = current_session {
-                                     session_id = Some(s.id);
-                                 } else if let Some(pid) = project_id_to_use {
-                                     // Create session
-                                     let url = format!("{}/api/sessions", api_url);
-                                     let body = serde_json::json!({ "projectId": pid });
-                                     if let Ok(res) = client.post(&url).json(&body).send().await {
-                                         if let Ok(session) = res.json::<ChatSession>().await {
-                                             session_id = Some(session.id);
-                                         }
-                                     }
-                                 }
+        //                          if let Some(s) = current_session {
+        //                              session_id = Some(s.id);
+        //                          } else if let Some(pid) = project_id_to_use {
+        //                              // Create session
+        //                              let url = format!("{}/api/sessions", api_url);
+        //                              let body = serde_json::json!({ "projectId": pid });
+        //                              if let Ok(res) = client.post(&url).json(&body).send().await {
+        //                                  if let Ok(session) = res.json::<ChatSession>().await {
+        //                                      session_id = Some(session.id);
+        //                                  }
+        //                              }
+        //                          }
 
-                                 if let Some(sid) = session_id {
-                                     let url = format!("{}/api/sessions/{}/messages", api_url, sid);
-                                     let body = serde_json::json!({
-                                         "role": "user",
-                                         "content": content,
-                                         "world_state": world_state_cl
-                                     });
+        //                          if let Some(sid) = session_id {
+        //                              let url = format!("{}/api/sessions/{}/messages", api_url, sid);
+        //                              let body = serde_json::json!({
+        //                                  "role": "user",
+        //                                  "content": content,
+        //                                  "world_state": world_state_cl
+        //                              });
                                      
-                                     let res = client.post(&url).json(&body).send().await;
-                                     if let Ok(resp) = res {
-                                         if let Ok(msg) = resp.json::<ChatMessage>().await {
-                                             let _ = tx.send(msg);
-                                         }
-                                     }
-                                 }
-                             });
-                         });
-                     }
-                 }
-            });
-        });
+        //                              let res = client.post(&url).json(&body).send().await;
+        //                              if let Ok(resp) = res {
+        //                                  if let Ok(msg) = resp.json::<ChatMessage>().await {
+        //                                      let _ = tx.send(msg);
+        //                                  }
+        //                              }
+        //                          }
+        //                      });
+        //                  });
+        //              }
+        //          }
+        //     });
+        // });
 
         let mut context = UiContext {
             export_editor: &mut self.export_editor,
