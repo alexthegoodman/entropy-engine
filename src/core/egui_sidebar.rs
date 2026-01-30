@@ -1454,10 +1454,6 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 let sophia = &mut editor.sophia_app_state;
 
                 ui.heading("Grammar & Style");
-                if ui.button("Scan Text").clicked() {
-                    println!("Scanning text...");
-                    // Implementation for scanning text via OpenAI would go here
-                }
 
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     if sophia.grammar_issues.is_empty() {
