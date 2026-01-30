@@ -430,6 +430,12 @@ pub struct Editor {
     pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
 
     pub webview_visible: bool,
+
+    // Animation Presets UI State
+    pub anim_preset_circle_radius: f32,
+    pub anim_preset_circle_duration: f32,
+    pub anim_preset_bounce_intensity: f32,
+    pub anim_preset_bounce_duration: f32,
 }
 
 
@@ -798,7 +804,11 @@ impl Editor {
             writing_webview_bounds: None,
             viewport_tab_rect: None,
             webview_ipc_rx: None,
-            webview_visible: false
+            webview_visible: false,
+            anim_preset_circle_radius: 100.0,
+            anim_preset_circle_duration: 2000.0,
+            anim_preset_bounce_intensity: 50.0,
+            anim_preset_bounce_duration: 1000.0,
         }
     }
 }

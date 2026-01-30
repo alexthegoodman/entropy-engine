@@ -918,7 +918,7 @@ let Editor { world_state, renderer_state, .. } = editor;
                                  if let Some(val) = args.wind_speed { grass.config.wind_speed = val; }
                                  if let Some(val) = args.blade_height { grass.config.blade_height = val; }
                                  if let Some(val) = args.blade_width { grass.config.blade_width = val; }
-                                 if let Some(val) = args.blade_density { grass.config.blade_density = val; }
+                                 if let Some(val) = args.blade_density { grass.config.blade_density = val as f32; }
                                  if let Some(val) = args.render_distance { grass.config.render_distance = val; }
                              }
                         }
@@ -958,7 +958,7 @@ let Editor { world_state, renderer_state, .. } = editor;
                                             wind_speed: args.wind_speed.unwrap_or(0.3),
                                             blade_height: args.blade_height.unwrap_or(2.75),
                                             blade_width: args.blade_width.unwrap_or(0.03),
-                                            blade_density: args.blade_density.unwrap_or(15.0) as u32,
+                                            blade_density: args.blade_density.unwrap_or(15) as u32,
                                             render_distance: args.render_distance.unwrap_or(150.0),
                                             grid_size: 10.0,
                                             brownian_strength: 0.5,

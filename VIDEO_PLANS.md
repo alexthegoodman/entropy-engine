@@ -7,6 +7,7 @@ We already have video import, export, and screen capture. We also have 2D and 3D
 - Keyframe Timeline (with edge-resizing, snapping, and interactive keyframes)
 - AI-driven Clip Arrangement (`arrangeVideoClips`)
 - AI-driven Animation Generation (`animateVideoObject`, `addVideoKeyframe`)
+- Parametric Animation Presets (Animations tab with configurable Geometric/Elegant paths)
 
 ## Needs
 

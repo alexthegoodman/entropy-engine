@@ -62,6 +62,7 @@ pub enum Tab {
     Writing,
     Addons,
     VideoTimeline,
+    Animations,
     Research,
     Publish,
     Grammar,
@@ -78,13 +79,50 @@ pub struct UiContext<'a> {
     pub projects: &'a mut Vec<(String, String)>,
     pub selected_component_id: &'a mut Option<String>,
     pub chat: &'a mut Chat,
-    pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimelineUi,
+    pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimeline,
     pub gpu_resources: &'a Option<Arc<GpuResources>>,
     pub current_app: AppExperience,
 }
 
 pub struct PipelineTabViewer<'a> {
     pub context: UiContext<'a>,
+}
+
+
+fn apply_keyframes_to_selected(editor: &mut Editor, property_name: &str, keyframes: Vec<crate::vector_animations::animations::UIKeyframe>) {
+    if let Some(selected) = &editor.selected_object {
+        if let Some(stunts_state) = &mut editor.stunts_state {
+            let paths = stunts_state.object_motion_paths.get_or_insert_with(Vec::new);
+            let object_id_str = selected.object_id.to_string();
+            
+            if let Some(path) = paths.iter_mut().find(|p| p.polygon_id == object_id_str) {
+                if let Some(prop) = path.properties.iter_mut().find(|p| p.name == property_name) {
+                    prop.keyframes = keyframes;
+                } else {
+                    path.properties.push(crate::vector_animations::animations::AnimationProperty {
+                        name: property_name.to_string(),
+                        keyframes,
+                        ..Default::default()
+                    });
+                }
+            } else {
+                paths.push(crate::vector_animations::animations::AnimationData {
+                    id: Uuid::new_v4().to_string(),
+                    polygon_id: object_id_str,
+                    properties: vec![crate::vector_animations::animations::AnimationProperty {
+                        name: property_name.to_string(),
+                        keyframes,
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                });
+            }
+
+            if let Some(project_id) = &stunts_state.id {
+                let _ = crate::helpers::utilities::update_project_state(project_id, stunts_state);
+            }
+        }
+    }
 }
 
 impl<'a> TabViewer for PipelineTabViewer<'a> {
@@ -1381,6 +1419,48 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::VideoTimeline => {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 self.context.video_timeline_ui.show(ui, editor);
+            }
+            Tab::Animations => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                ui.heading("Animation Presets");
+                
+                if let Some(selected) = &editor.selected_object {
+                    ui.label(format!("Applying to: {}", selected.object_id));
+                    ui.separator();
+
+                    egui::CollapsingHeader::new("⭕ Geometric: Circle")
+                        .default_open(true)
+                        .show(ui, |ui| {
+                            ui.add(egui::Slider::new(&mut editor.anim_preset_circle_radius, 10.0..=500.0).text("Radius"));
+                            ui.add(egui::Slider::new(&mut editor.anim_preset_circle_duration, 500.0..=10000.0).text("Duration (ms)"));
+                            if ui.button("Apply Circle Motion").clicked() {
+                                let kfs = crate::vector_animations::presets::generate_circle_keyframes(
+                                    editor.anim_preset_circle_radius,
+                                    editor.anim_preset_circle_duration as u64,
+                                    24
+                                );
+                                apply_keyframes_to_selected(editor, "Position", kfs);
+                            }
+                        });
+
+                    ui.add_space(10.0);
+
+                    egui::CollapsingHeader::new("🏀 Elegant: Elastic Bounce")
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            ui.add(egui::Slider::new(&mut editor.anim_preset_bounce_intensity, 10.0..=300.0).text("Intensity"));
+                            ui.add(egui::Slider::new(&mut editor.anim_preset_bounce_duration, 200.0..=5000.0).text("Duration (ms)"));
+                            if ui.button("Apply Bounce").clicked() {
+                                let kfs = crate::vector_animations::presets::generate_bounce_keyframes(
+                                    editor.anim_preset_bounce_intensity,
+                                    editor.anim_preset_bounce_duration as u64
+                                );
+                                apply_keyframes_to_selected(editor, "Position", kfs);
+                            }
+                        });
+                } else {
+                    // ui.warning("Select an object in the viewport or timeline to apply animations.");
+                }
             }
             Tab::Research => {
                 let editor = self.context.export_editor.as_mut().unwrap();

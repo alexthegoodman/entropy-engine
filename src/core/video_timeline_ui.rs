@@ -7,7 +7,7 @@ use egui::{Ui, Rect, Pos2, Vec2, Color32, Stroke, Sense, Align2, FontId, Id};
 use uuid::Uuid;
 use rfd::FileDialog;
 
-pub struct VideoTimelineUi {
+pub struct VideoTimeline {
     pub zoom: f32, // ms per pixel
     pub scroll_x: f32,
     pub track_height: f32,
@@ -29,7 +29,7 @@ pub enum DraggingState {
     },
 }
 
-impl VideoTimelineUi {
+impl VideoTimeline {
     pub fn new() -> Self {
         Self {
             zoom: 50.0, // 50ms per pixel
@@ -315,7 +315,7 @@ impl VideoTimelineUi {
                                 }
                             }
 
-                            if clip_res.drag_released() {
+                            if clip_res.drag_stopped() {
                                 self.dragging_state = None;
                             }
 
@@ -323,15 +323,18 @@ impl VideoTimelineUi {
                                 self.selected_ts_id = Some(id.to_string());
                                 // Sync with editor selection
                                 let obj_type = match target_type {
-                                    DeleteTarget::Polygon(_) => crate::vector_animations::animations::ObjectType::Polygon,
-                                    DeleteTarget::Text(_) => crate::vector_animations::animations::ObjectType::TextItem,
-                                    DeleteTarget::Image(_) => crate::vector_animations::animations::ObjectType::ImageItem,
-                                    DeleteTarget::Video(_) => crate::vector_animations::animations::ObjectType::VideoItem,
+                                    DeleteTarget::Polygon(_) => Some(crate::vector_animations::animations::ObjectType::Polygon),
+                                    DeleteTarget::Text(_) => Some(crate::vector_animations::animations::ObjectType::TextItem),
+                                    DeleteTarget::Image(_) => Some(crate::vector_animations::animations::ObjectType::ImageItem),
+                                    DeleteTarget::Video(_) => Some(crate::vector_animations::animations::ObjectType::VideoItem),
+                                    _ => None
                                 };
-                                editor.selected_object = Some(crate::core::editor::SelectedObject {
-                                    object_id: Uuid::parse_str(id).unwrap_or_default(),
-                                    object_type: obj_type,
-                                });
+                                if let Some(obj_type) = obj_type {
+                                    editor.selected_object = Some(crate::core::editor::SelectedObject {
+                                        object_id: Uuid::parse_str(id).unwrap_or_default(),
+                                        object_type: obj_type,
+                                    });
+                                }
                             }
 
                             if clip_res.dragged() {
@@ -363,15 +366,18 @@ impl VideoTimelineUi {
                                 self.selected_ts_id = Some(id.to_string());
                                 // Sync with editor selection
                                 let obj_type = match target_type {
-                                    DeleteTarget::Polygon(_) => crate::vector_animations::animations::ObjectType::Polygon,
-                                    DeleteTarget::Text(_) => crate::vector_animations::animations::ObjectType::TextItem,
-                                    DeleteTarget::Image(_) => crate::vector_animations::animations::ObjectType::ImageItem,
-                                    DeleteTarget::Video(_) => crate::vector_animations::animations::ObjectType::VideoItem,
+                                    DeleteTarget::Polygon(_) => Some(crate::vector_animations::animations::ObjectType::Polygon),
+                                    DeleteTarget::Text(_) => Some(crate::vector_animations::animations::ObjectType::TextItem),
+                                    DeleteTarget::Image(_) => Some(crate::vector_animations::animations::ObjectType::ImageItem),
+                                    DeleteTarget::Video(_) => Some(crate::vector_animations::animations::ObjectType::VideoItem),
+                                    _ => None
                                 };
-                                editor.selected_object = Some(crate::core::editor::SelectedObject {
-                                    object_id: Uuid::parse_str(id).unwrap_or_default(),
-                                    object_type: obj_type,
-                                });
+                                if let Some(obj_type) = obj_type {
+                                    editor.selected_object = Some(crate::core::editor::SelectedObject {
+                                        object_id: Uuid::parse_str(id).unwrap_or_default(),
+                                        object_type: obj_type,
+                                    });
+                                }
                             }
 
                             clip_res.context_menu(|ui| {
@@ -567,7 +573,7 @@ impl VideoTimelineUi {
                                                     kf.time = std::time::Duration::from_millis(snapped_time.clamp(0, duration_ms) as u64);
                                                 }
 
-                                                if kf_res.drag_released() {
+                                                if kf_res.drag_stopped() {
                                                     self.dragging_state = None;
                                                     prop.keyframes.sort_by_key(|k| k.time);
                                                 }
