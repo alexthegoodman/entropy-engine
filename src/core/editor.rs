@@ -426,6 +426,7 @@ pub struct Editor {
     pub ui_model_bind_group_layout: Option<Arc<BindGroupLayout>>,
     pub writing_webview_bounds: Option<[f32; 4]>,
     pub viewport_tab_rect: Option<[f32; 4]>,
+    pub is_viewport_visible: bool,
     pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
 
     pub webview_visible: bool,
@@ -752,6 +753,7 @@ impl Editor {
             video_start_playing_time: None,
             video_current_time_ms: 0,
             video_total_duration_ms: 60000, // 60 seconds default
+            is_viewport_visible: false,
             // dragging_path: None,
             // dragging_path_handle: None,
             // on_handle_mouse_up: None,

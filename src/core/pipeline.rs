@@ -3355,16 +3355,7 @@ impl ExportPipeline {
         // let scale_factor = gui.ctx.pixels_per_point();
         // println!("pixels_per_point {:?}", scale_factor);
         let scale_factor = 1.0;
-        let viewport_rect = if let Some(editor) = &self.export_editor {
-            editor.viewport_tab_rect.map(|r| [
-                r[0] * scale_factor,
-                r[1] * scale_factor,
-                r[2] * scale_factor,
-                r[3] * scale_factor,
-            ])
-        } else {
-            None
-        };
+        
     
         
     
@@ -3376,6 +3367,7 @@ impl ExportPipeline {
             if let Some(editor) = &mut self.export_editor {
                 editor.writing_webview_bounds = None;
                 editor.viewport_tab_rect = None;
+                editor.is_viewport_visible = false;
             }
 
             let raw_input = gui.state.take_egui_input(&window);
@@ -3422,38 +3414,53 @@ impl ExportPipeline {
             gpu_resources.queue.submit(Some(encoder.finish()));
         }
 
-        if self.current_workspace == Workspace::GameEngine {
-            self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
-        } else if self.current_workspace == Workspace::Stunts {
-            let current_time_s = self.export_editor.as_ref()
-                .map(|e| e.video_current_time_ms as f64 / 1000.0)
-                .unwrap_or(0.0);
-            self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
-        } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
-            // // ... (rest of the code)
-            // let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            //     label: Some("Clear Encoder"),
-            // });
-            // {
-            //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            //         label: Some("Clear Pass"),
-            //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-            //             view: &view,
-            //             resolve_target: None,
-            //             ops: wgpu::Operations {
-            //                 load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
-            //                 store: wgpu::StoreOp::Store,
-            //             },
-            //             depth_slice: None,
-            //         })],
-            //         depth_stencil_attachment: None,
-            //         timestamp_writes: None,
-            //         occlusion_query_set: None,
-            //     });
-            // }
-            // gpu_resources.queue.submit(Some(encoder.finish()));
-        } else { // Addons
-            self.render_addon_frame(Some(&view), 0.0, viewport_rect);
+        let viewport_rect = if let Some(editor) = &self.export_editor {
+            editor.viewport_tab_rect.map(|r| [
+                r[0] * scale_factor,
+                r[1] * scale_factor,
+                r[2] * scale_factor,
+                r[3] * scale_factor,
+            ])
+        } else {
+            None
+        };
+
+        let is_viewport_visible = self.export_editor.as_ref().map(|e| e.is_viewport_visible).unwrap_or(true);
+
+        if is_viewport_visible || game_mode {
+            if self.current_workspace == Workspace::GameEngine {
+                self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
+            } else if self.current_workspace == Workspace::Stunts {
+                let current_time_s = self.export_editor.as_ref()
+                    .map(|e| e.video_current_time_ms as f64 / 1000.0)
+                    .unwrap_or(0.0);
+                self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
+            } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
+                // // ... (rest of the code)
+                // let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                //     label: Some("Clear Encoder"),
+                // });
+                // {
+                //     let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                //         label: Some("Clear Pass"),
+                //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                //             view: &view,
+                //             resolve_target: None,
+                //             ops: wgpu::Operations {
+                //                 load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.05, g: 0.05, b: 0.05, a: 1.0 }),
+                //                 store: wgpu::StoreOp::Store,
+                //             },
+                //             depth_slice: None,
+                //         })],
+                //         depth_stencil_attachment: None,
+                //         timestamp_writes: None,
+                //         occlusion_query_set: None,
+                //     });
+                // }
+                // gpu_resources.queue.submit(Some(encoder.finish()));
+            } else { // Addons
+                self.render_addon_frame(Some(&view), 0.0, viewport_rect);
+            }
         }
 
         output.present();
