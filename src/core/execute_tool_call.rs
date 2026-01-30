@@ -110,13 +110,38 @@ impl<'a> PipelineTabViewer<'a> {
     struct ConfigureGrassArgs {
         #[serde(rename = "componentId")]
         component_id: Option<String>,
+        grid_size: Option<f32>,
+        render_distance: Option<f32>,
+        blade_density: Option<u32>,
         wind_strength: Option<f32>,
         wind_speed: Option<f32>,
         blade_height: Option<f32>,
         blade_width: Option<f32>,
-        blade_density: Option<f32>, // Changing to f32 to match tool definition, will cast to u32
-        render_distance: Option<f32>,
+        brownian_strength: Option<f32>,
     }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct ArrangeVideoClipsArgs {
+        track_index: i32,
+        gap_ms: i32,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct AnimateVideoObjectArgs {
+        object_id: String,
+        property_name: String,
+        keyframes: Vec<crate::vector_animations::animations::UIKeyframe>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct AddVideoKeyframeArgs {
+        object_id: String,
+        property_name: String,
+        time_ms: i32,
+        value: crate::vector_animations::animations::KeyframeValue,
+    }
+
+
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
     struct SpawnPrimitiveArgs {
@@ -1516,6 +1541,121 @@ let Editor { world_state, renderer_state, .. } = editor;
                     }
             //     }
             // }
+        }
+    } else if tool_call.function.name == "arrangeVideoClips" {
+        let args: Result<ArrangeVideoClipsArgs, _> = serde_json::from_str(&tool_call.function.arguments);
+        if let Ok(args) = args {
+            if let Some(editor) = &mut self.context.export_editor {
+                if let Some(stunts_state) = &mut editor.stunts_state {
+                    // Collect all clips on the specified track
+                    let mut clips: Vec<(&mut i32, i32)> = Vec::new();
+                    
+                    if let Some(polygons) = &mut stunts_state.active_polygons {
+                        for p in polygons { if p.layer == args.track_index { clips.push((&mut p.start_time_ms, p.duration_ms)); } }
+                    }
+                    if let Some(texts) = &mut stunts_state.active_text_items {
+                        for t in texts { if t.layer == args.track_index { clips.push((&mut t.start_time_ms, t.duration_ms)); } }
+                    }
+                    if let Some(images) = &mut stunts_state.active_image_items {
+                        for i in images { if i.layer == args.track_index { clips.push((&mut i.start_time_ms, i.duration_ms)); } }
+                    }
+                    if let Some(videos) = &mut stunts_state.active_video_items {
+                        for v in videos { if v.layer == args.track_index { clips.push((&mut v.start_time_ms, v.duration_ms)); } }
+                    }
+
+                    // Sort by start time
+                    clips.sort_by_key(|(start, _)| **start);
+
+                    // Re-arrange
+                    let mut current_time = 0;
+                    for (start, duration) in clips {
+                        *start = current_time;
+                        current_time += duration + args.gap_ms;
+                    }
+
+                    if let Some(project_id) = &stunts_state.id {
+                        let _ = update_project_state(project_id, stunts_state);
+                    }
+                }
+            }
+        }
+    } else if tool_call.function.name == "animateVideoObject" {
+        let args: Result<AnimateVideoObjectArgs, _> = serde_json::from_str(&tool_call.function.arguments);
+        if let Ok(args) = args {
+            if let Some(editor) = &mut self.context.export_editor {
+                if let Some(stunts_state) = &mut editor.stunts_state {
+                    let paths = stunts_state.object_motion_paths.get_or_insert_with(Vec::new);
+                    
+                    if let Some(path) = paths.iter_mut().find(|p| p.polygon_id == args.object_id) {
+                        if let Some(prop) = path.properties.iter_mut().find(|p| p.name == args.property_name) {
+                            prop.keyframes = args.keyframes;
+                        } else {
+                            path.properties.push(crate::vector_animations::animations::AnimationProperty {
+                                name: args.property_name,
+                                keyframes: args.keyframes,
+                                ..Default::default()
+                            });
+                        }
+                    } else {
+                        // Create new path
+                        paths.push(crate::vector_animations::animations::AnimationData {
+                            id: Uuid::new_v4().to_string(),
+                            polygon_id: args.object_id,
+                            properties: vec![crate::vector_animations::animations::AnimationProperty {
+                                name: args.property_name,
+                                keyframes: args.keyframes,
+                                ..Default::default()
+                            }],
+                            ..Default::default()
+                        });
+                    }
+
+                    if let Some(project_id) = &stunts_state.id {
+                        let _ = update_project_state(project_id, stunts_state);
+                    }
+                }
+            }
+        }
+    } else if tool_call.function.name == "addVideoKeyframe" {
+        let args: Result<AddVideoKeyframeArgs, _> = serde_json::from_str(&tool_call.function.arguments);
+        if let Ok(args) = args {
+            if let Some(editor) = &mut self.context.export_editor {
+                if let Some(stunts_state) = &mut editor.stunts_state {
+                    let paths = stunts_state.object_motion_paths.get_or_insert_with(Vec::new);
+                    let path = if let Some(idx) = paths.iter().position(|p| p.polygon_id == args.object_id) {
+                        &mut paths[idx]
+                    } else {
+                        paths.push(crate::vector_animations::animations::AnimationData {
+                            id: Uuid::new_v4().to_string(),
+                            polygon_id: args.object_id.clone(),
+                            ..Default::default()
+                        });
+                        paths.last_mut().unwrap()
+                    };
+
+                    let prop = if let Some(idx) = path.properties.iter().position(|p| p.name == args.property_name) {
+                        &mut path.properties[idx]
+                    } else {
+                        path.properties.push(crate::vector_animations::animations::AnimationProperty {
+                            name: args.property_name.clone(),
+                            ..Default::default()
+                        });
+                        path.properties.last_mut().unwrap()
+                    };
+
+                    prop.keyframes.push(crate::vector_animations::animations::UIKeyframe {
+                        id: Uuid::new_v4().to_string(),
+                        time: std::time::Duration::from_millis(args.time_ms as u64),
+                        value: args.value,
+                        ..Default::default()
+                    });
+                    prop.keyframes.sort_by_key(|k| k.time);
+
+                    if let Some(project_id) = &stunts_state.id {
+                        let _ = update_project_state(project_id, stunts_state);
+                    }
+                }
+            }
         }
     }
     

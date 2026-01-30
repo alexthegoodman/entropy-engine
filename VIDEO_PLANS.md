@@ -2,10 +2,15 @@
 
 We already have video import, export, and screen capture. We also have 2D and 3D elements to render and saved state to represent video sequences.
 
+## Completed
+
+- Keyframe Timeline (with edge-resizing, snapping, and interactive keyframes)
+- AI-driven Clip Arrangement (`arrangeVideoClips`)
+- AI-driven Animation Generation (`animateVideoObject`, `addVideoKeyframe`)
+
 ## Needs
 
-- Keyframe Timeline
-
-- Slice, cut, and arrange clips with remote AI
-- Generate animations with remote AI
+- Slice and cut clips with remote AI
 - Generate clips with remote AI
+- Audio track visualization and editing
+- Transitions between clips

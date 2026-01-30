@@ -379,6 +379,14 @@ impl VideoTimelineUi {
                                     item_to_delete = Some(target_type);
                                     ui.close_menu();
                                 }
+                                if ui.button("Clear All Animation").clicked() {
+                                    if let Some(stunts_state) = &mut editor.stunts_state {
+                                        if let Some(paths) = &mut stunts_state.object_motion_paths {
+                                            paths.retain(|p| p.polygon_id != id);
+                                        }
+                                    }
+                                    ui.close_menu();
+                                }
                             });
 
                             let is_selected = self.selected_ts_id.as_ref() == Some(&id.to_string());
@@ -467,8 +475,11 @@ impl VideoTimelineUi {
                         // Property tracks for selected item
                         if self.properties_open {
                             if let Some(selected_id) = &self.selected_ts_id {
-                                if let Some(animation_paths) = &stunts_state.object_motion_paths {
-                                    if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == *selected_id) {
+                                if let Some(animation_paths) = &mut stunts_state.object_motion_paths {
+                                    if let Some(anim_idx) = animation_paths.iter().position(|a| a.polygon_id == *selected_id) {
+                                        let anim = &mut animation_paths[anim_idx];
+                                        let anim_uuid = Uuid::parse_str(&anim.id).unwrap_or_default();
+                                        
                                         // Header
                                         painter.rect_filled(
                                             Rect::from_min_size(Pos2::new(timeline_rect.min.x, current_y), Vec2::new(timeline_rect.width(), 20.0)),
@@ -484,9 +495,24 @@ impl VideoTimelineUi {
                                         );
                                         current_y += 20.0;
 
+                                        let start_time_ms = stunts_state.active_polygons.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms)
+                                            .or_else(|| stunts_state.active_text_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                            .or_else(|| stunts_state.active_image_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                            .or_else(|| stunts_state.active_video_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
+                                            .unwrap_or(0);
+                                        let duration_ms = stunts_state.active_polygons.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.duration_ms)
+                                            .or_else(|| stunts_state.active_text_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.duration_ms))
+                                            .or_else(|| stunts_state.active_image_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.duration_ms))
+                                            .or_else(|| stunts_state.active_video_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.duration_ms))
+                                            .unwrap_or(0);
+
                                         // Tracks
-                                        for prop in &anim.properties {
+                                        for prop_idx in 0..anim.properties.len() {
+                                            let prop = &mut anim.properties[prop_idx];
                                             let track_rect = Rect::from_min_size(Pos2::new(timeline_rect.min.x, current_y), Vec2::new(timeline_rect.width(), 25.0));
+                                            let track_id = Id::new("prop_track").with(anim_uuid).with(prop_idx);
+                                            let track_res = ui.interact(track_rect, track_id, Sense::click_and_drag());
+                                            
                                             painter.rect_filled(track_rect, 0.0, Color32::from_rgb(30, 30, 30));
                                             painter.line_segment(
                                                 [Pos2::new(timeline_rect.min.x, current_y + 25.0), Pos2::new(timeline_rect.max.x, current_y + 25.0)],
@@ -501,18 +527,58 @@ impl VideoTimelineUi {
                                                 Color32::GRAY
                                             );
 
-                                            // Draw keyframes for this specific property
-                                            for kf in &prop.keyframes {
-                                                let kf_time_ms = kf.time.as_millis() as i32;
-                                                let start_time_ms = stunts_state.active_polygons.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms)
-                                                    .or_else(|| stunts_state.active_text_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
-                                                    .or_else(|| stunts_state.active_image_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
-                                                    .or_else(|| stunts_state.active_video_items.as_ref().and_then(|v| v.iter().find(|p| p.id == *selected_id)).map(|p| p.start_time_ms))
-                                                    .unwrap_or(0);
+                                            track_res.context_menu(|ui| {
+                                                if ui.button("Add Keyframe at Playhead").clicked() {
+                                                    let kf_time = (editor.video_current_time_ms - start_time_ms).clamp(0, duration_ms);
+                                                    prop.keyframes.push(crate::vector_animations::animations::UIKeyframe {
+                                                        id: Uuid::new_v4().to_string(),
+                                                        time: std::time::Duration::from_millis(kf_time as u64),
+                                                        ..Default::default()
+                                                    });
+                                                    prop.keyframes.sort_by_key(|k| k.time);
+                                                    ui.close_menu();
+                                                }
+                                            });
 
+                                            // Draw keyframes for this specific property
+                                            for kf_idx in 0..prop.keyframes.len() {
+                                                let kf = &mut prop.keyframes[kf_idx];
+                                                let kf_time_ms = kf.time.as_millis() as i32;
                                                 let kf_x = time_to_x(start_time_ms + kf_time_ms);
                                                 let kf_pos = Pos2::new(kf_x, current_y + 12.5);
+                                                let kf_rect = Rect::from_center_size(kf_pos, Vec2::new(10.0, 10.0));
                                                 
+                                                let kf_id = Id::new("kf_drag").with(anim_uuid).with(prop_idx).with(kf_idx);
+                                                let kf_res = ui.interact(kf_rect, kf_id, Sense::drag());
+
+                                                if kf_res.drag_started() {
+                                                    self.dragging_state = Some(DraggingState::DraggingKeyframe {
+                                                        anim_id: anim_uuid,
+                                                        prop_idx,
+                                                        kf_idx,
+                                                    });
+                                                }
+
+                                                if kf_res.dragged() {
+                                                    let delta_x = kf_res.drag_delta().x;
+                                                    let delta_time = (delta_x * self.zoom) as i32;
+                                                    let new_time_ms = (kf_time_ms + delta_time).clamp(0, duration_ms);
+                                                    let snapped_time = snap_to_playhead(start_time_ms + new_time_ms) - start_time_ms;
+                                                    kf.time = std::time::Duration::from_millis(snapped_time.clamp(0, duration_ms) as u64);
+                                                }
+
+                                                if kf_res.drag_released() {
+                                                    self.dragging_state = None;
+                                                    prop.keyframes.sort_by_key(|k| k.time);
+                                                }
+
+                                                kf_res.context_menu(|ui| {
+                                                    if ui.button("Delete Keyframe").clicked() {
+                                                        item_to_delete = Some(DeleteTarget::Keyframe { anim_idx, prop_idx, kf_idx });
+                                                        ui.close_menu();
+                                                    }
+                                                });
+
                                                 let diamond_points = vec![
                                                     Pos2::new(kf_pos.x, kf_pos.y - 5.0),
                                                     Pos2::new(kf_pos.x + 5.0, kf_pos.y),
@@ -521,7 +587,7 @@ impl VideoTimelineUi {
                                                 ];
                                                 painter.add(egui::Shape::convex_polygon(
                                                     diamond_points,
-                                                    Color32::from_rgb(200, 200, 200),
+                                                    if kf_res.hovered() || kf_res.dragged() { Color32::WHITE } else { Color32::from_rgb(200, 200, 200) },
                                                     Stroke::new(1.0, Color32::BLACK)
                                                 ));
                                             }
@@ -541,6 +607,17 @@ impl VideoTimelineUi {
                                 DeleteTarget::Text(idx) => { stunts_state.active_text_items.as_mut().map(|v| v.remove(idx)); },
                                 DeleteTarget::Image(idx) => { stunts_state.active_image_items.as_mut().map(|v| v.remove(idx)); },
                                 DeleteTarget::Video(idx) => { stunts_state.active_video_items.as_mut().map(|v| v.remove(idx)); },
+                                DeleteTarget::Keyframe { anim_idx, prop_idx, kf_idx } => {
+                                    if let Some(paths) = &mut stunts_state.object_motion_paths {
+                                        if let Some(anim) = paths.get_mut(anim_idx) {
+                                            if let Some(prop) = anim.properties.get_mut(prop_idx) {
+                                                if kf_idx < prop.keyframes.len() {
+                                                    prop.keyframes.remove(kf_idx);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -564,9 +641,25 @@ impl VideoTimelineUi {
 }
 
 #[derive(Clone, Copy)]
+
 enum DeleteTarget {
+
     Polygon(usize),
+
     Text(usize),
+
     Image(usize),
+
     Video(usize),
+
+    Keyframe {
+
+        anim_idx: usize,
+
+        prop_idx: usize,
+
+        kf_idx: usize,
+
+    },
+
 }
