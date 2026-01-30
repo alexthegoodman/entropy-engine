@@ -2267,7 +2267,7 @@ impl ExportPipeline {
             });
 
             if let Some(rect) = viewport_rect {
-                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                // render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                 render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
             }
 
@@ -2617,7 +2617,7 @@ impl ExportPipeline {
                 });
 
                 if let Some(rect) = viewport_rect {
-                    lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    // lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                     lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                 }
 
@@ -2659,7 +2659,7 @@ impl ExportPipeline {
                         });
 
                         if let Some(rect) = viewport_rect {
-                            sky_render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                            // sky_render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                             sky_render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                         }
 
@@ -2696,7 +2696,7 @@ impl ExportPipeline {
                     });
 
                     if let Some(rect) = viewport_rect {
-                        debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        // debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                         debug_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                     }
 
@@ -2830,7 +2830,7 @@ impl ExportPipeline {
                 });
 
                 if let Some(rect) = viewport_rect {
-                    gizmo_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    // gizmo_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                     gizmo_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                 }
 
@@ -2875,7 +2875,7 @@ impl ExportPipeline {
                     });
 
                     if let Some(rect) = viewport_rect {
-                        ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        // ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                         ui_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                     }
 
@@ -3058,7 +3058,7 @@ impl ExportPipeline {
             });
 
             if let Some(rect) = viewport_rect {
-                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                // render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                 render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
             }
 
@@ -3137,7 +3137,7 @@ impl ExportPipeline {
             });
 
             if let Some(rect) = viewport_rect {
-                lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                // lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                 lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
             }
 
@@ -3187,7 +3187,7 @@ impl ExportPipeline {
             });
 
             if let Some(rect) = viewport_rect {
-                render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                // render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                 render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
             }
 
@@ -3283,7 +3283,7 @@ impl ExportPipeline {
                 });
 
                 if let Some(rect) = viewport_rect {
-                    rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    // rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                     rpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
 
                     // println!("viewport_rect {:?}", rect);
