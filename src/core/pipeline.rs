@@ -1731,7 +1731,7 @@ impl ExportPipeline {
             self.window_size_bind_group = Some(window_size_bind_group);
     
             if let Some(editor) = self.export_editor.as_mut() {
-                if editor.viewport_tab_rect.is_none() {
+                // if editor.viewport_tab_rect.is_none() {
                     if let Some(camera) = editor.camera.as_mut() {
                         // camera.aspect = new_size.width as f32 / new_size.height as f32;
                         camera.aspect_ratio = new_size.width as f32 / new_size.height as f32;
@@ -1740,12 +1740,12 @@ impl ExportPipeline {
                         camera.viewport.window_size.width = new_size.width;
                         camera.viewport.window_size.height = new_size.height;
                     }
-                }
+                // }
             }
 
             // resize ui elements
             let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-            if editor.viewport_tab_rect.is_none() {
+            // if editor.viewport_tab_rect.is_none() {
                 let window_size = WindowSize { width: new_size.width, height: new_size.height };
 
                 if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
@@ -1764,7 +1764,7 @@ impl ExportPipeline {
                 if let Some(mini_map) = &mut editor.mini_map {
                     mini_map.resize(&gpu_resources.queue, &window_size);
                 }
-            }
+            // }
         }
     }
 
@@ -1863,15 +1863,15 @@ impl ExportPipeline {
             .as_mut()
             .expect("Couldn't get camera binding");
 
-        if let Some(rect) = viewport_rect {
-            camera.aspect_ratio = rect[2] / rect[3];
-            camera.viewport.width = rect[2];
-            camera.viewport.height = rect[3];
-            camera.viewport.window_size.width = rect[2] as u32;
-            camera.viewport.window_size.height = rect[3] as u32;
-            camera.update();
-            camera_binding.update_3d(queue, camera);
-        }
+        // if let Some(rect) = viewport_rect {
+        //     camera.aspect_ratio = rect[2] / rect[3];
+        //     camera.viewport.width = rect[2];
+        //     camera.viewport.height = rect[3];
+        //     camera.viewport.window_size.width = rect[2] as u32;
+        //     camera.viewport.window_size.height = rect[3] as u32;
+        //     camera.update();
+        //     camera_binding.update_3d(queue, camera);
+        // }
 
         let window_size_bind_group = self
             .window_size_bind_group
@@ -2941,15 +2941,15 @@ impl ExportPipeline {
             .as_mut()
             .expect("Couldn't get camera binding");
 
-        if let Some(rect) = viewport_rect {
-            camera.aspect_ratio = rect[2] / rect[3];
-            camera.viewport.width = rect[2];
-            camera.viewport.height = rect[3];
-            camera.viewport.window_size.width = rect[2] as u32;
-            camera.viewport.window_size.height = rect[3] as u32;
-            camera.update();
-            camera_binding.update_3d(queue, camera);
-        }
+        // if let Some(rect) = viewport_rect {
+        //     camera.aspect_ratio = rect[2] / rect[3];
+        //     camera.viewport.width = rect[2];
+        //     camera.viewport.height = rect[3];
+        //     camera.viewport.window_size.width = rect[2] as u32;
+        //     camera.viewport.window_size.height = rect[3] as u32;
+        //     camera.update();
+        //     camera_binding.update_3d(queue, camera);
+        // }
 
         let window_size_bind_group = self
             .window_size_bind_group
@@ -3276,20 +3276,20 @@ impl ExportPipeline {
                 });
 
                 if let Some(rect) = viewport_rect {
-                    rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                    // rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
                     rpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
 
-                    if let Some(camera) = &mut editor.camera {
-                        camera.aspect_ratio = rect[2] / rect[3];
-                        camera.viewport.width = rect[2];
-                        camera.viewport.height = rect[3];
-                        camera.viewport.window_size.width = rect[2] as u32;
-                        camera.viewport.window_size.height = rect[3] as u32;
-                        camera.update();
-                        if let Some(camera_binding) = &mut editor.camera_binding {
-                            camera_binding.update_3d(queue, camera);
-                        }
-                    }
+                    // if let Some(camera) = &mut editor.camera {
+                    //     camera.aspect_ratio = rect[2] / rect[3];
+                    //     camera.viewport.width = rect[2];
+                    //     camera.viewport.height = rect[3];
+                    //     camera.viewport.window_size.width = rect[2] as u32;
+                    //     camera.viewport.window_size.height = rect[3] as u32;
+                    //     camera.update();
+                    //     if let Some(camera_binding) = &mut editor.camera_binding {
+                    //         camera_binding.update_3d(queue, camera);
+                    //     }
+                    // }
                 }
 
                 if let Some(ui_pipeline) = &self.ui_pipeline {
@@ -3341,7 +3341,10 @@ impl ExportPipeline {
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        let scale_factor = window.scale_factor() as f32;
+        // let scale_factor = window.scale_factor() as f32;
+        // let scale_factor = gui.ctx.pixels_per_point();
+        // println!("pixels_per_point {:?}", scale_factor);
+        let scale_factor = 1.0;
         let viewport_rect = if let Some(editor) = &self.export_editor {
             editor.viewport_tab_rect.map(|r| [
                 r[0] * scale_factor,
