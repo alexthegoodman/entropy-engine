@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::core::editor::Editor;
 use crate::shape_primitives::polygon::{SavedPolygonConfig, SavedPoint, SavedStroke};
 use crate::renderer_text::text_due::SavedTextRendererConfig;
@@ -214,15 +216,6 @@ impl VideoTimeline {
                         ((x - timeline_rect.min.x) * self.zoom) as i32
                     };
 
-                    let snap_to_playhead = |time_ms: i32| -> i32 {
-                        let snap_threshold = (5.0 * self.zoom) as i32; // 5 pixels snap
-                        if (time_ms - editor.video_current_time_ms).abs() < snap_threshold {
-                            editor.video_current_time_ms
-                        } else {
-                            time_ms
-                        }
-                    };
-
                     // Background
                     painter.rect_filled(timeline_rect, 0.0, Color32::from_rgb(25, 25, 25));
 
@@ -264,6 +257,15 @@ impl VideoTimeline {
                         }
                     }
 
+                    let snap_to_playhead = |time_ms: i32| -> i32 {
+                        let snap_threshold = (5.0 * self.zoom) as i32; // 5 pixels snap
+                        if (time_ms - editor.video_current_time_ms).abs() < snap_threshold {
+                            editor.video_current_time_ms
+                        } else {
+                            time_ms
+                        }
+                    };
+
                     // Tracks lines
                     let tracks_top = timeline_rect.min.y + self.header_height;
                     let mut current_y = tracks_top;
@@ -278,12 +280,30 @@ impl VideoTimeline {
                     }
                     current_y += 6.0 * self.track_height;
 
+                    
+
                     // Draw Clips
                     let mut item_to_delete = None;
                     if let Some(stunts_state) = &mut editor.stunts_state {
                         
+                        // Collect all animation data we need for rendering BEFORE the closure
+                        let animation_keyframes: HashMap<String, Vec<(String, Vec<i32>)>> = stunts_state
+                            .object_motion_paths
+                            .as_ref()
+                            .map(|paths| {
+                                paths.iter().map(|anim| {
+                                    let kfs = anim.properties.iter().flat_map(|prop| {
+                                        prop.keyframes.iter().map(|kf| kf.time.as_millis() as i32).collect::<Vec<_>>()
+                                    }).collect();
+                                    (anim.polygon_id.to_string(), vec![(String::new(), kfs)])
+                                }).collect()
+                            })
+                            .unwrap_or_default();
+
                         // Helper for rendering clips
-                        let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: &mut i32, layer: i32, color: Color32, target_type: DeleteTarget| {
+                        let mut render_clip = |id: &str, name: &str, start_time: &mut i32, duration: &mut i32, layer: i32, color: Color32, target_type: DeleteTarget, keyframes: &[(String, Vec<i32>)]| -> Option<DeleteTarget> {
+                            let mut delete_request = None;
+
                             let track_idx = layer.clamp(0, 5);
                             let clip_start_x = time_to_x(*start_time);
                             let clip_width = (*duration as f32 / self.zoom).max(5.0);
@@ -380,17 +400,29 @@ impl VideoTimeline {
                                 }
                             }
 
+                            // clip_res.context_menu(|ui| {
+                            //     if ui.button("Delete").clicked() {
+                            //         item_to_delete = Some(target_type);
+                            //         ui.close_menu();
+                            //     }
+                            //     if ui.button("Clear All Animation").clicked() {
+                            //         if let Some(stunts_state) = &mut editor.stunts_state {
+                            //             if let Some(paths) = &mut stunts_state.object_motion_paths {
+                            //                 paths.retain(|p| p.polygon_id != id);
+                            //             }
+                            //         }
+                            //         ui.close_menu();
+                            //     }
+                            // });
+
                             clip_res.context_menu(|ui| {
                                 if ui.button("Delete").clicked() {
-                                    item_to_delete = Some(target_type);
+                                    delete_request = Some(target_type);
                                     ui.close_menu();
                                 }
                                 if ui.button("Clear All Animation").clicked() {
-                                    if let Some(stunts_state) = &mut editor.stunts_state {
-                                        if let Some(paths) = &mut stunts_state.object_motion_paths {
-                                            paths.retain(|p| p.polygon_id != id);
-                                        }
-                                    }
+                                    // Can't access stunts_state here, so defer this too
+                                    delete_request = Some(DeleteTarget::ClearAnimation(id.to_string()));
                                     ui.close_menu();
                                 }
                             });
@@ -422,59 +454,125 @@ impl VideoTimeline {
                             );
 
                             // Draw Keyframes if they exist for this object
-                            if let Some(stunts_state) = &editor.stunts_state {
-                                if let Some(animation_paths) = &stunts_state.object_motion_paths {
-                                    if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == id) {
-                                        for prop in &anim.properties {
-                                            for kf in &prop.keyframes {
-                                                let kf_time_ms = kf.time.as_millis() as i32;
-                                                let kf_x = time_to_x(*start_time + kf_time_ms);
+                            // if let Some(stunts_state) = &editor.stunts_state {
+                            //     if let Some(animation_paths) = &stunts_state.object_motion_paths {
+                            //         if let Some(anim) = animation_paths.iter().find(|a| a.polygon_id == id) {
+                            //             for prop in &anim.properties {
+                            //                 for kf in &prop.keyframes {
+                            //                     let kf_time_ms = kf.time.as_millis() as i32;
+                            //                     let kf_x = time_to_x(*start_time + kf_time_ms);
                                                 
-                                                // Diamond shape for keyframe
-                                                let kf_pos = Pos2::new(kf_x, clip_rect.bottom() - 4.0);
-                                                let diamond_points = vec![
-                                                    Pos2::new(kf_pos.x, kf_pos.y - 4.0),
-                                                    Pos2::new(kf_pos.x + 4.0, kf_pos.y),
-                                                    Pos2::new(kf_pos.x, kf_pos.y + 4.0),
-                                                    Pos2::new(kf_pos.x - 4.0, kf_pos.y),
-                                                ];
-                                                painter.add(egui::Shape::convex_polygon(
-                                                    diamond_points,
-                                                    Color32::WHITE,
-                                                    Stroke::new(1.0, Color32::BLACK)
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
+                            //                     // Diamond shape for keyframe
+                            //                     let kf_pos = Pos2::new(kf_x, clip_rect.bottom() - 4.0);
+                            //                     let diamond_points = vec![
+                            //                         Pos2::new(kf_pos.x, kf_pos.y - 4.0),
+                            //                         Pos2::new(kf_pos.x + 4.0, kf_pos.y),
+                            //                         Pos2::new(kf_pos.x, kf_pos.y + 4.0),
+                            //                         Pos2::new(kf_pos.x - 4.0, kf_pos.y),
+                            //                     ];
+                            //                     painter.add(egui::Shape::convex_polygon(
+                            //                         diamond_points,
+                            //                         Color32::WHITE,
+                            //                         Stroke::new(1.0, Color32::BLACK)
+                            //                     ));
+                            //                 }
+                            //             }
+                            //         }
+                            //     }
+                            // }
+                            // Draw Keyframes using the passed-in data
+                            for kf_time_ms in keyframes.iter().flat_map(|(_, kfs)| kfs) {
+                                let kf_x = time_to_x(*start_time + kf_time_ms);
+                                let kf_pos = Pos2::new(kf_x, clip_rect.bottom() - 4.0);
+                                let diamond_points = vec![
+                                    Pos2::new(kf_pos.x, kf_pos.y - 4.0),
+                                    Pos2::new(kf_pos.x + 4.0, kf_pos.y),
+                                    Pos2::new(kf_pos.x, kf_pos.y + 4.0),
+                                    Pos2::new(kf_pos.x - 4.0, kf_pos.y),
+                                ];
+                                painter.add(egui::Shape::convex_polygon(
+                                    diamond_points,
+                                    Color32::WHITE,
+                                    Stroke::new(1.0, Color32::BLACK)
+                                ));
                             }
+
+                            delete_request
                         };
 
                         // Polygons
                         if let Some(polygons) = &mut stunts_state.active_polygons {
                             for (idx, poly) in polygons.iter_mut().enumerate() {
-                                render_clip(&poly.id, &poly.name, &mut poly.start_time_ms, &mut poly.duration_ms, poly.layer, Color32::from_rgb(60, 100, 180), DeleteTarget::Polygon(idx));
+                                let kfs = animation_keyframes.get(&poly.id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if let Some(del) = render_clip(
+                                    &poly.id, 
+                                    &poly.name, 
+                                    &mut poly.start_time_ms, 
+                                    &mut poly.duration_ms,
+                                     poly.layer, 
+                                     Color32::from_rgb(60, 100, 180), 
+                                     DeleteTarget::Polygon(idx),
+                                    kfs
+                                ) {
+                                    item_to_delete = Some(del);
+                                }
                             }
                         }
 
                         // Text
                         if let Some(text_items) = &mut stunts_state.active_text_items {
                             for (idx, text) in text_items.iter_mut().enumerate() {
-                                render_clip(&text.id, &text.name, &mut text.start_time_ms, &mut text.duration_ms, text.layer, Color32::from_rgb(100, 180, 60), DeleteTarget::Text(idx));
+                                let kfs = animation_keyframes.get(&text.id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if let Some(del) = render_clip(
+                                    &text.id, 
+                                    &text.name, 
+                                    &mut text.start_time_ms, 
+                                    &mut text.duration_ms, 
+                                    text.layer, 
+                                    Color32::from_rgb(100, 180, 60), 
+                                    DeleteTarget::Text(idx),
+                                    kfs
+                                ) {
+                                    item_to_delete = Some(del);
+                                }
                             }
                         }
 
                         // Images
                         if let Some(images) = &mut stunts_state.active_image_items {
                             for (idx, img) in images.iter_mut().enumerate() {
-                                render_clip(&img.id, &img.name, &mut img.start_time_ms, &mut img.duration_ms, img.layer, Color32::from_rgb(180, 100, 60), DeleteTarget::Image(idx));
+                                let kfs = animation_keyframes.get(&img.id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if let Some(del) = render_clip(
+                                    &img.id, 
+                                    &img.name, 
+                                    &mut img.start_time_ms, 
+                                    &mut img.duration_ms, 
+                                    img.layer, 
+                                    Color32::from_rgb(180, 100, 60), 
+                                    DeleteTarget::Image(idx),
+                                    kfs
+                                ) {
+                                    item_to_delete = Some(del);
+                                }
                             }
                         }
 
                         // Videos
                         if let Some(videos) = &mut stunts_state.active_video_items {
                             for (idx, vid) in videos.iter_mut().enumerate() {
-                                render_clip(&vid.id, &vid.name, &mut vid.start_time_ms, &mut vid.duration_ms, vid.layer, Color32::from_rgb(180, 60, 100), DeleteTarget::Video(idx));
+                                let kfs = animation_keyframes.get(&vid.id).map(|v| v.as_slice()).unwrap_or(&[]);
+                                if let Some(del) = render_clip(
+                                    &vid.id, 
+                                    &vid.name, 
+                                    &mut vid.start_time_ms, 
+                                    &mut vid.duration_ms, 
+                                    vid.layer, 
+                                    Color32::from_rgb(180, 60, 100), 
+                                    DeleteTarget::Video(idx),
+                                    kfs
+                                ) {
+                                    item_to_delete = Some(del);
+                                }
                             }
                         }
 
@@ -624,6 +722,11 @@ impl VideoTimeline {
                                         }
                                     }
                                 }
+                                DeleteTarget::ClearAnimation(id) => {
+                                    if let Some(paths) = &mut stunts_state.object_motion_paths {
+                                        paths.retain(|p| p.polygon_id != id);
+                                    }
+                                }
                             }
                         }
                     }
@@ -646,7 +749,7 @@ impl VideoTimeline {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 
 enum DeleteTarget {
 
@@ -667,5 +770,5 @@ enum DeleteTarget {
         kf_idx: usize,
 
     },
-
+    ClearAnimation(String),
 }
