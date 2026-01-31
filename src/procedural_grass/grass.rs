@@ -2,6 +2,7 @@ use wgpu::util::DeviceExt;
 use crate::core::{SimpleCamera::SimpleCamera, vertex::Vertex};
 use crate::heightfield_landscapes::Landscape::Landscape;
 use nalgebra::{Matrix4, Vector3, Point3};
+use std::sync::Arc;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -112,15 +113,11 @@ impl GrassBlade {
 
 pub struct Grass {
     pub blade: GrassBlade,
-    pub render_pipeline: wgpu::RenderPipeline,
+    pub render_pipeline: Arc<wgpu::RenderPipeline>,
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub landscape_bind_group: wgpu::BindGroup,
     pub config: GrassConfig,
-    // cache landscape properties, will need to update as needed
-    // pub landscape_size: f32,
-    // pub landscape_height: f32,
-    // pub landscape_y_offset: f32,
 }
 
 impl Grass {
@@ -128,6 +125,7 @@ impl Grass {
         device: &wgpu::Device,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
         landscape: &mut Landscape,
+        custom_pipeline: Option<Arc<wgpu::RenderPipeline>>,
     ) -> Self {
         let blade = GrassBlade::new(device);
         
@@ -171,77 +169,81 @@ impl Grass {
         landscape.create_layout_for_particles(device);
         let landscape_bind_group = landscape.create_particle_bind_group(device);
 
-        // Shaders
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Grass Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("grass.wgsl").into()),
-        });
+        let render_pipeline = if let Some(pipeline) = custom_pipeline {
+            pipeline
+        } else {
+            // Shaders
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Grass Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("grass.wgsl").into()),
+            });
 
-        // Render Pipeline
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Grass Render Pipeline Layout"),
-            bind_group_layouts: &[
-                camera_bind_group_layout,
-                &uniform_bind_group_layout,
-                &landscape.particle_bind_group_layout.as_ref().expect("Couldn't get landscape layout"), // Add landscape bind group
-            ],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Grass Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
+            // Render Pipeline
+            let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Grass Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    camera_bind_group_layout,
+                    &uniform_bind_group_layout,
+                    &landscape.particle_bind_group_layout.as_ref().expect("Couldn't get landscape layout"),
                 ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+                push_constant_ranges: &[],
+            });
+
+            Arc::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Grass Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Vertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                    ],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth24Plus,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            }))
+        };
 
         Self {
             blade,
@@ -257,6 +259,7 @@ impl Grass {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         camera_bind_group_layout: &wgpu::BindGroupLayout,
+        custom_pipeline: Option<Arc<wgpu::RenderPipeline>>,
     ) -> Self {
         let blade = GrassBlade::new(device);
         
@@ -296,7 +299,7 @@ impl Grass {
             label: Some("grass_uniform_bind_group"),
         });
 
-        // Create dummy landscape bind group
+        // Create dummy landscape bind group layout
         let landscape_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -362,77 +365,81 @@ impl Grass {
             label: Some("Dummy Landscape Particle Bind Group"),
         });
 
-        // Shaders
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Grass Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("grass.wgsl").into()),
-        });
+        let render_pipeline = if let Some(pipeline) = custom_pipeline {
+            pipeline
+        } else {
+            // Shaders
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Grass Shader"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("grass.wgsl").into()),
+            });
 
-        // Render Pipeline
-        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Grass Render Pipeline Layout"),
-            bind_group_layouts: &[
-                camera_bind_group_layout,
-                &uniform_bind_group_layout,
-                &landscape_bind_group_layout,
-            ],
-            push_constant_ranges: &[],
-        });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Grass Render Pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Vertex::desc()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
+            // Render Pipeline
+            let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Grass Render Pipeline Layout"),
+                bind_group_layouts: &[
+                    camera_bind_group_layout,
+                    &uniform_bind_group_layout,
+                    &landscape_bind_group_layout,
                 ],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+                push_constant_ranges: &[],
+            });
+
+            Arc::new(device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Grass Render Pipeline"),
+                layout: Some(&render_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[Vertex::desc()],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba16Float,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                        Some(wgpu::ColorTargetState {
+                            format: wgpu::TextureFormat::Rgba8Unorm, // New target for PBR material
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        }),
+                    ],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth24Plus,
+                    depth_write_enabled: true,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+                cache: None,
+            }))
+        };
 
         Self {
             blade,
@@ -443,7 +450,6 @@ impl Grass {
             config,
         }
     }
-
 
     pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
         self.config.time = time;

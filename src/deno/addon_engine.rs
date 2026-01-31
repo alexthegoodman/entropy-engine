@@ -22,6 +22,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
+use crate::procedural_grass::grass::Grass;
 use wgpu::RenderPipeline;
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
@@ -125,14 +126,15 @@ pub struct AddonGrassConfig {
     pub landscape_size: Option<f32>,
     pub landscape_height: Option<f32>,
     pub landscape_y_offset: Option<f32>,
+    pub pipeline_id: Option<String>,
 }
 
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
-    pub pipelines: HashMap<String, RenderPipeline>,
+    pub pipelines: HashMap<String, Arc<RenderPipeline>>,
     pub pipeline_configs: HashMap<String, PipelineConfig>,
-    pub lighting_pipelines: HashMap<String, RenderPipeline>,
+    pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
     pub surface_format: Option<wgpu::TextureFormat>,
@@ -141,8 +143,8 @@ pub struct AddonContext {
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
-    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
-    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
+    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>) >,
+    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>) >,
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<String>,
@@ -254,7 +256,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             Some(wgpu::TextureFormat::Depth24Plus)
         );
         
-        ctx.pipelines.insert(id.clone(), pipeline);
+        ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
 
         // If a lighting shader is provided, create a lighting pipeline
         if let Some(lighting_shader_source) = &config.lighting_shader {
@@ -296,7 +298,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 cache: None,
             });
 
-            ctx.lighting_pipelines.insert(id.clone(), lighting_pipeline);
+            ctx.lighting_pipelines.insert(id.clone(), Arc::new(lighting_pipeline));
         }
         
         ctx.pipeline_configs.insert(id.clone(), config);
@@ -412,7 +414,7 @@ impl AddonEngine {
             if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
                 if entropy_val.is_object() {
                     let entropy_obj = entropy_val.to_object(scope).unwrap();
-                    let process_key = v8::String::new(scope, "_process_events").unwrap();
+                    let process_key = v8::String::new(scope, "processed_events").unwrap();
                     if let Some(process_val) = entropy_obj.get(scope, process_key.into()) {
                         if process_val.is_function() {
                             let process_func = v8::Local::<v8::Function>::try_from(process_val).unwrap();
@@ -533,10 +535,15 @@ impl AddonEngine {
                 let op_state = op_state.borrow();
                 if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     for (addon_name, config) in pending_grasses {
+                        let custom_pipeline = config.pipeline_id.as_ref()
+                            .and_then(|id| ctx.pipelines.get(id))
+                            .map(|p| Arc::clone(p));
+
                         let mut grass = Grass::new_without_landscape(
                             &gpu.device,
                             &gpu.queue,
                             &ctx.bind_group_layouts[0], // Camera bind group layout
+                            custom_pipeline
                         );
 
                         // Apply config overrides

@@ -43,7 +43,8 @@ globalThis.Entropy = {
                             bladeDensity: config.bladeDensity || 15.0,
                             landscapeSize: config.landscapeSize || 4096.0,
                             landscapeHeight: config.landscapeHeight || 0.0,
-                            landscapeYOffset: config.landscapeYOffset || 0.0
+                            landscapeYOffset: config.landscapeYOffset || 0.0,
+                            pipelineId: config.pipelineId || null
                         });
                     }
                 },
@@ -134,7 +135,8 @@ globalThis.Entropy = {
                 bladeDensity: config.bladeDensity || 15.0,
                 landscapeSize: config.landscapeSize || 4096.0,
                 landscapeHeight: config.landscapeHeight || 0.0,
-                landscapeYOffset: config.landscapeYOffset || 0.0
+                landscapeYOffset: config.landscapeYOffset || 0.0,
+                pipelineId: config.pipelineId || null
             });
         }
     },

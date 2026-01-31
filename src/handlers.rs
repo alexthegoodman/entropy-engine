@@ -1192,7 +1192,7 @@ pub fn handle_add_grass(
             &texture,
         );
 
-        let mut grass = Grass::new(&device, &camera_bind_group_layout, landscape);
+        let mut grass = Grass::new(&device, &camera_bind_group_layout, landscape, None);
 
         if let Some(props) = grass_properties {
             grass.config.grid_size = props.grid_size;
