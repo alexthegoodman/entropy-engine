@@ -83,14 +83,29 @@ pub enum UiWidget {
 }
 
 use crate::heightfield_landscapes::Landscape::Landscape;
-use crate::helpers::landscapes::{LandscapePixelData, LandscapePixel};
+use crate::helpers::landscapes::{LandscapePixelData};
+
+use noise::{NoiseFn, Fbm, Perlin, MultiFractal};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NoiseConfig {
+    pub noise_type: String, // e.g. "fbm"
+    pub source: String,     // e.g. "perlin"
+    pub seed: u32,
+    pub octaves: usize,
+    pub frequency: f64,
+    pub persistence: f64,
+    pub lacunarity: f64,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct LandscapeConfig {
     pub width: usize,
     pub height: usize,
-    pub heights: Vec<f32>,
+    pub heights: Option<Vec<f32>>,
+    pub noise_id: Option<String>,
     pub position: [f32; 3],
 }
 
@@ -105,12 +120,23 @@ pub struct AddonContext {
     pub surface_format: Option<wgpu::TextureFormat>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<String>,
+}
+
+#[op2]
+#[string]
+fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String {
+    let id = format!("noise_{}", uuid::Uuid::new_v4());
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.noise_generators.insert(id.clone(), config);
+    }
+    id
 }
 
 #[op2]
@@ -279,6 +305,7 @@ extension!(
         op_pipeline_create,
         op_cube_spawn,
         op_landscape_create,
+        op_noise_create,
         op_println,
         op_ui_create_window,
         op_ui_create_tab,
@@ -318,6 +345,7 @@ impl AddonEngine {
             surface_format: None,
             pending_cubes: Vec::new(),
             pending_landscapes: Vec::new(),
+            noise_generators: HashMap::new(),
             on_init_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
@@ -408,32 +436,63 @@ impl AddonEngine {
         if !pending_landscapes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
                 for (addon_name, config) in pending_landscapes {
-                    let data = crate::helpers::landscapes::generate_landscape_data(
-                        config.width,
-                        config.height,
-                        config.heights,
-                        1024.0 * 4.0, // square_size
-                        1024.0 * 4.0, // square_size
-                        150.0 * 4.0,  // square_height
-                    );
+                    let mut heights = config.heights;
 
-                    let landscape = Landscape::new(
-                        &format!("{}_landscape", addon_name),
-                        &data,
-                        &gpu.device,
-                        &gpu.queue,
-                        &renderer_state.model_bind_group_layout,
-                        &renderer_state.group_bind_group_layout,
-                        &renderer_state.texture_render_mode_buffer,
-                        &renderer_state.color_render_mode_buffer,
-                        config.position,
-                        camera
-                    );
+                    // If noise_id is provided, generate heights on the Rust side
+                    if heights.is_none() {
+                        if let Some(noise_id) = &config.noise_id {
+                            let mut op_state = self.runtime.op_state();
+                            let op_state = op_state.borrow();
+                            if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                if let Some(noise_config) = ctx.noise_generators.get(noise_id) {
+                                    // Instantiate noise
+                                    let fbm = Fbm::<Perlin>::new(noise_config.seed)
+                                        .set_frequency(noise_config.frequency)
+                                        .set_octaves(noise_config.octaves)
+                                        .set_persistence(noise_config.persistence)
+                                        .set_lacunarity(noise_config.lacunarity);
+                                    
+                                    let mut generated_heights = Vec::with_capacity(config.width * config.height);
+                                    for y in 0..config.height {
+                                        for x in 0..config.width {
+                                            let val = fbm.get([x as f64, y as f64]);
+                                            generated_heights.push(((val + 1.0) / 2.0) as f32);
+                                        }
+                                    }
+                                    heights = Some(generated_heights);
+                                }
+                            }
+                        }
+                    }
 
-                    renderer_state.addon_landscapes
-                        .entry(addon_name)
-                        .or_insert_with(Vec::new)
-                        .push(landscape);
+                    if let Some(heights) = heights {
+                        let data = crate::helpers::landscapes::generate_landscape_data(
+                            config.width,
+                            config.height,
+                            heights,
+                            1024.0 * 4.0, // square_size
+                            1024.0 * 4.0, // square_size
+                            150.0 * 4.0,  // square_height
+                        );
+
+                        let landscape = Landscape::new(
+                            &format!("{}_landscape", addon_name),
+                            &data,
+                            &gpu.device,
+                            &gpu.queue,
+                            &renderer_state.model_bind_group_layout,
+                            &renderer_state.group_bind_group_layout,
+                            &renderer_state.texture_render_mode_buffer,
+                            &renderer_state.color_render_mode_buffer,
+                            config.position,
+                            camera
+                        );
+
+                        renderer_state.addon_landscapes
+                            .entry(addon_name)
+                            .or_insert_with(Vec::new)
+                            .push(landscape);
+                    }
                 }
             }
         }

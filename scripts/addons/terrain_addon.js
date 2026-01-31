@@ -1,10 +1,10 @@
 // Terrain Generation Addon
-// Demonstrates procedural heightmap generation in JavaScript
+// Demonstrates procedural heightmap generation in JavaScript via Rust Noise API
 
 const addon = await Entropy.Addon.register({
     name: "Procedural Terrain",
-    version: "1.0.0",
-    description: "Generates terrain using Perlin noise",
+    version: "1.1.0",
+    description: "Generates terrain using Rust-side noise",
     author: ["Entropy Team"],
     capabilities: {
         graphics: true,
@@ -13,34 +13,26 @@ const addon = await Entropy.Addon.register({
 });
 
 let terrainParams = {
-    scale: 0.1,
-    octaves: 3,
-    heightMultiplier: 1.0
+    seed: Math.floor(Math.random() * 1000),
+    frequency: 0.02,
+    octaves: 6
 };
 
-function generateTerrain() {
-    const width = 64;
-    const height = 64;
-    const heights = new Float32Array(width * height);
+async function generateTerrain() {
+    // 1. Create a noise handle in Rust
+    const noiseId = await addon.Noise.create({
+        type: "fbm",
+        source: "perlin",
+        seed: terrainParams.seed,
+        frequency: terrainParams.frequency,
+        octaves: terrainParams.octaves
+    });
 
-    for (let y = 0; y < height; y++) {
-        for (let x = 0; x < width; x++) {
-            let h = 0;
-            let freq = terrainParams.scale;
-            let amp = 1.0;
-            for(let i=0; i < terrainParams.octaves; i++) {
-                h += Math.sin(x * freq) * Math.cos(y * freq) * amp; // Simple deterministic wave for now
-                freq *= 2;
-                amp *= 0.5;
-            }
-            heights[y * width + x] = (h + 1) / 2 * terrainParams.heightMultiplier;
-        }
-    }
-
+    // 2. Spawn landscape using that noise handle (Heavy data stays in Rust!)
     addon.Landscape.create({
-        width: width,
-        height: height,
-        heights: Array.from(heights),
+        width: 128,
+        height: 128,
+        noiseId: noiseId,
         position: [0, 0, 0]
     });
 }
@@ -51,19 +43,20 @@ Entropy.Addon.onInit(async () => {
     generateTerrain();
 
     await Entropy.UI.createWindow({
-        title: "Terrain Settings",
+        title: "Rust Noise Settings",
         resizable: true,
         defaultSize: { width: 300, height: 200 },
         onRender: async () => {
-            await Entropy.UI.Widget.label("Terrain Controls", { bold: true });
+            await Entropy.UI.Widget.label("Noise Parameters", { bold: true });
             
-            // Note: In a real immediate mode JS API, we'd return values from widgets
-            // For this demo, we'll use a button to 'Re-generate'
-            await Entropy.UI.Widget.button("Generate New Terrain", {
+            await Entropy.UI.Widget.button("Randomize Seed & Regenerate", {
                 onClick: () => {
+                    terrainParams.seed = Math.floor(Math.random() * 1000);
                     generateTerrain();
                 }
             });
+
+            await Entropy.UI.Widget.label(`Current Seed: ${terrainParams.seed}`);
         }
     });
 });

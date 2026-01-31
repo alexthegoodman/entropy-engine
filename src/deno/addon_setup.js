@@ -23,8 +23,22 @@ globalThis.Entropy = {
                         ops.op_landscape_create(metadata.name, {
                             width: config.width,
                             height: config.height,
-                            heights: config.heights,
+                            heights: config.heights || null,
+                            noiseId: config.noiseId || null,
                             position: config.position || [0, 0, 0]
+                        });
+                    }
+                },
+                Noise: {
+                    create: (config) => {
+                        return ops.op_noise_create({
+                            noiseType: config.type || "fbm",
+                            source: config.source || "perlin",
+                            seed: config.seed || 0,
+                            octaves: config.octaves || 6,
+                            frequency: config.frequency || 0.01,
+                            persistence: config.persistence || 0.5,
+                            lacunarity: config.lacunarity || 2.0
                         });
                     }
                 }
@@ -74,15 +88,28 @@ globalThis.Entropy = {
             return ops.op_pipeline_create(config);
         }
     },
-    Model: {
-        createProcedural: async (config) => {
-            // Global/unscoped version - uses "Global" as addon name
-            if (config.type === "cube") {
-                return ops.op_cube_spawn("Global", {
-                    position: config.parameters?.position || [0, 0, 0],
-                    scale: config.parameters?.scale || [1, 1, 1]
-                });
-            }
+    Landscape: {
+        create: async (config) => {
+            return ops.op_landscape_create("Global", {
+                width: config.width,
+                height: config.height,
+                heights: config.heights || null,
+                noiseId: config.noiseId || null,
+                position: config.position || [0, 0, 0]
+            });
+        }
+    },
+    Noise: {
+        create: async (config) => {
+            return ops.op_noise_create({
+                noiseType: config.type || "fbm",
+                source: config.source || "perlin",
+                seed: config.seed || 0,
+                octaves: config.octaves || 6,
+                frequency: config.frequency || 0.01,
+                persistence: config.persistence || 0.5,
+                lacunarity: config.lacunarity || 2.0
+            });
         }
     },
     println: (msg) => {
