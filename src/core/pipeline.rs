@@ -3750,21 +3750,7 @@ impl EntropyPipeline {
             //         });
             // }
 
-            let active_dock_state = match self.current_workspace {
-                Workspace::GameEngine => &mut self.game_dock_state,
-                Workspace::Sophia => &mut self.sophia_dock_state,
-                Workspace::Stunts => &mut self.stunts_dock_state,
-                Workspace::CentralChat => &mut self.central_chat_dock_state,
-                Workspace::Addon(_) => &mut self.addon_dock_state,
-            };
-
-            let sidebar_width = match self.current_workspace {
-                Workspace::GameEngine => 400.0,
-                Workspace::CentralChat => 800.0,
-                Workspace::Sophia => 800.0,
-                Workspace::Stunts => 400.0,
-                _ => 400.0
-            };
+            
 
             // egui::SidePanel::right("dock_sidebar")
             //     .resizable(true)
@@ -3783,6 +3769,30 @@ impl EntropyPipeline {
                     .show(ctx, |ui| {
                     
                     // viewer.ui(ui, &mut Tab::Viewport);
+
+                    if let Some(editor) = &mut viewer.context.export_editor {
+                        let new_tabs = editor.addon_engine.consume_new_tabs();
+                        for tab_id in new_tabs {
+                            let surface = self.addon_dock_state.main_surface_mut();
+                            surface.push_to_first_leaf(Tab::AddonTab(tab_id));
+                        }
+                    }
+
+                    let active_dock_state = match self.current_workspace {
+                        Workspace::GameEngine => &mut self.game_dock_state,
+                        Workspace::Sophia => &mut self.sophia_dock_state,
+                        Workspace::Stunts => &mut self.stunts_dock_state,
+                        Workspace::CentralChat => &mut self.central_chat_dock_state,
+                        Workspace::Addon(_) => &mut self.addon_dock_state,
+                    };
+
+                    let sidebar_width = match self.current_workspace {
+                        Workspace::GameEngine => 400.0,
+                        Workspace::CentralChat => 800.0,
+                        Workspace::Sophia => 800.0,
+                        Workspace::Stunts => 400.0,
+                        _ => 400.0
+                    };
 
                     DockArea::new(active_dock_state)
                         .style(Style::from_egui(ctx.style().as_ref()))

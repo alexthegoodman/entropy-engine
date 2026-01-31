@@ -1,0 +1,44 @@
+const addon = await Entropy.Addon.register({
+    name: "Tabs Demo",
+    version: "1.0.0",
+    description: "Demonstrates Workspace Tabs",
+    author: ["Entropy Team"],
+    capabilities: {
+        ui: true
+    }
+});
+
+Entropy.Addon.onInit(async () => {
+    Entropy.println("Tabs Demo Initialized!");
+
+    // Tab 1
+    const tab1 = await Entropy.UI.createTab({
+        title: "Tab One",
+        onRender: async () => {
+            await Entropy.UI.Widget.label(tab1, {
+                text: "Welcome to Tab One!",
+                bold: true
+            });
+            await Entropy.UI.Widget.button(tab1, {
+                text: "Button 1"
+            });
+        }
+    });
+
+    // Tab 2
+    const tab2 = await Entropy.UI.createTab({
+        title: "Tab Two",
+        onRender: async () => {
+            await Entropy.UI.Widget.label(tab2, {
+                text: "This is Tab Two."
+            });
+            await Entropy.UI.Widget.label(tab2, {
+                text: "It has different content.",
+                bold: true
+            });
+             await Entropy.UI.Widget.button(tab2, {
+                text: "Button 2"
+            });
+        }
+    });
+});

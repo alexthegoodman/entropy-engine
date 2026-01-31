@@ -64,6 +64,12 @@ pub struct UiWindowConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTabConfig {
+    pub title: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UiSize {
     pub width: f32,
     pub height: f32,
@@ -88,8 +94,10 @@ pub struct AddonContext {
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
+    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+    pub new_tabs: Vec<String>,
 }
 
 #[op2]
@@ -114,6 +122,17 @@ fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig, #[g
     let id = uuid::Uuid::new_v4().to_string();
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_windows.insert(id.clone(), (config, on_render));
+    }
+    id
+}
+
+#[op2]
+#[string]
+fn op_ui_create_tab(state: &mut OpState, #[serde] config: UiTabConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_tabs.insert(id.clone(), (config, on_render));
+        ctx.new_tabs.push(id.clone());
     }
     id
 }
@@ -241,6 +260,7 @@ extension!(
         op_cube_spawn,
         op_println,
         op_ui_create_window,
+        op_ui_create_tab,
         op_ui_widget_label,
         op_ui_widget_button,
     ],
@@ -278,8 +298,10 @@ impl AddonEngine {
             pending_cubes: Vec::new(),
             on_init_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
+            ui_tabs: HashMap::new(),
             ui_widgets: HashMap::new(),
             ui_events: Arc::new(Mutex::new(Vec::new())),
+            new_tabs: Vec::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -380,6 +402,16 @@ impl AddonEngine {
         }
     }
 
+    pub fn consume_new_tabs(&mut self) -> Vec<String> {
+        let mut op_state = self.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+            std::mem::take(&mut ctx.new_tabs)
+        } else {
+            Vec::new()
+        }
+    }
+
     pub fn render_ui(&mut self, ctx: &egui::Context) {
         // 1. Prepare: Clear widgets
         {
@@ -445,6 +477,71 @@ impl AddonEngine {
             }
         }
         
+        // Push events
+        if !events_to_push.is_empty() {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                if let Ok(mut events) = context.ui_events.lock() {
+                    events.extend(events_to_push);
+                }
+            }
+        }
+    }
+
+    pub fn render_tab(&mut self, ui: &mut egui::Ui, tab_id: &str) {
+        // 1. Clear widgets for this tab
+        {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                 context.ui_widgets.remove(tab_id);
+            }
+        }
+
+        // 2. Execute JS callback for this tab
+        let callback = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.ui_tabs.get(tab_id).map(|(_, cb)| cb.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(cb) = callback {
+            let scope = &mut self.runtime.handle_scope();
+            let func = v8::Local::new(scope, cb);
+            let receiver = v8::undefined(scope);
+            let _ = func.call(scope, receiver.into(), &[]); 
+        }
+
+        // 3. Render
+        let mut events_to_push = Vec::new();
+        {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                 if let Some(widgets) = context.ui_widgets.get(tab_id) {
+                     for widget in widgets {
+                         match widget {
+                             UiWidget::Label { text, bold } => {
+                                 let mut txt = egui::RichText::new(text);
+                                 if bold.unwrap_or(false) { txt = txt.strong(); }
+                                 ui.label(txt);
+                             }
+                             UiWidget::Button { text, id: btn_id, label: _ } => {
+                                 if ui.button(text).clicked() {
+                                     events_to_push.push(btn_id.clone());
+                                 }
+                             }
+                         }
+                     }
+                 }
+            }
+        }
+
         // Push events
         if !events_to_push.is_empty() {
             let op_state = self.runtime.op_state();

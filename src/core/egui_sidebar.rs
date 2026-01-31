@@ -50,7 +50,7 @@ use egui;
 use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use rfd::FileDialog;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Tab {
     Viewport,
     Projects,
@@ -68,6 +68,7 @@ pub enum Tab {
     Grammar,
     Manage,
     Citations,
+    AddonTab(String),
 }
 
 #[cfg(target_os = "windows")]
@@ -129,7 +130,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
     type Tab = Tab;
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
-        format!("{:?}", tab).into()
+        match tab {
+            Tab::AddonTab(name) => name.as_str().into(),
+            _ => format!("{:?}", tab).into(),
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, tab: &mut Self::Tab) {
@@ -1579,6 +1583,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::Citations => {
                 ui.heading("Citations");
                 ui.label("Organize and manage your project citations here.");
+            }
+            Tab::AddonTab(id) => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                editor.addon_engine.render_tab(ui, id);
             }
             _ => {
                 ui.label("Not implemented");

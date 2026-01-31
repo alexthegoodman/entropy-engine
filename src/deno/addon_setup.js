@@ -32,6 +32,10 @@ globalThis.Entropy = {
             const windowId = ops.op_ui_create_window(config, config.onRender);
             return windowId;
         },
+        createTab: async (config) => {
+            const tabId = ops.op_ui_create_tab(config, config.onRender);
+            return tabId;
+        },
         Widget: {
             label: async (windowId, config) => {
                 ops.op_ui_widget_label(windowId, config.text, config.bold || false);
