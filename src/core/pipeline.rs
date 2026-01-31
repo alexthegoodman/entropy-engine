@@ -2502,6 +2502,22 @@ impl EntropyPipeline {
                 // }
             }
 
+            // draw addon landscapes
+            for (addon_name, landscapes) in &renderer_state.addon_landscapes {
+                for landscape in landscapes {
+                    render_pass.set_pipeline(&geometry_pipeline);
+                    landscape.transform.update_uniform_buffer(&queue);
+                    render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                    render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                    render_pass.set_index_buffer(
+                        landscape.index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint32,
+                    );
+                    render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                }
+            }
+
             // draw grass
 
             for grass in &mut renderer_state.grasses {

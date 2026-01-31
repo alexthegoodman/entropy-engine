@@ -17,6 +17,16 @@ globalThis.Entropy = {
                             });
                         }
                     }
+                },
+                Landscape: {
+                    create: (config) => {
+                        ops.op_landscape_create(metadata.name, {
+                            width: config.width,
+                            height: config.height,
+                            heights: config.heights,
+                            position: config.position || [0, 0, 0]
+                        });
+                    }
                 }
             };
         },
@@ -43,7 +53,19 @@ globalThis.Entropy = {
             button: async (windowId, config) => {
                 const id = crypto.randomUUID();
                 ops.op_ui_widget_button(windowId, config.text, id);
-                // TODO: Register click handler
+                
+                // Add to event listeners
+                if (config.onClick) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onClick;
+                }
+            }
+        }
+    },
+    _process_events: (eventIds) => {
+        for (const id of eventIds) {
+            if (globalThis._entropy_event_listeners && globalThis._entropy_event_listeners[id]) {
+                globalThis._entropy_event_listeners[id]();
             }
         }
     },

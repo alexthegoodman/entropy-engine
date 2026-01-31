@@ -82,6 +82,18 @@ pub enum UiWidget {
     Button { text: String, id: String, label: String },
 }
 
+use crate::heightfield_landscapes::Landscape::Landscape;
+use crate::helpers::landscapes::{LandscapePixelData, LandscapePixel};
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct LandscapeConfig {
+    pub width: usize,
+    pub height: usize,
+    pub heights: Vec<f32>,
+    pub position: [f32; 3],
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
@@ -92,12 +104,20 @@ pub struct AddonContext {
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
     pub surface_format: Option<wgpu::TextureFormat>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+    pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<String>,
+}
+
+#[op2]
+fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: LandscapeConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_landscapes.push((addon_name, config));
+    }
 }
 
 #[op2]
@@ -258,6 +278,7 @@ extension!(
         op_addon_on_init,
         op_pipeline_create,
         op_cube_spawn,
+        op_landscape_create,
         op_println,
         op_ui_create_window,
         op_ui_create_tab,
@@ -296,6 +317,7 @@ impl AddonEngine {
             lighting_bind_group_layouts: Vec::new(),
             surface_format: None,
             pending_cubes: Vec::new(),
+            pending_landscapes: Vec::new(),
             on_init_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
@@ -312,19 +334,57 @@ impl AddonEngine {
     }
 
     pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera) {
-        let pending = {
+        // 1. Process UI Events
+        let events = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
-                std::mem::take(&mut ctx.pending_cubes)
+                if let Ok(mut evs) = ctx.ui_events.lock() {
+                    std::mem::take(&mut *evs)
+                } else {
+                    Vec::new()
+                }
             } else {
                 Vec::new()
             }
         };
 
-        if !pending.is_empty() {
+        if !events.is_empty() {
+            let scope = &mut self.runtime.handle_scope();
+            let global = scope.get_current_context().global(scope);
+            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                if entropy_val.is_object() {
+                    let entropy_obj = entropy_val.to_object(scope).unwrap();
+                    let process_key = v8::String::new(scope, "_process_events").unwrap();
+                    if let Some(process_val) = entropy_obj.get(scope, process_key.into()) {
+                        if process_val.is_function() {
+                            let process_func = v8::Local::<v8::Function>::try_from(process_val).unwrap();
+                            let args_v8 = serde_v8::to_v8(scope, events).unwrap();
+                            let _ = process_func.call(scope, entropy_obj.into(), &[args_v8]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Process pending resources
+        let (pending_cubes, pending_landscapes) = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                (
+                    std::mem::take(&mut ctx.pending_cubes),
+                    std::mem::take(&mut ctx.pending_landscapes)
+                )
+            } else {
+                (Vec::new(), Vec::new())
+            }
+        };
+
+        if !pending_cubes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
-                for (addon_name, config) in pending {
+                for (addon_name, config) in pending_cubes {
                     let mut cube = Cube::new(
                         &gpu.device,
                         &gpu.queue,
@@ -341,6 +401,39 @@ impl AddonEngine {
                         .entry(addon_name)
                         .or_insert_with(Vec::new)
                         .push(cube);
+                }
+            }
+        }
+
+        if !pending_landscapes.is_empty() {
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                for (addon_name, config) in pending_landscapes {
+                    let data = crate::helpers::landscapes::generate_landscape_data(
+                        config.width,
+                        config.height,
+                        config.heights,
+                        1024.0 * 4.0, // square_size
+                        1024.0 * 4.0, // square_size
+                        150.0 * 4.0,  // square_height
+                    );
+
+                    let landscape = Landscape::new(
+                        &format!("{}_landscape", addon_name),
+                        &data,
+                        &gpu.device,
+                        &gpu.queue,
+                        &renderer_state.model_bind_group_layout,
+                        &renderer_state.group_bind_group_layout,
+                        &renderer_state.texture_render_mode_buffer,
+                        &renderer_state.color_render_mode_buffer,
+                        config.position,
+                        camera
+                    );
+
+                    renderer_state.addon_landscapes
+                        .entry(addon_name)
+                        .or_insert_with(Vec::new)
+                        .push(landscape);
                 }
             }
         }

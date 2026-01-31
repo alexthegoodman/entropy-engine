@@ -15,6 +15,8 @@ Entropy Addons must abide by some UX requirements, including:
 The Addon API will include egui abstractions which enable the JavaScript addon developer to create egui windows on the Rust side, for example. Or use rfd via the JavaScript API
 so the user can select files. Or even the Windows Foundation API, thanks to all resources being manged Rust-side.
 
+We never want state or anything React-like. Let's keep it immediate mode.
+
 ## Entropy Addons API
 
 A powerful JavaScript API for managing Rust-side graphics resources via Deno integration. Here are most of the features it should have early on.

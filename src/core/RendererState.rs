@@ -132,6 +132,7 @@ pub struct RendererState {
     // pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
+    pub addon_landscapes: HashMap<String, Vec<Landscape>>,
     pub grasses: Vec<Grass>,
     pub particle_systems: Vec<ParticleSystem>,
     pub procedural_trees: Vec<ProceduralTrees>,
@@ -314,6 +315,7 @@ impl RendererState {
             scattered_models: Vec::new(),
             procedural_houses,
             landscapes,
+            addon_landscapes: HashMap::new(),
             grasses,
             particle_systems,
             water_planes,
