@@ -330,9 +330,11 @@ declare namespace Entropy {
 - **Networking**: Multi-user synchronization
 - **Asset streaming**: Progressive loading APIs
 
-Essential Libraries to Expose for App-Like Addons
+## Essential Libraries to Expose for App-Like Addons
+
 Physics & Simulation
 javascript// Rapier3D (Rust physics engine)
+```
 const rigidBodyId = await addon.Physics.createRigidBody({
     type: "dynamic",
     position: [0, 10, 0],
@@ -341,8 +343,10 @@ const rigidBodyId = await addon.Physics.createRigidBody({
 
 await addon.Physics.applyImpulse(rigidBodyId, [0, 100, 0]);
 await addon.Physics.onCollision(rigidBodyId, (otherBodyId) => { /* ... */ });
+```
 Audio
 javascript// Rodio or similar (Rust audio)
+```
 const soundId = await addon.Audio.loadSound("assets/explosion.wav");
 const sourceId = await addon.Audio.play(soundId, {
     volume: 0.8,
@@ -355,8 +359,10 @@ const trackId = await addon.Audio.createTrack({
     bpm: 120,
     timeSignature: [4, 4]
 });
+```
 Animation
 javascript// Skeletal animation (via ozz-animation or similar)
+```
 const animId = await addon.Animation.load("assets/character_walk.gltf");
 const instanceId = await addon.Animation.createInstance(animId);
 
@@ -371,8 +377,11 @@ const curveId = await addon.Animation.createCurve({
     keyframes: [[0, 0], [1, 10], [2, 0]],
     interpolation: "cubic"
 });
+```
 Particle Systems
-javascriptconst particleSystemId = await addon.Particles.create({
+javascript
+```
+const particleSystemId = await addon.Particles.create({
     maxParticles: 1000,
     emissionRate: 50,
     lifetime: [2.0, 3.0],
@@ -382,7 +391,10 @@ javascriptconst particleSystemId = await addon.Particles.create({
 
 await addon.Particles.burst(particleSystemId, 100);
 Image Processing (for video/photo editors)
-javascript// image-rs or similar
+```
+javascript
+```
+// image-rs or similar
 const imageId = await addon.Image.load("photo.jpg");
 
 const blurredId = await addon.Image.gaussianBlur(imageId, 5.0);
@@ -393,8 +405,11 @@ const adjustedId = await addon.Image.adjustLevels(imageId, {
 });
 
 await addon.Image.extractNormals(imageId); // Your video lighting idea!
+```
 Text Rendering & Typography
-javascript// cosmic-text or rusttype
+javascript
+```
+// cosmic-text or rusttype
 const fontId = await addon.Text.loadFont("assets/Roboto-Regular.ttf");
 const textId = await addon.Text.create({
     content: "Hello World",
@@ -410,8 +425,12 @@ const layoutId = await addon.Text.createLayout({
     alignment: "justify",
     lineHeight: 1.5
 });
+
+```
 Navigation & Pathfinding
-javascript// recast-rs or similar
+javascript
+```
+// recast-rs or similar
 const navMeshId = await addon.Navigation.buildFromTerrain(terrainId);
 
 const pathId = await addon.Navigation.findPath(
@@ -422,7 +441,10 @@ const pathId = await addon.Navigation.findPath(
 
 const waypoints = await addon.Navigation.getWaypoints(pathId);
 Asset Management
-javascript// Asset hot-reloading, bundles
+```
+javascript
+```
+// Asset hot-reloading, bundles
 const bundleId = await addon.Assets.createBundle("level_1");
 
 await addon.Assets.preload(bundleId, [
@@ -434,8 +456,11 @@ await addon.Assets.preload(bundleId, [
 addon.Assets.onReload("textures/bark.png", (newAssetId) => {
     // Hot-reload in editor
 });
+```
 Compute Shaders (for ML, data science)
-javascript// WGPU compute
+javascript
+```
+// WGPU compute
 const computeId = await addon.Compute.create({
     shader: `
         @compute @workgroup_size(64)
@@ -447,8 +472,11 @@ const computeId = await addon.Compute.create({
 });
 
 const resultBuffer = await addon.Compute.dispatch(computeId, [16, 16, 1]);
+```
 Video Processing
-javascript// ffmpeg-rs or gstreamer bindings
+javascript
+```
+// Using our Media Foundation implementation
 const videoId = await addon.Video.load("footage.mp4");
 
 const clipId = await addon.Video.trim(videoId, {
@@ -464,8 +492,11 @@ const encodedId = await addon.Video.encode(clipId, {
 
 // Frame-by-frame access for AI/VFX
 const frameId = await addon.Video.getFrame(videoId, 120); // frame 120
+```
 UI Components (beyond basic widgets)
-javascript// Advanced egui or custom
+javascript
+```
+// Advanced egui or custom
 const graphId = await addon.UI.createGraph({
     nodes: [
         { id: "blur", type: "filter", pos: [100, 100] },
@@ -477,8 +508,11 @@ const graphId = await addon.UI.createGraph({
 addon.UI.onNodeConnection(graphId, (from, to) => {
     // Build processing pipeline
 });
+```
 Database (for research, notes, RPG data)
-javascript// SQLite via rusqlite
+javascript
+```
+// SQLite via rusqlite
 const dbId = await addon.Database.open("project.db");
 
 await addon.Database.execute(dbId, `
@@ -493,8 +527,11 @@ const rows = await addon.Database.query(dbId,
     "SELECT * FROM characters WHERE health > ?", 
     [50]
 );
+```
 Networking (for multiplayer, collaboration)
-javascript// quinn (QUIC) or tokio-tungstenite
+javascript
+```
+// quinn (QUIC) or tokio-tungstenite
 const sessionId = await addon.Network.createSession({
     maxPlayers: 4,
     tickRate: 60
@@ -508,3 +545,5 @@ await addon.Network.broadcast(sessionId, {
     type: "position_update",
     data: { x: 10, y: 0, z: 5 }
 });
+
+```
