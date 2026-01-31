@@ -74,31 +74,31 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct ProceduralSkyUniform {
-    horizon_color: [f32; 3],
-    _padding0: f32, // Pad to 16 bytes for alignment
-    zenith_color: [f32; 3],
-    _padding1: f32,
-    sun_direction: [f32; 3],
-    _padding2: f32,
+    horizon_color: [f32; 4],
+    // _padding0: f32, // Pad to 16 bytes for alignment
+    zenith_color: [f32; 4],
+    // _padding1: f32,
+    sun_direction: [f32; 4],
+    // _padding2: f32,
     sun_color: [f32; 3],
-    _padding3: f32,
+    // _padding3: f32,
     sun_intensity: f32,
-    _padding4: [f32; 3], // Pad to 16 bytes
+    // _padding4: [f32; 3], // Pad to 16 bytes
 }
 
 impl Default for ProceduralSkyUniform {
     fn default() -> Self {
         Self {
-            horizon_color: [0.7, 0.8, 1.0], // Light blue
-            _padding0: 0.0,
-            zenith_color: [0.2, 0.3, 0.6], // Darker blue
-            _padding1: 0.0,
-            sun_direction: [0.0, 1.0, 0.0], // Directly overhead
-            _padding2: 0.0,
+            horizon_color: [0.7, 0.8, 1.0, 1.0], // Light blue
+            // _padding0: 0.0,
+            zenith_color: [0.2, 0.3, 0.6, 1.0], // Darker blue
+            // _padding1: 0.0,
+            sun_direction: [0.0, 1.0, 0.0, 1.0], // Directly overhead
+            // _padding2: 0.0,
             sun_color: [1.0, 0.9, 0.7],    // Warm yellow
-            _padding3: 0.0,
+            // _padding3: 0.0,
             sun_intensity: 5.0,
-            _padding4: [0.0; 3],
+            // _padding4: [0.0; 3],
         }
     }
 }
@@ -1163,10 +1163,14 @@ impl EntropyPipeline {
             .and_then(|level| level.procedural_sky.clone())
             .unwrap_or_default(); // Get from saved_data, or use defaults
 
+        let horizon_color = procedural_sky_config_from_level.horizon_color;
+        let zenith_color = procedural_sky_config_from_level.zenith_color;
+        let sun_direction = procedural_sky_config_from_level.sun_direction;
+
         let procedural_sky_uniform_data = ProceduralSkyUniform {
-            horizon_color: procedural_sky_config_from_level.horizon_color,
-            zenith_color: procedural_sky_config_from_level.zenith_color,
-            sun_direction: procedural_sky_config_from_level.sun_direction,
+            horizon_color: [horizon_color[0], horizon_color[1], horizon_color[2], 1.0],
+            zenith_color: [zenith_color[0], zenith_color[1], zenith_color[2], 1.0],
+            sun_direction: [sun_direction[0], sun_direction[1], sun_direction[2], 1.0],
             sun_color: procedural_sky_config_from_level.sun_color,
             sun_intensity: procedural_sky_config_from_level.sun_intensity,
             ..Default::default()
@@ -2104,10 +2108,14 @@ impl EntropyPipeline {
                 .and_then(|level| level.procedural_sky.clone());
 
             if let Some(config) = current_procedural_sky_config {
+                let horizon_color = config.horizon_color;
+                let zenith_color = config.zenith_color;
+                let sun_direction = config.sun_direction;
+
                 let procedural_sky_uniform_data = ProceduralSkyUniform {
-                    horizon_color: config.horizon_color,
-                    zenith_color: config.zenith_color,
-                    sun_direction: config.sun_direction,
+                    horizon_color: [horizon_color[0], horizon_color[1], horizon_color[2], 1.0],
+                    zenith_color: [zenith_color[0], zenith_color[1], zenith_color[2], 1.0],
+                    sun_direction: [sun_direction[0], sun_direction[1], sun_direction[2], 1.0],
                     sun_color: config.sun_color,
                     sun_intensity: config.sun_intensity,
                     ..Default::default()

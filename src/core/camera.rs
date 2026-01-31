@@ -326,9 +326,9 @@ pub struct CameraUniform {
     view_proj: [[f32; 4]; 4],
     view_pos: [f32; 4],
     window_size: WindowSizeShader,
+    _pad: [f32; 2],
     inverse_view: [[f32; 4]; 4],
     inverse_projection: [[f32; 4]; 4],
-    _pad: [f32; 2]
 }
 
 impl CameraUniform {
@@ -337,9 +337,10 @@ impl CameraUniform {
             view_proj: Matrix4::identity().into(),
             view_pos: [0.0; 4],
             window_size: WindowSizeShader { width: 1.0, height: 1.0 },
+            _pad: [0.0, 0.0],
             inverse_view: Matrix4::identity().into(),
             inverse_projection: Matrix4::identity().into(),
-            _pad: [0.0, 0.0]
+            
         }
     }
 
