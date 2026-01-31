@@ -2502,22 +2502,6 @@ impl EntropyPipeline {
                 // }
             }
 
-            // draw addon landscapes
-            for (addon_name, landscapes) in &renderer_state.addon_landscapes {
-                for landscape in landscapes {
-                    render_pass.set_pipeline(&geometry_pipeline);
-                    landscape.transform.update_uniform_buffer(&queue);
-                    render_pass.set_bind_group(1, &landscape.bind_group, &[]);
-                    render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        landscape.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
-                }
-            }
-
             // draw grass
 
             for grass in &mut renderer_state.grasses {
@@ -2994,6 +2978,8 @@ impl EntropyPipeline {
         
         let mut pbr_cubes = Vec::new();
         let mut non_pbr_cubes = Vec::new();
+        let mut pbr_landscapes = Vec::new();
+        let mut non_pbr_landscapes = Vec::new();
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -3017,11 +3003,30 @@ impl EntropyPipeline {
                         }
                     }
                 }
+
+                for (addon_name, landscapes) in &renderer_state.addon_landscapes {
+                    for landscape in landscapes {
+                        let mut is_pbr = true;
+                        if let Some(pid) = &landscape.pipeline_id {
+                            if pid != "default" {
+                                if let Some(config) = ctx.pipeline_configs.get(pid) {
+                                    is_pbr = config.pbr.unwrap_or(true);
+                                }
+                            }
+                        }
+
+                        if is_pbr {
+                            pbr_landscapes.push(landscape);
+                        } else {
+                            non_pbr_landscapes.push(landscape);
+                        }
+                    }
+                }
             }
         }
 
         // 1. Geometry Pass for PBR objects
-        if !pbr_cubes.is_empty() {
+        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() {
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            
             let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
@@ -3118,6 +3123,36 @@ impl EntropyPipeline {
                 );
                 render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
             }
+
+            for landscape in &pbr_landscapes {
+                let mut pipeline_set = false;
+                if let Some(pid) = &landscape.pipeline_id {
+                    if pid != "default" {
+                        let mut op_state = editor.addon_engine.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                render_pass.set_pipeline(custom_pipeline);
+                                pipeline_set = true;
+                            }
+                        }
+                    }
+                }
+
+                if !pipeline_set {
+                    render_pass.set_pipeline(&geometry_pipeline);
+                }
+
+                landscape.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    landscape.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+            }
             drop(render_pass);
 
             // 2. Lighting Pass for PBR objects
@@ -3186,14 +3221,15 @@ impl EntropyPipeline {
         }
 
         // 3. Pass for non-PBR objects
-        if !non_pbr_cubes.is_empty() {
+        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() {
+            let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon non-PBR Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: if pbr_cubes.is_empty() { wgpu::LoadOp::Clear(wgpu::Color::BLACK) } else { wgpu::LoadOp::Load },
+                        load: if !has_pbr { wgpu::LoadOp::Clear(wgpu::Color::BLACK) } else { wgpu::LoadOp::Load },
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -3201,7 +3237,7 @@ impl EntropyPipeline {
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &depth_view,
                     depth_ops: Some(wgpu::Operations {
-                        load: if pbr_cubes.is_empty() { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
+                        load: if !has_pbr { wgpu::LoadOp::Clear(1.0) } else { wgpu::LoadOp::Load },
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
@@ -3248,6 +3284,36 @@ impl EntropyPipeline {
                     wgpu::IndexFormat::Uint32,
                 );
                 render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+            }
+
+            for landscape in non_pbr_landscapes {
+                let mut pipeline_set = false;
+                if let Some(pid) = &landscape.pipeline_id {
+                    if pid != "default" {
+                        let mut op_state = editor.addon_engine.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                render_pass.set_pipeline(custom_pipeline);
+                                pipeline_set = true;
+                            }
+                        }
+                    }
+                }
+
+                if !pipeline_set {
+                    render_pass.set_pipeline(&geometry_pipeline);
+                }
+
+                landscape.transform.update_uniform_buffer(&queue);
+                render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(
+                    landscape.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
             }
             drop(render_pass);
         }

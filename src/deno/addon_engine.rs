@@ -108,6 +108,7 @@ pub struct LandscapeConfig {
     pub heights: Option<Vec<f32>>,
     pub noise_id: Option<String>,
     pub position: [f32; 3],
+    pub pipeline_id: Option<String>,
 }
 
 pub struct AddonContext {
@@ -477,7 +478,7 @@ impl AddonEngine {
                         );
 
                         let landscape = Landscape::new(
-                            &Uuid::new_v4().to_string(),
+                            &format!("{}_landscape", addon_name),
                             &data,
                             &gpu.device,
                             &gpu.queue,
@@ -486,7 +487,8 @@ impl AddonEngine {
                             &renderer_state.texture_render_mode_buffer,
                             &renderer_state.color_render_mode_buffer,
                             config.position,
-                            camera
+                            camera,
+                            config.pipeline_id
                         );
 
                         renderer_state.addon_landscapes

@@ -2005,7 +2005,8 @@ impl RendererState {
             &self.texture_render_mode_buffer,
             &self.color_render_mode_buffer,
             position,
-            camera
+            camera,
+            None
         );
 
         self.landscapes.push(landscape);

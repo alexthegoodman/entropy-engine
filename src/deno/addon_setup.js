@@ -25,7 +25,8 @@ globalThis.Entropy = {
                             height: config.height,
                             heights: config.heights || null,
                             noiseId: config.noiseId || null,
-                            position: config.position || [0, 0, 0]
+                            position: config.position || [0, 0, 0],
+                            pipelineId: config.pipelineId || null
                         });
                     }
                 },
@@ -95,7 +96,8 @@ globalThis.Entropy = {
                 height: config.height,
                 heights: config.heights || null,
                 noiseId: config.noiseId || null,
-                position: config.position || [0, 0, 0]
+                position: config.position || [0, 0, 0],
+                pipelineId: config.pipelineId || null
             });
         }
     },

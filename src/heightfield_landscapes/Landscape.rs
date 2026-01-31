@@ -57,6 +57,7 @@ pub struct Landscape {
     pub particle_texture_view: Option<wgpu::TextureView>,
     pub terrain_size: f32,
     pub terrain_height: f32,
+    pub pipeline_id: Option<String>,
 }
 
 impl Landscape {
@@ -71,7 +72,8 @@ impl Landscape {
         texture_render_mode_buffer: &wgpu::Buffer,
         color_render_mode_buffer: &wgpu::Buffer,
         position: [f32; 3],
-        camera: &SimpleCamera
+        camera: &SimpleCamera,
+        pipeline_id: Option<String>
     ) -> Self {
         // load actual vertices and indices (most important for now)
         let scale = 1.0;
@@ -362,7 +364,8 @@ impl Landscape {
             normal_texture_array: None,
             normal_texture_array_view: None,
             pbr_params_texture_array: None,
-            pbr_params_texture_array_view: None
+            pbr_params_texture_array_view: None,
+            pipeline_id
         }
     }
 

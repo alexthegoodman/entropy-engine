@@ -3,7 +3,7 @@
 
 const addon = await Entropy.Addon.register({
     name: "Procedural Terrain",
-    version: "1.1.0",
+    version: "1.2.0",
     description: "Generates terrain using Rust-side noise",
     author: ["Entropy Team"],
     capabilities: {
@@ -15,7 +15,8 @@ const addon = await Entropy.Addon.register({
 let terrainParams = {
     seed: Math.floor(Math.random() * 1000),
     frequency: 0.02,
-    octaves: 6
+    octaves: 6,
+    usePBR: true
 };
 
 async function generateTerrain() {
@@ -28,12 +29,28 @@ async function generateTerrain() {
         octaves: terrainParams.octaves
     });
 
+    let pipelineId = "default";
+    if (!terrainParams.usePBR) {
+        // Create a simple custom non-PBR pipeline (Green Tint)
+        pipelineId = await Entropy.Pipeline.create({
+            name: "terrain_green",
+            pbr: false,
+            fragmentShader: `
+                @fragment
+                fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+                    return vec4<f32>(0.2, 0.8, 0.2, 1.0);
+                }
+            `
+        });
+    }
+
     // 2. Spawn landscape using that noise handle (Heavy data stays in Rust!)
     addon.Landscape.create({
         width: 128,
         height: 128,
         noiseId: noiseId,
-        position: [0, 0, 0]
+        position: [0, 0, 0],
+        pipelineId: pipelineId
     });
 }
 
@@ -45,7 +62,7 @@ Entropy.Addon.onInit(async () => {
     await Entropy.UI.createWindow({
         title: "Rust Noise Settings",
         resizable: true,
-        defaultSize: { width: 300, height: 200 },
+        defaultSize: { width: 300, height: 250 },
         onRender: async () => {
             await Entropy.UI.Widget.label("Noise Parameters", { bold: true });
             
@@ -56,7 +73,15 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
+            await Entropy.UI.Widget.button(terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR", {
+                onClick: () => {
+                    terrainParams.usePBR = !terrainParams.usePBR;
+                    generateTerrain();
+                }
+            });
+
             await Entropy.UI.Widget.label(`Current Seed: ${terrainParams.seed}`);
+            await Entropy.UI.Widget.label(`Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}`);
         }
     });
 });
