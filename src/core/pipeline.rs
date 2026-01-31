@@ -2540,39 +2540,6 @@ impl EntropyPipeline {
                 render_pass.set_pipeline(&geometry_pipeline);
             }
 
-            for (_addon_name, grasses) in &mut renderer_state.addon_grasses {
-                for grass in grasses {
-                    if let Some(player_character) = &renderer_state.player_character {
-                        if let Some(model_id) = &player_character.model_id {
-                            let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                            let player_model = player_model.as_ref().expect("Couldn't find related model");
-                            let model_mesh = player_model.meshes.get(0);
-                            let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
-                            grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
-                        } else if let Some(sphere) = &player_character.sphere {
-                            grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                        } else {
-                            grass.update_uniforms(&queue, time as f32, camera.position);
-                        }
-                    } else {
-                        grass.update_uniforms(&queue, time as f32, camera.position);
-                    }
-
-                    render_pass.set_pipeline(&grass.render_pipeline);
-                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                    render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                    render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-                    let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
-                    let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
-
-                    render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
-                    render_pass.set_pipeline(&geometry_pipeline);
-                }
-            }
-
             // draw trees
             for trees in &renderer_state.procedural_trees {
                 trees.update_uniforms(&queue, time as f32);
@@ -3018,6 +2985,8 @@ impl EntropyPipeline {
         let mut non_pbr_cubes = Vec::new();
         let mut pbr_landscapes = Vec::new();
         let mut non_pbr_landscapes = Vec::new();
+        let mut pbr_grasses = Vec::new();
+        let mut non_pbr_grasses = Vec::new();
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -3060,11 +3029,27 @@ impl EntropyPipeline {
                         }
                     }
                 }
+
+                for (addon_name, grasses) in &mut renderer_state.addon_grasses {
+                    for grass in grasses {
+                        let mut is_pbr = true;
+                        // Note: Grass currently doesn't have a pipeline_id field on the Rust struct, 
+                        // but it has a render_pipeline. We should check the config it was created with if possible.
+                        // For now, let's assume hair particles are PBR if they output to G-buffer.
+                        // All hair particles in our system are currently set up to output to G-buffer.
+                        
+                        if is_pbr {
+                            pbr_grasses.push(grass);
+                        } else {
+                            non_pbr_grasses.push(grass);
+                        }
+                    }
+                }
             }
         }
 
         // 1. Geometry Pass for PBR objects
-        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() {
+        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_grasses.is_empty() {
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            
             let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
@@ -3191,6 +3176,44 @@ impl EntropyPipeline {
                 );
                 render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
             }
+
+            for grass in &mut pbr_grasses {
+                // Update uniforms based on camera/player position
+                // Similar to how it's done in render_frame
+                if let Some(player_character) = &renderer_state.player_character {
+                    if let Some(model_id) = &player_character.model_id {
+                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        if let Some(player_model) = player_model {
+                            let model_mesh = player_model.meshes.get(0);
+                            if let Some(model_mesh) = model_mesh {
+                                grass.update_uniforms(&queue, current_time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                            } else {
+                                grass.update_uniforms(&queue, current_time as f32, camera.position);
+                            }
+                        } else {
+                            grass.update_uniforms(&queue, current_time as f32, camera.position);
+                        }
+                    } else if let Some(sphere) = &player_character.sphere {
+                        grass.update_uniforms(&queue, current_time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                    } else {
+                        grass.update_uniforms(&queue, current_time as f32, camera.position);
+                    }
+                } else {
+                    grass.update_uniforms(&queue, current_time as f32, camera.position);
+                }
+
+                render_pass.set_pipeline(&grass.render_pipeline);
+                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
+
+                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
+            }
             drop(render_pass);
 
             // 2. Lighting Pass for PBR objects
@@ -3261,7 +3284,7 @@ impl EntropyPipeline {
         }
 
         // 3. Pass for non-PBR objects
-        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() {
+        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() {
             let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon non-PBR Pass"),
@@ -3354,6 +3377,43 @@ impl EntropyPipeline {
                     wgpu::IndexFormat::Uint32,
                 );
                 render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+            }
+
+            for grass in &mut non_pbr_grasses {
+                // Update uniforms
+                if let Some(player_character) = &renderer_state.player_character {
+                    if let Some(model_id) = &player_character.model_id {
+                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        if let Some(player_model) = player_model {
+                            let model_mesh = player_model.meshes.get(0);
+                            if let Some(model_mesh) = model_mesh {
+                                grass.update_uniforms(&queue, current_time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                            } else {
+                                grass.update_uniforms(&queue, current_time as f32, camera.position);
+                            }
+                        } else {
+                            grass.update_uniforms(&queue, current_time as f32, camera.position);
+                        }
+                    } else if let Some(sphere) = &player_character.sphere {
+                        grass.update_uniforms(&queue, current_time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                    } else {
+                        grass.update_uniforms(&queue, current_time as f32, camera.position);
+                    }
+                } else {
+                    grass.update_uniforms(&queue, current_time as f32, camera.position);
+                }
+
+                render_pass.set_pipeline(&grass.render_pipeline);
+                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
+
+                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
             }
             drop(render_pass);
         }

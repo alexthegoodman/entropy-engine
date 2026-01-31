@@ -344,7 +344,7 @@ fn op_ui_widget_button(state: &mut OpState, #[string] window_id: String, #[strin
 #[op2]
 #[string]
 fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> Result<String, deno_error::JsErrorBox> {
-    println!("Creating pipeline: {:?}", config);
+    println!("Creating pipeline: {:?} {:?}", config.name, config.pbr);
     
     if config.use_default.unwrap_or(false) {
         return Ok("default".to_string());
