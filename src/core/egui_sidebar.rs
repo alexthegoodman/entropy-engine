@@ -1398,7 +1398,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 
                 if ui.button("Load Addon Bundle").clicked() {
                     if let Some(path) = FileDialog::new()
-                        .add_filter("JavaScript", &["js", "bundle"])
+                        .add_filter("JavaScript", &["js", "mjs", "bundle"])
                         .pick_file() {
                         
                         println!("Loading addon from: {:?}", path);

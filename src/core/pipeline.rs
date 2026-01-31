@@ -3765,7 +3765,7 @@ impl EntropyPipeline {
                     
                     if ui.button("Load Addon Bundle").clicked() {
                          if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("JavaScript", &["js", "bundle"])
+                            .add_filter("JavaScript", &["js", "mjs", "bundle"])
                             .pick_file() {
                             
                             if let Some(editor) = &mut viewer.context.export_editor {
