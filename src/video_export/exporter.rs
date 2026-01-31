@@ -3,7 +3,7 @@ use std::sync::Arc;
 // use tokio::sync::mpsc::{UnboundedSender};
 
 // use super::{encode::VideoEncoder, frame_buffer::FrameCaptureBuffer};
-use crate::{core::{editor::WindowSize, pipeline::ExportPipeline}};
+use crate::{core::{editor::WindowSize, pipeline::EntropyPipeline}};
 
 // Progress message sent from export thread to UI
 #[derive(Debug, Clone)]
@@ -36,7 +36,7 @@ impl Exporter {
         project_id: String,
     ) -> Result<Arc<u32>, String> {
         println!("Preparing wgpu pipeline...");
-        let mut wgpu_pipeline = ExportPipeline::new();
+        let mut wgpu_pipeline = EntropyPipeline::new();
         wgpu_pipeline
             .initialize(
                 None,

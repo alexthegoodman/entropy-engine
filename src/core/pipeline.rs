@@ -103,7 +103,7 @@ impl Default for ProceduralSkyUniform {
     }
 }
 
-pub struct ExportPipeline {
+pub struct EntropyPipeline {
     // pub device: Option<wgpu::Device>,
     // pub queue: Option<wgpu::Queue>,
     pub gpu_resources: Option<Arc<GpuResources>>,
@@ -167,7 +167,7 @@ pub struct ExportPipeline {
     pub vector_motion: Motion,
 }
 
-impl ExportPipeline {
+impl EntropyPipeline {
     pub fn new() -> Self {
         let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
         let surface = dock_state.main_surface_mut();
@@ -191,7 +191,7 @@ impl ExportPipeline {
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
         let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
 
-        ExportPipeline {
+        EntropyPipeline {
             // device: None,
             // queue: None,
             gpu_resources: None,

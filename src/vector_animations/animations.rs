@@ -54,10 +54,11 @@ pub struct AnimationData {
     pub object_type: ObjectType,
     /// id of the associated polygon
     pub polygon_id: String,
-    /// Total duration of the animation
-    pub duration: Duration,
-    /// Start time within sequence
-    pub start_time_ms: i32,
+    // now stored directly on the saved object configs
+    // /// Total duration of the animation
+    // pub duration: Duration,
+    // /// Start time within sequence
+    // pub start_time_ms: i32,
     /// Hierarchical property structure for UI
     pub properties: Vec<AnimationProperty>,
     /// Relative position
@@ -70,8 +71,8 @@ impl Default for AnimationData {
             id: String::new(),
             object_type: ObjectType::Polygon,
             polygon_id: String::new(),
-            duration: Duration::from_secs(1),
-            start_time_ms: 0,
+            // duration: Duration::from_secs(1),
+            // start_time_ms: 0,
             properties: Vec::new(),
             position: [0, 0],
         }

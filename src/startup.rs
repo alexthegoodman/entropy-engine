@@ -32,7 +32,7 @@ use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
 use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
-use crate::core::pipeline::{ExportPipeline};
+use crate::core::pipeline::{EntropyPipeline};
 use crate::helpers::load_project::load_game_project;
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
@@ -842,7 +842,7 @@ struct WindowState {
     /// The actual winit Window.
     window: Arc<Window>,
     // pub gpu_resources: Option<Arc<GpuResources>>, // get off pipeline!
-    pub pipeline: ExportPipeline,
+    pub pipeline: EntropyPipeline,
     pub surface_config: wgpu::SurfaceConfiguration,
     /// The window theme we're drawing with.
     theme: Theme,
@@ -878,7 +878,7 @@ impl WindowState {
     fn new(app: &Application, window: Window, game_mode: bool) -> Result<Self, Box<dyn Error>> {
         let window = Arc::new(window);
 
-        let mut pipeline = ExportPipeline::new();
+        let mut pipeline = EntropyPipeline::new();
         let project_id = uuid::Uuid::new_v4().to_string(); // Generate a new UUID for project_id
         
         // Use window size for camera initialization

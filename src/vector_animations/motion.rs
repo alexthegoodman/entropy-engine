@@ -645,8 +645,8 @@ impl Motion {
                     id: Uuid::new_v4().to_string(),
                     object_type: object_type.unwrap_or(ObjectType::Polygon),
                     polygon_id: item_id.unwrap(),
-                    duration: Duration::from_millis(total_duration as u64),
-                    start_time_ms: 0,
+                    // duration: Duration::from_millis(total_duration as u64),
+                    // start_time_ms: 0,
                     position: [0, 0],
                     properties,
                 });
@@ -740,7 +740,7 @@ impl Motion {
         } else {
             total_dt as f64
         };
-        editor.last_frame_time = Some(now);
+        // editor.last_frame_time = Some(now);
 
         self.step_animate_sequence(editor, total_dt as f32);
     }
@@ -766,13 +766,41 @@ impl Motion {
                 // Group transform position
                 let path_group_position = animation.position;
 
+                // Find the polygon to update
+                let object_ref: Vec<(i32, i32)> = match animation.object_type {
+                    ObjectType::Polygon => editor
+                        .stunts_polygons
+                        .iter()
+                        .filter(|p| p.id.to_string() == animation.polygon_id)
+                        .map(|p| (p.start_time_ms, p.duration_ms)).collect(),
+                    ObjectType::TextItem => editor
+                        .stunts_textboxes
+                        .iter()
+                        .filter(|t| t.id.to_string() == animation.polygon_id)
+                        .map(|p| (p.start_time_ms, p.duration_ms)).collect(),
+                    ObjectType::ImageItem => editor
+                        .stunts_images
+                        .iter()
+                        .filter(|i| i.id.to_string() == animation.polygon_id)
+                        .map(|p| (p.start_time_ms, p.duration_ms)).collect(),
+                    ObjectType::VideoItem => editor
+                        .stunts_videos
+                        .iter()
+                        .filter(|i| i.id.to_string() == animation.polygon_id)
+                        .map(|p| (p.start_time_ms, p.duration_ms)).collect(),
+                };
+
+                let start_time_ms = object_ref[0].0;
+                let duration_ms = object_ref[0].1;
+
                 // Get current time within animation duration
                 let current_time =
                     Duration::from_secs_f32(total_dt as f32);
-                let start_time = Duration::from_millis(animation.start_time_ms as u64);
+                let start_time = Duration::from_millis(start_time_ms as u64);
+                let duration = Duration::from_millis(duration_ms as u64);
 
                 // Check if the current time is within the animation's active period
-                if current_time < start_time || current_time > start_time + animation.duration {
+                if current_time < start_time || current_time > start_time + duration {
                     continue;
                 }
 
@@ -962,6 +990,7 @@ impl Motion {
 
                             match animation.object_type {
                                 ObjectType::Polygon => {
+                                    // println!("poly pos {:?} {:?} {:?}", progress, start_time, current_time);
                                     editor.stunts_polygons[object_idx]
                                         .transform
                                         .update_position([position.x, position.y, 0.0]);
