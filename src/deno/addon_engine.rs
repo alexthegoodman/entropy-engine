@@ -585,7 +585,7 @@ impl AddonEngine {
             if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
                 if entropy_val.is_object() {
                     let entropy_obj = entropy_val.to_object(scope).unwrap();
-                    let process_key = v8::String::new(scope, "processed_events").unwrap();
+                    let process_key = v8::String::new(scope, "_process_events").unwrap();
                     if let Some(process_val) = entropy_obj.get(scope, process_key.into()) {
                         if process_val.is_function() {
                             let process_func = v8::Local::<v8::Function>::try_from(process_val).unwrap();
