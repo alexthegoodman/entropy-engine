@@ -189,7 +189,12 @@ impl EntropyPipeline {
         let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
 
         let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
-        let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
+
+        // let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
+
+        let mut addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+        let surface3 = addon_dock_state.main_surface_mut();
+        let [_, _] = surface3.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
 
         EntropyPipeline {
             // device: None,
@@ -3185,7 +3190,9 @@ impl EntropyPipeline {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        // load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        // load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.85, g: 0.05, b: 0.05, a: 1.0 }),
+                            load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
