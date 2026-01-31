@@ -478,7 +478,7 @@ impl AddonEngine {
                         );
 
                         let landscape = Landscape::new(
-                            &format!("{}_landscape", addon_name),
+                            &Uuid::new_v4().to_string(),
                             &data,
                             &gpu.device,
                             &gpu.queue,
