@@ -112,6 +112,8 @@ impl GrassBlade {
 }
 
 pub struct Grass {
+    pub id: Option<String>,
+    pub addon_name: Option<String>,
     pub blade: GrassBlade,
     pub render_pipeline: Arc<wgpu::RenderPipeline>,
     pub uniform_buffer: wgpu::Buffer,
@@ -246,6 +248,8 @@ impl Grass {
         };
 
         Self {
+            id: None,
+            addon_name: None,
             blade,
             render_pipeline,
             uniform_buffer,
@@ -442,6 +446,8 @@ impl Grass {
         };
 
         Self {
+            id: None,
+            addon_name: None,
             blade,
             render_pipeline,
             uniform_buffer,

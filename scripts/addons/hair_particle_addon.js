@@ -10,6 +10,7 @@ const addon = await Entropy.Addon.register({
 });
 
 let hairParams = {
+    id: "main_hair",
     gridSize: 2.0,
     renderDistance: 50.0,
     windStrength: 2.5,

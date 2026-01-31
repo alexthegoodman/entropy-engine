@@ -194,6 +194,8 @@ pub struct LandscapeConfig {
 
 pub struct AddonGrassConfig {
 
+    pub id: Option<String>,
+
     pub grid_size: Option<f32>,
 
     pub render_distance: Option<f32>,
@@ -256,15 +258,15 @@ pub struct AddonContext {
 
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
 
-    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
+                pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
 
-    pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+                pub ui_widgets: HashMap<String, Vec<UiWidget>>,
 
-    pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+                pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
 
-    pub new_tabs: Vec<String>,
+                pub new_tabs: Vec<String>,
 
-}
+            }
 
 #[op2]
 #[string]
@@ -702,44 +704,92 @@ impl AddonEngine {
 
         if !pending_grasses.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
-                let op_state = self.runtime.op_state();
-                let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-                    for (addon_name, config) in pending_grasses {
-                        let custom_pipeline = config.pipeline_id.as_ref()
-                            .and_then(|id| ctx.pipelines.get(id))
-                            .map(|p| Arc::clone(p));
+                for (addon_name, config) in pending_grasses {
+                    let mut updated = false;
 
-                        let mut grass = Grass::new_without_landscape(
-                            &gpu.device,
-                            &gpu.queue,
-                            &ctx.bind_group_layouts[0], // Camera bind group layout
-                            custom_pipeline
-                        );
+                    // 1. Try to find and update existing instance
+                    if let Some(id) = &config.id {
+                        if let Some(grasses) = renderer_state.addon_grasses.get_mut(&addon_name) {
+                            if let Some(grass) = grasses.iter_mut().find(|g| g.id.as_ref() == Some(id)) {
+                                // Update existing instance
+                                if let Some(grid_size) = config.grid_size { grass.config.grid_size = grid_size; }
+                                if let Some(render_distance) = config.render_distance { grass.config.render_distance = render_distance; }
+                                if let Some(wind_strength) = config.wind_strength { grass.config.wind_strength = wind_strength; }
+                                if let Some(wind_speed) = config.wind_speed { grass.config.wind_speed = wind_speed; }
+                                if let Some(blade_height) = config.blade_height { grass.config.blade_height = blade_height; }
+                                if let Some(blade_width) = config.blade_width { grass.config.blade_width = blade_width; }
+                                if let Some(brownian_strength) = config.brownian_strength { grass.config.brownian_strength = brownian_strength; }
+                                if let Some(blade_density) = config.blade_density { grass.config.blade_density = blade_density; }
+                                if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
+                                if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
+                                if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
 
-                        // Apply config overrides
-                        if let Some(grid_size) = config.grid_size { grass.config.grid_size = grid_size; }
-                        if let Some(render_distance) = config.render_distance { grass.config.render_distance = render_distance; }
-                        if let Some(wind_strength) = config.wind_strength { grass.config.wind_strength = wind_strength; }
-                        if let Some(wind_speed) = config.wind_speed { grass.config.wind_speed = wind_speed; }
-                        if let Some(blade_height) = config.blade_height { grass.config.blade_height = blade_height; }
-                        if let Some(blade_width) = config.blade_width { grass.config.blade_width = blade_width; }
-                        if let Some(brownian_strength) = config.brownian_strength { grass.config.brownian_strength = brownian_strength; }
-                        if let Some(blade_density) = config.blade_density { grass.config.blade_density = blade_density; }
-                        if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
-                        if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
-                        if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
+                                // Update pipeline if requested
+                                if let Some(pid) = &config.pipeline_id {
+                                    let mut op_state = self.runtime.op_state();
+                                    let op_state = op_state.borrow();
+                                    if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                        if let Some(p) = ctx.pipelines.get(pid) {
+                                            grass.render_pipeline = Arc::clone(p);
+                                        }
+                                    }
+                                }
 
-                        grass.update_config(&gpu.queue, grass.config);
-
-                        renderer_state.addon_grasses
-                            .entry(addon_name)
-                            .or_insert_with(Vec::new)
-                            .push(grass);
+                                grass.update_config(&gpu.queue, grass.config);
+                                updated = true;
+                            }
+                        }
                     }
+
+                    if updated { continue; }
+
+                    // 2. Create new instance if not found
+                    let (custom_pipeline, camera_layout) = {
+                        let mut op_state = self.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                            let cp = config.pipeline_id.as_ref()
+                                .and_then(|id| ctx.pipelines.get(id))
+                                .map(|p| Arc::clone(p));
+                            let cl = Arc::clone(&ctx.bind_group_layouts[0]);
+                            (cp, cl)
+                        } else {
+                            (None, renderer_state.group_bind_group_layout.clone()) // fallback
+                        }
+                    };
+
+                    let mut grass = Grass::new_without_landscape(
+                        &gpu.device,
+                        &gpu.queue,
+                        &camera_layout,
+                        custom_pipeline
+                    );
+
+                    grass.id = config.id.clone();
+                    grass.addon_name = Some(addon_name.clone());
+
+                    // Apply config overrides
+                    if let Some(grid_size) = config.grid_size { grass.config.grid_size = grid_size; }
+                    if let Some(render_distance) = config.render_distance { grass.config.render_distance = render_distance; }
+                    if let Some(wind_strength) = config.wind_strength { grass.config.wind_strength = wind_strength; }
+                    if let Some(wind_speed) = config.wind_speed { grass.config.wind_speed = wind_speed; }
+                    if let Some(blade_height) = config.blade_height { grass.config.blade_height = blade_height; }
+                    if let Some(blade_width) = config.blade_width { grass.config.blade_width = blade_width; }
+                    if let Some(brownian_strength) = config.brownian_strength { grass.config.brownian_strength = brownian_strength; }
+                    if let Some(blade_density) = config.blade_density { grass.config.blade_density = blade_density; }
+                    if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
+                    if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
+                    if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
+
+                    grass.update_config(&gpu.queue, grass.config);
+
+                    renderer_state.addon_grasses
+                        .entry(addon_name)
+                        .or_insert_with(Vec::new)
+                        .push(grass);
                 }
             }
-        }
+        }    
     }
 
     pub fn set_resources(

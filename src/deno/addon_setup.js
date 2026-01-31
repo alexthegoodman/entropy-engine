@@ -33,6 +33,7 @@ globalThis.Entropy = {
                 Particles: {
                     createHair: (config) => {
                         ops.op_grass_create(metadata.name, {
+                            id: config.id || null,
                             gridSize: config.gridSize || 2.0,
                             renderDistance: config.renderDistance || 150.0,
                             windStrength: config.windStrength || 2.5,
@@ -125,6 +126,7 @@ globalThis.Entropy = {
     Particles: {
         createHair: (config) => {
             return ops.op_grass_create("Global", {
+                id: config.id || null,
                 gridSize: config.gridSize || 2.0,
                 renderDistance: config.renderDistance || 150.0,
                 windStrength: config.windStrength || 2.5,
