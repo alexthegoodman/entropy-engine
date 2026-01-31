@@ -13,6 +13,7 @@ use deno_core::{
     FsModuleLoader,
     ModuleId,
 };
+use uuid::Uuid;
 use std::rc::Rc;
 use std::cell::RefCell;
 use std::path::Path;
@@ -476,7 +477,7 @@ impl AddonEngine {
                         );
 
                         let landscape = Landscape::new(
-                            &format!("{}_landscape", addon_name),
+                            &Uuid::new_v4().to_string(),
                             &data,
                             &gpu.device,
                             &gpu.queue,
