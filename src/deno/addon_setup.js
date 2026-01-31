@@ -53,24 +53,27 @@ globalThis.Entropy = {
         }
     },
     UI: {
-        createWindow: async (config) => {
+        createWindow: (config) => {
             const windowId = ops.op_ui_create_window(config, config.onRender);
             return windowId;
         },
-        createTab: async (config) => {
+        createTab: (config) => {
             const tabId = ops.op_ui_create_tab(config, config.onRender);
             return tabId;
         },
         Widget: {
-            label: async (windowId, config) => {
-                ops.op_ui_widget_label(windowId, config.text, config.bold || false);
+            label: (windowId, config) => {
+                const text = typeof config === 'string' ? config : (config?.text || "");
+                const bold = typeof config === 'object' ? (config?.bold || false) : false;
+                ops.op_ui_widget_label(windowId, text, bold);
             },
-            button: async (windowId, config) => {
-                const id = crypto.randomUUID();
-                ops.op_ui_widget_button(windowId, config.text, id);
+            button: (windowId, config) => {
+                const text = typeof config === 'string' ? config : (config?.text || "");
+                const id = Math.random().toString(36).substring(2, 15);
+                ops.op_ui_widget_button(windowId, text, id);
                 
                 // Add to event listeners
-                if (config.onClick) {
+                if (typeof config === 'object' && config?.onClick) {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onClick;
                 }
@@ -85,12 +88,12 @@ globalThis.Entropy = {
         }
     },
     Pipeline: {
-        create: async (config) => {
+        create: (config) => {
             return ops.op_pipeline_create(config);
         }
     },
     Landscape: {
-        create: async (config) => {
+        create: (config) => {
             return ops.op_landscape_create("Global", {
                 width: config.width,
                 height: config.height,
@@ -102,7 +105,7 @@ globalThis.Entropy = {
         }
     },
     Noise: {
-        create: async (config) => {
+        create: (config) => {
             return ops.op_noise_create({
                 noiseType: config.type || "fbm",
                 source: config.source || "perlin",

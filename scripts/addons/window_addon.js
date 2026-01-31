@@ -11,19 +11,19 @@ const addon = await Entropy.Addon.register({
 Entropy.Addon.onInit(async () => {
     Entropy.println("UI Demo Initialized!");
 
-    const windowId = await Entropy.UI.createWindow({
+    const windowId = Entropy.UI.createWindow({
         title: "My Addon Controls",
         resizable: true,
         defaultSize: { width: 400, height: 300 },
-        onRender: async (ctx) => {
-            await Entropy.UI.Widget.label(windowId, {
+        onRender: (ctx) => {
+            Entropy.UI.Widget.label(windowId, {
                 text: "Hello from Deno!",
                 bold: true
             });
 
-            await Entropy.UI.Widget.button(windowId, {
+            Entropy.UI.Widget.button(windowId, {
                 text: "Click Me",
-                onClick: async () => {
+                onClick: () => {
                     Entropy.println("Button Clicked!");
                 }
             });

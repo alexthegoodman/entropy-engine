@@ -590,10 +590,19 @@ impl AddonEngine {
             };
         
             let scope = &mut self.runtime.handle_scope();
+            let tc = &mut v8::TryCatch::new(scope);
             for (_id, cb) in callbacks {
-                let func = v8::Local::new(scope, cb);
-                let receiver = v8::undefined(scope);
-                let _ = func.call(scope, receiver.into(), &[]); 
+                let func = v8::Local::new(tc, cb);
+                let receiver = v8::undefined(tc);
+                let _ = func.call(tc, receiver.into(), &[]); 
+                
+                if tc.has_caught() {
+                    if let Some(exception) = tc.exception() {
+                        let msg = exception.to_rust_string_lossy(tc);
+                        println!("[ADDON UI ERROR] {}", msg);
+                    }
+                    tc.reset();
+                }
             }
         }
         
@@ -667,9 +676,17 @@ impl AddonEngine {
 
         if let Some(cb) = callback {
             let scope = &mut self.runtime.handle_scope();
-            let func = v8::Local::new(scope, cb);
-            let receiver = v8::undefined(scope);
-            let _ = func.call(scope, receiver.into(), &[]); 
+            let tc = &mut v8::TryCatch::new(scope);
+            let func = v8::Local::new(tc, cb);
+            let receiver = v8::undefined(tc);
+            let _ = func.call(tc, receiver.into(), &[]); 
+            
+            if tc.has_caught() {
+                if let Some(exception) = tc.exception() {
+                    let msg = exception.to_rust_string_lossy(tc);
+                    println!("[ADDON TAB ERROR] {}", msg);
+                }
+            }
         }
 
         // 3. Render

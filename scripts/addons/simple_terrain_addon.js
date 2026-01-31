@@ -59,29 +59,31 @@ Entropy.Addon.onInit(async () => {
 
     generateTerrain();
 
-    await Entropy.UI.createWindow({
+    const windowId = Entropy.UI.createWindow({
         title: "Rust Noise Settings",
         resizable: true,
         defaultSize: { width: 300, height: 250 },
-        onRender: async () => {
-            await Entropy.UI.Widget.label("Noise Parameters", { bold: true });
+        onRender: () => {
+            Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
             
-            await Entropy.UI.Widget.button("Randomize Seed & Regenerate", {
+            Entropy.UI.Widget.button(windowId, {
+                text: "Randomize Seed & Regenerate",
                 onClick: () => {
                     terrainParams.seed = Math.floor(Math.random() * 1000);
                     generateTerrain();
                 }
             });
 
-            await Entropy.UI.Widget.button(terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR", {
+            Entropy.UI.Widget.button(windowId, {
+                text: terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
                 onClick: () => {
                     terrainParams.usePBR = !terrainParams.usePBR;
                     generateTerrain();
                 }
             });
 
-            await Entropy.UI.Widget.label(`Current Seed: ${terrainParams.seed}`);
-            await Entropy.UI.Widget.label(`Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}`);
+            Entropy.UI.Widget.label(windowId, { text: `Current Seed: ${terrainParams.seed}` });
+            Entropy.UI.Widget.label(windowId, { text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` });
         }
     });
 });

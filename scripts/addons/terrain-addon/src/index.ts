@@ -164,7 +164,7 @@ async function generateTerrain() {
     // 2. Create pipeline if needed
     let pipelineId = "default";
     if (!terrainParams.usePBR) {
-        pipelineId = await Entropy.Pipeline.create({
+        pipelineId = Entropy.Pipeline.create({
             name: "terrain_green",
             pbr: false,
             fragmentShader: `
@@ -198,32 +198,32 @@ Entropy.Addon.onInit(async () => {
     generateTerrain();
 
     // Tab 1
-    const tab1 = await Entropy.UI.createTab({
+    const tab1 = Entropy.UI.createTab({
         title: "Noise Settings",
         onRender: async () => {
             // render callback
             // Entropy.println("onRender: " + tab1);
 
-            await Entropy.UI.Widget.label(tab1, { text: "Terrain Generation (JS-side)", bold: true });
-            await Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
-            await Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
-            await Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
-            await Entropy.UI.Widget.label(tab1, { 
+            Entropy.UI.Widget.label(tab1, { text: "Terrain Generation (JS-side)", bold: true });
+            Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
+            Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
+            Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
+            Entropy.UI.Widget.label(tab1, { 
                 text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
             });
-            await Entropy.UI.Widget.label(tab1, { 
+            Entropy.UI.Widget.label(tab1, { 
                 text: `Points: ${terrainParams.width * terrainParams.height}` 
             });
-            await Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
-            await Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
-            await Entropy.UI.Widget.label(tab1, { 
+            Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
+            Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
+            Entropy.UI.Widget.label(tab1, { 
                 text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
             });
 
             // Entropy.println("onRender 2: " + tab1);
             
             // TODO: buttons not rendering
-            await Entropy.UI.Widget.button(tab1, {
+            Entropy.UI.Widget.button(tab1, {
                 text: "🎲 Randomize Seed & Regenerate",
                 onClick: () => {
                     terrainParams.seed = Math.floor(Math.random() * 1000);
@@ -231,7 +231,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button(tab1, {
+            Entropy.UI.Widget.button(tab1, {
                 text: terrainParams.usePBR ? "🎨 Switch to non-PBR (Green)" : "✨ Switch to PBR",
                 onClick: () => {
                     terrainParams.usePBR = !terrainParams.usePBR;
@@ -239,7 +239,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button(tab1, {
+            Entropy.UI.Widget.button(tab1, {
                 text: "📈 Increase Resolution (256x256)",
                 onClick: () => {
                     terrainParams.width = 256;
@@ -248,7 +248,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button(tab1, {
+            Entropy.UI.Widget.button(tab1, {
                 text: "📉 Decrease Resolution (64x64)",
                 onClick: () => {
                     terrainParams.width = 64;
@@ -257,7 +257,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button(tab1, {
+            Entropy.UI.Widget.button(tab1, {
                 text: "🔄 Reset to Default (128x128)",
                 onClick: () => {
                     terrainParams.width = 128;

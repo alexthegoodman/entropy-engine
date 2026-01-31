@@ -63,8 +63,8 @@ export interface ScopedAPI {
   };
 }
 
-export type InitCallback = () => void | Promise<void>;
-export type CleanupCallback = () => void | Promise<void>;
+export type InitCallback = () => void | void;
+export type CleanupCallback = () => void | void;
 
 // UI Types
 export interface WindowConfig {
@@ -103,21 +103,21 @@ export interface EntropyAPI {
     onCleanup: (callback: CleanupCallback) => void;
   };
   UI: {
-    createWindow: (config: WindowConfig) => Promise<string>;
-    createTab: (config: TabConfig) => Promise<string>;
+    createWindow: (config: WindowConfig) => string;
+    createTab: (config: TabConfig) => string;
     Widget: {
-      label: (windowId: string, config: LabelConfig) => Promise<void>;
-      button: (windowId: string, config: ButtonConfig) => Promise<void>;
+      label: (windowId: string, config: LabelConfig) => void;
+      button: (windowId: string, config: ButtonConfig) => void;
     };
   };
   Pipeline: {
-    create: (config: PipelineConfig) => Promise<string>;
+    create: (config: PipelineConfig) => string;
   };
   Landscape: {
-    create: (config: LandscapeConfig) => Promise<string>;
+    create: (config: LandscapeConfig) => string;
   };
   Noise: {
-    create: (config: NoiseConfig) => Promise<string>;
+    create: (config: NoiseConfig) => string;
   };
   println: (msg: unknown) => void;
   _process_events: (eventIds: string[]) => void;
