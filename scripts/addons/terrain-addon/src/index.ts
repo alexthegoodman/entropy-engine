@@ -197,14 +197,13 @@ Entropy.Addon.onInit(async () => {
 
     generateTerrain();
 
-    await Entropy.UI.createWindow({
-        title: "JS Noise Settings",
-        resizable: true,
-        defaultSize: { width: 350, height: 400 },
+    // Tab 1
+    const tab1 = await Entropy.UI.createTab({
+        title: "Noise Settings",
         onRender: async () => {
-            await Entropy.UI.Widget.label("Terrain Generation (JS-side)", { text: "Terrain Generation (JS-side)", bold: true });
+            await Entropy.UI.Widget.label(tab1, { text: "Terrain Generation (JS-side)", bold: true });
             
-            await Entropy.UI.Widget.button("Randomize Seed & Regenerate", {
+            await Entropy.UI.Widget.button(tab1, {
                 text: "🎲 Randomize Seed & Regenerate",
                 onClick: () => {
                     terrainParams.seed = Math.floor(Math.random() * 1000);
@@ -212,7 +211,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button(terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR", {
+            await Entropy.UI.Widget.button(tab1, {
                 text: terrainParams.usePBR ? "🎨 Switch to non-PBR (Green)" : "✨ Switch to PBR",
                 onClick: () => {
                     terrainParams.usePBR = !terrainParams.usePBR;
@@ -220,7 +219,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button("Increase Resolution (256x256)", {
+            await Entropy.UI.Widget.button(tab1, {
                 text: "📈 Increase Resolution (256x256)",
                 onClick: () => {
                     terrainParams.width = 256;
@@ -229,7 +228,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button("Decrease Resolution (64x64)", {
+            await Entropy.UI.Widget.button(tab1, {
                 text: "📉 Decrease Resolution (64x64)",
                 onClick: () => {
                     terrainParams.width = 64;
@@ -238,7 +237,7 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.button("Reset to Default (128x128)", {
+            await Entropy.UI.Widget.button(tab1, {
                 text: "🔄 Reset to Default (128x128)",
                 onClick: () => {
                     terrainParams.width = 128;
@@ -247,18 +246,18 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            await Entropy.UI.Widget.label("", { text: "" }); // Spacer
-            await Entropy.UI.Widget.label("Current Settings", { text: "Current Settings", bold: true });
-            await Entropy.UI.Widget.label(`Seed: ${terrainParams.seed}`, { text: `Seed: ${terrainParams.seed}` });
-            await Entropy.UI.Widget.label(`Resolution: ${terrainParams.width}x${terrainParams.height}`, { 
+            await Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
+            await Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
+            await Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
+            await Entropy.UI.Widget.label(tab1, { 
                 text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
             });
-            await Entropy.UI.Widget.label(`Points: ${terrainParams.width * terrainParams.height}`, { 
+            await Entropy.UI.Widget.label(tab1, { 
                 text: `Points: ${terrainParams.width * terrainParams.height}` 
             });
-            await Entropy.UI.Widget.label(`Octaves: ${terrainParams.octaves}`, { text: `Octaves: ${terrainParams.octaves}` });
-            await Entropy.UI.Widget.label(`Frequency: ${terrainParams.frequency}`, { text: `Frequency: ${terrainParams.frequency}` });
-            await Entropy.UI.Widget.label(`Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}`, { 
+            await Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
+            await Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
+            await Entropy.UI.Widget.label(tab1, { 
                 text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
             });
         }
