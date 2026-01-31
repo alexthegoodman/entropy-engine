@@ -1,0 +1,140 @@
+// Type definitions for Entropy API
+
+export interface Vec3 {
+  0: number;
+  1: number;
+  2: number;
+  length: 3;
+}
+
+export type Position = Vec3 | [number, number, number];
+export type Scale = Vec3 | [number, number, number];
+
+// Addon Types
+export interface AddonMetadata {
+  name: string;
+  version?: string;
+  description?: string;
+  [key: string]: unknown;
+}
+
+export interface CubeParameters {
+  position?: Position;
+  scale?: Scale;
+}
+
+export interface ProceduralModelConfig {
+  type: "cube";
+  parameters?: CubeParameters;
+  pipelineId?: string | null;
+}
+
+export interface LandscapeConfig {
+  width: number;
+  height: number;
+  heights?: number[] | null;
+  noiseId?: string | null;
+  position?: Position;
+  pipelineId?: string | null;
+}
+
+export type NoiseType = "fbm" | string;
+export type NoiseSource = "perlin" | string;
+
+export interface NoiseConfig {
+  type?: NoiseType;
+  source?: NoiseSource;
+  seed?: number;
+  octaves?: number;
+  frequency?: number;
+  persistence?: number;
+  lacunarity?: number;
+}
+
+export interface ScopedAPI {
+  Model: {
+    createProcedural: (config: ProceduralModelConfig) => void;
+  };
+  Landscape: {
+    create: (config: LandscapeConfig) => void;
+  };
+  Noise: {
+    create: (config: NoiseConfig) => string;
+  };
+}
+
+export type InitCallback = () => void | Promise<void>;
+export type CleanupCallback = () => void | Promise<void>;
+
+// UI Types
+export interface WindowConfig {
+  title?: string;
+  width?: number;
+  height?: number;
+  onRender?: () => void;
+  [key: string]: unknown;
+}
+
+export interface TabConfig {
+  title?: string;
+  onRender?: () => void;
+  [key: string]: unknown;
+}
+
+export interface LabelConfig {
+  text: string;
+  bold?: boolean;
+}
+
+export interface ButtonConfig {
+  text: string;
+  onClick?: () => void;
+}
+
+export interface PipelineConfig {
+  [key: string]: unknown;
+}
+
+// Main Entropy API
+export interface EntropyAPI {
+  Addon: {
+    register: (metadata: AddonMetadata) => Promise<ScopedAPI>;
+    onInit: (callback: InitCallback) => void;
+    onCleanup: (callback: CleanupCallback) => void;
+  };
+  UI: {
+    createWindow: (config: WindowConfig) => Promise<string>;
+    createTab: (config: TabConfig) => Promise<string>;
+    Widget: {
+      label: (windowId: string, config: LabelConfig) => Promise<void>;
+      button: (windowId: string, config: ButtonConfig) => Promise<void>;
+    };
+  };
+  Pipeline: {
+    create: (config: PipelineConfig) => Promise<string>;
+  };
+  Landscape: {
+    create: (config: LandscapeConfig) => Promise<string>;
+  };
+  Noise: {
+    create: (config: NoiseConfig) => Promise<string>;
+  };
+  println: (msg: unknown) => void;
+  _process_events: (eventIds: string[]) => void;
+}
+
+// Global declarations
+declare global {
+  const Entropy: EntropyAPI;
+  const println: (msg: unknown) => void;
+  
+  interface Window {
+    Entropy: EntropyAPI;
+    println: (msg: unknown) => void;
+    _entropy_event_listeners?: Record<string, () => void>;
+  }
+
+  var _entropy_event_listeners: Record<string, () => void> | undefined;
+}
+
+export {};
