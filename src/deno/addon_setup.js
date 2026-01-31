@@ -30,6 +30,23 @@ globalThis.Entropy = {
                         });
                     }
                 },
+                Particles: {
+                    createHair: (config) => {
+                        ops.op_grass_create(metadata.name, {
+                            gridSize: config.gridSize || 2.0,
+                            renderDistance: config.renderDistance || 150.0,
+                            windStrength: config.windStrength || 2.5,
+                            windSpeed: config.windSpeed || 0.3,
+                            bladeHeight: config.bladeHeight || 2.75,
+                            bladeWidth: config.bladeWidth || 0.03,
+                            brownianStrength: config.brownianStrength || 0.03,
+                            bladeDensity: config.bladeDensity || 15.0,
+                            landscapeSize: config.landscapeSize || 4096.0,
+                            landscapeHeight: config.landscapeHeight || 0.0,
+                            landscapeYOffset: config.landscapeYOffset || 0.0
+                        });
+                    }
+                },
                 Noise: {
                     create: (config) => {
                         return ops.op_noise_create({
@@ -101,6 +118,23 @@ globalThis.Entropy = {
                 noiseId: config.noiseId || null,
                 position: config.position || [0, 0, 0],
                 pipelineId: config.pipelineId || null
+            });
+        }
+    },
+    Particles: {
+        createHair: (config) => {
+            return ops.op_grass_create("Global", {
+                gridSize: config.gridSize || 2.0,
+                renderDistance: config.renderDistance || 150.0,
+                windStrength: config.windStrength || 2.5,
+                windSpeed: config.windSpeed || 0.3,
+                bladeHeight: config.bladeHeight || 2.75,
+                bladeWidth: config.bladeWidth || 0.03,
+                brownianStrength: config.brownianStrength || 0.03,
+                bladeDensity: config.bladeDensity || 15.0,
+                landscapeSize: config.landscapeSize || 4096.0,
+                landscapeHeight: config.landscapeHeight || 0.0,
+                landscapeYOffset: config.landscapeYOffset || 0.0
             });
         }
     },

@@ -111,6 +111,22 @@ pub struct LandscapeConfig {
     pub pipeline_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AddonGrassConfig {
+    pub grid_size: Option<f32>,
+    pub render_distance: Option<f32>,
+    pub wind_strength: Option<f32>,
+    pub wind_speed: Option<f32>,
+    pub blade_height: Option<f32>,
+    pub blade_width: Option<f32>,
+    pub brownian_strength: Option<f32>,
+    pub blade_density: Option<f32>,
+    pub landscape_size: Option<f32>,
+    pub landscape_height: Option<f32>,
+    pub landscape_y_offset: Option<f32>,
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
@@ -122,6 +138,7 @@ pub struct AddonContext {
     pub surface_format: Option<wgpu::TextureFormat>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
@@ -139,6 +156,13 @@ fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String 
         ctx.noise_generators.insert(id.clone(), config);
     }
     id
+}
+
+#[op2]
+fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_grasses.push((addon_name, config));
+    }
 }
 
 #[op2]
@@ -307,6 +331,7 @@ extension!(
         op_pipeline_create,
         op_cube_spawn,
         op_landscape_create,
+        op_grass_create,
         op_noise_create,
         op_println,
         op_ui_create_window,
@@ -347,6 +372,7 @@ impl AddonEngine {
             surface_format: None,
             pending_cubes: Vec::new(),
             pending_landscapes: Vec::new(),
+            pending_grasses: Vec::new(),
             noise_generators: HashMap::new(),
             on_init_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
@@ -399,16 +425,17 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_landscapes) = {
+        let (pending_cubes, pending_landscapes, pending_grasses) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 (
                     std::mem::take(&mut ctx.pending_cubes),
-                    std::mem::take(&mut ctx.pending_landscapes)
+                    std::mem::take(&mut ctx.pending_landscapes),
+                    std::mem::take(&mut ctx.pending_grasses)
                 )
             } else {
-                (Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new())
             }
         };
 
@@ -495,6 +522,42 @@ impl AddonEngine {
                             .entry(addon_name)
                             .or_insert_with(Vec::new)
                             .push(landscape);
+                    }
+                }
+            }
+        }
+
+        if !pending_grasses.is_empty() {
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                let op_state = self.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                    for (addon_name, config) in pending_grasses {
+                        let mut grass = Grass::new_without_landscape(
+                            &gpu.device,
+                            &gpu.queue,
+                            &ctx.bind_group_layouts[0], // Camera bind group layout
+                        );
+
+                        // Apply config overrides
+                        if let Some(grid_size) = config.grid_size { grass.config.grid_size = grid_size; }
+                        if let Some(render_distance) = config.render_distance { grass.config.render_distance = render_distance; }
+                        if let Some(wind_strength) = config.wind_strength { grass.config.wind_strength = wind_strength; }
+                        if let Some(wind_speed) = config.wind_speed { grass.config.wind_speed = wind_speed; }
+                        if let Some(blade_height) = config.blade_height { grass.config.blade_height = blade_height; }
+                        if let Some(blade_width) = config.blade_width { grass.config.blade_width = blade_width; }
+                        if let Some(brownian_strength) = config.brownian_strength { grass.config.brownian_strength = brownian_strength; }
+                        if let Some(blade_density) = config.blade_density { grass.config.blade_density = blade_density; }
+                        if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
+                        if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
+                        if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
+
+                        grass.update_config(&gpu.queue, grass.config);
+
+                        renderer_state.addon_grasses
+                            .entry(addon_name)
+                            .or_insert_with(Vec::new)
+                            .push(grass);
                     }
                 }
             }

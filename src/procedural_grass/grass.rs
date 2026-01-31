@@ -253,6 +253,198 @@ impl Grass {
         }
     }
 
+    pub fn new_without_landscape(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        camera_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let blade = GrassBlade::new(device);
+        
+        let mut config = GrassConfig::default();
+        config.landscape_height = 0.0;
+        config.landscape_size = 4096.0;
+        config.landscape_y_offset = 0.0;
+
+        // -- Uniforms --
+        let uniform_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Grass Uniform Buffer"),
+            size: std::mem::size_of::<GrassConfig>() as wgpu::BufferAddress,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let uniform_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("grass_uniform_bind_group_layout"),
+        });
+
+        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &uniform_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("grass_uniform_bind_group"),
+        });
+
+        // Create dummy landscape bind group
+        let landscape_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("Dummy Landscape Particle Bind Group Layout"),
+        });
+
+        let dummy_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Dummy Landscape Texture"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &dummy_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &[255, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4),
+                rows_per_image: None,
+            },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let dummy_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+
+        let landscape_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &landscape_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&dummy_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&dummy_sampler),
+                },
+            ],
+            label: Some("Dummy Landscape Particle Bind Group"),
+        });
+
+        // Shaders
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Grass Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("grass.wgsl").into()),
+        });
+
+        // Render Pipeline
+        let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Grass Render Pipeline Layout"),
+            bind_group_layouts: &[
+                camera_bind_group_layout,
+                &uniform_bind_group_layout,
+                &landscape_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Grass Render Pipeline"),
+            layout: Some(&render_pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba16Float,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                    Some(wgpu::ColorTargetState {
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }),
+                ],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
+        Self {
+            blade,
+            render_pipeline,
+            uniform_buffer,
+            uniform_bind_group,
+            landscape_bind_group,
+            config,
+        }
+    }
+
+
     pub fn update_uniforms(&mut self, queue: &wgpu::Queue, time: f32, player_pos: Point3<f32>) {
         self.config.time = time;
         self.config.player_pos = [player_pos.x, player_pos.y, player_pos.z, 0.0];
