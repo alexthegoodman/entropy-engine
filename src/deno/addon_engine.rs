@@ -39,115 +39,231 @@ pub struct AddonMetadata {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct PipelineConfig {
+
     pub name: String,
+
     pub vertex_shader: Option<String>,
+
     pub fragment_shader: Option<String>,
+
     pub use_default: Option<bool>,
+
     pub pbr: Option<bool>,
+
     pub lighting_shader: Option<String>,
+
+    pub layout: Option<String>, // e.g. "hair"
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct CubeConfig {
+
     pub position: [f32; 3],
+
     pub scale: [f32; 3],
+
     pub pipeline_id: Option<String>,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct UiWindowConfig {
+
     pub title: String,
+
     pub resizable: bool,
+
     pub default_size: UiSize,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct UiTabConfig {
+
     pub title: String,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 pub struct UiSize {
+
     pub width: f32,
+
     pub height: f32,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(tag = "type")]
+
 pub enum UiWidget {
+
     Label { text: String, bold: Option<bool> },
+
     Button { text: String, id: String, label: String },
+
 }
+
+
 
 use crate::heightfield_landscapes::Landscape::Landscape;
+
 use crate::helpers::landscapes::{LandscapePixelData};
+
+
 
 use noise::{NoiseFn, Fbm, Perlin, MultiFractal};
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct NoiseConfig {
+
     pub noise_type: String, // e.g. "fbm"
+
     pub source: String,     // e.g. "perlin"
+
     pub seed: u32,
+
     pub octaves: usize,
+
     pub frequency: f64,
+
     pub persistence: f64,
+
     pub lacunarity: f64,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct LandscapeConfig {
+
     pub width: usize,
+
     pub height: usize,
+
     pub heights: Option<Vec<f32>>,
+
     pub noise_id: Option<String>,
+
     pub position: [f32; 3],
+
     pub pipeline_id: Option<String>,
+
 }
 
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 #[serde(rename_all = "camelCase")]
+
 pub struct AddonGrassConfig {
+
     pub grid_size: Option<f32>,
+
     pub render_distance: Option<f32>,
+
     pub wind_strength: Option<f32>,
+
     pub wind_speed: Option<f32>,
+
     pub blade_height: Option<f32>,
+
     pub blade_width: Option<f32>,
+
     pub brownian_strength: Option<f32>,
+
     pub blade_density: Option<f32>,
+
     pub landscape_size: Option<f32>,
+
     pub landscape_height: Option<f32>,
+
     pub landscape_y_offset: Option<f32>,
+
     pub pipeline_id: Option<String>,
+
 }
+
+
 
 pub struct AddonContext {
+
     pub registered_addons: HashMap<String, AddonMetadata>,
+
     pub gpu_resources: Option<Arc<GpuResources>>,
+
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
+
     pub pipeline_configs: HashMap<String, PipelineConfig>,
+
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
+
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
+
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+
     pub surface_format: Option<wgpu::TextureFormat>,
+
+    pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
+
+    pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
+
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
+
     pub noise_generators: HashMap<String, NoiseConfig>,
+
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
-    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>) >,
-    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>) >,
+
+    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
+
+    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
+
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+
     pub new_tabs: Vec<String>,
+
 }
 
 #[op2]
@@ -239,9 +355,62 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
     
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
-        let layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+        
+        let layouts = if config.layout.as_deref() == Some("hair") {
+            // Group 0: Camera
+            // Group 1: GrassUniforms
+            // Group 2: Landscape
+            
+            if ctx.grass_uniform_layout.is_none() {
+                ctx.grass_uniform_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                    label: Some("grass_uniform_bind_group_layout"),
+                })));
+            }
+
+            if ctx.landscape_particle_layout.is_none() {
+                ctx.landscape_particle_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                    label: Some("Landscape Particle Bind Group Layout"),
+                })));
+            }
+
+            vec![
+                ctx.bind_group_layouts[0].as_ref(), // Camera
+                ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
+                ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
+            ]
+        } else {
+            ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect()
+        };
          
-        let is_pbr = config.pbr.unwrap_or(true); // Default to PBR for backward compatibility or as engine default
+        let is_pbr = config.pbr.unwrap_or(true); 
         let formats = if is_pbr {
             GBUFFER_FORMATS.as_slice()
         } else {
@@ -372,6 +541,8 @@ impl AddonEngine {
             bind_group_layouts: Vec::new(),
             lighting_bind_group_layouts: Vec::new(),
             surface_format: None,
+            grass_uniform_layout: None,
+            landscape_particle_layout: None,
             pending_cubes: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
