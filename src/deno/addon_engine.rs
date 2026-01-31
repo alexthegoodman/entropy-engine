@@ -25,6 +25,7 @@ use wgpu::RenderPipeline;
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
+use egui;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddonMetadata {
@@ -54,6 +55,27 @@ pub struct CubeConfig {
     pub pipeline_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UiWindowConfig {
+    pub title: String,
+    pub resizable: bool,
+    pub default_size: UiSize,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct UiSize {
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum UiWidget {
+    Label { text: String, bold: Option<bool> },
+    Button { text: String, id: String, label: String },
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
@@ -65,6 +87,9 @@ pub struct AddonContext {
     pub surface_format: Option<wgpu::TextureFormat>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
+    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
+    pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+    pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
 }
 
 #[op2]
@@ -80,6 +105,30 @@ fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
 fn op_addon_on_init(state: &mut OpState, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.on_init_callbacks.push(callback);
+    }
+}
+
+#[op2]
+#[string]
+fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_windows.insert(id.clone(), (config, on_render));
+    }
+    id
+}
+
+#[op2(fast)]
+fn op_ui_widget_label(state: &mut OpState, #[string] window_id: String, #[string] text: String, bold: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Label { text, bold: Some(bold) });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_button(state: &mut OpState, #[string] window_id: String, #[string] text: String, #[string] id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Button { text: text.clone(), id, label: text });
     }
 }
 
@@ -191,6 +240,9 @@ extension!(
         op_pipeline_create,
         op_cube_spawn,
         op_println,
+        op_ui_create_window,
+        op_ui_widget_label,
+        op_ui_widget_button,
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -225,6 +277,9 @@ impl AddonEngine {
             surface_format: None,
             pending_cubes: Vec::new(),
             on_init_callbacks: Vec::new(),
+            ui_windows: HashMap::new(),
+            ui_widgets: HashMap::new(),
+            ui_events: Arc::new(Mutex::new(Vec::new())),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -322,6 +377,83 @@ impl AddonEngine {
             ctx.registered_addons.values().cloned().collect()
         } else {
             Vec::new()
+        }
+    }
+
+    pub fn render_ui(&mut self, ctx: &egui::Context) {
+        // 1. Prepare: Clear widgets
+        {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                 context.ui_widgets.clear();
+            }
+        }
+    
+        {
+            // 2. Execute JS callbacks to populate widgets
+            let callbacks = {
+                let mut op_state = self.runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                    context.ui_windows.iter().map(|(id, (_, cb))| (id.clone(), cb.clone())).collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                }
+            };
+        
+            let scope = &mut self.runtime.handle_scope();
+            for (_id, cb) in callbacks {
+                let func = v8::Local::new(scope, cb);
+                let receiver = v8::undefined(scope);
+                let _ = func.call(scope, receiver.into(), &[]); 
+            }
+        }
+        
+        // 3. Render
+        let mut events_to_push = Vec::new();
+        {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                for (id, (config, _)) in &context.ui_windows {
+                    let mut open = true;
+                    egui::Window::new(&config.title)
+                        .id(egui::Id::new(id))
+                        .resizable(config.resizable)
+                        .default_size([config.default_size.width, config.default_size.height])
+                        .open(&mut open)
+                        .show(ctx, |ui| {
+                             if let Some(widgets) = context.ui_widgets.get(id) {
+                                 for widget in widgets {
+                                     match widget {
+                                         UiWidget::Label { text, bold } => {
+                                             let mut txt = egui::RichText::new(text);
+                                             if bold.unwrap_or(false) { txt = txt.strong(); }
+                                             ui.label(txt);
+                                         }
+                                         UiWidget::Button { text, id: btn_id, label: _ } => {
+                                             if ui.button(text).clicked() {
+                                                 events_to_push.push(btn_id.clone());
+                                             }
+                                         }
+                                     }
+                                 }
+                             }
+                        });
+                }
+            }
+        }
+        
+        // Push events
+        if !events_to_push.is_empty() {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                if let Ok(mut events) = context.ui_events.lock() {
+                    events.extend(events_to_push);
+                }
+            }
         }
     }
 }

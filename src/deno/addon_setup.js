@@ -27,6 +27,22 @@ globalThis.Entropy = {
             // TODO: implement lifecycle hooks
         }
     },
+    UI: {
+        createWindow: async (config) => {
+            const windowId = ops.op_ui_create_window(config, config.onRender);
+            return windowId;
+        },
+        Widget: {
+            label: async (windowId, config) => {
+                ops.op_ui_widget_label(windowId, config.text, config.bold || false);
+            },
+            button: async (windowId, config) => {
+                const id = crypto.randomUUID();
+                ops.op_ui_widget_button(windowId, config.text, id);
+                // TODO: Register click handler
+            }
+        }
+    },
     Pipeline: {
         create: async (config) => {
             return ops.op_pipeline_create(config);

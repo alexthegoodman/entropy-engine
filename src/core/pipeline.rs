@@ -3788,6 +3788,10 @@ impl EntropyPipeline {
                         .style(Style::from_egui(ctx.style().as_ref()))
                         .show_inside(ui, &mut viewer);
 
+                    if let Some(editor) = &mut viewer.context.export_editor {
+                        editor.addon_engine.render_ui(ctx);
+                    }
+
                     // Draw selection highlight for Stunts objects
                     if let Some(editor) = &viewer.context.export_editor {
                         if let Some(selected) = &editor.selected_object {
