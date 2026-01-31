@@ -33,3 +33,4 @@ Within /src/, there are several directories:
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)
+/scripts/addons/ contains several example addons

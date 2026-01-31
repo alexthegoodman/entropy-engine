@@ -201,8 +201,28 @@ Entropy.Addon.onInit(async () => {
     const tab1 = await Entropy.UI.createTab({
         title: "Noise Settings",
         onRender: async () => {
+            // render callback
+            // Entropy.println("onRender: " + tab1);
+
             await Entropy.UI.Widget.label(tab1, { text: "Terrain Generation (JS-side)", bold: true });
+            await Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
+            await Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
+            await Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
+            await Entropy.UI.Widget.label(tab1, { 
+                text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
+            });
+            await Entropy.UI.Widget.label(tab1, { 
+                text: `Points: ${terrainParams.width * terrainParams.height}` 
+            });
+            await Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
+            await Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
+            await Entropy.UI.Widget.label(tab1, { 
+                text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
+            });
+
+            // Entropy.println("onRender 2: " + tab1);
             
+            // TODO: buttons not rendering
             await Entropy.UI.Widget.button(tab1, {
                 text: "🎲 Randomize Seed & Regenerate",
                 onClick: () => {
@@ -245,21 +265,8 @@ Entropy.Addon.onInit(async () => {
                     generateTerrain();
                 }
             });
-
-            await Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
-            await Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
-            await Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
-            await Entropy.UI.Widget.label(tab1, { 
-                text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
-            });
-            await Entropy.UI.Widget.label(tab1, { 
-                text: `Points: ${terrainParams.width * terrainParams.height}` 
-            });
-            await Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
-            await Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
-            await Entropy.UI.Widget.label(tab1, { 
-                text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
-            });
         }
     });
+
+    
 });
