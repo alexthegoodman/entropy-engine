@@ -3461,7 +3461,8 @@ impl EntropyPipeline {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: if !has_pbr { wgpu::LoadOp::Clear(wgpu::Color::BLACK) } else { wgpu::LoadOp::Load },
+                        // load: if !has_pbr { wgpu::LoadOp::Clear(wgpu::Color::BLACK) } else { wgpu::LoadOp::Load },
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
