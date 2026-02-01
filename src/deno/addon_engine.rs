@@ -814,6 +814,8 @@ pub struct AddonEngine {
     pub project_id: String,
 }
 
+const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/index.mjs");
+
 impl AddonEngine {
     pub fn new(project_id: String) -> Self {
         let loader = Rc::new(FsModuleLoader);
@@ -1135,6 +1137,24 @@ impl AddonEngine {
         let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
         let _ = self.runtime.mod_evaluate(module_id).await?;
 
+        self.run_on_init();
+
+        Ok(module_id)
+    }
+
+    pub fn load_default_bundle(&mut self) {
+        if let Err(e) = self.load_bundle_sync("Default Bundle", DEFAULT_ADDON_BUNDLE) {
+            println!("Failed to load default bundle: {}", e);
+        }
+    }
+
+    pub fn load_bundle_sync(&mut self, name: &'static str, source: &str) -> Result<(), AnyError> {
+        self.runtime.execute_script(name, source.to_string())?;
+        self.run_on_init();
+        Ok(())
+    }
+
+    fn run_on_init(&mut self) {
         // Execute onInit callbacks
         let callbacks = {
             let mut op_state = self.runtime.op_state();
@@ -1156,8 +1176,6 @@ impl AddonEngine {
                 }
             }
         }
-
-        Ok(module_id)
     }
 
     pub fn get_registered_addons(&mut self) -> Vec<AddonMetadata> {
