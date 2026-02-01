@@ -121,6 +121,30 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onChange;
                 }
+            },
+            slider: (windowId, config) => {
+                const label = config?.label || "";
+                const value = config?.value || 0;
+                const min = config?.min || 0;
+                const max = config?.max || 100;
+                const id = Math.random().toString(36).substring(2, 15);
+                ops.op_ui_widget_slider(windowId, label, value, min, max, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
+            },
+            numericInput: (windowId, config) => {
+                const label = config?.label || "";
+                const value = config?.value || 0;
+                const id = Math.random().toString(36).substring(2, 15);
+                ops.op_ui_widget_numeric_input(windowId, label, value, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
             }
         }
     },

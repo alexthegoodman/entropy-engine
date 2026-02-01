@@ -275,14 +275,11 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tab, { text: "Physical Properties", bold: true });
-            
+            Entropy.UI.Widget.label(tab, { text: "Colors", bold: true });
             Entropy.UI.Widget.colorInput(tab, {
                 label: "Base Color",
                 color: hairParams.baseColor,
                 onChange: (newColor) => {
-                    Entropy.println("newColor: " + newColor[0]);
-                    // Entropy.println(JSON.stringify(newColor));
                     hairParams.baseColor = newColor;
                     updateHair();
                 }
@@ -297,51 +294,105 @@ Entropy.Addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tab, `Density: ${hairParams.bladeDensity}`);
-            Entropy.UI.Widget.button(tab, {
-                text: "Increase Density",
-                onClick: () => {
-                    hairParams.bladeDensity += 5;
-                    updateHair();
-                }
-            });
-            Entropy.UI.Widget.button(tab, {
-                text: "Decrease Density",
-                onClick: () => {
-                    hairParams.bladeDensity = Math.max(1, hairParams.bladeDensity - 5);
+            Entropy.UI.Widget.label(tab, { text: "Physical Properties", bold: true });
+            
+            Entropy.UI.Widget.slider(tab, {
+                label: "Density",
+                value: hairParams.bladeDensity,
+                min: 1.0,
+                max: 100.0,
+                onChange: (val) => {
+                    hairParams.bladeDensity = parseFloat(val);
                     updateHair();
                 }
             });
 
-            Entropy.UI.Widget.label(tab, `Height: ${hairParams.bladeHeight.toFixed(2)}`);
-            Entropy.UI.Widget.button(tab, {
-                text: "Taller",
-                onClick: () => {
-                    hairParams.bladeHeight += 0.25;
+            Entropy.UI.Widget.slider(tab, {
+                label: "Height",
+                value: hairParams.bladeHeight,
+                min: 0.1,
+                max: 10.0,
+                onChange: (val) => {
+                    hairParams.bladeHeight = parseFloat(val);
                     updateHair();
                 }
             });
-            Entropy.UI.Widget.button(tab, {
-                text: "Shorter",
-                onClick: () => {
-                    hairParams.bladeHeight = Math.max(0.1, hairParams.bladeHeight - 0.25);
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Width",
+                value: hairParams.bladeWidth,
+                min: 0.001,
+                max: 0.5,
+                onChange: (val) => {
+                    hairParams.bladeWidth = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Brownian Strength",
+                value: hairParams.brownianStrength,
+                min: 0.0,
+                max: 0.5,
+                onChange: (val) => {
+                    hairParams.brownianStrength = parseFloat(val);
                     updateHair();
                 }
             });
 
             Entropy.UI.Widget.label(tab, { text: "Environment", bold: true });
-            Entropy.UI.Widget.label(tab, `Wind Strength: ${hairParams.windStrength.toFixed(2)}`);
-            Entropy.UI.Widget.button(tab, {
-                text: "Stronger Wind",
-                onClick: () => {
-                    hairParams.windStrength += 0.5;
+            
+            Entropy.UI.Widget.slider(tab, {
+                label: "Wind Strength",
+                value: hairParams.windStrength,
+                min: 0.0,
+                max: 10.0,
+                onChange: (val) => {
+                    hairParams.windStrength = parseFloat(val);
                     updateHair();
                 }
             });
-            Entropy.UI.Widget.button(tab, {
-                text: "Calmer Wind",
-                onClick: () => {
-                    hairParams.windStrength = Math.max(0, hairParams.windStrength - 0.5);
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Wind Speed",
+                value: hairParams.windSpeed,
+                min: 0.0,
+                max: 5.0,
+                onChange: (val) => {
+                    hairParams.windSpeed = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.label(tab, { text: "Rendering & Landscape", bold: true });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Grid Size",
+                value: hairParams.gridSize,
+                min: 0.5,
+                max: 10.0,
+                onChange: (val) => {
+                    hairParams.gridSize = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Render Distance",
+                value: hairParams.renderDistance,
+                min: 10.0,
+                max: 500.0,
+                onChange: (val) => {
+                    hairParams.renderDistance = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.numericInput(tab, {
+                label: "Landscape Y Offset",
+                value: hairParams.landscapeYOffset,
+                onChange: (val) => {
+                    hairParams.landscapeYOffset = parseFloat(val);
                     updateHair();
                 }
             });
@@ -356,7 +407,7 @@ Entropy.Addon.onInit(async () => {
                         windSpeed: 0.3,
                         bladeHeight: 2.75,
                         bladeWidth: 0.03,
-                        brownian_strength: 0.03,
+                        brownianStrength: 0.03,
                         bladeDensity: 15.0,
                         landscapeSize: 100.0,
                         landscapeHeight: 0.0,

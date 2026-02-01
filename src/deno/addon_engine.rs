@@ -124,13 +124,17 @@ pub struct UiSize {
 
 pub enum UiWidget {
 
-    Label { text: String, bold: Option<bool> },
+        Label { text: String, bold: Option<bool> },
 
-    Button { text: String, id: String, label: String },
+        Button { text: String, id: String, label: String },
 
-    ColorInput { id: String, label: String, color: [f32; 4] },
+        ColorInput { id: String, label: String, color: [f32; 4] },
 
-}
+        Slider { id: String, label: String, value: f32, min: f32, max: f32 },
+
+        NumericInput { id: String, label: String, value: f32 },
+
+    }
 
 
 
@@ -570,6 +574,40 @@ fn op_ui_widget_color_input(
     }
 }
 
+#[op2(fast)]
+fn op_ui_widget_slider(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    value: f32,
+    min: f32,
+    max: f32,
+    #[string] id: String
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_default()
+            .push(UiWidget::Slider { id, label, value, min, max });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_numeric_input(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    value: f32,
+    #[string] id: String
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_default()
+            .push(UiWidget::NumericInput { id, label, value });
+    }
+}
+
 #[op2]
 #[string]
 fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> Result<String, deno_error::JsErrorBox> {
@@ -740,6 +778,8 @@ extension!(
         op_ui_widget_label,
         op_ui_widget_button,
         op_ui_widget_color_input,
+        op_ui_widget_slider,
+        op_ui_widget_numeric_input,
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -1186,6 +1226,26 @@ impl AddonEngine {
                                                  }
                                              });
                                          }
+                                         UiWidget::Slider { id: slider_id, label, value, min, max } => {
+                                             ui.horizontal(|ui| {
+                                                 ui.label(label);
+                                                 let mut current_value = *value;
+                                                 if ui.add(egui::Slider::new(&mut current_value, *min..=*max)).changed() {
+                                                     let payload = format!("{}|{}", slider_id, current_value);
+                                                     events_to_push.push(payload);
+                                                 }
+                                             });
+                                         }
+                                         UiWidget::NumericInput { id: num_id, label, value } => {
+                                             ui.horizontal(|ui| {
+                                                 ui.label(label);
+                                                 let mut current_value = *value;
+                                                 if ui.add(egui::DragValue::new(&mut current_value)).changed() {
+                                                     let payload = format!("{}|{}", num_id, current_value);
+                                                     events_to_push.push(payload);
+                                                 }
+                                             });
+                                         }
                                      }
                                  }
                              }
@@ -1267,6 +1327,26 @@ impl AddonEngine {
                                      let mut current_color = *color;
                                      if ui.color_edit_button_rgba_unmultiplied(&mut current_color).changed() {
                                          let payload = format!("{}|{},{},{},{}", color_id, current_color[0], current_color[1], current_color[2], current_color[3]);
+                                         events_to_push.push(payload);
+                                     }
+                                 });
+                             }
+                             UiWidget::Slider { id: slider_id, label, value, min, max } => {
+                                 ui.horizontal(|ui| {
+                                     ui.label(label);
+                                     let mut current_value = *value;
+                                     if ui.add(egui::Slider::new(&mut current_value, *min..=*max)).changed() {
+                                         let payload = format!("{}|{}", slider_id, current_value);
+                                         events_to_push.push(payload);
+                                     }
+                                 });
+                             }
+                             UiWidget::NumericInput { id: num_id, label, value } => {
+                                 ui.horizontal(|ui| {
+                                     ui.label(label);
+                                     let mut current_value = *value;
+                                     if ui.add(egui::DragValue::new(&mut current_value)).changed() {
+                                         let payload = format!("{}|{}", num_id, current_value);
                                          events_to_push.push(payload);
                                      }
                                  });
