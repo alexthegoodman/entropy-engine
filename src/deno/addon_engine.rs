@@ -192,99 +192,288 @@ pub struct LandscapeConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
+
+
 #[serde(rename_all = "camelCase")]
+
+
 
 pub struct AddonGrassConfig {
 
+
+
     pub id: Option<String>,
+
+
 
     pub grid_size: Option<f32>,
 
+
+
     pub render_distance: Option<f32>,
+
+
 
     pub wind_strength: Option<f32>,
 
+
+
     pub wind_speed: Option<f32>,
+
+
 
     pub blade_height: Option<f32>,
 
+
+
     pub blade_width: Option<f32>,
+
+
 
     pub brownian_strength: Option<f32>,
 
+
+
     pub blade_density: Option<f32>,
+
+
 
     pub landscape_size: Option<f32>,
 
+
+
     pub landscape_height: Option<f32>,
+
+
 
     pub landscape_y_offset: Option<f32>,
 
+
+
     pub base_color: Option<[f32; 4]>,
+
+
 
     pub tip_color: Option<[f32; 4]>,
 
+
+
     pub pipeline_id: Option<String>,
 
+
+
 }
+
+
+
+
+
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+
+
+
+#[serde(rename_all = "camelCase")]
+
+
+
+pub struct PointLightConfig {
+
+
+
+    pub position: [f32; 3],
+
+
+
+    pub color: [f32; 3],
+
+
+
+    pub intensity: f32,
+
+
+
+    pub max_distance: f32,
+
+
+
+}
+
+
+
+
 
 
 
 pub struct AddonContext {
 
+
+
     pub registered_addons: HashMap<String, AddonMetadata>,
+
+
 
     pub gpu_resources: Option<Arc<GpuResources>>,
 
+
+
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
+
+
 
     pub pipeline_configs: HashMap<String, PipelineConfig>,
 
+
+
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
+
+
 
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
 
+
+
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
+
+
 
     pub surface_format: Option<wgpu::TextureFormat>,
 
+
+
     pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
+
+
 
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
 
+
+
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+
+
 
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
 
+
+
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
+
+
+
+    pub pending_point_lights: Vec<(String, PointLightConfig)>,
+
+
 
     pub noise_generators: HashMap<String, NoiseConfig>,
 
+
+
     pub on_init_callbacks: Vec<v8::Global<v8::Function>>,
+
+
 
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
 
+
+
                 pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
+
+
 
                 pub ui_widgets: HashMap<String, Vec<UiWidget>>,
 
+
+
                 pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+
+
 
                 pub new_tabs: Vec<String>,
 
+
+
             }
 
-#[op2]
-#[string]
-fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String {
-    let id = format!("noise_{}", uuid::Uuid::new_v4());
-    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.noise_generators.insert(id.clone(), config);
-    }
-    id
-}
+
+
+
+
+
 
 #[op2]
+
+
+
+#[string]
+
+
+
+fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String {
+
+
+
+    let id = format!("noise_{}", uuid::Uuid::new_v4());
+
+
+
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+
+
+
+        ctx.noise_generators.insert(id.clone(), config);
+
+
+
+    }
+
+
+
+    id
+
+
+
+}
+
+
+
+
+
+
+
+#[op2]
+
+
+
+fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: PointLightConfig) {
+
+
+
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+
+
+
+        ctx.pending_point_lights.push((addon_name, config));
+
+
+
+    }
+
+
+
+}
+
+
+
+
+
+
+
+#[op2]
+
+
+
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_grasses.push((addon_name, config));
@@ -544,6 +733,7 @@ extension!(
         op_landscape_create,
         op_grass_create,
         op_noise_create,
+        op_point_light_create,
         op_println,
         op_ui_create_window,
         op_ui_create_tab,
@@ -587,6 +777,7 @@ impl AddonEngine {
             pending_cubes: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
+            pending_point_lights: Vec::new(),
             noise_generators: HashMap::new(),
             on_init_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
@@ -639,19 +830,35 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_landscapes, pending_grasses) = {
+        let (pending_cubes, pending_landscapes, pending_grasses, pending_point_lights) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 (
                     std::mem::take(&mut ctx.pending_cubes),
                     std::mem::take(&mut ctx.pending_landscapes),
-                    std::mem::take(&mut ctx.pending_grasses)
+                    std::mem::take(&mut ctx.pending_grasses),
+                    std::mem::take(&mut ctx.pending_point_lights)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
+
+        if !pending_point_lights.is_empty() {
+            for (_, config) in pending_point_lights {
+                let pl = crate::core::editor::PointLight {
+                    position: config.position,
+                    color: config.color,
+                    intensity: config.intensity,
+                    max_distance: config.max_distance,
+                    _padding1: 0,
+                    _padding2: 0,
+                    _padding3: [0; 2],
+                };
+                renderer_state.point_lights.push(pl);
+            }
+        }
 
         if !pending_cubes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {

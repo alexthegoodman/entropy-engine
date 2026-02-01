@@ -65,6 +65,16 @@ globalThis.Entropy = {
                             lacunarity: config.lacunarity || 2.0
                         });
                     }
+                },
+                Lighting: {
+                    createPointLight: (config) => {
+                        ops.op_point_light_create(metadata.name, {
+                            position: config.position || [0, 0, 0],
+                            color: config.color || [1, 1, 1],
+                            intensity: config.intensity || 1.0,
+                            maxDistance: config.maxDistance || 20.0
+                        });
+                    }
                 }
             };
         },
@@ -191,6 +201,16 @@ globalThis.Entropy = {
                 frequency: config.frequency || 0.01,
                 persistence: config.persistence || 0.5,
                 lacunarity: config.lacunarity || 2.0
+            });
+        }
+    },
+    Lighting: {
+        createPointLight: (config) => {
+            return ops.op_point_light_create("Global", {
+                position: config.position || [0, 0, 0],
+                color: config.color || [1, 1, 1],
+                intensity: config.intensity || 1.0,
+                maxDistance: config.maxDistance || 20.0
             });
         }
     },

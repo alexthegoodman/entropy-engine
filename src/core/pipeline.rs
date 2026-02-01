@@ -3216,6 +3216,27 @@ impl EntropyPipeline {
             }
             drop(render_pass);
 
+            // Update point lights buffer for addons
+            let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
+                point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS],
+                num_point_lights: renderer_state.point_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
+                _padding: [0; 3],
+            };
+
+            for (i, pl) in renderer_state.point_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
+                 point_lights_uniform_data.point_lights[i] = [
+                    pl.position[0], pl.position[1], pl.position[2], 0.0,
+                    pl.color[0], pl.color[1], pl.color[2], 0.0,
+                    pl.intensity, pl.max_distance, 0.0, 0.0
+                ];
+            }
+            
+            queue.write_buffer(
+                self.point_lights_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::cast_slice(&[point_lights_uniform_data]),
+            );
+
             // 2. Lighting Pass for PBR objects
             let mut custom_lighting_pid = None;
             
