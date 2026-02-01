@@ -196,7 +196,7 @@ const hairFragShader = `
         // Use color uniforms for custom interpolation
         let final_color = mix(uniforms.base_color.rgb, uniforms.tip_color.rgb, in.height_factor);
         
-        let ao = 0.4 + in.height_factor * 0.2;
+        let ao = 0.7 + in.height_factor * 0.2;
 
         var output: GbufferOutput;
         output.position = vec4<f32>(in.world_pos, 1.0);
