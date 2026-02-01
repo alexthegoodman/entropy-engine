@@ -27,7 +27,9 @@ use wgpu::RenderPipeline;
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
+use crate::core::custom_mesh::CustomMesh;
 use egui;
+use wgpu::util::DeviceExt;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddonMetadata {
@@ -36,6 +38,20 @@ pub struct AddonMetadata {
     pub description: String,
     pub author: Vec<String>,
     pub capabilities: HashMap<String, bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BindGroupLayoutEntryDef {
+    pub binding: u32,
+    pub visibility: Vec<String>, // ["Vertex", "Fragment"]
+    pub resource_type: String, // "Uniform", "Texture", "Sampler"
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BindGroupDef {
+    pub entries: Vec<BindGroupLayoutEntryDef>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -57,6 +73,8 @@ pub struct PipelineConfig {
     pub lighting_shader: Option<String>,
 
     pub layout: Option<String>, // e.g. "hair"
+    
+    pub extra_bind_groups: Option<Vec<BindGroupDef>>,
 
 }
 
@@ -64,7 +82,119 @@ pub struct PipelineConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
+
+
 #[serde(rename_all = "camelCase")]
+
+
+
+pub struct MeshConfig {
+
+
+
+    pub position: [f32; 3],
+
+
+
+    pub vertex_data: Vec<f32>,
+
+
+
+    pub index_data: Vec<u32>,
+
+
+
+    pub pipeline_id: String,
+
+
+
+    pub bindings: Option<Vec<BindingConfig>>,
+
+
+
+}
+
+
+
+
+
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+
+
+
+#[serde(rename_all = "camelCase")]
+
+
+
+pub struct BindingConfig {
+
+
+
+    pub group: u32,
+
+
+
+    pub binding: u32,
+
+
+
+    pub resource: ResourceType,
+
+
+
+}
+
+
+
+
+
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+
+
+
+#[serde(tag = "type", content = "value")]
+
+
+
+pub enum ResourceType {
+
+
+
+    Uniform { data: Vec<f32> },
+
+
+
+    Texture { id: Option<String> }, // "Landscape" is special
+
+
+
+    Sampler,
+
+
+
+    Time, // Smart default for time buffer
+
+
+
+}
+
+
+
+
+
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+
+
+
+#[serde(rename_all = "camelCase")]
+
+
 
 pub struct CubeConfig {
 
@@ -354,11 +484,23 @@ pub struct AddonContext {
 
 
 
-    pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+        pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
 
 
 
-    pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    
+
+
+
+        pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
+
+
+
+    
+
+
+
+        pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
 
 
 
@@ -639,7 +781,10 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
         
-        let layouts = if config.layout.as_deref() == Some("hair") {
+        let mut layouts: Vec<&wgpu::BindGroupLayout> = ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+        let mut created_layouts = Vec::new(); // Keep them alive during this function scope
+
+        if config.layout.as_deref() == Some("hair") {
             // Group 0: Camera
             // Group 1: GrassUniforms
             // Group 2: Landscape
@@ -686,15 +831,73 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
 
             println!("Working pipeline (1): {:?} {:?}", config.name, config.pbr);
 
-            vec![
+            layouts = vec![
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
                 ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
-            ]
+            ];
+        } else if let Some(extras) = &config.extra_bind_groups {
+            // Handle generic extra layouts
+             layouts = vec![ctx.bind_group_layouts[0].as_ref()]; // Start with Camera (Group 0)
+
+             for (i, group_def) in extras.iter().enumerate() {
+                 let mut entries = Vec::new();
+                 for entry_def in &group_def.entries {
+                     let mut visibility = wgpu::ShaderStages::NONE;
+                     for v in &entry_def.visibility {
+                         match v.to_lowercase().as_str() {
+                             "vertex" => visibility |= wgpu::ShaderStages::VERTEX,
+                             "fragment" => visibility |= wgpu::ShaderStages::FRAGMENT,
+                             "compute" => visibility |= wgpu::ShaderStages::COMPUTE,
+                             _ => {}
+                         }
+                     }
+                     if visibility == wgpu::ShaderStages::NONE {
+                         visibility = wgpu::ShaderStages::VERTEX_FRAGMENT;
+                     }
+
+                     let ty = match entry_def.resource_type.as_str() {
+                         "Uniform" => wgpu::BindingType::Buffer {
+                             ty: wgpu::BufferBindingType::Uniform,
+                             has_dynamic_offset: false,
+                             min_binding_size: None,
+                         },
+                         "Texture" => wgpu::BindingType::Texture {
+                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                             view_dimension: wgpu::TextureViewDimension::D2,
+                             multisampled: false,
+                         },
+                         "Sampler" => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                         _ => wgpu::BindingType::Buffer { // Default to uniform
+                             ty: wgpu::BufferBindingType::Uniform,
+                             has_dynamic_offset: false,
+                             min_binding_size: None,
+                         },
+                     };
+
+                     entries.push(wgpu::BindGroupLayoutEntry {
+                         binding: entry_def.binding,
+                         visibility,
+                         ty,
+                         count: None,
+                     });
+                 }
+
+                 let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                     label: Some(&format!("Extra Layout {}", i)),
+                     entries: &entries,
+                 });
+                 created_layouts.push(layout);
+             }
+             
+             // Append created layouts
+             for l in &created_layouts {
+                 layouts.push(l);
+             }
         } else {
-            // println!("Working pipeline (1b): {:?} {:?}", config.name, config.pbr);
-            ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect()
-        };
+             // Default: use all default layouts
+             // layouts already initialized to defaults
+        }
 
         // println!("Working pipeline (2): {:?} {:?}", config.name, config.pbr);
          
@@ -779,6 +982,13 @@ fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] con
     }
 }
 
+#[op2]
+fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: MeshConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_meshes.push((addon_name, config));
+    }
+}
+
 #[op2(fast)]
 fn op_println(
     state: &mut OpState,
@@ -796,6 +1006,7 @@ extension!(
         op_addon_on_cleanup,
         op_pipeline_create,
         op_cube_spawn,
+        op_mesh_create,
         op_landscape_create,
         op_grass_create,
         op_noise_create,
@@ -845,6 +1056,7 @@ impl AddonEngine {
             grass_uniform_layout: None,
             landscape_particle_layout: None,
             pending_cubes: Vec::new(),
+            pending_meshes: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
@@ -901,18 +1113,19 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_landscapes, pending_grasses, pending_point_lights) = {
+        let (pending_cubes, pending_meshes, pending_landscapes, pending_grasses, pending_point_lights) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 (
                     std::mem::take(&mut ctx.pending_cubes),
+                    std::mem::take(&mut ctx.pending_meshes),
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
@@ -953,6 +1166,188 @@ impl AddonEngine {
                         .entry(addon_name)
                         .or_insert_with(Vec::new)
                         .push(cube);
+                }
+            }
+        }
+
+        if !pending_meshes.is_empty() {
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                for (addon_name, config) in pending_meshes {
+                     let pipeline = {
+                         let op_state = self.runtime.op_state();
+                         let op_state = op_state.borrow();
+                         if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                 ctx.pipelines.get(&config.pipeline_id).cloned()
+                         } else {
+                             None
+                         }
+                     };
+                     
+                     if let Some(pipeline) = pipeline {
+                         let mut bind_groups = Vec::new();
+                         let mut uniform_buffers = Vec::new();
+
+                         if let Some(bindings) = config.bindings {
+                             // Organize bindings by group index
+                             let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+                             for b in bindings {
+                                 groups.entry(b.group).or_default().push(b);
+                             }
+
+                             // Sort keys to ensure deterministic order if iterating? 
+                             // We probably just iterate through groups we find.
+                             
+                             // We need to create BindGroup for each group index found.
+                             // But wait, the pipeline layout expects specific group indices.
+                             // And we need the Layout from the pipeline to create the BindGroup.
+                             
+                             // wgpu pipelines don't easily expose the bind group layouts by index unless we stored them.
+                             // In `op_pipeline_create`, we stored `bind_group_layouts` in AddonContext, but those were mostly default ones.
+                             // The pipeline was created with `create_addon_pipeline` which merges default layouts + extra layouts.
+                             // The `CustomMesh` likely uses a pipeline created via `op_pipeline_create`.
+                             // If `layout: "hair"` or similar was used, we added extra layouts.
+                             
+                             // However, `wgpu::RenderPipeline` allows `get_bind_group_layout(index)`.
+                             
+                             for (group_idx, binding_configs) in groups {
+                                 let layout = pipeline.get_bind_group_layout(group_idx);
+                                //  let mut entries = Vec::new();
+                                 
+                                 // We need to keep resources alive for the duration of bind group creation
+                                 // So we create them first.
+                                 // But we are in a loop.
+                                 // We can create temporary vectors to hold the wgpu resources.
+                                 
+                                 let mut created_buffers = Vec::new();
+                                 
+                                 for b in &binding_configs {
+                                    match &b.resource {
+                                        ResourceType::Uniform { data } => {
+                                            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                                label: Some(&format!("Uniform Buffer {}:{}", group_idx, b.binding)),
+                                                contents: bytemuck::cast_slice(data),
+                                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                            });
+                                            created_buffers.push((b.binding, buffer));
+                                        },
+                                        ResourceType::Time => {
+                                             let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+                                                label: Some("Time Buffer"),
+                                                size: std::mem::size_of::<f32>() as u64,
+                                                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                                mapped_at_creation: false,
+                                            });
+                                            created_buffers.push((b.binding, buffer));
+                                        },
+                                        ResourceType::Texture { id } => {
+                                            // Handle texture logic
+                                        },
+                                        ResourceType::Sampler => {
+                                            // Handle sampler logic
+                                        }
+                                    }
+                                 }
+
+                                 // Now create entries
+                                 // Note: we need to handle Texture/Sampler separate from buffers
+                                 let mut wgpu_entries = Vec::new();
+                                 
+                                 // Add buffers
+                                 for (binding, buffer) in &created_buffers {
+                                     wgpu_entries.push(wgpu::BindGroupEntry {
+                                         binding: *binding,
+                                         resource: buffer.as_entire_binding(),
+                                     });
+                                     // Save buffer to keep it alive in CustomMesh
+                                     // (We clone the buffer handle, wgpu handles reference counting)
+                                     uniform_buffers.push(buffer.clone()); // Error: Buffer not cloneable? wgpu objects usually reference counted/cloneable.
+                                     // wgpu::Buffer is a wrapper around Arc/Id, so it is cheap to clone.
+                                 }
+                                 
+                                 // Add Textures/Samplers
+                                  for b in &binding_configs {
+                                    match &b.resource {
+                                        ResourceType::Texture { id } => {
+                                            if let Some(id_str) = id {
+                                                if id_str == "Landscape" {
+                                                     if let Some(l) = renderer_state.landscapes.first() {
+                                                        if let Some(texture_view) = &l.particle_texture_view {
+                                                            wgpu_entries.push(wgpu::BindGroupEntry {
+                                                                binding: b.binding,
+                                                                resource: wgpu::BindingResource::TextureView(texture_view),
+                                                            });
+                                                        }
+                                                     }
+                                                }
+                                            }
+                                        },
+                                        ResourceType::Sampler => {
+                                             // Default sampler?
+                                             // For now create a default linear sampler or reuse one?
+                                             // Creating one is fine for now.
+                                             // Actually, we can't create it inside this loop easily without managing lifetime if we store reference.
+                                             // But BindingResource::Sampler takes a reference.
+                                             // So we need to create it before `wgpu_entries`.
+                                        },
+                                        _ => {}
+                                    }
+                                  }
+                                  
+                                  // Hack for Sampler lifetime: Create one if needed
+                                  let sampler = if binding_configs.iter().any(|b| matches!(b.resource, ResourceType::Sampler)) {
+                                       Some(gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+                                            address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                            address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                            address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                            mag_filter: wgpu::FilterMode::Linear,
+                                            min_filter: wgpu::FilterMode::Linear,
+                                            mipmap_filter: wgpu::FilterMode::Nearest,
+                                            ..Default::default()
+                                        }))
+                                  } else {
+                                      None
+                                  };
+                                  
+                                  if let Some(s) = &sampler {
+                                      for b in &binding_configs {
+                                          if matches!(b.resource, ResourceType::Sampler) {
+                                              wgpu_entries.push(wgpu::BindGroupEntry {
+                                                  binding: b.binding,
+                                                  resource: wgpu::BindingResource::Sampler(s),
+                                              });
+                                          }
+                                      }
+                                  }
+
+                                 let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                     layout: &layout,
+                                     entries: &wgpu_entries,
+                                     label: Some(&format!("Custom BindGroup {}", group_idx)),
+                                 });
+                                 bind_groups.push(Arc::new(bind_group));
+                             }
+                         }
+                         
+                         // Create Mesh
+                         let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
+                         let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
+
+                         let mesh = CustomMesh::new(
+                             &gpu.device,
+                             vertex_bytes,
+                             index_bytes,
+                             pipeline,
+                             bind_groups,
+                             config.position,
+                             uuid::Uuid::new_v4().to_string(),
+                             uniform_buffers
+                         );
+
+                         renderer_state.addon_meshes
+                             .entry(addon_name)
+                             .or_insert_with(Vec::new)
+                             .push(mesh);
+                     }
                 }
             }
         }

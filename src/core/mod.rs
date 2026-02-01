@@ -17,6 +17,7 @@ pub mod shadow_pipeline;
 pub mod ui_pipeline;
 pub mod HealthBar;
 pub mod animation_system;
+pub mod custom_mesh;
 pub mod AnimationState;
 pub mod skinned_pipeline;
 pub mod egui_sidebar;

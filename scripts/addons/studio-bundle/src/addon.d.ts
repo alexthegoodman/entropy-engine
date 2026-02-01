@@ -54,6 +54,7 @@ export interface NoiseConfig {
 export interface ScopedAPI {
   Model: {
     createProcedural: (config: ProceduralModelConfig) => void;
+    createMesh: (config: any) => void;
   };
   Landscape: {
     create: (config: LandscapeConfig) => void;

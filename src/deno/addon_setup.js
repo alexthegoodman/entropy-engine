@@ -28,6 +28,15 @@ globalThis.Entropy = {
                                 pipeline_id: config.pipelineId || null
                             });
                         }
+                    },
+                    createMesh: (config) => {
+                        ops.op_mesh_create(metadata.name, {
+                            position: config.position || [0, 0, 0],
+                            vertexData: config.vertexData || [],
+                            indexData: config.indexData || [],
+                            pipelineId: config.pipelineId,
+                            bindings: config.bindings || []
+                        });
                     }
                 },
                 Landscape: {

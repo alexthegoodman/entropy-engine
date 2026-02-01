@@ -57,6 +57,7 @@ use crate::{
     procedural_particles::particle_system::ParticleSystem,
     procedural_trees::trees::ProceduralTrees,
     water_plane::water::WaterPlane,
+    core::custom_mesh::CustomMesh,
 };
 
 use super::Grid::GridConfig;
@@ -122,6 +123,7 @@ pub struct DebugRay {
 pub struct RendererState {
     pub cubes: Vec<Cube>,
     pub addon_cubes: HashMap<String, Vec<Cube>>,
+    pub addon_meshes: HashMap<String, Vec<CustomMesh>>,
     pub spheres: Vec<Sphere>,
     pub debug_rays: Vec<DebugRay>,
     pub pyramids: Vec<Pyramid>,
@@ -309,6 +311,7 @@ impl RendererState {
         Self {
             cubes,
             addon_cubes: HashMap::new(),
+            addon_meshes: HashMap::new(),
             spheres,
             debug_rays: Vec::new(),
             pyramids,
