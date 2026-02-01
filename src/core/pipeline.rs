@@ -2976,6 +2976,8 @@ impl EntropyPipeline {
             .expect("Couldn't get window size bind group");
         // let camera = self.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on self
         let texture = self.texture.as_ref().expect("Couldn't get texture");
+
+        let time = self.start_time.elapsed().as_secs_f32();
         
         editor.addon_engine.update(renderer_state, camera);
 
@@ -3186,20 +3188,20 @@ impl EntropyPipeline {
                         if let Some(player_model) = player_model {
                             let model_mesh = player_model.meshes.get(0);
                             if let Some(model_mesh) = model_mesh {
-                                grass.update_uniforms(&queue, current_time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                                grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
                             } else {
-                                grass.update_uniforms(&queue, current_time as f32, camera.position);
+                                grass.update_uniforms(&queue, time as f32, camera.position);
                             }
                         } else {
-                            grass.update_uniforms(&queue, current_time as f32, camera.position);
+                            grass.update_uniforms(&queue, time as f32, camera.position);
                         }
                     } else if let Some(sphere) = &player_character.sphere {
-                        grass.update_uniforms(&queue, current_time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                     } else {
-                        grass.update_uniforms(&queue, current_time as f32, camera.position);
+                        grass.update_uniforms(&queue, time as f32, camera.position);
                     }
                 } else {
-                    grass.update_uniforms(&queue, current_time as f32, camera.position);
+                    grass.update_uniforms(&queue, time as f32, camera.position);
                 }
 
                 render_pass.set_pipeline(&grass.render_pipeline);
@@ -3408,20 +3410,20 @@ impl EntropyPipeline {
                         if let Some(player_model) = player_model {
                             let model_mesh = player_model.meshes.get(0);
                             if let Some(model_mesh) = model_mesh {
-                                grass.update_uniforms(&queue, current_time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                                grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
                             } else {
-                                grass.update_uniforms(&queue, current_time as f32, camera.position);
+                                grass.update_uniforms(&queue, time as f32, camera.position);
                             }
                         } else {
-                            grass.update_uniforms(&queue, current_time as f32, camera.position);
+                            grass.update_uniforms(&queue, time as f32, camera.position);
                         }
                     } else if let Some(sphere) = &player_character.sphere {
-                        grass.update_uniforms(&queue, current_time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                     } else {
-                        grass.update_uniforms(&queue, current_time as f32, camera.position);
+                        grass.update_uniforms(&queue, time as f32, camera.position);
                     }
                 } else {
-                    grass.update_uniforms(&queue, current_time as f32, camera.position);
+                    grass.update_uniforms(&queue, time as f32, camera.position);
                 }
 
                 render_pass.set_pipeline(&grass.render_pipeline);
