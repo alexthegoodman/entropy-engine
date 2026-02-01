@@ -159,7 +159,7 @@ addon.onInit(async () => {
     });
 
     // Add UI to spawn more lights
-    const tab = Entropy.UI.createTab({
+    const tab = addon.UI.createTab({
         title: "Lighting Controls",
         onRender: () => {
             Entropy.UI.Widget.label(tab, { text: "Add Dynamic Lights", bold: true });

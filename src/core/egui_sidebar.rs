@@ -68,7 +68,7 @@ pub enum Tab {
     Grammar,
     Manage,
     Citations,
-    AddonTab(String),
+    AddonTab { id: String, label: String },
 }
 
 #[cfg(target_os = "windows")]
@@ -131,7 +131,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
 
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         match tab {
-            Tab::AddonTab(name) => name.as_str().into(),
+            Tab::AddonTab { label, .. } => label.as_str().into(),
             _ => format!("{:?}", tab).into(),
         }
     }
@@ -1584,7 +1584,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 ui.heading("Citations");
                 ui.label("Organize and manage your project citations here.");
             }
-            Tab::AddonTab(id) => {
+            Tab::AddonTab { id, .. } => {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 editor.addon_engine.render_tab(ui, id);
             }

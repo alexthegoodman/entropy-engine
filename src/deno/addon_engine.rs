@@ -398,21 +398,13 @@ pub struct AddonContext {
 
 
 
-                pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>)>,
-
-
+                pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
 
                 pub ui_widgets: HashMap<String, Vec<UiWidget>>,
 
-
-
                 pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
 
-
-
-                pub new_tabs: Vec<String>,
-
-
+                pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
 
             }
 
@@ -542,11 +534,12 @@ fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig, #[g
 
 #[op2]
 #[string]
-fn op_ui_create_tab(state: &mut OpState, #[serde] config: UiTabConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
+fn op_ui_create_tab(state: &mut OpState, #[string] addon_name: String, #[serde] config: UiTabConfig, #[global] on_render: v8::Global<v8::Function>) -> String {
     let id = uuid::Uuid::new_v4().to_string();
+    let title = config.title.clone();
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_tabs.insert(id.clone(), (config, on_render));
-        ctx.new_tabs.push(id.clone());
+        ctx.ui_tabs.insert(id.clone(), (config, on_render, addon_name.clone()));
+        ctx.new_tabs.push((id.clone(), title, addon_name));
     }
     id
 }
@@ -1199,7 +1192,7 @@ impl AddonEngine {
         }
     }
 
-    pub fn consume_new_tabs(&mut self) -> Vec<String> {
+    pub fn consume_new_tabs(&mut self) -> Vec<(String, String, String)> {
         let mut op_state = self.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -1340,7 +1333,7 @@ impl AddonEngine {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.ui_tabs.get(tab_id).map(|(_, cb)| cb.clone())
+                context.ui_tabs.get(tab_id).map(|(_, cb, _)| cb.clone())
             } else {
                 None
             }

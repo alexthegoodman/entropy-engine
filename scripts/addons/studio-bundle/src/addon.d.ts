@@ -65,6 +65,9 @@ export interface ScopedAPI {
   Particles: {
     createHair: (config: any) => void;
   };
+  UI: {
+    createTab: (config: TabConfig) => string;
+  };
 }
 
 export type InitCallback = () => void | void;

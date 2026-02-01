@@ -20,7 +20,7 @@ use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
 use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
-use std::{fs, sync::{Arc, Mutex}};
+use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
 use egui::StrokeKind;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
@@ -124,6 +124,7 @@ pub struct EntropyPipeline {
     // pub video_timeline_dock_state: DockState<Tab>,
     pub central_chat_dock_state: DockState<Tab>,
     pub addon_dock_state: DockState<Tab>,
+    pub addon_dock_states: HashMap<String, DockState<Tab>>,
     pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline,
     pub video_total_duration_ms: i32,
     pub current_workspace: Workspace,
@@ -213,6 +214,7 @@ impl EntropyPipeline {
             // video_timeline_dock_state,
             central_chat_dock_state,
             addon_dock_state,
+            addon_dock_states: HashMap::new(),
             video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline::new(),
             video_total_duration_ms: 0,
             current_workspace: Workspace::GameEngine,
@@ -4043,18 +4045,31 @@ impl EntropyPipeline {
 
                     if let Some(editor) = &mut viewer.context.export_editor {
                         let new_tabs = editor.addon_engine.consume_new_tabs();
-                        for tab_id in new_tabs {
-                            let surface = self.addon_dock_state.main_surface_mut();
-                            surface.push_to_first_leaf(Tab::AddonTab(tab_id));
+                        for (tab_id, title, addon_name) in new_tabs {
+                            let dock_state = self.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
+                                let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+                                let surface = ds.main_surface_mut();
+                                surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+                                ds
+                            });
+                            let surface = dock_state.main_surface_mut();
+                            surface.push_to_first_leaf(Tab::AddonTab { id: tab_id, label: title });
                         }
                     }
 
-                    let active_dock_state = match self.current_workspace {
+                    let active_dock_state = match &self.current_workspace {
                         Workspace::GameEngine => &mut self.game_dock_state,
                         Workspace::Sophia => &mut self.sophia_dock_state,
                         Workspace::Stunts => &mut self.stunts_dock_state,
                         Workspace::CentralChat => &mut self.central_chat_dock_state,
-                        Workspace::Addon(_) => &mut self.addon_dock_state,
+                        Workspace::Addon(name) => {
+                            self.addon_dock_states.entry(name.clone()).or_insert_with(|| {
+                                let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+                                let surface = ds.main_surface_mut();
+                                surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+                                ds
+                            })
+                        },
                     };
 
                     let sidebar_width = match self.current_workspace {

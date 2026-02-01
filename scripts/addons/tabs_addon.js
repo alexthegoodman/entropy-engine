@@ -12,7 +12,7 @@ addon.onInit(async () => {
     Entropy.println("Tabs Demo Initialized!");
 
     // Tab 1
-    const tab1 = Entropy.UI.createTab({
+    const tab1 = addon.UI.createTab({
         title: "Tab One",
         onRender: () => {
             Entropy.UI.Widget.label(tab1, {
@@ -26,7 +26,7 @@ addon.onInit(async () => {
     });
 
     // Tab 2
-    const tab2 = Entropy.UI.createTab({
+    const tab2 = addon.UI.createTab({
         title: "Tab Two",
         onRender: () => {
             Entropy.UI.Widget.label(tab2, {

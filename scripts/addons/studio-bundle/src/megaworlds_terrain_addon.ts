@@ -59,7 +59,7 @@ addon.onInit(async () => {
 
     generateTerrain();
 
-    const windowId = Entropy.UI.createTab({
+    const windowId = addon.UI.createTab({
         title: "Rust Noise Settings",
         onRender: () => {
             Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });

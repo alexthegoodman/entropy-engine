@@ -13,6 +13,12 @@ globalThis.Entropy = {
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
                 },
+                UI: {
+                    createTab: (config) => {
+                        const tabId = ops.op_ui_create_tab(metadata.name, config, config.onRender);
+                        return tabId;
+                    },
+                },
                 Model: {
                     createProcedural: (config) => {
                         if (config.type === "cube") {
@@ -91,7 +97,7 @@ globalThis.Entropy = {
             return windowId;
         },
         createTab: (config) => {
-            const tabId = ops.op_ui_create_tab(config, config.onRender);
+            const tabId = ops.op_ui_create_tab("Global", config, config.onRender);
             return tabId;
         },
         Widget: {

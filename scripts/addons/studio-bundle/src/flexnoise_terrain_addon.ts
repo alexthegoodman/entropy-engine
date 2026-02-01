@@ -198,7 +198,7 @@ addon.onInit(async () => {
     generateTerrain();
 
     // Tab 1
-    const tab1 = Entropy.UI.createTab({
+    const tab1 = addon.UI.createTab({
         title: "Noise Settings",
         onRender: async () => {
             // render callback

@@ -256,7 +256,7 @@ addon.onInit(async () => {
         maxDistance: 50.0
     });
 
-    const tab = Entropy.UI.createTab({
+    const tab = addon.UI.createTab({
         title: "Hair Settings",
         onRender: async () => {
             Entropy.UI.Widget.label(tab, { text: "Hair & Grass Customization", bold: true });
