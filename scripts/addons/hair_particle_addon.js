@@ -259,6 +259,8 @@ Entropy.Addon.onInit(async () => {
                 label: "Base Color",
                 color: hairParams.baseColor,
                 onChange: (newColor) => {
+                    Entropy.println("newColor: " + newColor[0]);
+                    // Entropy.println(JSON.stringify(newColor));
                     hairParams.baseColor = newColor;
                     updateHair();
                 }

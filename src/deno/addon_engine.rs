@@ -776,6 +776,8 @@ impl AddonEngine {
                                     }
                                 }
 
+                                println!("update hair {:?} {:?}", grass.config.base_color, grass.config.tip_color);
+
                                 grass.update_config(&gpu.queue, grass.config);
                                 updated = true;
                             }

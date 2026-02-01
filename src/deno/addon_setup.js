@@ -32,7 +32,7 @@ globalThis.Entropy = {
                 },
                 Particles: {
                     createHair: (config) => {
-                        ops.op_grass_create(metadata.name, {
+                        let merged_config = {
                             id: config.id || null,
                             gridSize: config.gridSize || 2.0,
                             renderDistance: config.renderDistance || 150.0,
@@ -45,10 +45,12 @@ globalThis.Entropy = {
                             landscapeSize: config.landscapeSize || 4096.0,
                             landscapeHeight: config.landscapeHeight || 0.0,
                             landscapeYOffset: config.landscapeYOffset || 0.0,
-                            base_color: config.base_color || config.baseColor || [0.1, 0.4, 0.1, 1.0],
-                            tip_color: config.tip_color || config.tipColor || [0.4, 0.8, 0.2, 1.0],
+                            baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
+                            tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
                             pipelineId: config.pipelineId || null
-                        });
+                        };
+                        ops.op_println(String("CreateOrUpdate Hair (2): " + metadata.name + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
+                        ops.op_grass_create(metadata.name, merged_config);
                     }
                 },
                 Noise: {
@@ -116,6 +118,9 @@ globalThis.Entropy = {
         for (const event of events) {
             let id = event;
             let payload = null;
+
+            ops.op_println(String("Process Addon Event: " + event));
+
             if (event.includes("|")) {
                 const parts = event.split("|");
                 id = parts[0];
@@ -156,6 +161,7 @@ globalThis.Entropy = {
     },
     Particles: {
         createHair: (config) => {
+            // This is for Global. There is another createHair defined here!
             return ops.op_grass_create("Global", {
                 id: config.id || null,
                 gridSize: config.gridSize || 2.0,
@@ -169,8 +175,8 @@ globalThis.Entropy = {
                 landscapeSize: config.landscapeSize || 4096.0,
                 landscapeHeight: config.landscapeHeight || 0.0,
                 landscapeYOffset: config.landscapeYOffset || 0.0,
-                base_color: config.base_color || config.baseColor || [0.1, 0.4, 0.1, 1.0],
-                tip_color: config.tip_color || config.tipColor || [0.4, 0.8, 0.2, 1.0],
+                baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
+                tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
                 pipelineId: config.pipelineId || null
             });
         }
