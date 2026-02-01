@@ -61,6 +61,10 @@ export interface ScopedAPI {
   Noise: {
     create: (config: NoiseConfig) => string;
   };
+  onInit: (callback: InitCallback) => void;
+  Particles: {
+    createHair: (config: any) => void;
+  };
 }
 
 export type InitCallback = () => void | void;
@@ -99,7 +103,6 @@ export interface PipelineConfig {
 export interface EntropyAPI {
   Addon: {
     register: (metadata: AddonMetadata) => Promise<ScopedAPI>;
-    onInit: (callback: InitCallback) => void;
     onCleanup: (callback: CleanupCallback) => void;
   };
   UI: {
@@ -108,6 +111,9 @@ export interface EntropyAPI {
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
+      colorInput: (windowId: string, config: any) => void;
+      slider: (windowId: string, config: any) => void;
+      numericInput: (windowId: string, config: any) => void;
     };
   };
   Pipeline: {
@@ -118,6 +124,9 @@ export interface EntropyAPI {
   };
   Noise: {
     create: (config: NoiseConfig) => string;
+  };
+  Lighting: {
+    createPointLight: (config: any) => void;
   };
   println: (msg: unknown) => void;
   _process_events: (eventIds: string[]) => void;

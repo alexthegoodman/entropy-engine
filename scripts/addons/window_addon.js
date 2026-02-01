@@ -8,7 +8,7 @@ const addon = await Entropy.Addon.register({
     }
 });
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("UI Demo Initialized!");
 
     const windowId = Entropy.UI.createWindow({

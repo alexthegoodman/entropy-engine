@@ -9,7 +9,7 @@ const addon = await Entropy.Addon.register({
     }
 });
 
-let hairParams = {
+let hairParams: any = {
     id: "main_hair",
     gridSize: 2.0,
     renderDistance: 50.0,
@@ -208,6 +208,7 @@ const hairFragShader = `
     }
 `;
 
+// TODO: register this as a semantic handler
 function updateHair() {
     addon.Particles.createHair({
         ...hairParams,
@@ -216,9 +217,10 @@ function updateHair() {
     });
 }
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("Hair Particle Addon Initializing...");
 
+    // this should already be registered for interop by its name
     const customPipelineId = Entropy.Pipeline.create({
         name: "custom_hair_shader",
         layout: "hair", // Specialized hair layout
@@ -279,7 +281,7 @@ Entropy.Addon.onInit(async () => {
             Entropy.UI.Widget.colorInput(tab, {
                 label: "Base Color",
                 color: hairParams.baseColor,
-                onChange: (newColor) => {
+                onChange: (newColor: number[]) => {
                     hairParams.baseColor = newColor;
                     updateHair();
                 }
@@ -288,7 +290,7 @@ Entropy.Addon.onInit(async () => {
             Entropy.UI.Widget.colorInput(tab, {
                 label: "Tip Color",
                 color: hairParams.tipColor,
-                onChange: (newColor) => {
+                onChange: (newColor: number[]) => {
                     hairParams.tipColor = newColor;
                     updateHair();
                 }
@@ -301,7 +303,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.bladeDensity,
                 min: 1.0,
                 max: 100.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.bladeDensity = parseFloat(val);
                     updateHair();
                 }
@@ -312,7 +314,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.bladeHeight,
                 min: 0.1,
                 max: 10.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.bladeHeight = parseFloat(val);
                     updateHair();
                 }
@@ -323,7 +325,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.bladeWidth,
                 min: 0.001,
                 max: 0.5,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.bladeWidth = parseFloat(val);
                     updateHair();
                 }
@@ -334,7 +336,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.brownianStrength,
                 min: 0.0,
                 max: 0.5,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.brownianStrength = parseFloat(val);
                     updateHair();
                 }
@@ -347,7 +349,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.windStrength,
                 min: 0.0,
                 max: 10.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.windStrength = parseFloat(val);
                     updateHair();
                 }
@@ -358,7 +360,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.windSpeed,
                 min: 0.0,
                 max: 5.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.windSpeed = parseFloat(val);
                     updateHair();
                 }
@@ -371,7 +373,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.gridSize,
                 min: 0.5,
                 max: 10.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.gridSize = parseFloat(val);
                     updateHair();
                 }
@@ -382,7 +384,7 @@ Entropy.Addon.onInit(async () => {
                 value: hairParams.renderDistance,
                 min: 10.0,
                 max: 500.0,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.renderDistance = parseFloat(val);
                     updateHair();
                 }
@@ -391,7 +393,7 @@ Entropy.Addon.onInit(async () => {
             Entropy.UI.Widget.numericInput(tab, {
                 label: "Landscape Y Offset",
                 value: hairParams.landscapeYOffset,
-                onChange: (val) => {
+                onChange: (val: string) => {
                     hairParams.landscapeYOffset = parseFloat(val);
                     updateHair();
                 }
@@ -401,6 +403,7 @@ Entropy.Addon.onInit(async () => {
                 text: "Reset to Defaults",
                 onClick: () => {
                     hairParams = {
+                        id: hairParams.id,
                         gridSize: 2.0,
                         renderDistance: 50.0,
                         windStrength: 2.5,

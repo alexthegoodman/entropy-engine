@@ -1,7 +1,3 @@
-// autoload all addons
-
-import "./simple_terrain_addon";
-
 // Terrain Generation Addon
 // Demonstrates procedural heightmap generation in JavaScript
 // Heights are generated JS-side and passed to Rust for rendering
@@ -196,7 +192,7 @@ async function generateTerrain() {
     // Entropy.println(`Total time: ${(genTime + uploadTime).toFixed(2)}ms`);
 }
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("Procedural Terrain (JS-side generation) Initializing...");
 
     generateTerrain();

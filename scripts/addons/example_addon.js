@@ -10,7 +10,7 @@ const addon = await Entropy.Addon.register({
     }
 });
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("Pipeline Demo Initialized!");
 
     // 1. Spawn a cube using the "Default Pipeline" (explicitly)

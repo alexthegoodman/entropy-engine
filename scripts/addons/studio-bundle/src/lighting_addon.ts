@@ -114,7 +114,7 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 }
 `;
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("Lighting Demo Initialized!");
 
     // Create a custom pipeline with our lighting shader

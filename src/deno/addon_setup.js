@@ -7,6 +7,12 @@ globalThis.Entropy = {
             
             // Return scoped API
             return {
+                onInit: (callback) => {
+                    ops.op_addon_on_init(metadata.name, callback);
+                },
+                onCleanup: (callback) => {
+                    ops.op_addon_on_cleanup(metadata.name, callback);
+                },
                 Model: {
                     createProcedural: (config) => {
                         if (config.type === "cube") {
@@ -77,12 +83,6 @@ globalThis.Entropy = {
                     }
                 }
             };
-        },
-        onInit: (callback) => {
-            ops.op_addon_on_init(callback);
-        },
-        onCleanup: (callback) => {
-            // TODO: implement lifecycle hooks
         }
     },
     UI: {

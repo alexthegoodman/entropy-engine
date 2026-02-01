@@ -54,7 +54,7 @@ async function generateTerrain() {
     });
 }
 
-Entropy.Addon.onInit(async () => {
+addon.onInit(async () => {
     Entropy.println("Procedural Terrain Initializing...");
 
     generateTerrain();
