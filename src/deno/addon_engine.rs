@@ -23,7 +23,7 @@ use std::sync::{Arc, Mutex};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::procedural_grass::grass::Grass;
-use wgpu::RenderPipeline;
+use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
@@ -434,136 +434,34 @@ pub struct PointLightConfig {
 
 }
 
-
-
-
-
-
-
 pub struct AddonContext {
-
-
-
     pub registered_addons: HashMap<String, AddonMetadata>,
-
-
-
     pub gpu_resources: Option<Arc<GpuResources>>,
-
-
-
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
-
-
-
     pub pipeline_configs: HashMap<String, PipelineConfig>,
-
-
-
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
-
-
-
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
-
-
-
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
-
-
-
     pub surface_format: Option<wgpu::TextureFormat>,
-
-
-
     pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
-
-
-
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
-
-
-
-        pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
-
-
-
-    
-
-
-
-        pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
-
-
-
-    
-
-
-
-        pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
-
-
-
+    pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+    pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
+    pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
-
-
-
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
-
-
-
-        pub noise_generators: HashMap<String, NoiseConfig>,
-
-
-
-    
-
-
-
-        pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
-
-
-
-    
-
-
-
-        pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
-
-
-
-    
-
-
-
-        pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
-
-
-
-                pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
-
-                pub ui_widgets: HashMap<String, Vec<UiWidget>>,
-
-                pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
-
-                pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
-
-            }
-
-
-
-
-
-
+    pub noise_generators: HashMap<String, NoiseConfig>,
+    pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
+    pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
+    pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+    pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+    pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
+}
 
 #[op2]
-
-
-
 #[string]
-
-
-
 fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String {
 
 
@@ -840,6 +738,8 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             // Handle generic extra layouts
              layouts = vec![ctx.bind_group_layouts[0].as_ref()]; // Start with Camera (Group 0)
 
+            //  println!("Create extra bind groups for water {:?}", extras.len());
+
              for (i, group_def) in extras.iter().enumerate() {
                  let mut entries = Vec::new();
                  for entry_def in &group_def.entries {
@@ -894,12 +794,14 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
              for l in &created_layouts {
                  layouts.push(l);
              }
+
+            //  println!("Working pipeline (2): {:?}", layouts.len());
         } else {
              // Default: use all default layouts
              // layouts already initialized to defaults
         }
 
-        // println!("Working pipeline (2): {:?} {:?}", config.name, config.pbr);
+        
          
         let is_pbr = config.pbr.unwrap_or(true); 
         let formats = if is_pbr {
@@ -984,6 +886,7 @@ fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] con
 
 #[op2]
 fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: MeshConfig) {
+    println!("Adding mesh?");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_meshes.push((addon_name, config));
     }
@@ -1067,7 +970,7 @@ impl AddonEngine {
             ui_tabs: HashMap::new(),
             ui_widgets: HashMap::new(),
             ui_events: Arc::new(Mutex::new(Vec::new())),
-            new_tabs: Vec::new(),
+            new_tabs: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -1189,10 +1092,27 @@ impl AddonEngine {
 
                          if let Some(bindings) = config.bindings {
                              // Organize bindings by group index
-                             let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
-                             for b in bindings {
-                                 groups.entry(b.group).or_default().push(b);
-                             }
+                            //  let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+                            //  for b in bindings {
+                            //      groups.entry(b.group).or_default().push(b);
+                            //  }
+
+                            let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+                            for b in bindings {
+                                groups.entry(b.group).or_default().push(b);
+                            }
+
+                            // Convert to sorted Vec of (group_number, bindings)
+                            let mut sorted_groups: Vec<_> = groups.into_iter().collect();
+                            sorted_groups.sort_by_key(|(group_num, _)| *group_num);
+
+                            // Also sort bindings within each group
+                            for (_, group_bindings) in &mut sorted_groups {
+                                group_bindings.sort_by_key(|b| b.binding);
+                            }
+
+
+                             println!("Mesh groups {:?}", sorted_groups);
 
                              // Sort keys to ensure deterministic order if iterating? 
                              // We probably just iterate through groups we find.
@@ -1209,7 +1129,7 @@ impl AddonEngine {
                              
                              // However, `wgpu::RenderPipeline` allows `get_bind_group_layout(index)`.
                              
-                             for (group_idx, binding_configs) in groups {
+                             for (group_idx, binding_configs) in sorted_groups {
                                  let layout = pipeline.get_bind_group_layout(group_idx);
                                 //  let mut entries = Vec::new();
                                  
@@ -1276,7 +1196,42 @@ impl AddonEngine {
                                                                 binding: b.binding,
                                                                 resource: wgpu::BindingResource::TextureView(texture_view),
                                                             });
+                                                        } else {
+                                                            // TODO: update_particle_texture
                                                         }
+                                                     } else {
+                                                        let dummy_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                                            label: Some("Dummy Landscape Texture"),
+                                                            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                                                            mip_level_count: 1,
+                                                            sample_count: 1,
+                                                            dimension: wgpu::TextureDimension::D2,
+                                                            format: wgpu::TextureFormat::Rgba8Unorm,
+                                                            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                                                            view_formats: &[],
+                                                        });
+
+                                                        gpu.queue.write_texture(
+                                                            wgpu::TexelCopyTextureInfo {
+                                                                texture: &dummy_texture,
+                                                                mip_level: 0,
+                                                                origin: wgpu::Origin3d::ZERO,
+                                                                aspect: wgpu::TextureAspect::All,
+                                                            },
+                                                            &[255, 255, 255, 255],
+                                                            wgpu::TexelCopyBufferLayout {
+                                                                offset: 0,
+                                                                bytes_per_row: Some(4),
+                                                                rows_per_image: None,
+                                                            },
+                                                            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                                                        );
+
+                                                        let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                                        renderer_state.dummy_views.push((b.binding, dummy_view));
+
+                                                        
                                                      }
                                                 }
                                             }
@@ -1292,7 +1247,30 @@ impl AddonEngine {
                                         _ => {}
                                     }
                                   }
-                                  
+
+                                    for b in &binding_configs {
+                                        match &b.resource {
+                                            ResourceType::Texture { id } => {
+                                                if let Some(id_str) = id {
+                                                    if id_str == "Landscape" {
+                                                        // TODO: fetch dummy view by addon id or something to avoid cross contam
+                                                        // make sure we dont fetch this when a ladnscape does exist too
+                                                        // this was just to avoid a borrowing conflict
+                                                        let dummy = renderer_state.dummy_views.get(0);
+                                                        if let Some(dummy_view) = dummy {
+                                                            wgpu_entries.push(wgpu::BindGroupEntry {
+                                                                binding: dummy_view.0,
+                                                                resource: wgpu::BindingResource::TextureView(&dummy_view.1),
+                                                            });
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                            
+                                    
                                   // Hack for Sampler lifetime: Create one if needed
                                   let sampler = if binding_configs.iter().any(|b| matches!(b.resource, ResourceType::Sampler)) {
                                        Some(gpu.device.create_sampler(&wgpu::SamplerDescriptor {
@@ -1324,7 +1302,8 @@ impl AddonEngine {
                                      entries: &wgpu_entries,
                                      label: Some(&format!("Custom BindGroup {}", group_idx)),
                                  });
-                                 bind_groups.push(Arc::new(bind_group));
+                                //  bind_groups.push(Arc::new(bind_group));
+                                bind_groups.push(bind_group);
                              }
                          }
                          
@@ -1337,10 +1316,12 @@ impl AddonEngine {
                              vertex_bytes,
                              index_bytes,
                              pipeline,
+                             config.pipeline_id.clone(),
                              bind_groups,
                              config.position,
                              uuid::Uuid::new_v4().to_string(),
-                             uniform_buffers
+                             uniform_buffers,
+                             Vec::new() // can attach samplers to mesh instead?
                          );
 
                          renderer_state.addon_meshes
@@ -1351,6 +1332,163 @@ impl AddonEngine {
                 }
             }
         }
+
+        // if !pending_meshes.is_empty() {
+        //     if let Some(gpu) = &renderer_state.gpu_resources {
+        //         for (addon_name, config) in pending_meshes {
+        //             println!("ADDING ADDON MESH");
+
+        //             let pipeline = {
+        //                 let op_state = self.runtime.op_state();
+        //                 let op_state = op_state.borrow();
+        //                 if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+        //                     ctx.pipelines.get(&config.pipeline_id).cloned()
+        //                 } else {
+        //                     None
+        //                 }
+        //             };
+                    
+        //             if let Some(pipeline) = pipeline {
+        //                 let mut bind_groups = Vec::new();
+        //                 let mut uniform_buffers = Vec::new();
+        //                 let mut samplers = Vec::new(); // Store samplers to keep them alive
+
+        //                 if let Some(bindings) = config.bindings {
+        //                     // Organize bindings by group index
+        //                     let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+        //                     for b in bindings {
+        //                         groups.entry(b.group).or_default().push(b);
+        //                     }
+
+        //                     // Process each bind group
+        //                     for (group_idx, binding_configs) in groups {
+        //                         let layout = pipeline.get_bind_group_layout(group_idx);
+                                
+        //                         // Pre-create all resources that need to persist
+        //                         let mut group_buffers = Vec::new();
+        //                         let mut group_samplers = Vec::new();
+                                
+        //                         // Create buffers first
+        //                         for b in &binding_configs {
+        //                             match &b.resource {
+        //                                 ResourceType::Uniform { data } => {
+        //                                     let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        //                                         label: Some(&format!("Uniform Buffer {}:{}", group_idx, b.binding)),
+        //                                         contents: bytemuck::cast_slice(data),
+        //                                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        //                                     });
+        //                                     group_buffers.push((b.binding, buffer));
+        //                                 },
+        //                                 ResourceType::Time => {
+        //                                     let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+        //                                         label: Some(&format!("Time Buffer {}:{}", group_idx, b.binding)),
+        //                                         size: std::mem::size_of::<f32>() as u64,
+        //                                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        //                                         mapped_at_creation: false,
+        //                                     });
+        //                                     group_buffers.push((b.binding, buffer));
+        //                                 },
+        //                                 ResourceType::Sampler => {
+        //                                     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        //                                         label: Some(&format!("Sampler {}:{}", group_idx, b.binding)),
+        //                                         address_mode_u: wgpu::AddressMode::ClampToEdge,
+        //                                         address_mode_v: wgpu::AddressMode::ClampToEdge,
+        //                                         address_mode_w: wgpu::AddressMode::ClampToEdge,
+        //                                         mag_filter: wgpu::FilterMode::Linear,
+        //                                         min_filter: wgpu::FilterMode::Linear,
+        //                                         mipmap_filter: wgpu::FilterMode::Nearest,
+        //                                         ..Default::default()
+        //                                     });
+        //                                     group_samplers.push((b.binding, sampler));
+        //                                 },
+        //                                 _ => {}
+        //                             }
+        //                         }
+                                
+        //                         // Now create bind group entries with proper references
+        //                         let mut wgpu_entries = Vec::new();
+                                
+        //                         for b in &binding_configs {
+        //                             match &b.resource {
+        //                                 ResourceType::Uniform { .. } | ResourceType::Time => {
+        //                                     // Find the corresponding buffer
+        //                                     if let Some((_, buffer)) = group_buffers.iter().find(|(binding, _)| *binding == b.binding) {
+        //                                         wgpu_entries.push(wgpu::BindGroupEntry {
+        //                                             binding: b.binding,
+        //                                             resource: buffer.as_entire_binding(),
+        //                                         });
+        //                                     }
+        //                                 },
+        //                                 ResourceType::Texture { id } => {
+        //                                     if let Some(id_str) = id {
+        //                                         if id_str == "Landscape" {
+        //                                             if let Some(l) = renderer_state.landscapes.first() {
+        //                                                 if let Some(texture_view) = &l.particle_texture_view {
+        //                                                     wgpu_entries.push(wgpu::BindGroupEntry {
+        //                                                         binding: b.binding,
+        //                                                         resource: wgpu::BindingResource::TextureView(texture_view),
+        //                                                     });
+        //                                                 }
+        //                                             }
+        //                                         }
+        //                                         // Add more texture ID cases as needed
+        //                                     }
+        //                                 },
+        //                                 ResourceType::Sampler => {
+        //                                     if let Some((_, sampler)) = group_samplers.iter().find(|(binding, _)| *binding == b.binding) {
+        //                                         wgpu_entries.push(wgpu::BindGroupEntry {
+        //                                             binding: b.binding,
+        //                                             resource: wgpu::BindingResource::Sampler(sampler),
+        //                                         });
+        //                                     }
+        //                                 }
+        //                             }
+        //                         }
+
+        //                         // Create the bind group
+        //                         let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        //                             layout: &layout,
+        //                             entries: &wgpu_entries,
+        //                             label: Some(&format!("Custom BindGroup {}", group_idx)),
+        //                         });
+                                
+        //                         bind_groups.push(bind_group);
+                                
+        //                         // Store buffers and samplers to keep them alive
+        //                         uniform_buffers.extend(group_buffers.into_iter().map(|(_, buf)| buf));
+        //                         samplers.extend(group_samplers.into_iter().map(|(_, samp)| samp));
+        //                     }
+        //                 }
+
+        //                 println!("CREATING ADDON MESH");
+
+        //                 // Create Mesh
+        //                 let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
+        //                 let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
+
+        //                 let mesh = CustomMesh::new(
+        //                     &gpu.device,
+        //                     vertex_bytes,
+        //                     index_bytes,
+        //                     pipeline,
+        //                     config.pipeline_id.clone(),
+        //                     bind_groups,
+        //                     config.position,
+        //                     uuid::Uuid::new_v4().to_string(),
+        //                     uniform_buffers,
+        //                     samplers, // You'll need to add this field to CustomMesh
+        //                 );
+
+        //                 println!("CREATED ADDON MESH");
+
+        //                 renderer_state.addon_meshes
+        //                     .entry(addon_name)
+        //                     .or_insert_with(Vec::new)
+        //                     .push(mesh);
+        //             }
+        //         }
+        //     }
+        // }
 
         if !pending_landscapes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {

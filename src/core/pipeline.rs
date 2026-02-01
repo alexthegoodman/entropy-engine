@@ -3017,6 +3017,8 @@ impl EntropyPipeline {
         let mut non_pbr_landscapes = Vec::new();
         let mut pbr_grasses = Vec::new();
         let mut non_pbr_grasses = Vec::new();
+        let mut pbr_meshes = Vec::new();
+        let mut non_pbr_meshes = Vec::new();
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -3076,6 +3078,29 @@ impl EntropyPipeline {
                     }
                 }
 
+                for (addon_name, meshes) in &renderer_state.addon_meshes {
+                    if let Workspace::Addon(active_name) = &self.current_workspace {
+                        if addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
+                    for mesh in meshes {
+                        let mut is_pbr = true;
+                        if let Some(config) = ctx.pipeline_configs.get(&mesh.pipeline_id) {
+                            is_pbr = config.pbr.unwrap_or(true);
+                        }
+                        
+                        if is_pbr {
+                            pbr_meshes.push(mesh);
+                        } else {
+                            non_pbr_meshes.push(mesh);
+                        }
+                    }
+                }
+
                 for (addon_name, grasses) in &mut renderer_state.addon_grasses {
                     if let Workspace::Addon(active_name) = &self.current_workspace {
                         if addon_name != active_name && addon_name != "Global" {
@@ -3103,7 +3128,7 @@ impl EntropyPipeline {
         }
 
         // 1. Geometry Pass for PBR objects
-        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_grasses.is_empty() {
+        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_grasses.is_empty() || !pbr_meshes.is_empty() {
             let gbuffer_position_view = self.g_buffer_position_view.as_ref().unwrap();            
             let gbuffer_normal_view = self.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = self.g_buffer_albedo_view.as_ref().unwrap();
@@ -3229,6 +3254,59 @@ impl EntropyPipeline {
                     wgpu::IndexFormat::Uint32,
                 );
                 render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+            }
+
+            for mesh in &pbr_meshes {
+                render_pass.set_pipeline(&mesh.pipeline);
+                
+                // Bind groups
+                // Note: Standard layout puts Camera at 0. CustomMesh bind_groups are extras.
+                // But if the pipeline was created via generic layout, maybe it expects Camera at 0?
+                // Yes, generic layout starts with Camera at 0.
+                // So we set Camera (0) and then custom groups (1..).
+                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                
+                for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                    render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                }
+
+                mesh.transform.update_uniform_buffer(&queue); // Assuming CustomMesh has transform with uniform buffer logic?
+                // Wait, CustomMesh transform uses Transform_2::Transform which has update_uniform_buffer?
+                // Let's check Transform_2.
+                // Yes, if it is Transform_2.
+                // But I should check if I imported Transform_2 in CustomMesh. I did.
+                // And does it have a bind group? CustomMesh doesn't expose a separate transform bind group.
+                // It likely bakes the transform into a uniform buffer that might be part of "Uniform" binding?
+                // In my generic implementation in `addon_engine`, I didn't bake the transform automatically into bindings.
+                // The user has to provide it?
+                // Or does CustomMesh hold a transform buffer?
+                // In `CustomMesh::new`, I created a `Transform`.
+                // But I didn't put its buffer into `bind_groups` automatically.
+                // If the shader needs Model matrix, it needs to be in a bind group.
+                // The default pipeline created by `create_addon_pipeline` expects:
+                // Group 0: Camera
+                // Group 1: ModelUniform (model_matrix, normal_matrix)
+                // BUT, my `op_pipeline_create` for EXTRA bind groups starts appending extras after Group 0?
+                // No, `op_pipeline_create` logic:
+                // `layouts = vec![camera]`
+                // then appends extras.
+                // So Group 1 is first extra.
+                // BUT `create_addon_pipeline` default vertex shader uses:
+                // Group 0: Camera
+                // Group 1: Model
+                // This conflict!
+                // If I use default vertex shader, I need Group 1 to be Model.
+                // If I use custom vertex shader (like Water), I can define my own groups.
+                // My Water shader uses Group 1 for Time. It doesn't use Model matrix (it uses position in vertex shader directly or uniform).
+                // So for Water, it's fine.
+                // But for generic mesh?
+                // If I want standard Model transform support, I should ensure Group 1 is Model if using default shader.
+                // But `op_pipeline_create` doesn't enforce this if `extra_bind_groups` are used.
+                // It just appends extras.
+                
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
             }
 
             for grass in &mut pbr_grasses {
@@ -3375,7 +3453,7 @@ impl EntropyPipeline {
         }
 
         // 3. Pass for non-PBR objects
-        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() {
+        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() {
             let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon non-PBR Pass"),
@@ -3468,6 +3546,18 @@ impl EntropyPipeline {
                     wgpu::IndexFormat::Uint32,
                 );
                 render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+            }
+
+            for mesh in &non_pbr_meshes {
+                render_pass.set_pipeline(&mesh.pipeline);
+                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                    render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                }
+                
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
             }
 
             for grass in &mut non_pbr_grasses {

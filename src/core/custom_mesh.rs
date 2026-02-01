@@ -9,10 +9,12 @@ pub struct CustomMesh {
     pub index_buffer: wgpu::Buffer,
     pub num_indices: u32,
     pub pipeline: Arc<wgpu::RenderPipeline>,
-    pub bind_groups: Vec<Arc<wgpu::BindGroup>>,
+    pub pipeline_id: String,
+    pub bind_groups: Vec<wgpu::BindGroup>,
     pub transform: Transform,
     pub id: String,
     pub uniform_buffers: Vec<wgpu::Buffer>, // Store created uniform buffers to keep them alive
+    pub samplers: Vec<wgpu::Sampler>, // Add this
 }
 
 impl CustomMesh {
@@ -21,10 +23,12 @@ impl CustomMesh {
         vertex_data: &[u8],
         index_data: &[u8],
         pipeline: Arc<wgpu::RenderPipeline>,
-        bind_groups: Vec<Arc<wgpu::BindGroup>>,
+        pipeline_id: String,
+        bind_groups: Vec<wgpu::BindGroup>,
         position: [f32; 3],
         id: String,
         uniform_buffers: Vec<wgpu::Buffer>,
+        samplers: Vec<wgpu::Sampler>,
     ) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Custom Mesh Vertex Buffer {}", id)),
@@ -63,10 +67,12 @@ impl CustomMesh {
             index_buffer,
             num_indices,
             pipeline,
+            pipeline_id,
             bind_groups,
             transform,
             id,
             uniform_buffers,
+            samplers,
         }
     }
 }

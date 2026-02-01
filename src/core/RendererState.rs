@@ -6,7 +6,7 @@ use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
 use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
-use wgpu::BindGroupLayout;
+use wgpu::{BindGroupLayout, TextureView};
 
 use crate::art_assets::ScatteredModel::ScatteredModel;
 use crate::core::AnimationState::AnimationState;
@@ -142,6 +142,7 @@ pub struct RendererState {
     pub procedural_trees: Vec<ProceduralTrees>,
     pub water_planes: Vec<WaterPlane>,
     pub point_lights: Vec<PointLight>,
+    pub dummy_views: Vec<(u32, TextureView)>,  
 
     // animations
     // pub active_animations: Vec<AnimationPlayback>,
@@ -333,6 +334,7 @@ impl RendererState {
             point_lights: Vec::new(),
             // light_state,
             collectables: Vec::new(),
+            dummy_views: Vec::new(),
 
             // device,
             // queue,
