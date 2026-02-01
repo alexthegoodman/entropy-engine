@@ -303,7 +303,6 @@ impl EntropyPipeline {
 
         // create a dedicated editor so it can be used in the async thread
         let mut export_editor = Editor::new(viewport, project_id.clone());
-        export_editor.addon_engine.load_default_bundle();
 
         #[cfg(target_arch = "wasm32")]
         let window = if let Some(canvas) = canvas {
@@ -1534,6 +1533,8 @@ impl EntropyPipeline {
         
 
         export_editor.camera_binding = Some(camera_binding);
+
+        export_editor.addon_engine.load_default_bundle();
 
         // self.device = Some(device);
         // self.queue = Some(queue);

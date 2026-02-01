@@ -118,6 +118,8 @@ pub fn create_addon_pipeline(
         })
     }).collect();
 
+    // println!("Creating pipeline completely: {:?} {:?}", config.name, config.pbr);
+
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(&config.name),
         layout: Some(&pipeline_layout),

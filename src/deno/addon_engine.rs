@@ -634,7 +634,7 @@ fn op_ui_widget_numeric_input(
 #[op2]
 #[string]
 fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> Result<String, deno_error::JsErrorBox> {
-    println!("Creating pipeline: {:?} {:?}", config.name, config.pbr);
+    println!("Creating pipeline: {:?} {:?} {:?} {:?}", config.name, config.layout, config.pbr, config.use_default);
     
     if config.use_default.unwrap_or(false) {
         return Ok("default".to_string());
@@ -691,14 +691,19 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 })));
             }
 
+            println!("Working pipeline (1): {:?} {:?}", config.name, config.pbr);
+
             vec![
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
                 ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
             ]
         } else {
+            // println!("Working pipeline (1b): {:?} {:?}", config.name, config.pbr);
             ctx.bind_group_layouts.iter().map(|l| l.as_ref()).collect()
         };
+
+        // println!("Working pipeline (2): {:?} {:?}", config.name, config.pbr);
          
         let is_pbr = config.pbr.unwrap_or(true); 
         let formats = if is_pbr {
@@ -706,6 +711,8 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         } else {
             std::slice::from_ref(ctx.surface_format.as_ref().unwrap_or(&wgpu::TextureFormat::Rgba8Unorm))
         };
+
+        // println!("Working pipeline (3): {:?} {:?}", config.name, config.pbr);
 
         let pipeline = create_addon_pipeline(
             device,
@@ -716,6 +723,8 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         );
         
         ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
+
+        // println!("Prep for lighting shader: {:?}", config.layout);
 
         // If a lighting shader is provided, create a lighting pipeline
         if let Some(lighting_shader_source) = &config.lighting_shader {
@@ -759,6 +768,8 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
 
             ctx.lighting_pipelines.insert(id.clone(), Arc::new(lighting_pipeline));
         }
+
+        // println!("Done with lighting shader: {:?}", config.layout);
         
         ctx.pipeline_configs.insert(id.clone(), config);
         
