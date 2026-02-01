@@ -1,5 +1,7 @@
 # Terrain Addon
 
+Install Deno CLI
+
 ## Development
 
 - Install dependencies:

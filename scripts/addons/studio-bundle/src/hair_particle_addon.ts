@@ -1,4 +1,4 @@
-const addon = await Entropy.Addon.register({
+const addon = Entropy.Addon.register({
     name: "Hair Particles",
     version: "1.2.0",
     description: "Customizable hair and grass particles with custom shaders (VS + FS)",

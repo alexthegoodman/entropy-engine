@@ -1,7 +1,7 @@
 // Terrain Generation Addon
 // Demonstrates procedural heightmap generation in JavaScript via Rust Noise API
 
-const addon = await Entropy.Addon.register({
+const addon = Entropy.Addon.register({
     name: "Simple Procedural Terrain",
     version: "1.2.0",
     description: "Generates terrain using Rust-side noise",
@@ -21,7 +21,7 @@ let terrainParams = {
 
 async function generateTerrain() {
     // 1. Create a noise handle in Rust
-    const noiseId = await addon.Noise.create({
+    const noiseId = addon.Noise.create({
         type: "fbm",
         source: "perlin",
         seed: terrainParams.seed,
@@ -32,7 +32,7 @@ async function generateTerrain() {
     let pipelineId = "default";
     if (!terrainParams.usePBR) {
         // Create a simple custom non-PBR pipeline (Green Tint)
-        pipelineId = await Entropy.Pipeline.create({
+        pipelineId = Entropy.Pipeline.create({
             name: "terrain_green",
             pbr: false,
             fragmentShader: `
@@ -59,10 +59,8 @@ addon.onInit(async () => {
 
     generateTerrain();
 
-    const windowId = Entropy.UI.createWindow({
+    const windowId = Entropy.UI.createTab({
         title: "Rust Noise Settings",
-        resizable: true,
-        defaultSize: { width: 300, height: 250 },
         onRender: () => {
             Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
             

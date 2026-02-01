@@ -1,7 +1,7 @@
 // Lighting Demo Addon
 // Demonstrates creating point lights and a custom lighting shader
 
-const addon = await Entropy.Addon.register({
+const addon = Entropy.Addon.register({
     name: "Lighting Demo",
     version: "1.0.0",
     description: "Demonstrates custom lighting shaders and point lights",
@@ -118,7 +118,7 @@ addon.onInit(async () => {
     Entropy.println("Lighting Demo Initialized!");
 
     // Create a custom pipeline with our lighting shader
-    const lightingPipeline = await Entropy.Pipeline.create({
+    const lightingPipeline = Entropy.Pipeline.create({
         name: "custom_lighting",
         pbr: true,
         lightingShader: customLightingShader

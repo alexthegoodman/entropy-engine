@@ -2,8 +2,8 @@ const { ops } = Deno.core;
 
 globalThis.Entropy = {
     Addon: {
-        register: async (metadata) => {
-            await ops.op_addon_register(metadata);
+        register: (metadata) => {
+            ops.op_addon_register(metadata);
             
             // Return scoped API
             return {

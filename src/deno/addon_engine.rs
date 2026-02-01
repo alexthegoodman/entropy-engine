@@ -814,7 +814,7 @@ pub struct AddonEngine {
     pub project_id: String,
 }
 
-const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/index.mjs");
+const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/bundle.js");
 
 impl AddonEngine {
     pub fn new(project_id: String) -> Self {

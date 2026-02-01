@@ -106,7 +106,7 @@ function fbm(noise: SimplexNoise, x: number, y: number, octaves: number, frequen
     return total / maxValue;
 }
 
-const addon = await Entropy.Addon.register({
+const addon = Entropy.Addon.register({
     name: "Procedural Terrain",
     version: "2.0.0",
     description: "Generates terrain using JS-side noise (height data passed to Rust)",

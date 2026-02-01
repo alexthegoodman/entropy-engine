@@ -102,7 +102,7 @@ export interface PipelineConfig {
 // Main Entropy API
 export interface EntropyAPI {
   Addon: {
-    register: (metadata: AddonMetadata) => Promise<ScopedAPI>;
+    register: (metadata: AddonMetadata) => ScopedAPI;
     onCleanup: (callback: CleanupCallback) => void;
   };
   UI: {

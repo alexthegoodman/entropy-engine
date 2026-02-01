@@ -24,7 +24,8 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsdown",
+    "build-tsdown": "tsdown",
+    "build": "deno bundle src/index.ts > dist/bundle.js",
     "dev": "tsdown --watch",
     "test": "vitest",
     "typecheck": "tsc --noEmit",
