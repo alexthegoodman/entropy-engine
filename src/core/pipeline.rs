@@ -2308,6 +2308,14 @@ impl EntropyPipeline {
 
             // draw addon cubes
             for (addon_name, cubes) in &renderer_state.addon_cubes {
+                if let Workspace::Addon(active_name) = &self.current_workspace {
+                    if addon_name != active_name && addon_name != "Global" {
+                        continue;
+                    }
+                } else if addon_name != "Global" {
+                    continue;
+                }
+
                 for cube in cubes {
                     // Check if cube has a custom pipeline
                     let mut pipeline_set = false;
@@ -2582,13 +2590,29 @@ impl EntropyPipeline {
             drop(render_pass);
 
             // obviously, no good reason to set this on every frame
+            let mut collected_lights = if self.current_workspace == Workspace::GameEngine {
+                renderer_state.point_lights.clone()
+            } else {
+                Vec::new()
+            };
+
+            for (addon_name, lights) in &renderer_state.addon_point_lights {
+                if let Workspace::Addon(active_name) = &self.current_workspace {
+                    if addon_name == active_name || addon_name == "Global" {
+                        collected_lights.extend(lights.clone());
+                    }
+                } else if addon_name == "Global" {
+                    collected_lights.extend(lights.clone());
+                }
+            }
+
             let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
                 point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
-                num_point_lights: renderer_state.point_lights.len() as u32,
+                num_point_lights: collected_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
                 _padding: [0; 3],
             };
 
-            for (i, pl) in renderer_state.point_lights.iter().enumerate() {
+            for (i, pl) in collected_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
                 // point_lights_uniform_data.point_lights[i] = *pl;
                  point_lights_uniform_data.point_lights[i] = [
                     pl.position[0], pl.position[1], pl.position[2],0.0,  // position + padding
@@ -2995,6 +3019,14 @@ impl EntropyPipeline {
             let op_state = op_state.borrow();
             if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
                 for (addon_name, cubes) in &renderer_state.addon_cubes {
+                    if let Workspace::Addon(active_name) = &self.current_workspace {
+                        if addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
                     for cube in cubes {
                         let mut is_pbr = true;
                         if let Some(pid) = &cube.pipeline_id {
@@ -3014,6 +3046,14 @@ impl EntropyPipeline {
                 }
 
                 for (addon_name, landscapes) in &renderer_state.addon_landscapes {
+                    if let Workspace::Addon(active_name) = &self.current_workspace {
+                        if addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
                     for landscape in landscapes {
                         let mut is_pbr = true;
                         if let Some(pid) = &landscape.pipeline_id {
@@ -3033,6 +3073,14 @@ impl EntropyPipeline {
                 }
 
                 for (addon_name, grasses) in &mut renderer_state.addon_grasses {
+                    if let Workspace::Addon(active_name) = &self.current_workspace {
+                        if addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
                     for grass in grasses {
                         let mut is_pbr = true;
                         // Note: Grass currently doesn't have a pipeline_id field on the Rust struct, 
@@ -3219,13 +3267,29 @@ impl EntropyPipeline {
             drop(render_pass);
 
             // Update point lights buffer for addons
+            let mut collected_lights = if self.current_workspace == Workspace::GameEngine {
+                renderer_state.point_lights.clone()
+            } else {
+                Vec::new()
+            };
+
+            for (addon_name, lights) in &renderer_state.addon_point_lights {
+                if let Workspace::Addon(active_name) = &self.current_workspace {
+                    if addon_name == active_name || addon_name == "Global" {
+                        collected_lights.extend(lights.clone());
+                    }
+                } else if addon_name == "Global" {
+                    collected_lights.extend(lights.clone());
+                }
+            }
+
             let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
                 point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS],
-                num_point_lights: renderer_state.point_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
+                num_point_lights: collected_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
                 _padding: [0; 3],
             };
 
-            for (i, pl) in renderer_state.point_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
+            for (i, pl) in collected_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
                  point_lights_uniform_data.point_lights[i] = [
                     pl.position[0], pl.position[1], pl.position[2], 0.0,
                     pl.color[0], pl.color[1], pl.color[2], 0.0,

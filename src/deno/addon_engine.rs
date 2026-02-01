@@ -911,17 +911,20 @@ impl AddonEngine {
         };
 
         if !pending_point_lights.is_empty() {
-            for (_, config) in pending_point_lights {
+            for (addon_name, config) in pending_point_lights {
                 let pl = crate::core::editor::PointLight {
                     position: config.position,
+                    _padding1: 0,
                     color: config.color,
+                    _padding2: 0,
                     intensity: config.intensity,
                     max_distance: config.max_distance,
-                    _padding1: 0,
-                    _padding2: 0,
                     _padding3: [0; 2],
                 };
-                renderer_state.point_lights.push(pl);
+                renderer_state.addon_point_lights
+                    .entry(addon_name)
+                    .or_insert_with(Vec::new)
+                    .push(pl);
             }
         }
 
