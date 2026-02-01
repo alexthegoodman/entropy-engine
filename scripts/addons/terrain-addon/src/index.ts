@@ -1,3 +1,7 @@
+// autoload all addons
+
+import "./simple_terrain_addon";
+
 // Terrain Generation Addon
 // Demonstrates procedural heightmap generation in JavaScript
 // Heights are generated JS-side and passed to Rust for rendering

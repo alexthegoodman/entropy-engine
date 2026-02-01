@@ -2,5 +2,8 @@ import { defineConfig } from 'tsdown'
 
 export default defineConfig({
   exports: true,
-  // ...config options
+  format: "esm",
+  unbundle: false,
+  noExternal: ['simple_terrain_addon'],
+
 })

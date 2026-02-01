@@ -2,7 +2,7 @@
 // Demonstrates procedural heightmap generation in JavaScript via Rust Noise API
 
 const addon = await Entropy.Addon.register({
-    name: "Procedural Terrain",
+    name: "Simple Procedural Terrain",
     version: "1.2.0",
     description: "Generates terrain using Rust-side noise",
     author: ["Entropy Team"],
