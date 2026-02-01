@@ -128,6 +128,8 @@ pub enum UiWidget {
 
     Button { text: String, id: String, label: String },
 
+    ColorInput { id: String, label: String, color: [f32; 4] },
+
 }
 
 
@@ -217,6 +219,10 @@ pub struct AddonGrassConfig {
     pub landscape_height: Option<f32>,
 
     pub landscape_y_offset: Option<f32>,
+
+    pub base_color: Option<[f32; 4]>,
+
+    pub tip_color: Option<[f32; 4]>,
 
     pub pipeline_id: Option<String>,
 
@@ -340,6 +346,38 @@ fn op_ui_widget_label(state: &mut OpState, #[string] window_id: String, #[string
 fn op_ui_widget_button(state: &mut OpState, #[string] window_id: String, #[string] text: String, #[string] id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Button { text: text.clone(), id, label: text });
+    }
+}
+
+// #[derive(Deserialize)]
+// struct Color {
+//     r: f32,
+//     g: f32,
+//     b: f32,
+//     a: f32,
+// }
+
+// #[op2]
+// fn op_ui_widget_color_input(state: &mut OpState, #[string] window_id: String, #[string] label: String, #[serde] color: Color, #[string] id: String) {
+//     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+//         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::ColorInput { id, label, color: [color.r, color.g, color.b, color.a] });
+//     }
+// }
+
+#[op2]
+fn op_ui_widget_color_input(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    #[serde] color: Vec<f32>,
+    #[string] id: String
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        let color_array: [f32; 4] = color.try_into().unwrap_or([0.0, 0.0, 0.0, 1.0]);
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_default()
+            .push(UiWidget::ColorInput { id, label, color: color_array });
     }
 }
 
@@ -511,6 +549,7 @@ extension!(
         op_ui_create_tab,
         op_ui_widget_label,
         op_ui_widget_button,
+        op_ui_widget_color_input,
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -723,6 +762,8 @@ impl AddonEngine {
                                 if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
                                 if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
                                 if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
+                                if let Some(base_color) = config.base_color { grass.config.base_color = base_color; }
+                                if let Some(tip_color) = config.tip_color { grass.config.tip_color = tip_color; }
 
                                 // Update pipeline if requested
                                 if let Some(pid) = &config.pipeline_id {
@@ -780,6 +821,8 @@ impl AddonEngine {
                     if let Some(landscape_size) = config.landscape_size { grass.config.landscape_size = landscape_size; }
                     if let Some(landscape_height) = config.landscape_height { grass.config.landscape_height = landscape_height; }
                     if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
+                    if let Some(base_color) = config.base_color { grass.config.base_color = base_color; }
+                    if let Some(tip_color) = config.tip_color { grass.config.tip_color = tip_color; }
 
                     grass.update_config(&gpu.queue, grass.config);
 
@@ -924,6 +967,16 @@ impl AddonEngine {
                                                  events_to_push.push(btn_id.clone());
                                              }
                                          }
+                                         UiWidget::ColorInput { id: color_id, label, color } => {
+                                             ui.horizontal(|ui| {
+                                                 ui.label(label);
+                                                 let mut current_color = *color;
+                                                 if ui.color_edit_button_rgba_unmultiplied(&mut current_color).changed() {
+                                                     let payload = format!("{}|{},{},{},{}", color_id, current_color[0], current_color[1], current_color[2], current_color[3]);
+                                                     events_to_push.push(payload);
+                                                 }
+                                             });
+                                         }
                                      }
                                  }
                              }
@@ -998,6 +1051,16 @@ impl AddonEngine {
                                  if ui.button(text).clicked() {
                                      events_to_push.push(btn_id.clone());
                                  }
+                             }
+                             UiWidget::ColorInput { id: color_id, label, color } => {
+                                 ui.horizontal(|ui| {
+                                     ui.label(label);
+                                     let mut current_color = *color;
+                                     if ui.color_edit_button_rgba_unmultiplied(&mut current_color).changed() {
+                                         let payload = format!("{}|{},{},{},{}", color_id, current_color[0], current_color[1], current_color[2], current_color[3]);
+                                         events_to_push.push(payload);
+                                     }
+                                 });
                              }
                          }
                      }

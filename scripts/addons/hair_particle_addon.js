@@ -22,6 +22,8 @@ let hairParams = {
     landscapeSize: 100.0,
     landscapeHeight: 0.0,
     landscapeYOffset: 0.0,
+    baseColor: [0.1, 0.3, 0.35, 1.0],
+    tipColor: [0.2, 0.7, 0.8, 1.0],
     pipelineId: null
 };
 
@@ -46,7 +48,9 @@ const hairVertexShader = `
         blade_density: f32,
         landscape_size: f32,
         landscape_height: f32,
-        landscape_y_offset: f32
+        landscape_y_offset: f32,
+        base_color: vec4<f32>,
+        tip_color: vec4<f32>,
     }
     @group(1) @binding(0)
     var<uniform> uniforms: GrassUniforms;
@@ -152,6 +156,26 @@ const hairVertexShader = `
 `;
 
 const hairFragShader = `
+    struct GrassUniforms {
+        time: f32,
+        grid_size: f32,
+        render_distance: f32,
+        wind_strength: f32,
+        player_pos: vec4<f32>,
+        wind_speed: f32,
+        blade_height: f32,
+        blade_width: f32,
+        brownian_strength: f32,
+        blade_density: f32,
+        landscape_size: f32,
+        landscape_height: f32,
+        landscape_y_offset: f32,
+        base_color: vec4<f32>,
+        tip_color: vec4<f32>,
+    }
+    @group(1) @binding(0)
+    var<uniform> uniforms: GrassUniforms;
+
     struct VertexOutput {
         @builtin(position) clip_position: vec4<f32>,
         @location(0) world_pos: vec3<f32>,
@@ -169,10 +193,8 @@ const hairFragShader = `
 
     @fragment
     fn fs_main(in: VertexOutput) -> GbufferOutput {
-        // Neon cyan to deep purple based on height and time variation
-        let color1 = vec3<f32>(0.0, 1.0, 1.0);
-        let color2 = vec3<f32>(0.5, 0.0, 1.0);
-        let final_color = mix(color1, color2, in.height_factor);
+        // Use color uniforms for custom interpolation
+        let final_color = mix(uniforms.base_color.rgb, uniforms.tip_color.rgb, in.height_factor);
         
         let ao = 0.4 + in.height_factor * 0.2;
 
@@ -187,7 +209,11 @@ const hairFragShader = `
 `;
 
 function updateHair() {
-    addon.Particles.createHair(hairParams);
+    addon.Particles.createHair({
+        ...hairParams,
+        base_color: hairParams.baseColor,
+        tip_color: hairParams.tipColor
+    });
 }
 
 Entropy.Addon.onInit(async () => {
@@ -228,6 +254,25 @@ Entropy.Addon.onInit(async () => {
             });
 
             Entropy.UI.Widget.label(tab, { text: "Physical Properties", bold: true });
+            
+            Entropy.UI.Widget.colorInput(tab, {
+                label: "Base Color",
+                color: hairParams.baseColor,
+                onChange: (newColor) => {
+                    hairParams.baseColor = newColor;
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.colorInput(tab, {
+                label: "Tip Color",
+                color: hairParams.tipColor,
+                onChange: (newColor) => {
+                    hairParams.tipColor = newColor;
+                    updateHair();
+                }
+            });
+
             Entropy.UI.Widget.label(tab, `Density: ${hairParams.bladeDensity}`);
             Entropy.UI.Widget.button(tab, {
                 text: "Increase Density",
@@ -292,6 +337,8 @@ Entropy.Addon.onInit(async () => {
                         landscapeSize: 100.0,
                         landscapeHeight: 0.0,
                         landscapeYOffset: 0.0,
+                        baseColor: [0.1, 0.3, 0.35, 1.0],
+                        tipColor: [0.2, 0.7, 0.8, 1.0],
                         pipelineId: customPipelineId
                     };
                     updateHair();

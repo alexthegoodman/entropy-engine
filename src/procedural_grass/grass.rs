@@ -24,6 +24,9 @@ pub struct GrassConfig {
     pub landscape_height: f32,
     pub landscape_y_offset: f32,
 
+    pub base_color: [f32; 4],
+    pub tip_color: [f32; 4],
+
     pub _pad0: [f32; 2],
 }
 
@@ -43,6 +46,8 @@ impl Default for GrassConfig {
             landscape_size: 1000.0,
             landscape_height: 100.0,
             landscape_y_offset: 0.0,
+            base_color: [0.1, 0.4, 0.1, 1.0], // Dark green
+            tip_color: [0.4, 0.8, 0.2, 1.0],  // Light green
             _pad0: [0.0; 2],
         }
     }

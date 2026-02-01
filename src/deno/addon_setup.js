@@ -45,6 +45,8 @@ globalThis.Entropy = {
                             landscapeSize: config.landscapeSize || 4096.0,
                             landscapeHeight: config.landscapeHeight || 0.0,
                             landscapeYOffset: config.landscapeYOffset || 0.0,
+                            base_color: config.base_color || config.baseColor || [0.1, 0.4, 0.1, 1.0],
+                            tip_color: config.tip_color || config.tipColor || [0.4, 0.8, 0.2, 1.0],
                             pipelineId: config.pipelineId || null
                         });
                     }
@@ -96,13 +98,42 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onClick;
                 }
+            },
+            colorInput: (windowId, config) => {
+                const label = config?.label || "";
+                const color = config?.color || [1, 1, 1, 1];
+                const id = Math.random().toString(36).substring(2, 15);
+                ops.op_ui_widget_color_input(windowId, label, color, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
             }
         }
     },
-    _process_events: (eventIds) => {
-        for (const id of eventIds) {
+    _process_events: (events) => {
+        for (const event of events) {
+            let id = event;
+            let payload = null;
+            if (event.includes("|")) {
+                const parts = event.split("|");
+                id = parts[0];
+                payload = parts[1];
+            }
+
             if (globalThis._entropy_event_listeners && globalThis._entropy_event_listeners[id]) {
-                globalThis._entropy_event_listeners[id]();
+                if (payload !== null) {
+                    // Try to parse payload if it looks like a color or array
+                    if (payload.includes(",")) {
+                        const values = payload.split(",").map(v => parseFloat(v));
+                        globalThis._entropy_event_listeners[id](values);
+                    } else {
+                        globalThis._entropy_event_listeners[id](payload);
+                    }
+                } else {
+                    globalThis._entropy_event_listeners[id]();
+                }
             }
         }
     },
@@ -138,6 +169,8 @@ globalThis.Entropy = {
                 landscapeSize: config.landscapeSize || 4096.0,
                 landscapeHeight: config.landscapeHeight || 0.0,
                 landscapeYOffset: config.landscapeYOffset || 0.0,
+                base_color: config.base_color || config.baseColor || [0.1, 0.4, 0.1, 1.0],
+                tip_color: config.tip_color || config.tipColor || [0.4, 0.8, 0.2, 1.0],
                 pipelineId: config.pipelineId || null
             });
         }

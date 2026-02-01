@@ -19,7 +19,9 @@ struct GrassUniforms {
     blade_density: f32,
     landscape_size: f32,
     landscape_height: f32,
-    landscape_y_offset: f32
+    landscape_y_offset: f32,
+    base_color: vec4<f32>,
+    tip_color: vec4<f32>,
 }
 @group(1) @binding(0)
 var<uniform> uniforms: GrassUniforms;
@@ -318,63 +320,13 @@ struct GbufferOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> GbufferOutput {
-    // // Gradient from dark green at base to lighter green at tip
-    // let base_color = vec3<f32>(0.15, 0.4, 0.15);
-    // let tip_color = vec3<f32>(0.3, 0.7, 0.25);
-
-    // Dried yellow grass
-    // let base_color = vec3<f32>(0.45, 0.42, 0.25);
-    // let tip_color = vec3<f32>(0.65, 0.58, 0.35);
-
-    // // Ashy gray-brown
-    // let base_color = vec3<f32>(0.25, 0.22, 0.18);
-    // let tip_color = vec3<f32>(0.42, 0.38, 0.30);
-
-    // // Sickly yellow-gray
-    // let base_color = vec3<f32>(0.35, 0.35, 0.25);
-    // let tip_color = vec3<f32>(0.55, 0.52, 0.38);
-
-    // Magical/Fantasy
-    // // Bioluminescent cyan
-    let base_color = vec3<f32>(0.1, 0.3, 0.35);
-    let tip_color = vec3<f32>(0.2, 0.7, 0.8);
-
-    // // Purple twilight
-    // let base_color = vec3<f32>(0.25, 0.15, 0.35);
-    // let tip_color = vec3<f32>(0.5, 0.3, 0.7);
-
-    // // Golden enchanted
-    // let base_color = vec3<f32>(0.3, 0.35, 0.1);
-    // let tip_color = vec3<f32>(0.9, 0.8, 0.3);
-
-    // // Pink fairy
-    // let base_color = vec3<f32>(0.35, 0.2, 0.3);
-    // let tip_color = vec3<f32>(0.9, 0.5, 0.7);
-    // // Normal/Realistic
-    // // Spring green (your original, brighter)
-    // let base_color = vec3<f32>(0.15, 0.4, 0.15);
-    // let tip_color = vec3<f32>(0.3, 0.7, 0.25);
-
-    // // Deep forest green
-    // let base_color = vec3<f32>(0.1, 0.25, 0.1);
-    // let tip_color = vec3<f32>(0.2, 0.45, 0.15);
-
-    // // Late summer (slightly dried)
-    // let base_color = vec3<f32>(0.25, 0.35, 0.15);
-    // let tip_color = vec3<f32>(0.4, 0.6, 0.3);
-
-    // // Tropical bright
-    // let base_color = vec3<f32>(0.2, 0.45, 0.2);
-    // let tip_color = vec3<f32>(0.35, 0.8, 0.3);
-        
-    let grass_color = mix(base_color, tip_color, in.height_factor);
+    let grass_color = mix(uniforms.base_color.rgb, uniforms.tip_color.rgb, in.height_factor);
     
     // Add some variation per blade
     let color_variation = hash13(vec3<f32>(in.blade_id * 100.0, 0.0, 0.0)) * 0.1;
     let final_color = grass_color + color_variation;
     
     // Simple lighting based on height (ambient occlusion approximation)
-    // let ao = 0.7 + in.height_factor * 0.3;
     let ao = 0.35;
 
     var output: GbufferOutput;
