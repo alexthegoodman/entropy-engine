@@ -29,6 +29,7 @@ use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::custom_mesh::CustomMesh;
 use crate::audio::AudioEngine;
+use crate::helpers::utilities::get_project_dir;
 use egui;
 use wgpu::util::DeviceExt;
 
@@ -416,12 +417,18 @@ pub struct AddonContext {
 fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[string] data: String) -> Result<(), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         let project_id = &ctx.project_id;
-        // Determine path: projects/{project_id}/addons/{addon_name}.json
-        let path = std::path::Path::new("projects").join(project_id).join("addons");
-        if let Err(e) = std::fs::create_dir_all(&path) {
-            return Err(deno_error::JsErrorBox::generic(format!("Failed to create directory: {}", e)));
+        
+        let project_dir = get_project_dir(project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
+            
+        let addons_dir = project_dir.join("addons");
+        
+        if let Err(e) = std::fs::create_dir_all(&addons_dir) {
+            return Err(deno_error::JsErrorBox::generic(format!("Failed to create addons directory: {}", e)));
         }
-        let file_path = path.join(format!("{}.json", addon_name));
+        
+        let file_path = addons_dir.join(format!("{}.json", addon_name));
+        
         if let Err(e) = std::fs::write(&file_path, data) {
             return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
         }
@@ -436,10 +443,14 @@ fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[strin
 fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Result<String, deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         let project_id = &ctx.project_id;
-        let file_path = std::path::Path::new("projects").join(project_id).join("addons").join(format!("{}.json", addon_name));
+        
+        let project_dir = get_project_dir(project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
+            
+        let file_path = project_dir.join("addons").join(format!("{}.json", addon_name));
         
         if !file_path.exists() {
-            return Ok("{}".to_string()); // Return empty object/string if not found
+            return Ok("".to_string()); // Return empty string if not found
         }
 
         match std::fs::read_to_string(&file_path) {
