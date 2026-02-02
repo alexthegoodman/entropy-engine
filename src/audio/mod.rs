@@ -18,7 +18,7 @@ where
     type Item = f32;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut output = [0.0f32; 2]; // Stereo output buffer
+        let mut output = [0.0f32; 1]; // Stereo output buffer
         self.node.tick(&[], &mut output);
         Some(output[0]) // Return left channel
     }

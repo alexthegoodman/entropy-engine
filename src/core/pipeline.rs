@@ -4132,21 +4132,57 @@ impl EntropyPipeline {
                     // .frame(egui::Frame::none())
                     .show(ctx, |ui| {
                     
-                    // viewer.ui(ui, &mut Tab::Viewport);
-
                     if let Some(editor) = &mut viewer.context.export_editor {
                         let new_tabs = editor.addon_engine.consume_new_tabs();
                         for (tab_id, title, addon_name) in new_tabs {
                             let dock_state = self.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
-                                let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+                                let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Chat]);
                                 let surface = ds.main_surface_mut();
-                                surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+                                // surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
                                 ds
                             });
                             let surface = dock_state.main_surface_mut();
-                            surface.push_to_first_leaf(Tab::AddonTab { id: tab_id, label: title });
+                            // surface.push_to_first_leaf(Tab::AddonTab { id: tab_id, label: title });
+                            surface.split_right(NodeIndex::root(), 0.7, vec![Tab::AddonTab { id: tab_id, label: title }]);
                         }
                     }
+
+                    // if let Some(editor) = &mut viewer.context.export_editor {
+                    //     let new_tabs = editor.addon_engine.consume_new_tabs();
+                        
+                    //     // First loop: collect tabs into a vector
+                    //     let mut tabs_to_insert = Vec::new();
+                    //     for (tab_id, title, addon_name) in new_tabs {
+                    //         tabs_to_insert.push((tab_id, title, addon_name));
+                    //     }
+                        
+                    //     // Second loop: insert tabs alongside Chat
+                    //     for (tab_id, title, addon_name) in tabs_to_insert {
+                    //         let dock_state = self.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
+                    //             let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+                    //             let surface = ds.main_surface_mut();
+                    //             surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+                    //             ds
+                    //         });
+                            
+                    //         let surface = dock_state.main_surface_mut();
+                    //         // Find the node containing Chat
+                    //         let chat_node = surface.iter().find_map(|(idx, node)| {
+                    //             node.tabs().and_then(|tabs| {
+                    //                 tabs.iter().any(|t| matches!(t, Tab::Chat)).then_some(idx)
+                    //             })
+                    //         });
+                            
+                    //         if let Some(node_idx) = chat_node {
+                    //             // Set focus to the Chat node and push there
+                    //             surface.set_focused_node(node_idx);
+                    //             surface.push_to_focused_leaf(Tab::AddonTab { id: tab_id, label: title });
+                    //         } else {
+                    //             // Fallback if Chat tab not found
+                    //             surface.push_to_first_leaf(Tab::AddonTab { id: tab_id, label: title });
+                    //         }
+                    //     }
+                    // }
 
                     let active_dock_state = match &self.current_workspace {
                         Workspace::GameEngine => &mut self.game_dock_state,
