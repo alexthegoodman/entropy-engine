@@ -16,6 +16,7 @@ pub struct CustomMesh {
     pub id: String,
     pub uniform_buffers: Vec<wgpu::Buffer>, // Store created uniform buffers to keep them alive
     pub samplers: Vec<wgpu::Sampler>, // Add this
+    pub time_buffer: Option<wgpu::Buffer>,
 }
 
 impl CustomMesh {
@@ -31,6 +32,7 @@ impl CustomMesh {
         uniform_buffers: Vec<wgpu::Buffer>,
         samplers: Vec<wgpu::Sampler>,
         instance_count: u32,
+        time_buffer: Option<wgpu::Buffer>,
     ) -> Self {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Custom Mesh Vertex Buffer {}", id)),
@@ -76,6 +78,7 @@ impl CustomMesh {
             id,
             uniform_buffers,
             samplers,
+            time_buffer,
         }
     }
 }

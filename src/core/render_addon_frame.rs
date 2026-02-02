@@ -440,6 +440,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
                 }
 
+                if let Some(time_buffer) = &mesh.time_buffer {
+                    queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
+                }
+
                 mesh.transform.update_uniform_buffer(&queue); // Assuming CustomMesh has transform with uniform buffer logic?
                 // Wait, CustomMesh transform uses Transform_2::Transform which has update_uniform_buffer?
                 // Let's check Transform_2.
@@ -744,6 +748,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                 for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
                     render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                }
+                
+                if let Some(time_buffer) = &mesh.time_buffer {
+                    queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                 }
                 
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));

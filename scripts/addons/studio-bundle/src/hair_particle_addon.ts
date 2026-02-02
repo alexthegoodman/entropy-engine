@@ -379,8 +379,13 @@ const ornamentVertexShader = `
     @group(0) @binding(0)
     var<uniform> camera: Camera;
 
-    struct OrnamentUniforms {
+    struct TimeUniform {
         time: f32,
+    }
+    @group(1) @binding(0)
+    var<uniform> time_uniform: TimeUniform;
+
+    struct OrnamentUniforms {
         player_pos_x: f32,
         player_pos_z: f32,
         grid_size: f32,
@@ -404,9 +409,9 @@ const ornamentVertexShader = `
         lean_direction_x: f32,
         lean_direction_z: f32,
         landscape_y_offset: f32,
-        _padding: vec3<f32>,
+        _padding: vec2<f32>,
     }
-    @group(1) @binding(0)
+    @group(2) @binding(0)
     var<uniform> uniforms: OrnamentUniforms;
 
     struct VertexInput {
@@ -451,9 +456,7 @@ const ornamentVertexShader = `
 
         // Find which blade this ornament belongs to
         let grid_cells = u32(ceil(uniforms.render_distance * 2.0 / uniforms.grid_size));
-        let total_possible_blades = grid_cells * grid_cells * u32(uniforms.blade_density);
         
-        // Not every blade gets an ornament - use probability
         let blade_index = cluster_index;
         let blade_cell_index = blade_index / u32(uniforms.blade_density);
         let blade_in_cell = blade_index % u32(uniforms.blade_density);
@@ -493,7 +496,7 @@ const ornamentVertexShader = `
         let blade_y_at_ornament = uniforms.landscape_y_offset + clamped_height * uniforms.blade_height * blade_height_variation;
         
         // Wind effect on blade at ornament position
-        let sway_phase = uniforms.time * uniforms.wind_speed * 0.3 + blade_seed * 6.28;
+        let sway_phase = time_uniform.time * uniforms.wind_speed * 0.3 + blade_seed * 6.28;
         let wind_disp = vec3<f32>(
             uniforms.wind_strength * cos(sway_phase) * clamped_height * clamped_height,
             0.0,
@@ -507,6 +510,12 @@ const ornamentVertexShader = `
         
         // Global lean
         let lean_disp = vec3<f32>(
+            uniforms.player_pos_x * clamped_height * clamped_height, // Wait, lean_direction was missing? Using player_pos_x as placeholder if so
+            0.0,
+            uniforms.player_pos_z * clamped_height * clamped_height
+        );
+        // Let me re-check fields. uniforms.lean_direction_x/z should be there.
+        let actual_lean_disp = vec3<f32>(
             uniforms.lean_direction_x * clamped_height * clamped_height,
             0.0,
             uniforms.lean_direction_z * clamped_height * clamped_height
@@ -524,10 +533,11 @@ const ornamentVertexShader = `
         );
         
         let blade_tip_pos = vec3<f32>(blade_x, blade_y_at_ornament, blade_z) 
-            + wind_disp + curvature_disp + lean_disp + weight_pull + inertia_wind;
+            + wind_disp + curvature_disp + actual_lean_disp + weight_pull + inertia_wind;
         
         // Cluster shape positioning
-        let orb_seed = hash33(vec3<f32>(f32(blade_index), f32(orb_in_cluster), uniforms.time * 0.1));
+        // let orb_seed = hash33(vec3<f32>(f32(blade_index), f32(orb_in_cluster), time_uniform.time * 0.1));
+        let orb_seed = hash33(vec3<f32>(f32(blade_index), f32(orb_in_cluster), 0.5));
         var cluster_offset: vec3<f32>;
         
         let shape_type = i32(uniforms.cluster_shape);
@@ -579,7 +589,8 @@ const ornamentVertexShader = `
         }
         
         // Rotation animation
-        let rotation_angle = uniforms.time * uniforms.rotation_speed + blade_seed * 6.28;
+        let rotation_angle = time_uniform.time * uniforms.rotation_speed + blade_seed * 1.28;
+        // let rotation_angle = 3.14;
         let cos_rot = cos(rotation_angle);
         let sin_rot = sin(rotation_angle);
         let rotated_offset = vec3<f32>(
@@ -608,8 +619,13 @@ const ornamentVertexShader = `
 `;
 
 const ornamentFragShader = `
-    struct OrnamentUniforms {
+    struct TimeUniform {
         time: f32,
+    }
+    @group(1) @binding(0)
+    var<uniform> time_uniform: TimeUniform;
+
+    struct OrnamentUniforms {
         player_pos_x: f32,
         player_pos_z: f32,
         grid_size: f32,
@@ -633,9 +649,9 @@ const ornamentFragShader = `
         lean_direction_x: f32,
         lean_direction_z: f32,
         landscape_y_offset: f32,
-        _padding: vec3<f32>,
+        _padding: vec2<f32>,
     }
-    @group(1) @binding(0)
+    @group(2) @binding(0)
     var<uniform> uniforms: OrnamentUniforms;
 
     struct OrnamentColorParams {
@@ -644,7 +660,7 @@ const ornamentFragShader = `
         glow_intensity: f32,
         _padding2: vec2<f32>,
     }
-    @group(2) @binding(0)
+    @group(3) @binding(0)
     var<uniform> color_params: OrnamentColorParams;
 
     struct VertexOutput {
@@ -675,7 +691,7 @@ const ornamentFragShader = `
         let glow_color = clamped_color * (1.0 + color_params.glow_intensity * 2.0);
         
         // Subtle pulsing effect based on time
-        let pulse = sin(uniforms.time * 2.0 + in.cluster_id) * 0.1 + 0.9;
+        let pulse = sin(time_uniform.time * 2.0 + in.cluster_id) * 0.1 + 0.9;
         let final_color = glow_color * pulse;
         
         // Smooth sphere lighting
@@ -788,6 +804,7 @@ function updateOrnaments() {
     const ornamentInstances = Math.floor(totalBlades * hairParams.ornamentProbability * hairParams.ornamentCount);
 
     // Create instanced mesh (this is pseudocode - adapt to your engine's API)
+    // Create instanced mesh
     const ornamentData = {
         vertices: new Float32Array(sphereVertices),
         indices: new Uint32Array(sphereIndices),
@@ -798,12 +815,18 @@ function updateOrnaments() {
                 group: 1,
                 binding: 0,
                 resource: {
+                    type: "Time"
+                }
+            },
+            {
+                group: 2,
+                binding: 0,
+                resource: {
                     type: "Uniform",
                     value: {
                         data: [
-                            0, // time (updated per frame)
-                            0, // player_pos_x
-                            0, // player_pos_z
+                            0, // player_pos_x (reserved/placeholder)
+                            0, // player_pos_z (reserved/placeholder)
                             hairParams.gridSize,
                             hairParams.renderDistance,
                             hairParams.bladeDensity,
@@ -825,13 +848,13 @@ function updateOrnaments() {
                             hairParams.leanDirectionX,
                             hairParams.leanDirectionZ,
                             hairParams.landscapeYOffset,
-                            0, 0, 0, 0 // padding
+                            0, 0, 0 // padding
                         ]
                     }
                 }
             },
             {
-                group: 2,
+                group: 3,
                 binding: 0,
                 resource: {
                     type: "Uniform",
@@ -894,12 +917,17 @@ addon.onInit(async () => {
         extraBindGroups: [
             {
                 entries: [
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Time" }
+                ]
+            },
+            {
+                entries: [
                     { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
                 ]
             },
             {
                 entries: [
-                    { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
                 ]
             }
         ]
