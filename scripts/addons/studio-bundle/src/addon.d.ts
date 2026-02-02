@@ -62,6 +62,9 @@ export interface ScopedAPI {
   Noise: {
     create: (config: NoiseConfig) => string;
   };
+  Audio: {
+    playSynth: (config: SynthConfig) => void;
+  };
   onInit: (callback: InitCallback) => void;
   Particles: {
     createHair: (config: any) => void;
@@ -92,6 +95,14 @@ export interface TabConfig {
 export interface LabelConfig {
   text: string;
   bold?: boolean;
+}
+
+export interface SynthConfig {
+  freq: number;
+  waveform?: "sine" | "square" | "saw" | "noise";
+  duration?: number;
+  cutoff?: number;
+  gain?: number;
 }
 
 export interface ButtonConfig {
@@ -131,6 +142,9 @@ export interface EntropyAPI {
   };
   Lighting: {
     createPointLight: (config: any) => void;
+  };
+  Audio: {
+    playSynth: (config: SynthConfig) => void;
   };
   println: (msg: unknown) => void;
   _process_events: (eventIds: string[]) => void;

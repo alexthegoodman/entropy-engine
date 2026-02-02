@@ -96,6 +96,17 @@ globalThis.Entropy = {
                             maxDistance: config.maxDistance || 20.0
                         });
                     }
+                },
+                Audio: {
+                    playSynth: (config) => {
+                        ops.op_audio_play_synth({
+                            freq: config.freq || 440.0,
+                            waveform: config.waveform || "sine",
+                            duration: config.duration || 0.5,
+                            cutoff: config.cutoff || 20000.0,
+                            gain: config.gain || 0.2
+                        });
+                    }
                 }
             };
         }
@@ -250,6 +261,17 @@ globalThis.Entropy = {
                 color: config.color || [1, 1, 1],
                 intensity: config.intensity || 1.0,
                 maxDistance: config.maxDistance || 20.0
+            });
+        }
+    },
+    Audio: {
+        playSynth: (config) => {
+            ops.op_audio_play_synth({
+                freq: config.freq || 440.0,
+                waveform: config.waveform || "sine",
+                duration: config.duration || 0.5,
+                cutoff: config.cutoff || 20000.0,
+                gain: config.gain || 0.2
             });
         }
     },

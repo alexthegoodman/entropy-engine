@@ -28,6 +28,7 @@ use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::custom_mesh::CustomMesh;
+use crate::audio::AudioEngine;
 use egui;
 use wgpu::util::DeviceExt;
 
@@ -434,9 +435,20 @@ pub struct PointLightConfig {
 
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SynthConfig {
+    pub freq: f64,
+    pub waveform: String,
+    pub duration: f64,
+    pub cutoff: f64,
+    pub gain: f64,
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
+    pub audio_engine: Arc<AudioEngine>,
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
     pub pipeline_configs: HashMap<String, PipelineConfig>,
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
@@ -458,6 +470,13 @@ pub struct AddonContext {
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
+}
+
+#[op2]
+fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.play_synth(config.freq, &config.waveform, config.duration, config.cutoff, config.gain);
+    }
 }
 
 #[op2]
@@ -922,6 +941,7 @@ extension!(
         op_ui_widget_color_input,
         op_ui_widget_slider,
         op_ui_widget_numeric_input,
+        op_audio_play_synth,
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -947,9 +967,12 @@ impl AddonEngine {
             ..Default::default()
         });
 
+        let audio_engine = Arc::new(AudioEngine::new());
+
         let context = AddonContext {
             registered_addons: HashMap::new(),
             gpu_resources: None,
+            audio_engine,
             pipelines: HashMap::new(),
             pipeline_configs: HashMap::new(),
             lighting_pipelines: HashMap::new(),
