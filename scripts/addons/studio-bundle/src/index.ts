@@ -7,3 +7,4 @@ import "./lighting_addon";
 import "./environment_addon";
 import "./water_plane_addon";
 import "./daw_synth_addon";
+import "./game_composer_addon";

@@ -117,6 +117,10 @@ export interface ScopedAPI {
     createPointLight: (config: PointLightConfig) => void;
     updateSun: (config: ProceduralSkyConfig) => void;
   };
+  IO: {
+    save: (data: any) => void;
+    load: () => any;
+  };
 }
 
 export type InitCallback = () => void | void;
@@ -142,6 +146,26 @@ export interface LabelConfig {
   bold?: boolean;
 }
 
+export interface ColorInputConfig {
+    label: string;
+    color: number[];
+    onChange?: (color: number[]) => void;
+}
+
+export interface SliderConfig {
+    label: string;
+    value: number;
+    min: number;
+    max: number;
+    onChange?: (value: string) => void;
+}
+
+export interface NumericInputConfig {
+    label: string;
+    value: number;
+    onChange?: (value: string) => void;
+}
+
 export interface SynthConfig {
   freq: number;
   waveform?: "sine" | "square" | "saw" | "noise";
@@ -158,6 +182,9 @@ export interface ButtonConfig {
 export interface PipelineConfig {
   name: string;
   pbr?: boolean;
+  vertexShader?: string;
+  fragmentShader?: string;
+  layout?: string;
   lightingShader?: string;
   extraBindGroups?: any[];
   lightingBindings?: any[];
@@ -176,10 +203,14 @@ export interface EntropyAPI {
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
-      colorInput: (windowId: string, config: any) => void;
-      slider: (windowId: string, config: any) => void;
-      numericInput: (windowId: string, config: any) => void;
+      colorInput: (windowId: string, config: ColorInputConfig) => void;
+      slider: (windowId: string, config: SliderConfig) => void;
+      numericInput: (windowId: string, config: NumericInputConfig) => void;
     };
+  };
+  Composer?: {
+      registerEditor: (addonName: string, renderFn: (windowId: string) => void) => void;
+      getEditor: (addonName: string) => ((windowId: string) => void) | undefined;
   };
   Pipeline: {
     create: (config: PipelineConfig) => string;

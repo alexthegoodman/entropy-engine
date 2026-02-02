@@ -409,6 +409,46 @@ pub struct AddonContext {
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
+    pub project_id: String,
+}
+
+#[op2(fast)]
+fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[string] data: String) -> Result<(), deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let project_id = &ctx.project_id;
+        // Determine path: projects/{project_id}/addons/{addon_name}.json
+        let path = std::path::Path::new("projects").join(project_id).join("addons");
+        if let Err(e) = std::fs::create_dir_all(&path) {
+            return Err(deno_error::JsErrorBox::generic(format!("Failed to create directory: {}", e)));
+        }
+        let file_path = path.join(format!("{}.json", addon_name));
+        if let Err(e) = std::fs::write(&file_path, data) {
+            return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
+        }
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
+#[string]
+fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Result<String, deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let project_id = &ctx.project_id;
+        let file_path = std::path::Path::new("projects").join(project_id).join("addons").join(format!("{}.json", addon_name));
+        
+        if !file_path.exists() {
+            return Ok("{}".to_string()); // Return empty object/string if not found
+        }
+
+        match std::fs::read_to_string(&file_path) {
+            Ok(content) => Ok(content),
+            Err(e) => Err(deno_error::JsErrorBox::generic(format!("Failed to read file: {}", e)))
+        }
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
 }
 
 #[op2]
@@ -940,6 +980,8 @@ extension!(
         op_ui_widget_color_input,
         op_ui_widget_slider,
         op_ui_widget_numeric_input,
+        op_addon_save_data,
+        op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_test,
     ],
@@ -997,7 +1039,8 @@ impl AddonEngine {
             ui_tabs: HashMap::new(),
             ui_widgets: HashMap::new(),
             ui_events: Arc::new(Mutex::new(Vec::new())),
-            new_tabs: Vec::new()
+            new_tabs: Vec::new(),
+            project_id: project_id.clone(),
         };
         runtime.op_state().borrow_mut().put(context);
 

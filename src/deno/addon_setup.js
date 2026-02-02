@@ -124,6 +124,21 @@ globalThis.Entropy = {
                     playTestTone: () => {
                         ops.op_audio_play_test();
                     }
+                },
+                IO: {
+                    save: (data) => {
+                        ops.op_addon_save_data(metadata.name, JSON.stringify(data));
+                    },
+                    load: () => {
+                        const json = ops.op_addon_load_data(metadata.name);
+                        if (!json || json === "") return null;
+                        try {
+                            return JSON.parse(json);
+                        } catch (e) {
+                            ops.op_println("Error parsing saved data: " + e);
+                            return null;
+                        }
+                    }
                 }
             };
         }
@@ -301,6 +316,25 @@ globalThis.Entropy = {
     },
     println: (msg) => {
         ops.op_println(String(msg));
+    }
+};
+
+// IO Namespace (Scoped to addon)
+globalThis.Entropy.IO = {
+    // This is a placeholder, actual implementation needs scoped metadata.name access.
+    // However, globalThis.Entropy structure is static.
+    // The `register` function returns the SCOPED API.
+    // So we should add IO to the returned object in `register`.
+};
+
+// Composer Registry (Global)
+globalThis.Entropy.Composer = {
+    editors: {},
+    registerEditor: (addonName, renderFn) => {
+        globalThis.Entropy.Composer.editors[addonName] = renderFn;
+    },
+    getEditor: (addonName) => {
+        return globalThis.Entropy.Composer.editors[addonName];
     }
 };
 

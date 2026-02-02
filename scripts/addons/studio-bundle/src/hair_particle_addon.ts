@@ -962,716 +962,740 @@ addon.onInit(async () => {
         maxDistance: 50.0
     });
 
-    const tab = addon.UI.createTab({
-        title: "Hair + Ornaments",
-        onRender: async () => {
-            Entropy.UI.Widget.label(tab, { text: "🌸 Hair & Grass with Ornaments", bold: true });
-            
-            // === ORNAMENT CONTROLS ===
-            Entropy.UI.Widget.label(tab, { text: "💎 Ornament System", bold: true });
-            
+    const renderHairUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "🌸 Hair & Grass with Ornaments", bold: true });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: "💾 Save Settings",
+            onClick: () => {
+                addon.IO.save(hairParams);
+                Entropy.println("Hair settings saved!");
+            }
+        });
+
+        // === ORNAMENT CONTROLS ===
+        Entropy.UI.Widget.label(tab, { text: "💎 Ornament System", bold: true });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: hairParams.ornamentsEnabled ? "✅ Ornaments Enabled" : "❌ Ornaments Disabled",
+            onClick: () => {
+                hairParams.ornamentsEnabled = !hairParams.ornamentsEnabled;
+                updateOrnaments();
+            }
+        });
+
+        if (hairParams.ornamentsEnabled) {
+            Entropy.UI.Widget.label(tab, { text: "Cluster Shape", bold: false });
+            const shapes = ["Sphere", "Hemisphere", "Ring", "Spiral", "Starburst"];
             Entropy.UI.Widget.button(tab, {
-                text: hairParams.ornamentsEnabled ? "✅ Ornaments Enabled" : "❌ Ornaments Disabled",
+                text: `Shape: ${shapes[hairParams.ornamentClusterShape]}`,
                 onClick: () => {
-                    hairParams.ornamentsEnabled = !hairParams.ornamentsEnabled;
+                    hairParams.ornamentClusterShape = (hairParams.ornamentClusterShape + 1) % shapes.length;
                     updateOrnaments();
                 }
             });
 
-            if (hairParams.ornamentsEnabled) {
-                Entropy.UI.Widget.label(tab, { text: "Cluster Shape", bold: false });
-                const shapes = ["Sphere", "Hemisphere", "Ring", "Spiral", "Starburst"];
-                Entropy.UI.Widget.button(tab, {
-                    text: `Shape: ${shapes[hairParams.ornamentClusterShape]}`,
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = (hairParams.ornamentClusterShape + 1) % shapes.length;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Probability (Coverage)",
-                    value: hairParams.ornamentProbability,
-                    min: 0.0,
-                    max: 1.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentProbability = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Orbs per Cluster",
-                    value: hairParams.ornamentCount,
-                    min: 1,
-                    max: 20,
-                    onChange: (val: string) => {
-                        hairParams.ornamentCount = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Height Position",
-                    value: hairParams.ornamentHeightPosition,
-                    min: 0.0,
-                    max: 1.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentHeightPosition = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Height Range (Spread)",
-                    value: hairParams.ornamentHeightRange,
-                    min: 0.0,
-                    max: 0.5,
-                    onChange: (val: string) => {
-                        hairParams.ornamentHeightRange = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Ornament Size",
-                    value: hairParams.ornamentSize,
-                    min: 0.01,
-                    max: 0.5,
-                    onChange: (val: string) => {
-                        hairParams.ornamentSize = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Size Variation",
-                    value: hairParams.ornamentSizeVariation,
-                    min: 0.0,
-                    max: 1.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentSizeVariation = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.colorInput(tab, {
-                    label: "Ornament Color",
-                    color: hairParams.ornamentColor,
-                    onChange: (newColor: number[]) => {
-                        hairParams.ornamentColor = newColor;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Color Variation",
-                    value: hairParams.ornamentColorVariation,
-                    min: 0.0,
-                    max: 1.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentColorVariation = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Glow Intensity",
-                    value: hairParams.ornamentGlow,
-                    min: 0.0,
-                    max: 2.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentGlow = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Rotation Speed",
-                    value: hairParams.ornamentRotationSpeed,
-                    min: 0.0,
-                    max: 3.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentRotationSpeed = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Weight (Blade Pull)",
-                    value: hairParams.ornamentWeight,
-                    min: 0.0,
-                    max: 2.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentWeight = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.slider(tab, {
-                    label: "Inertia (Lag)",
-                    value: hairParams.ornamentInertia,
-                    min: 0.0,
-                    max: 2.0,
-                    onChange: (val: string) => {
-                        hairParams.ornamentInertia = parseFloat(val);
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.label(tab, { text: "Quick Ornament Presets", bold: false });
-                
-                Entropy.UI.Widget.button(tab, {
-                    text: "🌼 Wildflowers",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 2; // Ring
-                        hairParams.ornamentCount = 6;
-                        hairParams.ornamentSize = 0.12;
-                        hairParams.ornamentHeightPosition = 0.9;
-                        hairParams.ornamentHeightRange = 0.1;
-                        hairParams.ornamentColor = [1.0, 0.85, 0.3, 1.0];
-                        hairParams.ornamentGlow = 0.3;
-                        hairParams.ornamentProbability = 0.15;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.button(tab, {
-                    text: "💧 Water Droplets",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 0; // Sphere
-                        hairParams.ornamentCount = 1;
-                        hairParams.ornamentSize = 0.05;
-                        hairParams.ornamentHeightPosition = 0.6;
-                        hairParams.ornamentHeightRange = 0.4;
-                        hairParams.ornamentColor = [0.7, 0.9, 1.0, 0.8];
-                        hairParams.ornamentGlow = 0.6;
-                        hairParams.ornamentProbability = 0.2;
-                        hairParams.ornamentWeight = 0.5;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.button(tab, {
-                    text: "🔮 Fairy Lights",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 0; // Sphere
-                        hairParams.ornamentCount = 3;
-                        hairParams.ornamentSize = 0.06;
-                        hairParams.ornamentHeightPosition = 0.7;
-                        hairParams.ornamentHeightRange = 0.3;
-                        hairParams.ornamentColor = [0.9, 0.7, 1.0, 1.0];
-                        hairParams.ornamentGlow = 1.5;
-                        hairParams.ornamentProbability = 0.25;
-                        hairParams.ornamentRotationSpeed = 1.5;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.button(tab, {
-                    text: "🌾 Wheat Grains",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 3; // Spiral
-                        hairParams.ornamentCount = 8;
-                        hairParams.ornamentSize = 0.04;
-                        hairParams.ornamentHeightPosition = 0.95;
-                        hairParams.ornamentHeightRange = 0.05;
-                        hairParams.ornamentColor = [0.9, 0.75, 0.4, 1.0];
-                        hairParams.ornamentGlow = 0.1;
-                        hairParams.ornamentProbability = 0.5;
-                        hairParams.ornamentWeight = 0.8;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.button(tab, {
-                    text: "✨ Stardust",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 4; // Starburst
-                        hairParams.ornamentCount = 12;
-                        hairParams.ornamentSize = 0.03;
-                        hairParams.ornamentHeightPosition = 0.85;
-                        hairParams.ornamentHeightRange = 0.2;
-                        hairParams.ornamentColor = [1.0, 1.0, 0.8, 1.0];
-                        hairParams.ornamentGlow = 2.0;
-                        hairParams.ornamentProbability = 0.1;
-                        hairParams.ornamentRotationSpeed = 2.5;
-                        updateOrnaments();
-                    }
-                });
-
-                Entropy.UI.Widget.button(tab, {
-                    text: "🍒 Berries",
-                    onClick: () => {
-                        hairParams.ornamentClusterShape = 0; // Sphere
-                        hairParams.ornamentCount = 3;
-                        hairParams.ornamentSize = 0.08;
-                        hairParams.ornamentHeightPosition = 0.75;
-                        hairParams.ornamentHeightRange = 0.15;
-                        hairParams.ornamentColor = [0.8, 0.1, 0.15, 1.0];
-                        hairParams.ornamentGlow = 0.2;
-                        hairParams.ornamentProbability = 0.12;
-                        hairParams.ornamentWeight = 1.2;
-                        updateOrnaments();
-                    }
-                });
-            }
-
-            // === SHADER SELECTION ===
-            Entropy.UI.Widget.label(tab, { text: "Shader Selection", bold: true });
-            Entropy.UI.Widget.button(tab, {
-                text: hairParams.pipelineId === customPipelineId ? "✅ Using Custom Shader" : "Use Custom Shader",
-                onClick: () => {
-                    hairParams.pipelineId = customPipelineId;
-                    updateHair();
+            Entropy.UI.Widget.slider(tab, {
+                label: "Probability (Coverage)",
+                value: hairParams.ornamentProbability,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentProbability = parseFloat(val);
+                    updateOrnaments();
                 }
             });
 
-            // Colors Section
-            Entropy.UI.Widget.label(tab, { text: "🎨 Color Settings", bold: true });
-            Entropy.UI.Widget.colorInput(tab, {
-                label: "Base Color",
-                color: hairParams.baseColor,
-                onChange: (newColor: number[]) => {
-                    hairParams.baseColor = newColor;
-                    updateHair();
+            Entropy.UI.Widget.slider(tab, {
+                label: "Orbs per Cluster",
+                value: hairParams.ornamentCount,
+                min: 1,
+                max: 20,
+                onChange: (val: string) => {
+                    hairParams.ornamentCount = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Height Position",
+                value: hairParams.ornamentHeightPosition,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentHeightPosition = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Height Range (Spread)",
+                value: hairParams.ornamentHeightRange,
+                min: 0.0,
+                max: 0.5,
+                onChange: (val: string) => {
+                    hairParams.ornamentHeightRange = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Ornament Size",
+                value: hairParams.ornamentSize,
+                min: 0.01,
+                max: 0.5,
+                onChange: (val: string) => {
+                    hairParams.ornamentSize = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Size Variation",
+                value: hairParams.ornamentSizeVariation,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentSizeVariation = parseFloat(val);
+                    updateOrnaments();
                 }
             });
 
             Entropy.UI.Widget.colorInput(tab, {
-                label: "Tip Color",
-                color: hairParams.tipColor,
+                label: "Ornament Color",
+                color: hairParams.ornamentColor,
                 onChange: (newColor: number[]) => {
-                    hairParams.tipColor = newColor;
-                    updateHair();
+                    hairParams.ornamentColor = newColor;
+                    updateOrnaments();
                 }
             });
 
             Entropy.UI.Widget.slider(tab, {
                 label: "Color Variation",
-                value: hairParams.colorVariation,
+                value: hairParams.ornamentColorVariation,
                 min: 0.0,
                 max: 1.0,
                 onChange: (val: string) => {
-                    hairParams.colorVariation = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Color Band Position",
-                value: hairParams.colorBandPosition,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.colorBandPosition = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Color Band Width",
-                value: hairParams.colorBandWidth,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.colorBandWidth = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Shape & Form Section
-            Entropy.UI.Widget.label(tab, { text: "📐 Shape & Form", bold: true });
-            
-            Entropy.UI.Widget.slider(tab, {
-                label: "Blade Curvature",
-                value: hairParams.bladeCurvature,
-                min: 0.0,
-                max: 2.0,
-                onChange: (val: string) => {
-                    hairParams.bladeCurvature = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Blade Twist",
-                value: hairParams.bladeTwist,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.bladeTwist = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Blade Taper",
-                value: hairParams.bladeTaper,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.bladeTaper = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Physical Properties
-            Entropy.UI.Widget.label(tab, { text: "⚙️ Physical Properties", bold: true });
-            
-            Entropy.UI.Widget.slider(tab, {
-                label: "Density",
-                value: hairParams.bladeDensity,
-                min: 1.0,
-                max: 100.0,
-                onChange: (val: string) => {
-                    hairParams.bladeDensity = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Height",
-                value: hairParams.bladeHeight,
-                min: 0.1,
-                max: 10.0,
-                onChange: (val: string) => {
-                    hairParams.bladeHeight = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Height Variability",
-                value: hairParams.bladeHeightVariability,
-                min: 0.0,
-                max: 2.0,
-                onChange: (val: string) => {
-                    hairParams.bladeHeightVariability = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Width",
-                value: hairParams.bladeWidth,
-                min: 0.001,
-                max: 0.5,
-                onChange: (val: string) => {
-                    hairParams.bladeWidth = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Clustering & Distribution
-            Entropy.UI.Widget.label(tab, { text: "🌾 Clustering & Distribution", bold: true });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Clumping Strength",
-                value: hairParams.clumpingStrength,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.clumpingStrength = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Clumping Scale",
-                value: hairParams.clumpingScale,
-                min: 1.0,
-                max: 20.0,
-                onChange: (val: string) => {
-                    hairParams.clumpingScale = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Lean Direction X",
-                value: hairParams.leanDirectionX,
-                min: -2.0,
-                max: 2.0,
-                onChange: (val: string) => {
-                    hairParams.leanDirectionX = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Lean Direction Z",
-                value: hairParams.leanDirectionZ,
-                min: -2.0,
-                max: 2.0,
-                onChange: (val: string) => {
-                    hairParams.leanDirectionZ = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Lighting & Material
-            Entropy.UI.Widget.label(tab, { text: "💡 Lighting & Material", bold: true });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Specular Strength",
-                value: hairParams.specularStrength,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.specularStrength = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Edge Darkening",
-                value: hairParams.edgeDarkening,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.edgeDarkening = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Subsurface Scattering",
-                value: hairParams.subsurfaceScattering,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.subsurfaceScattering = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Translucency",
-                value: hairParams.translucency,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    hairParams.translucency = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Rim Light Strength",
-                value: hairParams.rimLightStrength,
-                min: 0.0,
-                max: 2.0,
-                onChange: (val: string) => {
-                    hairParams.rimLightStrength = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Environment
-            Entropy.UI.Widget.label(tab, { text: "🌬️ Environment", bold: true });
-            
-            Entropy.UI.Widget.slider(tab, {
-                label: "Wind Strength",
-                value: hairParams.windStrength,
-                min: 0.0,
-                max: 10.0,
-                onChange: (val: string) => {
-                    hairParams.windStrength = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Wind Speed",
-                value: hairParams.windSpeed,
-                min: 0.0,
-                max: 5.0,
-                onChange: (val: string) => {
-                    hairParams.windSpeed = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Brownian Strength",
-                value: hairParams.brownianStrength,
-                min: 0.0,
-                max: 0.5,
-                onChange: (val: string) => {
-                    hairParams.brownianStrength = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Rendering & Landscape
-            Entropy.UI.Widget.label(tab, { text: "🖥️ Rendering & Landscape", bold: true });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Grid Size",
-                value: hairParams.gridSize,
-                min: 0.5,
-                max: 10.0,
-                onChange: (val: string) => {
-                    hairParams.gridSize = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Render Distance",
-                value: hairParams.renderDistance,
-                min: 10.0,
-                max: 500.0,
-                onChange: (val: string) => {
-                    hairParams.renderDistance = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.numericInput(tab, {
-                label: "Landscape Y Offset",
-                value: hairParams.landscapeYOffset,
-                onChange: (val: string) => {
-                    hairParams.landscapeYOffset = parseFloat(val);
-                    updateHair();
-                }
-            });
-
-            // Presets
-            Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "🌾 Realistic Grass",
-                onClick: () => {
-                    hairParams.bladeCurvature = 0.3;
-                    hairParams.bladeTwist = 0.1;
-                    hairParams.bladeTaper = 0.8;
-                    hairParams.colorVariation = 0.2;
-                    hairParams.clumpingStrength = 0.15;
-                    hairParams.subsurfaceScattering = 0.6;
-                    hairParams.translucency = 0.3;
-                    hairParams.rimLightStrength = 0.4;
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "💇 Long Hair",
-                onClick: () => {
-                    hairParams.bladeHeight = 5.0;
-                    hairParams.bladeCurvature = 1.2;
-                    hairParams.bladeTwist = 0.3;
-                    hairParams.bladeTaper = 0.9;
-                    hairParams.clumpingStrength = 0.5;
-                    hairParams.windStrength = 1.5;
-                    hairParams.specularStrength = 0.6;
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "🌊 Kelp/Seaweed",
-                onClick: () => {
-                    hairParams.bladeHeight = 6.0;
-                    hairParams.bladeCurvature = 1.8;
-                    hairParams.bladeTwist = 0.5;
-                    hairParams.bladeTaper = 0.5;
-                    hairParams.windSpeed = 0.1;
-                    hairParams.windStrength = 3.0;
-                    hairParams.baseColor = [0.1, 0.2, 0.15, 1.0];
-                    hairParams.tipColor = [0.2, 0.5, 0.3, 1.0];
-                    hairParams.translucency = 0.5;
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "✨ Magical Glow",
-                onClick: () => {
-                    hairParams.colorVariation = 0.4;
-                    hairParams.colorBandPosition = 0.7;
-                    hairParams.colorBandWidth = 0.6;
-                    hairParams.rimLightStrength = 1.5;
-                    hairParams.subsurfaceScattering = 0.8;
-                    hairParams.specularStrength = 0.7;
-                    hairParams.baseColor = [0.2, 0.1, 0.4, 1.0];
-                    hairParams.tipColor = [0.6, 0.3, 0.9, 1.0];
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "🔥 Fire Grass",
-                onClick: () => {
-                    hairParams.bladeCurvature = 0.8;
-                    hairParams.bladeTwist = 0.4;
-                    hairParams.windStrength = 4.0;
-                    hairParams.windSpeed = 2.0;
-                    hairParams.baseColor = [0.8, 0.2, 0.0, 1.0];
-                    hairParams.tipColor = [1.0, 0.9, 0.0, 1.0];
-                    hairParams.colorBandPosition = 0.6;
-                    hairParams.rimLightStrength = 1.2;
-                    hairParams.translucency = 0.7;
-                    updateHair();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab, {
-                text: "Reset to Defaults",
-                onClick: () => {
-                    hairParams = {
-                        id: hairParams.id,
-                        gridSize: 2.0,
-                        renderDistance: 50.0,
-                        windStrength: 2.5,
-                        windSpeed: 0.3,
-                        bladeHeight: 2.75,
-                        bladeWidth: 0.03,
-                        brownianStrength: 0.03,
-                        bladeHeightVariability: 0.6,
-                        bladeDensity: 15.0,
-                        landscapeSize: 100.0,
-                        landscapeHeight: 0.0,
-                        landscapeYOffset: 0.0,
-                        baseColor: [0.1, 0.3, 0.35, 1.0],
-                        tipColor: [0.2, 0.7, 0.8, 1.0],
-                        pipelineId: customPipelineId,
-                        bladeCurvature: 0.5,
-                        bladeTwist: 0.2,
-                        bladeTaper: 0.7,
-                        colorVariation: 0.15,
-                        colorBandPosition: 0.5,
-                        colorBandWidth: 0.3,
-                        specularStrength: 0.2,
-                        clumpingStrength: 0.0,
-                        clumpingScale: 5.0,
-                        leanDirectionX: 0.0,
-                        leanDirectionZ: 0.0,
-                        edgeDarkening: 0.3,
-                        subsurfaceScattering: 0.4,
-                        translucency: 0.2,
-                        rimLightStrength: 0.5,
-                        ornamentsEnabled: true,
-                        ornamentProbability: 0.3,
-                        ornamentHeightPosition: 0.85,
-                        ornamentHeightRange: 0.15,
-                        ornamentSize: 0.08,
-                        ornamentSizeVariation: 0.4,
-                        ornamentCount: 5,
-                        ornamentClusterShape: 0,
-                        ornamentColor: [1.0, 0.9, 0.2, 1.0],
-                        ornamentColorVariation: 0.2,
-                        ornamentGlow: 0.5,
-                        ornamentRotationSpeed: 0.5,
-                        ornamentWeight: 0.3,
-                        ornamentSpacing: 0.0,
-                        ornamentInertia: 0.7
-                    };
-                    updateHair();
+                    hairParams.ornamentColorVariation = parseFloat(val);
                     updateOrnaments();
                 }
             });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Glow Intensity",
+                value: hairParams.ornamentGlow,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentGlow = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Rotation Speed",
+                value: hairParams.ornamentRotationSpeed,
+                min: 0.0,
+                max: 3.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentRotationSpeed = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Weight (Blade Pull)",
+                value: hairParams.ornamentWeight,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentWeight = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Inertia (Lag)",
+                value: hairParams.ornamentInertia,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.ornamentInertia = parseFloat(val);
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.label(tab, { text: "Quick Ornament Presets", bold: false });
+            
+            Entropy.UI.Widget.button(tab, {
+                text: "🌼 Wildflowers",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 2; // Ring
+                    hairParams.ornamentCount = 6;
+                    hairParams.ornamentSize = 0.12;
+                    hairParams.ornamentHeightPosition = 0.9;
+                    hairParams.ornamentHeightRange = 0.1;
+                    hairParams.ornamentColor = [1.0, 0.85, 0.3, 1.0];
+                    hairParams.ornamentGlow = 0.3;
+                    hairParams.ornamentProbability = 0.15;
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "💧 Water Droplets",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 0; // Sphere
+                    hairParams.ornamentCount = 1;
+                    hairParams.ornamentSize = 0.05;
+                    hairParams.ornamentHeightPosition = 0.6;
+                    hairParams.ornamentHeightRange = 0.4;
+                    hairParams.ornamentColor = [0.7, 0.9, 1.0, 0.8];
+                    hairParams.ornamentGlow = 0.6;
+                    hairParams.ornamentProbability = 0.2;
+                    hairParams.ornamentWeight = 0.5;
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🔮 Fairy Lights",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 0; // Sphere
+                    hairParams.ornamentCount = 3;
+                    hairParams.ornamentSize = 0.06;
+                    hairParams.ornamentHeightPosition = 0.7;
+                    hairParams.ornamentHeightRange = 0.3;
+                    hairParams.ornamentColor = [0.9, 0.7, 1.0, 1.0];
+                    hairParams.ornamentGlow = 1.5;
+                    hairParams.ornamentProbability = 0.25;
+                    hairParams.ornamentRotationSpeed = 1.5;
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🌾 Wheat Grains",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 3; // Spiral
+                    hairParams.ornamentCount = 8;
+                    hairParams.ornamentSize = 0.04;
+                    hairParams.ornamentHeightPosition = 0.95;
+                    hairParams.ornamentHeightRange = 0.05;
+                    hairParams.ornamentColor = [0.9, 0.75, 0.4, 1.0];
+                    hairParams.ornamentGlow = 0.1;
+                    hairParams.ornamentProbability = 0.5;
+                    hairParams.ornamentWeight = 0.8;
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "✨ Stardust",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 4; // Starburst
+                    hairParams.ornamentCount = 12;
+                    hairParams.ornamentSize = 0.03;
+                    hairParams.ornamentHeightPosition = 0.85;
+                    hairParams.ornamentHeightRange = 0.2;
+                    hairParams.ornamentColor = [1.0, 1.0, 0.8, 1.0];
+                    hairParams.ornamentGlow = 2.0;
+                    hairParams.ornamentProbability = 0.1;
+                    hairParams.ornamentRotationSpeed = 2.5;
+                    updateOrnaments();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🍒 Berries",
+                onClick: () => {
+                    hairParams.ornamentClusterShape = 0; // Sphere
+                    hairParams.ornamentCount = 3;
+                    hairParams.ornamentSize = 0.08;
+                    hairParams.ornamentHeightPosition = 0.75;
+                    hairParams.ornamentHeightRange = 0.15;
+                    hairParams.ornamentColor = [0.8, 0.1, 0.15, 1.0];
+                    hairParams.ornamentGlow = 0.2;
+                    hairParams.ornamentProbability = 0.12;
+                    hairParams.ornamentWeight = 1.2;
+                    updateOrnaments();
+                }
+            });
+        }
+
+        // === SHADER SELECTION ===
+        Entropy.UI.Widget.label(tab, { text: "Shader Selection", bold: true });
+        Entropy.UI.Widget.button(tab, {
+            text: hairParams.pipelineId === customPipelineId ? "✅ Using Custom Shader" : "Use Custom Shader",
+            onClick: () => {
+                hairParams.pipelineId = customPipelineId;
+                updateHair();
+            }
+        });
+
+        // Colors Section
+        Entropy.UI.Widget.label(tab, { text: "🎨 Color Settings", bold: true });
+        Entropy.UI.Widget.colorInput(tab, {
+            label: "Base Color",
+            color: hairParams.baseColor,
+            onChange: (newColor: number[]) => {
+                hairParams.baseColor = newColor;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.colorInput(tab, {
+            label: "Tip Color",
+            color: hairParams.tipColor,
+            onChange: (newColor: number[]) => {
+                hairParams.tipColor = newColor;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Color Variation",
+            value: hairParams.colorVariation,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.colorVariation = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Color Band Position",
+            value: hairParams.colorBandPosition,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.colorBandPosition = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Color Band Width",
+            value: hairParams.colorBandWidth,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.colorBandWidth = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Shape & Form Section
+        Entropy.UI.Widget.label(tab, { text: "📐 Shape & Form", bold: true });
+        
+        Entropy.UI.Widget.slider(tab, {
+            label: "Blade Curvature",
+            value: hairParams.bladeCurvature,
+            min: 0.0,
+            max: 2.0,
+            onChange: (val: string) => {
+                hairParams.bladeCurvature = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Blade Twist",
+            value: hairParams.bladeTwist,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.bladeTwist = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Blade Taper",
+            value: hairParams.bladeTaper,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.bladeTaper = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Physical Properties
+        Entropy.UI.Widget.label(tab, { text: "⚙️ Physical Properties", bold: true });
+        
+        Entropy.UI.Widget.slider(tab, {
+            label: "Density",
+            value: hairParams.bladeDensity,
+            min: 1.0,
+            max: 100.0,
+            onChange: (val: string) => {
+                hairParams.bladeDensity = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Height",
+            value: hairParams.bladeHeight,
+            min: 0.1,
+            max: 10.0,
+            onChange: (val: string) => {
+                hairParams.bladeHeight = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Height Variability",
+            value: hairParams.bladeHeightVariability,
+            min: 0.0,
+            max: 2.0,
+            onChange: (val: string) => {
+                hairParams.bladeHeightVariability = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Width",
+            value: hairParams.bladeWidth,
+            min: 0.001,
+            max: 0.5,
+            onChange: (val: string) => {
+                hairParams.bladeWidth = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Clustering & Distribution
+        Entropy.UI.Widget.label(tab, { text: "🌾 Clustering & Distribution", bold: true });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Clumping Strength",
+            value: hairParams.clumpingStrength,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.clumpingStrength = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Clumping Scale",
+            value: hairParams.clumpingScale,
+            min: 1.0,
+            max: 20.0,
+            onChange: (val: string) => {
+                hairParams.clumpingScale = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Lean Direction X",
+            value: hairParams.leanDirectionX,
+            min: -2.0,
+            max: 2.0,
+            onChange: (val: string) => {
+                hairParams.leanDirectionX = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Lean Direction Z",
+            value: hairParams.leanDirectionZ,
+            min: -2.0,
+            max: 2.0,
+            onChange: (val: string) => {
+                hairParams.leanDirectionZ = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Lighting & Material
+        Entropy.UI.Widget.label(tab, { text: "💡 Lighting & Material", bold: true });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Specular Strength",
+            value: hairParams.specularStrength,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.specularStrength = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Edge Darkening",
+            value: hairParams.edgeDarkening,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.edgeDarkening = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Subsurface Scattering",
+            value: hairParams.subsurfaceScattering,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.subsurfaceScattering = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Translucency",
+            value: hairParams.translucency,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                hairParams.translucency = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Rim Light Strength",
+            value: hairParams.rimLightStrength,
+            min: 0.0,
+            max: 2.0,
+            onChange: (val: string) => {
+                hairParams.rimLightStrength = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Environment
+        Entropy.UI.Widget.label(tab, { text: "🌬️ Environment", bold: true });
+        
+        Entropy.UI.Widget.slider(tab, {
+            label: "Wind Strength",
+            value: hairParams.windStrength,
+            min: 0.0,
+            max: 10.0,
+            onChange: (val: string) => {
+                hairParams.windStrength = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Wind Speed",
+            value: hairParams.windSpeed,
+            min: 0.0,
+            max: 5.0,
+            onChange: (val: string) => {
+                hairParams.windSpeed = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Brownian Strength",
+            value: hairParams.brownianStrength,
+            min: 0.0,
+            max: 0.5,
+            onChange: (val: string) => {
+                hairParams.brownianStrength = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Rendering & Landscape
+        Entropy.UI.Widget.label(tab, { text: "🖥️ Rendering & Landscape", bold: true });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Grid Size",
+            value: hairParams.gridSize,
+            min: 0.5,
+            max: 10.0,
+            onChange: (val: string) => {
+                hairParams.gridSize = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Render Distance",
+            value: hairParams.renderDistance,
+            min: 10.0,
+            max: 500.0,
+            onChange: (val: string) => {
+                hairParams.renderDistance = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.numericInput(tab, {
+            label: "Landscape Y Offset",
+            value: hairParams.landscapeYOffset,
+            onChange: (val: string) => {
+                hairParams.landscapeYOffset = parseFloat(val);
+                updateHair();
+            }
+        });
+
+        // Presets
+        Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🌾 Realistic Grass",
+            onClick: () => {
+                hairParams.bladeCurvature = 0.3;
+                hairParams.bladeTwist = 0.1;
+                hairParams.bladeTaper = 0.8;
+                hairParams.colorVariation = 0.2;
+                hairParams.clumpingStrength = 0.15;
+                hairParams.subsurfaceScattering = 0.6;
+                hairParams.translucency = 0.3;
+                hairParams.rimLightStrength = 0.4;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "💇 Long Hair",
+            onClick: () => {
+                hairParams.bladeHeight = 5.0;
+                hairParams.bladeCurvature = 1.2;
+                hairParams.bladeTwist = 0.3;
+                hairParams.bladeTaper = 0.9;
+                hairParams.clumpingStrength = 0.5;
+                hairParams.windStrength = 1.5;
+                hairParams.specularStrength = 0.6;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🌊 Kelp/Seaweed",
+            onClick: () => {
+                hairParams.bladeHeight = 6.0;
+                hairParams.bladeCurvature = 1.8;
+                hairParams.bladeTwist = 0.5;
+                hairParams.bladeTaper = 0.5;
+                hairParams.windSpeed = 0.1;
+                hairParams.windStrength = 3.0;
+                hairParams.baseColor = [0.1, 0.2, 0.15, 1.0];
+                hairParams.tipColor = [0.2, 0.5, 0.3, 1.0];
+                hairParams.translucency = 0.5;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "✨ Magical Glow",
+            onClick: () => {
+                hairParams.colorVariation = 0.4;
+                hairParams.colorBandPosition = 0.7;
+                hairParams.colorBandWidth = 0.6;
+                hairParams.rimLightStrength = 1.5;
+                hairParams.subsurfaceScattering = 0.8;
+                hairParams.specularStrength = 0.7;
+                hairParams.baseColor = [0.2, 0.1, 0.4, 1.0];
+                hairParams.tipColor = [0.6, 0.3, 0.9, 1.0];
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🔥 Fire Grass",
+            onClick: () => {
+                hairParams.bladeCurvature = 0.8;
+                hairParams.bladeTwist = 0.4;
+                hairParams.windStrength = 4.0;
+                hairParams.windSpeed = 2.0;
+                hairParams.baseColor = [0.8, 0.2, 0.0, 1.0];
+                hairParams.tipColor = [1.0, 0.9, 0.0, 1.0];
+                hairParams.colorBandPosition = 0.6;
+                hairParams.rimLightStrength = 1.2;
+                hairParams.translucency = 0.7;
+                updateHair();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "Reset to Defaults",
+            onClick: () => {
+                hairParams = {
+                    id: hairParams.id,
+                    gridSize: 2.0,
+                    renderDistance: 50.0,
+                    windStrength: 2.5,
+                    windSpeed: 0.3,
+                    bladeHeight: 2.75,
+                    bladeWidth: 0.03,
+                    brownianStrength: 0.03,
+                    bladeHeightVariability: 0.6,
+                    bladeDensity: 15.0,
+                    landscapeSize: 100.0,
+                    landscapeHeight: 0.0,
+                    landscapeYOffset: 0.0,
+                    baseColor: [0.1, 0.3, 0.35, 1.0],
+                    tipColor: [0.2, 0.7, 0.8, 1.0],
+                    pipelineId: customPipelineId,
+                    bladeCurvature: 0.5,
+                    bladeTwist: 0.2,
+                    bladeTaper: 0.7,
+                    colorVariation: 0.15,
+                    colorBandPosition: 0.5,
+                    colorBandWidth: 0.3,
+                    specularStrength: 0.2,
+                    clumpingStrength: 0.0,
+                    clumpingScale: 5.0,
+                    leanDirectionX: 0.0,
+                    leanDirectionZ: 0.0,
+                    edgeDarkening: 0.3,
+                    subsurfaceScattering: 0.4,
+                    translucency: 0.2,
+                    rimLightStrength: 0.5,
+                    ornamentsEnabled: true,
+                    ornamentProbability: 0.3,
+                    ornamentHeightPosition: 0.85,
+                    ornamentHeightRange: 0.15,
+                    ornamentSize: 0.08,
+                    ornamentSizeVariation: 0.4,
+                    ornamentCount: 5,
+                    ornamentClusterShape: 0,
+                    ornamentColor: [1.0, 0.9, 0.2, 1.0],
+                    ornamentColorVariation: 0.2,
+                    ornamentGlow: 0.5,
+                    ornamentRotationSpeed: 0.5,
+                    ornamentWeight: 0.3,
+                    ornamentSpacing: 0.0,
+                    ornamentInertia: 0.7
+                };
+                updateHair();
+                updateOrnaments();
+            }
+        });
+    }
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Hair Particles with Ornaments", renderHairUI);
+    }
+
+    // Try load saved data
+    const savedData = addon.IO.load();
+    if (savedData) {
+        hairParams = { ...hairParams, ...savedData };
+        // Ensure colors are arrays if JSON parsed them differently (usually fine)
+        Entropy.println("Loaded saved hair settings");
+    }
+
+    const tab = addon.UI.createTab({
+        title: "Hair + Ornaments",
+        onRender: async () => {
+            renderHairUI(tab);
         }
     });
 });

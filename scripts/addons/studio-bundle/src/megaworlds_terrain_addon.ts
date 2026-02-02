@@ -54,34 +54,55 @@ async function generateTerrain() {
     });
 }
 
+const renderTerrainUI = (windowId: string) => {
+    Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
+
+    Entropy.UI.Widget.button(windowId, {
+        text: "💾 Save Settings",
+        onClick: () => {
+            addon.IO.save(terrainParams);
+            Entropy.println("Terrain settings saved!");
+        }
+    });
+    
+    Entropy.UI.Widget.button(windowId, {
+        text: "Randomize Seed & Regenerate",
+        onClick: () => {
+            terrainParams.seed = Math.floor(Math.random() * 1000);
+            generateTerrain();
+        }
+    });
+
+    Entropy.UI.Widget.button(windowId, {
+        text: terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
+        onClick: () => {
+            terrainParams.usePBR = !terrainParams.usePBR;
+            generateTerrain();
+        }
+    });
+
+    Entropy.UI.Widget.label(windowId, { text: `Current Seed: ${terrainParams.seed}` });
+    Entropy.UI.Widget.label(windowId, { text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` });
+};
+
 addon.onInit(async () => {
     Entropy.println("Procedural Terrain Initializing...");
 
+    const saved = addon.IO.load();
+    if (saved) {
+        terrainParams = { ...terrainParams, ...saved };
+    }
+
     generateTerrain();
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Simple Procedural Terrain", renderTerrainUI);
+    }
 
     const windowId = addon.UI.createTab({
         title: "Rust Noise Settings",
         onRender: () => {
-            Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
-            
-            Entropy.UI.Widget.button(windowId, {
-                text: "Randomize Seed & Regenerate",
-                onClick: () => {
-                    terrainParams.seed = Math.floor(Math.random() * 1000);
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.button(windowId, {
-                text: terrainParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
-                onClick: () => {
-                    terrainParams.usePBR = !terrainParams.usePBR;
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.label(windowId, { text: `Current Seed: ${terrainParams.seed}` });
-            Entropy.UI.Widget.label(windowId, { text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` });
+            renderTerrainUI(windowId);
         }
     });
 });
