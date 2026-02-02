@@ -13,6 +13,9 @@ globalThis.Entropy = {
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
                 },
+                onProjectChanged: (callback) => {
+                    ops.op_addon_on_project_changed(metadata.name, callback);
+                },
                 UI: {
                     createTab: (config) => {
                         const tabId = ops.op_ui_create_tab(metadata.name, config, config.onRender);

@@ -67,18 +67,21 @@ export interface ProceduralSkyConfig {
 }
 
 export interface ScopedAPI {
-        Model: {
-            createProcedural: (config: { type: string; parameters?: any; pipelineId?: string }) => void;
-            createMesh: (config: { 
-                position: number[]; 
-                vertexData: number[]; 
-                indexData: number[]; 
-                pipelineId: string; 
-                instanceCount?: number;
-                bindings?: any[] 
-            }) => void;
-            clearMeshes: () => void;
-        };
+  onInit: (callback: InitCallback) => void;
+  onCleanup: (callback: CleanupCallback) => void;
+  onProjectChanged: (callback: ProjectChangedCallback) => void;
+  Model: {
+      createProcedural: (config: { type: string; parameters?: any; pipelineId?: string }) => void;
+      createMesh: (config: { 
+          position: number[]; 
+          vertexData: number[]; 
+          indexData: number[]; 
+          pipelineId: string; 
+          instanceCount?: number;
+          bindings?: any[] 
+      }) => void;
+      clearMeshes: () => void;
+  };
   Landscape: {
     create: (config: LandscapeConfig) => void;
   };
@@ -89,7 +92,6 @@ export interface ScopedAPI {
     playSynth: (config: SynthConfig) => void;
     playTestTone: () => void;
   };
-  onInit: (callback: InitCallback) => void;
   Particles: {
     createHair: (config: {
       id?: string | null;
@@ -125,6 +127,7 @@ export interface ScopedAPI {
 
 export type InitCallback = () => void | void;
 export type CleanupCallback = () => void | void;
+export type ProjectChangedCallback = (newProjectId: string) => void | void;
 
 // UI Types
 export interface WindowConfig {

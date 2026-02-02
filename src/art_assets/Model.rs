@@ -299,7 +299,7 @@ impl Model {
 
             
 
-            println!("MESH TRANSFORM {:?}", transform);
+            // println!("MESH TRANSFORM {:?}", transform);
 
         // }
 
@@ -405,14 +405,14 @@ impl Model {
                     (vec![[0, 0, 0, 0]; positions.len()], vec![[1.0, 0.0, 0.0, 0.0]; positions.len()])
                 };
 
-                println!(
-                    "first 5 tex_coords {:?}",
-                    tex_coords[0],
-                    // tex_coords[100],
-                    // tex_coords[200],
-                    // tex_coords[300],
-                    // tex_coords[400]
-                );
+                // println!(
+                //     "first 5 tex_coords {:?}",
+                //     tex_coords[0],
+                //     // tex_coords[100],
+                //     // tex_coords[200],
+                //     // tex_coords[300],
+                //     // tex_coords[400]
+                // );
 
                 // 2. Apply scaling to positions
                 let scaled_positions: Vec<[f32; 3]> = positions
@@ -482,7 +482,7 @@ impl Model {
                     .collect();
 
                 println!("Model vertices: {:?}", vertices.len());
-                println!("Model indices: {:?}", indices_u32.len());
+                // println!("Model indices: {:?}", indices_u32.len());
 
                 let vertex_buffer = if skin_index.is_some() { device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Model Animated GLB Vertex Buffer"),
@@ -716,7 +716,7 @@ impl Model {
                     });
 
 
-                println!("mesh iso {:?} {:?}", model_component_id, isometry);
+                // println!("mesh iso {:?} {:?}", model_component_id, isometry);
 
                 meshes.push(Mesh {
                     transform: transform_inner,
@@ -778,7 +778,7 @@ impl Model {
         for animation in gltf.animations() {
             let mut channels = Vec::new();
             let name = animation.name().unwrap_or(&format!("animation_{}", animation.index())).to_string();
-            println!("Loading animation: {}", name);
+            // println!("Loading animation: {}", name);
 
             for channel in animation.channels() {
                 let reader = channel.reader(|buffer| Some(&buffer_data));
@@ -829,7 +829,7 @@ impl Model {
             });
         }
 
-        println!("Loaded animations {}", animations.len());
+        // println!("Loaded animations {}", animations.len());
 
         let root_nodes: Vec<usize> = gltf.scenes().flat_map(|scene| scene.nodes().map(|node| node.index())).collect();
 

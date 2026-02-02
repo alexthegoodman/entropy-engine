@@ -1685,12 +1685,26 @@ addon.onInit(async () => {
     }
 
     // Try load saved data
-    const savedData = addon.IO.load();
-    if (savedData) {
-        hairParams = { ...hairParams, ...savedData };
-        // Ensure colors are arrays if JSON parsed them differently (usually fine)
-        Entropy.println("Loaded saved hair settings");
-    }
+    // const savedData = addon.IO.load();
+    // if (savedData) {
+    //     hairParams = { ...hairParams, ...savedData };
+    //     // Ensure colors are arrays if JSON parsed them differently (usually fine)
+    //     Entropy.println("Loaded saved hair settings");
+    // }
+
+    addon.onProjectChanged((newProjectId) => {
+        Entropy.println("Project changed: " + newProjectId);
+
+        // Reload addon state for new project
+        const data = addon.IO.load(); // Will load from new project
+        // Re-initialize your addon's state
+        hairParams = { ...hairParams, ...data };
+
+        updateHair();
+        updateOrnaments();
+
+        Entropy.println("ReLoaded saved hair settings");
+    });
 
     const tab = addon.UI.createTab({
         title: "Hair + Ornaments",

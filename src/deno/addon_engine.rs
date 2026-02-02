@@ -405,6 +405,7 @@ pub struct AddonContext {
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
     pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub on_project_changed_callbacks: HashMap<String, v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
@@ -959,6 +960,17 @@ fn op_meshes_clear(state: &mut OpState, #[string] addon_name: String) {
     }
 }
 
+#[op2]
+fn op_addon_on_project_changed(
+    state: &mut OpState,
+    #[string] addon_name: String,
+    #[global] callback: v8::Global<v8::Function>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.on_project_changed_callbacks.insert(addon_name, callback);
+    }
+}
+
 #[op2(fast)]
 fn op_println(
     state: &mut OpState,
@@ -995,6 +1007,7 @@ extension!(
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_test,
+        op_addon_on_project_changed
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -1046,6 +1059,7 @@ impl AddonEngine {
             noise_generators: HashMap::new(),
             on_init_callbacks: HashMap::new(),
             on_cleanup_callbacks: HashMap::new(),
+            on_project_changed_callbacks: HashMap::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
             ui_widgets: HashMap::new(),
@@ -1059,6 +1073,40 @@ impl AddonEngine {
             runtime,
             project_id,
             dummy_views: Vec::new()
+        }
+    }
+
+    pub fn set_project_id(&mut self, project_id: String) {
+        self.project_id = project_id.clone();
+        
+        // Update context
+        {
+            let mut state = self.runtime.op_state();
+            let mut state = state.borrow_mut();
+            let context = state.borrow_mut::<AddonContext>();
+            context.project_id = project_id.clone();
+        }
+        
+        // Notify all registered callbacks
+        self.notify_project_changed(&project_id);
+    }
+    
+    fn notify_project_changed(&mut self, new_project_id: &str) {
+        let callbacks = {
+            let state = self.runtime.op_state();
+            let state = state.borrow();
+            let context = state.borrow::<AddonContext>();
+            context.on_project_changed_callbacks.clone()
+        };
+        
+        for (_addon_name, callback) in callbacks {
+            let scope = &mut self.runtime.handle_scope();
+            let local_callback = v8::Local::new(scope, callback);
+            let this = v8::undefined(scope);
+            let project_id_str = v8::String::new(scope, new_project_id).unwrap();
+            let args = &[project_id_str.into()];
+            
+            local_callback.call(scope, this.into(), args);
         }
     }
 
