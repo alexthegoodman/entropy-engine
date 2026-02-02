@@ -95,10 +95,10 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
 
     let position_data = textureSample(g_buffer_position, s_g_buffer, tex_coords);
     
-    // If w is 0, we're likely hitting the background/sky
-    if (position_data.w < 0.1) {
-        discard;
-    }
+    // // If w is 0, we're likely hitting the background/sky
+    // if (position_data.w < 0.1) {
+    //     discard;
+    // }
 
     let position = position_data.xyz;
     let normal = normalize(textureSample(g_buffer_normal, s_g_buffer, tex_coords).xyz);
@@ -173,7 +173,7 @@ addon.onInit(async () => {
                 binding: 0,
                 resource: {
                     type: "Uniform",
-                    value: { data: [0.7, 0.8, 1.0, 1.0, 0.005, 0.0, 0.0, 0.0] } // Fog color + density + padding
+                    value: { data: [...fogColor, fogDensity, 0.0, 0.0, 0.0] } // Fog color + density + padding
                 }
             }
         ]

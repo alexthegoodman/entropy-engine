@@ -3401,39 +3401,7 @@ impl EntropyPipeline {
                 bytemuck::cast_slice(&[point_lights_uniform_data]),
             );
 
-            // 1.5 Procedural Sky Pass
-            {
-                let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Addon Procedural Sky Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: &depth_view,
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                if let Some(rect) = viewport_rect {
-                    sky_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                }
-
-                sky_pass.set_pipeline(self.procedural_sky_pipeline.as_ref().unwrap());
-                sky_pass.set_bind_group(0, self.procedural_sky_bind_group.as_ref().unwrap(), &[]);
-                sky_pass.draw(0..3, 0..1);
-            }
+            
 
             // 2. Lighting Pass for PBR objects
             let mut custom_lighting_pid = None;
@@ -3659,6 +3627,40 @@ impl EntropyPipeline {
             }
             drop(render_pass);
         }
+
+        // 1.5 Procedural Sky Pass
+            {
+                let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Addon Procedural Sky Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                if let Some(rect) = viewport_rect {
+                    sky_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                }
+
+                sky_pass.set_pipeline(self.procedural_sky_pipeline.as_ref().unwrap());
+                sky_pass.set_bind_group(0, self.procedural_sky_bind_group.as_ref().unwrap(), &[]);
+                sky_pass.draw(0..3, 0..1);
+            }
 
         if self.frame_buffer.is_some() {
             let frame_buffer = self
