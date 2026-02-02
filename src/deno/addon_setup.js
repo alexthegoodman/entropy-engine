@@ -95,6 +95,15 @@ globalThis.Entropy = {
                             intensity: config.intensity || 1.0,
                             maxDistance: config.maxDistance || 20.0
                         });
+                    },
+                    updateSun: (config) => {
+                        ops.op_lighting_update_sun({
+                            horizonColor: config.horizonColor || [0.7, 0.8, 1.0],
+                            zenithColor: config.zenithColor || [0.2, 0.3, 0.6],
+                            sunDirection: config.sunDirection || [0.0, 1.0, 0.0],
+                            sunColor: config.sunColor || [1.0, 0.9, 0.7],
+                            sunIntensity: config.sunIntensity || 5.0
+                        });
                     }
                 },
                 Audio: {

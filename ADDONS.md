@@ -333,6 +333,8 @@ declare namespace Entropy {
 ## Essential Libraries to Expose for App-Like Addons
 
 Physics & Simulation
+NOTE: for Physics, we want to hold off on giving complete control of rigidbodies. We want to provide a physics config to the landscape or
+to the model when created, but let the rest be automatic for now. Later we will add deep control.
 javascript// Rapier3D (Rust physics engine)
 ```
 const rigidBodyId = await addon.Physics.createRigidBody({

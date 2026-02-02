@@ -51,6 +51,21 @@ export interface NoiseConfig {
   lacunarity?: number;
 }
 
+export interface PointLightConfig {
+  position?: Position;
+  color?: [number, number, number];
+  intensity?: number;
+  maxDistance?: number;
+}
+
+export interface ProceduralSkyConfig {
+  horizonColor?: [number, number, number];
+  zenithColor?: [number, number, number];
+  sunDirection?: [number, number, number];
+  sunColor?: [number, number, number];
+  sunIntensity?: number;
+}
+
 export interface ScopedAPI {
   Model: {
     createProcedural: (config: ProceduralModelConfig) => void;
@@ -72,6 +87,10 @@ export interface ScopedAPI {
   };
   UI: {
     createTab: (config: TabConfig) => string;
+  };
+  Lighting: {
+    createPointLight: (config: PointLightConfig) => void;
+    updateSun: (config: ProceduralSkyConfig) => void;
   };
 }
 
@@ -143,6 +162,7 @@ export interface EntropyAPI {
   };
   Lighting: {
     createPointLight: (config: any) => void;
+    updateSun: (config: ProceduralSkyConfig) => void;
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;

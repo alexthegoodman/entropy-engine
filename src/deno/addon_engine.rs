@@ -462,6 +462,7 @@ pub struct AddonContext {
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
+    pub pending_sun_config: Option<crate::helpers::saved_data::ProceduralSkyConfig>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
     pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
@@ -552,7 +553,75 @@ fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[se
 
 
 
+
+
+
+
+fn op_lighting_update_sun(state: &mut OpState, #[serde] config: crate::helpers::saved_data::ProceduralSkyConfig) {
+
+
+
+
+
+
+
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+
+
+
+
+
+
+
+        ctx.pending_sun_config = Some(config);
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#[op2]
+
+
+
+
+
+
+
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
+
+
+
+
+
+
+
+
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_grasses.push((addon_name, config));
     }
@@ -940,6 +1009,7 @@ extension!(
         op_grass_create,
         op_noise_create,
         op_point_light_create,
+        op_lighting_update_sun,
         op_println,
         op_ui_create_window,
         op_ui_create_tab,
@@ -994,6 +1064,7 @@ impl AddonEngine {
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
+            pending_sun_config: None,
             noise_generators: HashMap::new(),
             on_init_callbacks: HashMap::new(),
             on_cleanup_callbacks: HashMap::new(),

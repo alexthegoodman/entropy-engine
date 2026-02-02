@@ -103,6 +103,16 @@ impl Default for ProceduralSkyUniform {
     }
 }
 
+// Directional Light Uniform struct (Rust mirror of WGSL)
+#[repr(C)]
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct DirectionalLightUniform {
+    pub position: [f32; 3],
+    pub _padding: u32,
+    pub color: [f32; 3],
+    pub _padding2: u32,
+}
+
 pub struct EntropyPipeline {
     // pub device: Option<wgpu::Device>,
     // pub queue: Option<wgpu::Queue>,
@@ -919,16 +929,6 @@ impl EntropyPipeline {
                 alpha_to_coverage_enabled: false,
             },
         });
-
-        // Directional Light
-        #[repr(C)]
-        #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-        struct DirectionalLightUniform {
-            position: [f32; 3],
-            _padding: u32,
-            color: [f32; 3],
-            _padding2: u32,
-        }
 
         let directional_light_uniform = DirectionalLightUniform {
             position: directional_light_position,
@@ -2310,48 +2310,6 @@ impl EntropyPipeline {
                 // }
             }
 
-            // draw addon cubes
-            for (addon_name, cubes) in &renderer_state.addon_cubes {
-                if let Workspace::Addon(active_name) = &self.current_workspace {
-                    if addon_name != active_name && addon_name != "Global" {
-                        continue;
-                    }
-                } else if addon_name != "Global" {
-                    continue;
-                }
-
-                for cube in cubes {
-                    // Check if cube has a custom pipeline
-                    let mut pipeline_set = false;
-                    if let Some(pid) = &cube.pipeline_id {
-                        if pid != "default" {
-                            let mut op_state = editor.addon_engine.runtime.op_state();
-                            let op_state = op_state.borrow();
-                            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                                if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                    render_pass.set_pipeline(custom_pipeline);
-                                    pipeline_set = true;
-                                }
-                            }
-                        }
-                    }
-
-                    if !pipeline_set {
-                        render_pass.set_pipeline(&geometry_pipeline);
-                    }
-
-                    cube.transform.update_uniform_buffer(&queue);
-                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
-                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        cube.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
-                }
-            }
-
             // draw spheres
             for sphere in &renderer_state.spheres {
                 sphere.transform.update_uniform_buffer(&queue);
@@ -3008,6 +2966,58 @@ impl EntropyPipeline {
         let time = self.start_time.elapsed().as_secs_f32();
         
         editor.addon_engine.update(renderer_state, camera);
+
+        // Update procedural sky and directional light from addon or world state
+        let mut current_procedural_sky_config = editor
+            .world_state
+            .as_ref()
+            .and_then(|state| state.levels.as_ref())
+            .and_then(|levels| levels.get(0))
+            .and_then(|level| level.procedural_sky.clone());
+
+        // Check if addon has a pending sun config override
+        if let Some(addon_config) = editor.addon_engine.runtime.op_state().borrow().try_borrow::<crate::deno::addon_engine::AddonContext>().and_then(|ctx| ctx.pending_sun_config.clone()) {
+            current_procedural_sky_config = Some(addon_config);
+        }
+
+        if let Some(config) = current_procedural_sky_config {
+            let horizon_color = config.horizon_color;
+            let zenith_color = config.zenith_color;
+            let sun_direction = config.sun_direction;
+
+            let procedural_sky_uniform_data = ProceduralSkyUniform {
+                horizon_color: [horizon_color[0], horizon_color[1], horizon_color[2], 1.0],
+                zenith_color: [zenith_color[0], zenith_color[1], zenith_color[2], 1.0],
+                sun_direction: [sun_direction[0], sun_direction[1], sun_direction[2], 1.0],
+                sun_color: config.sun_color,
+                sun_intensity: config.sun_intensity,
+                ..Default::default()
+            };
+            queue.write_buffer(
+                self.procedural_sky_uniform_buffer.as_ref().unwrap(),
+                0,
+                bytemuck::cast_slice(&[procedural_sky_uniform_data]),
+            );
+
+            // Also update the directional light for PBR rendering
+            if let Some(dir_light_buffer) = &self.directional_light_buffer {
+                let dir_light_uniform = DirectionalLightUniform {
+                    position: sun_direction,
+                    _padding: 0,
+                    color: [
+                        config.sun_color[0] * config.sun_intensity,
+                        config.sun_color[1] * config.sun_intensity,
+                        config.sun_color[2] * config.sun_intensity,
+                    ],
+                    _padding2: 0,
+                };
+                queue.write_buffer(
+                    dir_light_buffer,
+                    0,
+                    bytemuck::cast_slice(&[dir_light_uniform]),
+                );
+            }
+        }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         
