@@ -2977,7 +2977,13 @@ impl EntropyPipeline {
 
         // Check if addon has a pending sun config override
         if let Some(addon_config) = editor.addon_engine.runtime.op_state().borrow().try_borrow::<crate::deno::addon_engine::AddonContext>().and_then(|ctx| ctx.pending_sun_config.clone()) {
-            current_procedural_sky_config = Some(addon_config);
+            current_procedural_sky_config = Some(ProceduralSkyConfig { 
+                horizon_color: addon_config.horizon_color, 
+                zenith_color: addon_config.zenith_color, 
+                sun_direction: addon_config.sun_direction, 
+                sun_color: addon_config.sun_color,
+                sun_intensity: addon_config.sun_intensity 
+            });
         }
 
         if let Some(config) = current_procedural_sky_config {
@@ -3394,6 +3400,40 @@ impl EntropyPipeline {
                 0,
                 bytemuck::cast_slice(&[point_lights_uniform_data]),
             );
+
+            // 1.5 Procedural Sky Pass
+            {
+                let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Addon Procedural Sky Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &depth_view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                if let Some(rect) = viewport_rect {
+                    sky_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                }
+
+                sky_pass.set_pipeline(self.procedural_sky_pipeline.as_ref().unwrap());
+                sky_pass.set_bind_group(0, self.procedural_sky_bind_group.as_ref().unwrap(), &[]);
+                sky_pass.draw(0..3, 0..1);
+            }
 
             // 2. Lighting Pass for PBR objects
             let mut custom_lighting_pid = None;

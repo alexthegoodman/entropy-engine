@@ -326,115 +326,44 @@ pub struct LandscapeConfig {
 }
 
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AddonGrassConfig {
+    pub id: Option<String>,
+    pub grid_size: Option<f32>,
+    pub render_distance: Option<f32>,
+    pub wind_strength: Option<f32>,
+    pub wind_speed: Option<f32>,
+    pub blade_height: Option<f32>,
+    pub blade_width: Option<f32>,
+    pub brownian_strength: Option<f32>,
+    pub blade_density: Option<f32>,
+    pub landscape_size: Option<f32>,
+    pub landscape_height: Option<f32>,
+    pub landscape_y_offset: Option<f32>,
+    pub base_color: Option<[f32; 4]>,
+    pub tip_color: Option<[f32; 4]>,
+    pub pipeline_id: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
 #[serde(rename_all = "camelCase")]
-
-
-
-pub struct AddonGrassConfig {
-
-
-
-    pub id: Option<String>,
-
-
-
-    pub grid_size: Option<f32>,
-
-
-
-    pub render_distance: Option<f32>,
-
-
-
-    pub wind_strength: Option<f32>,
-
-
-
-    pub wind_speed: Option<f32>,
-
-
-
-    pub blade_height: Option<f32>,
-
-
-
-    pub blade_width: Option<f32>,
-
-
-
-    pub brownian_strength: Option<f32>,
-
-
-
-    pub blade_density: Option<f32>,
-
-
-
-    pub landscape_size: Option<f32>,
-
-
-
-    pub landscape_height: Option<f32>,
-
-
-
-    pub landscape_y_offset: Option<f32>,
-
-
-
-    pub base_color: Option<[f32; 4]>,
-
-
-
-    pub tip_color: Option<[f32; 4]>,
-
-
-
-    pub pipeline_id: Option<String>,
-
-
-
+pub struct PointLightConfig {
+    pub position: [f32; 3],
+    pub color: [f32; 3],
+    pub intensity: f32,
+    pub max_distance: f32,
 }
 
 
-
-
-
-
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
-
-
-
-pub struct PointLightConfig {
-
-
-
-    pub position: [f32; 3],
-
-
-
-    pub color: [f32; 3],
-
-
-
-    pub intensity: f32,
-
-
-
-    pub max_distance: f32,
-
-
-
+pub struct ProceduralSkyConfigCC {
+    pub horizon_color: [f32; 3],
+    pub zenith_color: [f32; 3],
+    pub sun_direction: [f32; 3], // Normalized direction vector
+    pub sun_color: [f32; 3],
+    pub sun_intensity: f32,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -465,7 +394,7 @@ pub struct AddonContext {
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
-    pub pending_sun_config: Option<crate::helpers::saved_data::ProceduralSkyConfig>,
+    pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
     pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
@@ -518,113 +447,23 @@ fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String 
 
 }
 
-
-
-
-
-
-
 #[op2]
-
-
-
 fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: PointLightConfig) {
-
-
-
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-
-
-
         ctx.pending_point_lights.push((addon_name, config));
-
-
-
     }
-
-
-
 }
 
-
-
-
-
-
-
 #[op2]
-
-
-
-
-
-
-
-fn op_lighting_update_sun(state: &mut OpState, #[serde] config: crate::helpers::saved_data::ProceduralSkyConfig) {
-
-
-
-
-
-
-
+fn op_lighting_update_sun(state: &mut OpState, #[serde] config: ProceduralSkyConfigCC) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-
-
-
-
-
-
-
         ctx.pending_sun_config = Some(config);
-
-
-
-
-
-
-
     }
-
-
-
-
-
-
-
 }
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[op2]
-
-
-
-
-
-
-
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
-
-
-
-
-
-
-
-
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_grasses.push((addon_name, config));
     }

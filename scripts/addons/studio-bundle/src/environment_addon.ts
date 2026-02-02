@@ -327,4 +327,26 @@ addon.onInit(async () => {
     // }, 100);
 
     updateEnvironment();
+
+    // Spawn some test cubes to see the fog and environment lighting
+    for (let i = 0; i < 10; i++) {
+        addon.Model.createProcedural({
+            type: "cube",
+            pipelineId: envPipeline,
+            parameters: {
+                position: [0, 2.0, -i * 10.0], // Row of cubes going into the distance
+                scale: [2.0, 2.0, 2.0]
+            }
+        });
+    }
+
+    // Spawn a large "floor" cube
+    addon.Model.createProcedural({
+        type: "cube",
+        pipelineId: envPipeline,
+        parameters: {
+            position: [0, -1.0, -50.0],
+            scale: [100.0, 1.0, 100.0]
+        }
+    });
 });
