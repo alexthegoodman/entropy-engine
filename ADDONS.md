@@ -549,3 +549,19 @@ await addon.Network.broadcast(sessionId, {
 });
 
 ```
+
+
+## Composer Addons
+
+There will be composer addons which allow you to select which Pipelines render for which Render Roles (roles are auto-assigned to renderable objects) and to allow
+the user to compose a scene like a game level. You can pull in the sky you made in the enviornment addon, combine it with the grass from the hair particle addon and
+the landscape from one of the terrain addons. Fantastic! This will require exposing the necessary features from the integrated addons, and leveraging them properly from within
+the composer addon. 
+
+Every addon will be able to store its own saved project files, up to 1 per project, stored as JSON. In the Composer Addon(s), you will have component instances of those
+saved project files (with no duplicate info, it just fetches the single source of truth when needed). The component instances are saved in the composer addon's project file(s).
+The component instance just stores the addon the component is from, the project id, and stuff like that. it also would store component properties like position.
+However, most properties that are not generic properties, will be stored in the individual addon project files. This will keep everything organized, and reduce the load on LLMs
+when reading JSON files.
+
+When selecting a component in the Composer Addon, I want the related addon for that component to have its main tab rendered right there in the Composer Addon. That way, you can edit deep properties of that component in the composer, just like you can in the addon's dedicated workspace. That gives users the liberty to choose where and when to update parameters.
