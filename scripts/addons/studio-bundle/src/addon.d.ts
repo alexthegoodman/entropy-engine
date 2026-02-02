@@ -83,7 +83,24 @@ export interface ScopedAPI {
   };
   onInit: (callback: InitCallback) => void;
   Particles: {
-    createHair: (config: any) => void;
+    createHair: (config: {
+      id?: string | null;
+      gridSize?: number;
+      renderDistance?: number;
+      windStrength?: number;
+      windSpeed?: number;
+      bladeHeight?: number;
+      bladeWidth?: number;
+      brownianStrength?: number;
+      bladeDensity?: number;
+      landscapeSize?: number;
+      landscapeHeight?: number;
+      landscapeYOffset?: number;
+      baseColor?: [number, number, number, number];
+      tipColor?: [number, number, number, number];
+      pipelineId?: string | null;
+      bindings?: any[];
+    }) => void;
   };
   UI: {
     createTab: (config: TabConfig) => string;

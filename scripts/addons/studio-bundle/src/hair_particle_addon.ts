@@ -18,6 +18,7 @@ let hairParams: any = {
     bladeHeight: 2.75,
     bladeWidth: 0.03,
     brownianStrength: 0.03,
+    bladeHeightVariability: 0.6,
     bladeDensity: 15.0,
     landscapeSize: 100.0,
     landscapeHeight: 0.0,
@@ -59,6 +60,13 @@ const hairVertexShader = `
     var landscape_texture: texture_2d<f32>;
     @group(2) @binding(1)
     var landscape_sampler: sampler;
+
+    struct ExtraParams {
+        blade_height_variability: f32,
+        _padding: vec3<f32>,
+    }
+    @group(3) @binding(0)
+    var<uniform> extra: ExtraParams;
 
     struct VertexInput {
         @location(0) position: vec3<f32>,
@@ -119,7 +127,7 @@ const hairVertexShader = `
         let blade_pos = vec3<f32>(blade_x, blade_y, blade_z);
         
         let blade_seed = hash13(seed);
-        let blade_height_variation = 0.7 + blade_seed * 0.6;
+        let blade_height_variation = (1.0 - extra.blade_height_variability / 2.0) + blade_seed * extra.blade_height_variability;
         let blade_rotation = hash13(seed * 7.31) * 6.28318;
         
         let cos_r = cos(blade_rotation);
@@ -213,7 +221,20 @@ function updateHair() {
     addon.Particles.createHair({
         ...hairParams,
         base_color: hairParams.baseColor,
-        tip_color: hairParams.tipColor
+        tip_color: hairParams.tipColor,
+        bindings: [
+            {
+                group: 3,
+                binding: 0,
+                resource: {
+                    type: "Uniform",
+                    value: { data: [
+                        hairParams.bladeHeightVariability, 0, 0, 0, 
+                        0, 0, 0, 0
+                    ] } // data + padding
+                }
+            }
+        ]
     });
 }
 
@@ -226,7 +247,14 @@ addon.onInit(async () => {
         layout: "hair", // Specialized hair layout
         pbr: true,
         vertexShader: hairVertexShader,
-        fragmentShader: hairFragShader
+        fragmentShader: hairFragShader,
+        extraBindGroups: [
+            {
+                entries: [
+                    { binding: 0, visibility: ["Vertex"], resourceType: "Uniform" }
+                ]
+            }
+        ]
     });
 
     Entropy.println("Hair Pipeline ID: " + customPipelineId);
@@ -316,6 +344,17 @@ addon.onInit(async () => {
                 max: 10.0,
                 onChange: (val: string) => {
                     hairParams.bladeHeight = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Height Variability",
+                value: hairParams.bladeHeightVariability,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.bladeHeightVariability = parseFloat(val);
                     updateHair();
                 }
             });
@@ -411,6 +450,7 @@ addon.onInit(async () => {
                         bladeHeight: 2.75,
                         bladeWidth: 0.03,
                         brownianStrength: 0.03,
+                        bladeHeightVariability: 0.6,
                         bladeDensity: 15.0,
                         landscapeSize: 100.0,
                         landscapeHeight: 0.0,

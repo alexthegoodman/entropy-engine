@@ -142,7 +142,7 @@ pub struct RendererState {
     pub procedural_trees: Vec<ProceduralTrees>,
     pub water_planes: Vec<WaterPlane>,
     pub point_lights: Vec<PointLight>,
-    pub dummy_views: Vec<(u32, TextureView)>,  
+    // pub dummy_views: Vec<(u32, TextureView)>,  
 
     // animations
     // pub active_animations: Vec<AnimationPlayback>,
@@ -334,7 +334,7 @@ impl RendererState {
             point_lights: Vec::new(),
             // light_state,
             collectables: Vec::new(),
-            dummy_views: Vec::new(),
+            // dummy_views: Vec::new(),
 
             // device,
             // queue,

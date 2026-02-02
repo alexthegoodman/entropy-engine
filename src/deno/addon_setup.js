@@ -68,7 +68,8 @@ globalThis.Entropy = {
                             landscapeYOffset: config.landscapeYOffset || 0.0,
                             baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
                             tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
-                            pipelineId: config.pipelineId || null
+                            pipelineId: config.pipelineId || null,
+                            bindings: config.bindings || []
                         };
                         ops.op_println(String("CreateOrUpdate Hair (2): " + metadata.name + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
                         ops.op_grass_create(metadata.name, merged_config);
@@ -252,7 +253,8 @@ globalThis.Entropy = {
                 landscapeYOffset: config.landscapeYOffset || 0.0,
                 baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
                 tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
-                pipelineId: config.pipelineId || null
+                pipelineId: config.pipelineId || null,
+                bindings: config.bindings || []
             });
         }
     },

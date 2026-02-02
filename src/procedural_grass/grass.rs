@@ -124,6 +124,9 @@ pub struct Grass {
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub landscape_bind_group: wgpu::BindGroup,
+    pub bind_groups: Vec<wgpu::BindGroup>,
+    pub uniform_buffers: Vec<wgpu::Buffer>,
+    pub samplers: Vec<wgpu::Sampler>,
     pub config: GrassConfig,
 }
 
@@ -260,6 +263,9 @@ impl Grass {
             uniform_buffer,
             uniform_bind_group,
             landscape_bind_group,
+            bind_groups: Vec::new(),
+            uniform_buffers: Vec::new(),
+            samplers: Vec::new(),
             config,
         }
     }
@@ -458,6 +464,9 @@ impl Grass {
             uniform_buffer,
             uniform_bind_group,
             landscape_bind_group,
+            bind_groups: Vec::new(),
+            uniform_buffers: Vec::new(),
+            samplers: Vec::new(),
             config,
         }
     }
