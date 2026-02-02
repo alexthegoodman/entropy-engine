@@ -54,12 +54,13 @@ pub struct AudioEngine {
 impl AudioEngine {
     pub fn new() -> Self {
         let stream_handle = OutputStreamBuilder::open_default_stream().expect("Failed to create audio stream");
-        let sink = Sink::new();
+        let mixer = stream_handle.mixer();
+        let sink = Sink::connect_new(mixer);
         
         AudioEngine {
             // _stream,
             stream_handle,
-            sink: Arc::new(Mutex::new(sink.0)),
+            sink: Arc::new(Mutex::new(sink)),
         }
     }
 
@@ -72,6 +73,8 @@ impl AudioEngine {
     }
 
     pub fn play_synth(&self, freq: f64, waveform: &str, duration: f64, cutoff: f64, gain: f64) {
+        println!("Play synth");
+
         let sample_rate = 44100.0f32;
         
         // Convert f64 parameters to f32 for fundsp

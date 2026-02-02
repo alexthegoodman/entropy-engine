@@ -106,6 +106,9 @@ globalThis.Entropy = {
                             cutoff: config.cutoff || 20000.0,
                             gain: config.gain || 0.2
                         });
+                    },
+                    playTestTone: () => {
+                        ops.op_audio_play_test();
                     }
                 }
             };
@@ -273,6 +276,9 @@ globalThis.Entropy = {
                 cutoff: config.cutoff || 20000.0,
                 gain: config.gain || 0.2
             });
+        },
+        playTestTone: () => {
+            ops.op_audio_play_test();
         }
     },
     println: (msg) => {

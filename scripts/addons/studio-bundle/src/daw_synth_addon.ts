@@ -2,7 +2,7 @@
 // A mini synthesizer with mastering controls (Gain, Cutoff)
 
 const addon = Entropy.Addon.register({
-    name: "Entropy DAW",
+    name: "DAW",
     version: "1.0.0",
     description: "Mini Synth & Mastering DAW",
     author: ["Entropy"],
@@ -38,13 +38,9 @@ const NOTES: Record<string, number> = {
 addon.onInit(async () => {
     Entropy.println("DAW Synth Addon Initializing...");
 
-    addon.UI.createTab({
+    const tabId = addon.UI.createTab({
         title: "🎹 Synth DAW",
         onRender: async () => {
-            const tabId = "🎹 Synth DAW"; // This might be brittle if the ID isn't exactly the title for tabs, 
-                                          // but op_ui_create_tab uses the title for global tabs usually.
-                                          // Actually, ScopedAPI.UI.createTab should ideally return the ID.
-
             Entropy.UI.Widget.label(tabId, { text: "Synthesizer Settings", bold: true });
             
             Entropy.UI.Widget.slider(tabId, {
@@ -52,7 +48,7 @@ addon.onInit(async () => {
                 min: 0,
                 max: 1,
                 value: synthParams.gain,
-                onChange: (v: number) => { synthParams.gain = v; }
+                onChange: (v: string) => { synthParams.gain = parseFloat(v); }
             });
 
             Entropy.UI.Widget.slider(tabId, {
@@ -60,7 +56,7 @@ addon.onInit(async () => {
                 min: 20,
                 max: 20000,
                 value: synthParams.cutoff,
-                onChange: (v: number) => { synthParams.cutoff = v; }
+                onChange: (v: string) => { synthParams.cutoff = parseFloat(v); }
             });
 
             Entropy.UI.Widget.slider(tabId, {
@@ -68,7 +64,7 @@ addon.onInit(async () => {
                 min: 0.1,
                 max: 2.0,
                 value: synthParams.duration,
-                onChange: (v: number) => { synthParams.duration = v; }
+                onChange: (v: string) => { synthParams.duration = parseFloat(v); }
             });
 
             Entropy.UI.Widget.label(tabId, { text: "Waveform", bold: true });
@@ -82,6 +78,13 @@ addon.onInit(async () => {
 
             Entropy.UI.Widget.label(tabId, { text: "Keyboard", bold: true });
 
+            Entropy.UI.Widget.button(tabId, {
+                text: "Play Test Tone",
+                onClick: () => { 
+                    addon.Audio.playTestTone();
+                }
+            });
+
             // Render keys in rows
             const noteNames = Object.keys(NOTES);
             for (let i = 0; i < noteNames.length; i++) {
@@ -89,6 +92,7 @@ addon.onInit(async () => {
                 Entropy.UI.Widget.button(tabId, {
                     text: note,
                     onClick: () => {
+                        Entropy.println("Play it...");
                         addon.Audio.playSynth({
                             freq: NOTES[note],
                             waveform: synthParams.waveform,

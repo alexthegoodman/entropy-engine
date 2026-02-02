@@ -479,6 +479,13 @@ fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
     }
 }
 
+#[op2(fast)]
+fn op_audio_play_test(state: &mut OpState) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.play_test_tone();
+    }
+}
+
 #[op2]
 #[string]
 fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String {
@@ -942,6 +949,7 @@ extension!(
         op_ui_widget_slider,
         op_ui_widget_numeric_input,
         op_audio_play_synth,
+        op_audio_play_test,
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -1355,163 +1363,6 @@ impl AddonEngine {
                 }
             }
         }
-
-        // if !pending_meshes.is_empty() {
-        //     if let Some(gpu) = &renderer_state.gpu_resources {
-        //         for (addon_name, config) in pending_meshes {
-        //             println!("ADDING ADDON MESH");
-
-        //             let pipeline = {
-        //                 let op_state = self.runtime.op_state();
-        //                 let op_state = op_state.borrow();
-        //                 if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-        //                     ctx.pipelines.get(&config.pipeline_id).cloned()
-        //                 } else {
-        //                     None
-        //                 }
-        //             };
-                    
-        //             if let Some(pipeline) = pipeline {
-        //                 let mut bind_groups = Vec::new();
-        //                 let mut uniform_buffers = Vec::new();
-        //                 let mut samplers = Vec::new(); // Store samplers to keep them alive
-
-        //                 if let Some(bindings) = config.bindings {
-        //                     // Organize bindings by group index
-        //                     let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
-        //                     for b in bindings {
-        //                         groups.entry(b.group).or_default().push(b);
-        //                     }
-
-        //                     // Process each bind group
-        //                     for (group_idx, binding_configs) in groups {
-        //                         let layout = pipeline.get_bind_group_layout(group_idx);
-                                
-        //                         // Pre-create all resources that need to persist
-        //                         let mut group_buffers = Vec::new();
-        //                         let mut group_samplers = Vec::new();
-                                
-        //                         // Create buffers first
-        //                         for b in &binding_configs {
-        //                             match &b.resource {
-        //                                 ResourceType::Uniform { data } => {
-        //                                     let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        //                                         label: Some(&format!("Uniform Buffer {}:{}", group_idx, b.binding)),
-        //                                         contents: bytemuck::cast_slice(data),
-        //                                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        //                                     });
-        //                                     group_buffers.push((b.binding, buffer));
-        //                                 },
-        //                                 ResourceType::Time => {
-        //                                     let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
-        //                                         label: Some(&format!("Time Buffer {}:{}", group_idx, b.binding)),
-        //                                         size: std::mem::size_of::<f32>() as u64,
-        //                                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        //                                         mapped_at_creation: false,
-        //                                     });
-        //                                     group_buffers.push((b.binding, buffer));
-        //                                 },
-        //                                 ResourceType::Sampler => {
-        //                                     let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-        //                                         label: Some(&format!("Sampler {}:{}", group_idx, b.binding)),
-        //                                         address_mode_u: wgpu::AddressMode::ClampToEdge,
-        //                                         address_mode_v: wgpu::AddressMode::ClampToEdge,
-        //                                         address_mode_w: wgpu::AddressMode::ClampToEdge,
-        //                                         mag_filter: wgpu::FilterMode::Linear,
-        //                                         min_filter: wgpu::FilterMode::Linear,
-        //                                         mipmap_filter: wgpu::FilterMode::Nearest,
-        //                                         ..Default::default()
-        //                                     });
-        //                                     group_samplers.push((b.binding, sampler));
-        //                                 },
-        //                                 _ => {}
-        //                             }
-        //                         }
-                                
-        //                         // Now create bind group entries with proper references
-        //                         let mut wgpu_entries = Vec::new();
-                                
-        //                         for b in &binding_configs {
-        //                             match &b.resource {
-        //                                 ResourceType::Uniform { .. } | ResourceType::Time => {
-        //                                     // Find the corresponding buffer
-        //                                     if let Some((_, buffer)) = group_buffers.iter().find(|(binding, _)| *binding == b.binding) {
-        //                                         wgpu_entries.push(wgpu::BindGroupEntry {
-        //                                             binding: b.binding,
-        //                                             resource: buffer.as_entire_binding(),
-        //                                         });
-        //                                     }
-        //                                 },
-        //                                 ResourceType::Texture { id } => {
-        //                                     if let Some(id_str) = id {
-        //                                         if id_str == "Landscape" {
-        //                                             if let Some(l) = renderer_state.landscapes.first() {
-        //                                                 if let Some(texture_view) = &l.particle_texture_view {
-        //                                                     wgpu_entries.push(wgpu::BindGroupEntry {
-        //                                                         binding: b.binding,
-        //                                                         resource: wgpu::BindingResource::TextureView(texture_view),
-        //                                                     });
-        //                                                 }
-        //                                             }
-        //                                         }
-        //                                         // Add more texture ID cases as needed
-        //                                     }
-        //                                 },
-        //                                 ResourceType::Sampler => {
-        //                                     if let Some((_, sampler)) = group_samplers.iter().find(|(binding, _)| *binding == b.binding) {
-        //                                         wgpu_entries.push(wgpu::BindGroupEntry {
-        //                                             binding: b.binding,
-        //                                             resource: wgpu::BindingResource::Sampler(sampler),
-        //                                         });
-        //                                     }
-        //                                 }
-        //                             }
-        //                         }
-
-        //                         // Create the bind group
-        //                         let bind_group = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
-        //                             layout: &layout,
-        //                             entries: &wgpu_entries,
-        //                             label: Some(&format!("Custom BindGroup {}", group_idx)),
-        //                         });
-                                
-        //                         bind_groups.push(bind_group);
-                                
-        //                         // Store buffers and samplers to keep them alive
-        //                         uniform_buffers.extend(group_buffers.into_iter().map(|(_, buf)| buf));
-        //                         samplers.extend(group_samplers.into_iter().map(|(_, samp)| samp));
-        //                     }
-        //                 }
-
-        //                 println!("CREATING ADDON MESH");
-
-        //                 // Create Mesh
-        //                 let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
-        //                 let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
-
-        //                 let mesh = CustomMesh::new(
-        //                     &gpu.device,
-        //                     vertex_bytes,
-        //                     index_bytes,
-        //                     pipeline,
-        //                     config.pipeline_id.clone(),
-        //                     bind_groups,
-        //                     config.position,
-        //                     uuid::Uuid::new_v4().to_string(),
-        //                     uniform_buffers,
-        //                     samplers, // You'll need to add this field to CustomMesh
-        //                 );
-
-        //                 println!("CREATED ADDON MESH");
-
-        //                 renderer_state.addon_meshes
-        //                     .entry(addon_name)
-        //                     .or_insert_with(Vec::new)
-        //                     .push(mesh);
-        //             }
-        //         }
-        //     }
-        // }
 
         if !pending_landscapes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {

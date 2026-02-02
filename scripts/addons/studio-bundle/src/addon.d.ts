@@ -64,6 +64,7 @@ export interface ScopedAPI {
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
+    playTestTone: () => void;
   };
   onInit: (callback: InitCallback) => void;
   Particles: {
@@ -145,6 +146,7 @@ export interface EntropyAPI {
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
+    playTestTone: () => void;
   };
   println: (msg: unknown) => void;
   _process_events: (eventIds: string[]) => void;
