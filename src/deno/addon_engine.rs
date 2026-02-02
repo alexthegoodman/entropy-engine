@@ -1269,6 +1269,10 @@ impl AddonEngine {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                
+                // update project id as needed
+                ctx.project_id = self.project_id.clone();
+
                 if let Ok(mut evs) = ctx.ui_events.lock() {
                     std::mem::take(&mut *evs)
                 } else {
