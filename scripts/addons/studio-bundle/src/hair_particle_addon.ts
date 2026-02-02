@@ -1,7 +1,7 @@
 const addon = Entropy.Addon.register({
-    name: "Hair Particles",
-    version: "1.2.0",
-    description: "Customizable hair and grass particles with custom shaders (VS + FS)",
+    name: "Hair Particles Enhanced",
+    version: "2.0.0",
+    description: "Highly customizable hair and grass particles with advanced visual parameters",
     author: ["Entropy Team"],
     capabilities: {
         graphics: true,
@@ -25,10 +25,27 @@ let hairParams: any = {
     landscapeYOffset: 0.0,
     baseColor: [0.1, 0.3, 0.35, 1.0],
     tipColor: [0.2, 0.7, 0.8, 1.0],
-    pipelineId: null
+    pipelineId: null,
+    
+    // New visual parameters
+    bladeCurvature: 0.5,
+    bladeTwist: 0.2,
+    bladeTaper: 0.7,
+    colorVariation: 0.15,
+    colorBandPosition: 0.5,
+    colorBandWidth: 0.3,
+    specularStrength: 0.2,
+    clumpingStrength: 0.0,
+    clumpingScale: 5.0,
+    leanDirectionX: 0.0,
+    leanDirectionZ: 0.0,
+    edgeDarkening: 0.3,
+    subsurfaceScattering: 0.4,
+    translucency: 0.2,
+    rimLightStrength: 0.5
 };
 
-// Full hair vertex shader logic provided JS-side
+// Enhanced hair vertex shader with new visual parameters
 const hairVertexShader = `
     struct Camera {
         view_proj: mat4x4<f32>,
@@ -63,7 +80,24 @@ const hairVertexShader = `
 
     struct ExtraParams {
         blade_height_variability: f32,
-        _padding: vec3<f32>,
+        blade_curvature: f32,
+        blade_twist: f32,
+        blade_taper: f32,
+        
+        color_variation: f32,
+        color_band_position: f32,
+        color_band_width: f32,
+        specular_strength: f32,
+        
+        clumping_strength: f32,
+        clumping_scale: f32,
+        lean_direction_x: f32,
+        lean_direction_z: f32,
+        
+        edge_darkening: f32,
+        subsurface_scattering: f32,
+        translucency: f32,
+        rim_light_strength: f32,
     }
     @group(3) @binding(0)
     var<uniform> extra: ExtraParams;
@@ -82,6 +116,8 @@ const hairVertexShader = `
         @location(1) height_factor: f32,
         @location(2) blade_id: f32,
         @location(3) normal: vec3<f32>,
+        @location(4) tangent: vec3<f32>,
+        @location(5) local_x: f32,
     };
 
     fn hash13(p3: vec3<f32>) -> f32 {
@@ -94,6 +130,12 @@ const hairVertexShader = `
         var p = fract(p3 * vec3<f32>(0.1031, 0.1030, 0.0973));
         p += dot(p, p.yzx + 33.33);
         return fract((p.xx + p.yz) * p.zy);
+    }
+
+    fn hash33(p3: vec3<f32>) -> vec3<f32> {
+        var p = fract(p3 * vec3<f32>(0.1031, 0.1030, 0.0973));
+        p += dot(p, p.yxz + 33.33);
+        return fract((p.xxy + p.yxx) * p.zyx);
     }
 
     @vertex
@@ -117,10 +159,15 @@ const hairVertexShader = `
         let seed = vec3<f32>(world_cell_x, world_cell_z, f32(blade_in_cell));
         let random_offset = hash23(seed);
         
-        let blade_x = world_cell_x * uniforms.grid_size + random_offset.x * uniforms.grid_size;
-        let blade_z = world_cell_z * uniforms.grid_size + random_offset.y * uniforms.grid_size;
+        // Apply clumping
+        let clump_seed = floor(seed / extra.clumping_scale);
+        let clump_offset = hash23(clump_seed);
+        let clump_blend = extra.clumping_strength;
+        let final_offset = mix(random_offset, clump_offset, clump_blend);
         
-        // Simple height for preview
+        let blade_x = world_cell_x * uniforms.grid_size + final_offset.x * uniforms.grid_size;
+        let blade_z = world_cell_z * uniforms.grid_size + final_offset.y * uniforms.grid_size;
+        
         let blade_y = uniforms.landscape_y_offset;
         let terrain_normal = vec3<f32>(0.0, 1.0, 0.0);
         
@@ -133,16 +180,25 @@ const hairVertexShader = `
         let cos_r = cos(blade_rotation);
         let sin_r = sin(blade_rotation);
         
-        var rotated_x = in.position.x * cos_r - in.position.z * sin_r;
-        var rotated_z = in.position.x * sin_r + in.position.z * cos_r;
+        // Apply twist along the blade height
+        let twist_angle = blade_rotation + extra.blade_twist * in.position.y * 3.14159;
+        let cos_t = cos(twist_angle);
+        let sin_t = sin(twist_angle);
+        
+        var rotated_x = in.position.x * cos_t - in.position.z * sin_t;
+        var rotated_z = in.position.x * sin_t + in.position.z * cos_t;
+        
+        // Apply taper - blades get thinner towards the tip
+        let height_factor = in.position.y;
+        let taper_factor = 1.0 - (height_factor * extra.blade_taper);
         
         let local_pos = vec3<f32>(
-            rotated_x * uniforms.blade_width,
+            rotated_x * uniforms.blade_width * taper_factor,
             in.position.y * uniforms.blade_height * blade_height_variation,
-            rotated_z * uniforms.blade_width
+            rotated_z * uniforms.blade_width * taper_factor
         );
         
-        let height_factor = in.position.y;
+        // Wind displacement
         let sway_phase = uniforms.time * uniforms.wind_speed * 0.3 + blade_seed * 6.28;
         let sway_amount = sin(sway_phase) * 0.5 + 0.5;
         let wind_disp = vec3<f32>(
@@ -151,13 +207,37 @@ const hairVertexShader = `
             uniforms.wind_strength * sin(sway_phase) * height_factor * height_factor
         );
 
-        let world_position = blade_pos + local_pos + wind_disp;
+        // Apply curvature - blades bend naturally
+        let curve_amount = extra.blade_curvature * height_factor * height_factor;
+        let curve_dir = vec3<f32>(cos(blade_rotation), 0.0, sin(blade_rotation));
+        let curvature_disp = curve_dir * curve_amount;
+        
+        // Apply global lean
+        let lean_disp = vec3<f32>(
+            extra.lean_direction_x * height_factor * height_factor,
+            0.0,
+            extra.lean_direction_z * height_factor * height_factor
+        );
+
+        let world_position = blade_pos + local_pos + wind_disp + curvature_disp + lean_disp;
+        
+        // Calculate tangent for better lighting
+        let tangent_dir = normalize(vec3<f32>(-sin(blade_rotation), 0.0, cos(blade_rotation)));
+        
+        // Calculate normal considering the curve
+        let curve_normal_tilt = normalize(vec3<f32>(
+            -curve_dir.x * extra.blade_curvature * 2.0 * height_factor,
+            1.0,
+            -curve_dir.z * extra.blade_curvature * 2.0 * height_factor
+        ));
         
         out.world_pos = world_position;
         out.clip_position = camera.view_proj * vec4<f32>(world_position, 1.0);
         out.height_factor = height_factor;
         out.blade_id = blade_seed;
-        out.normal = terrain_normal;
+        out.normal = curve_normal_tilt;
+        out.tangent = tangent_dir;
+        out.local_x = in.position.x;
         
         return out;
     }
@@ -184,12 +264,38 @@ const hairFragShader = `
     @group(1) @binding(0)
     var<uniform> uniforms: GrassUniforms;
 
+    struct ExtraParams {
+        blade_height_variability: f32,
+        blade_curvature: f32,
+        blade_twist: f32,
+        blade_taper: f32,
+        
+        color_variation: f32,
+        color_band_position: f32,
+        color_band_width: f32,
+        specular_strength: f32,
+        
+        clumping_strength: f32,
+        clumping_scale: f32,
+        lean_direction_x: f32,
+        lean_direction_z: f32,
+        
+        edge_darkening: f32,
+        subsurface_scattering: f32,
+        translucency: f32,
+        rim_light_strength: f32,
+    }
+    @group(3) @binding(0)
+    var<uniform> extra: ExtraParams;
+
     struct VertexOutput {
         @builtin(position) clip_position: vec4<f32>,
         @location(0) world_pos: vec3<f32>,
         @location(1) height_factor: f32,
         @location(2) blade_id: f32,
         @location(3) normal: vec3<f32>,
+        @location(4) tangent: vec3<f32>,
+        @location(5) local_x: f32,
     };
 
     struct GbufferOutput {
@@ -199,24 +305,67 @@ const hairFragShader = `
         @location(3) pbr_material: vec4<f32>,
     }
 
+    fn hash13(p3: vec3<f32>) -> f32 {
+        var p = fract(p3 * 0.1031);
+        p += dot(p, p.zyx + 31.32);
+        return fract((p.x + p.y) * p.z);
+    }
+
     @fragment
     fn fs_main(in: VertexOutput) -> GbufferOutput {
-        // Use color uniforms for custom interpolation
-        let final_color = mix(uniforms.base_color.rgb, uniforms.tip_color.rgb, in.height_factor);
+        // Color variation per blade
+        let color_shift = (in.blade_id - 0.5) * extra.color_variation;
         
-        let ao = 0.7 + in.height_factor * 0.2;
+        // Color band effect
+        let band_center = extra.color_band_position;
+        let band_half_width = extra.color_band_width * 0.5;
+        let dist_to_band = abs(in.height_factor - band_center);
+        let band_influence = 1.0 - smoothstep(0.0, band_half_width, dist_to_band);
+        
+        // Mix colors with variation and band
+        let height_blend = in.height_factor + color_shift;
+        var base_blend = mix(uniforms.base_color.rgb, uniforms.tip_color.rgb, height_blend);
+        
+        // Add color band effect (push towards tip color in the band region)
+        base_blend = mix(base_blend, uniforms.tip_color.rgb, band_influence * 0.3);
+        
+        // Edge darkening - makes blades look more three-dimensional
+        let edge_factor = abs(in.local_x);
+        let edge_darken = 1.0 - (edge_factor * extra.edge_darkening);
+        
+        // Ambient occlusion based on height
+        let ao = 0.6 + in.height_factor * 0.3;
+        
+        // Subsurface scattering simulation
+        // Light penetrates through thin parts of the blade
+        let subsurface = extra.subsurface_scattering * (1.0 - in.height_factor * 0.5) * extra.translucency;
+        let subsurface_color = mix(base_blend, uniforms.tip_color.rgb * 1.5, subsurface);
+        
+        // Combine all color effects
+        let final_color = subsurface_color * ao * edge_darken;
+        
+        // Rim lighting effect (edge highlight)
+        // This would typically use view direction, but we approximate it
+        let rim_fake = pow(1.0 - in.height_factor, 2.0) * extra.rim_light_strength;
+        let rim_color = final_color + vec3<f32>(rim_fake * 0.3);
+        
+        // Specular/roughness based on parameters
+        let roughness = 1.0 - (extra.specular_strength * 0.5);
+        let metallic = 0.0;
+        
+        // Alpha for translucency
+        let alpha = 1.0 - (extra.translucency * 0.3 * (1.0 - in.height_factor));
 
         var output: GbufferOutput;
         output.position = vec4<f32>(in.world_pos, 1.0);
-        output.normal = vec4<f32>(in.normal, 1.0);
-        output.albedo = vec4<f32>(final_color * ao, 1.0);
-        output.pbr_material = vec4<f32>(0.0, 1.0, ao, 1.0); 
+        output.normal = vec4<f32>(normalize(in.normal), 1.0);
+        output.albedo = vec4<f32>(rim_color, alpha);
+        output.pbr_material = vec4<f32>(metallic, roughness, ao, 1.0);
         
         return output;
     }
 `;
 
-// TODO: register this as a semantic handler
 function updateHair() {
     addon.Particles.createHair({
         ...hairParams,
@@ -229,9 +378,26 @@ function updateHair() {
                 resource: {
                     type: "Uniform",
                     value: { data: [
-                        hairParams.bladeHeightVariability, 0, 0, 0, 
-                        0, 0, 0, 0
-                    ] } // data + padding
+                        hairParams.bladeHeightVariability,
+                        hairParams.bladeCurvature,
+                        hairParams.bladeTwist,
+                        hairParams.bladeTaper,
+                        
+                        hairParams.colorVariation,
+                        hairParams.colorBandPosition,
+                        hairParams.colorBandWidth,
+                        hairParams.specularStrength,
+                        
+                        hairParams.clumpingStrength,
+                        hairParams.clumpingScale,
+                        hairParams.leanDirectionX,
+                        hairParams.leanDirectionZ,
+                        
+                        hairParams.edgeDarkening,
+                        hairParams.subsurfaceScattering,
+                        hairParams.translucency,
+                        hairParams.rimLightStrength
+                    ] }
                 }
             }
         ]
@@ -239,59 +405,59 @@ function updateHair() {
 }
 
 addon.onInit(async () => {
-    Entropy.println("Hair Particle Addon Initializing...");
+    Entropy.println("Enhanced Hair Particle Addon Initializing...");
 
-    // this should already be registered for interop by its name
     const customPipelineId = Entropy.Pipeline.create({
-        name: "custom_hair_shader",
-        layout: "hair", // Specialized hair layout
+        name: "custom_hair_shader_enhanced",
+        layout: "hair",
         pbr: true,
         vertexShader: hairVertexShader,
         fragmentShader: hairFragShader,
         extraBindGroups: [
             {
                 entries: [
-                    { binding: 0, visibility: ["Vertex"], resourceType: "Uniform" }
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
                 ]
             }
         ]
     });
 
-    Entropy.println("Hair Pipeline ID: " + customPipelineId);
+    Entropy.println("Enhanced Hair Pipeline ID: " + customPipelineId);
     
     hairParams.pipelineId = customPipelineId;
     updateHair();
 
-    // Create a few point lights with different colors
+    // Create atmospheric lighting
     addon.Lighting.createPointLight({
         position: [-3.0, 4.0, 5.0],
-        color: [1.0, 0.2, 0.2], // Red
+        color: [1.0, 0.2, 0.2],
         intensity: 8.0,
         maxDistance: 50.0
     });
 
     addon.Lighting.createPointLight({
         position: [3.0, 4.0, 10.0],
-        color: [0.2, 0.2, 1.0], // Blue
+        color: [0.2, 0.2, 1.0],
         intensity: 8.0,
         maxDistance: 50.0
     });
 
     addon.Lighting.createPointLight({
         position: [0.0, 5.0, -10.0],
-        color: [0.2, 1.0, 0.2], // Green
+        color: [0.2, 1.0, 0.2],
         intensity: 8.0,
         maxDistance: 50.0
     });
 
     const tab = addon.UI.createTab({
-        title: "Hair Settings",
+        title: "Hair Settings Enhanced",
         onRender: async () => {
-            Entropy.UI.Widget.label(tab, { text: "Hair & Grass Customization", bold: true });
+            Entropy.UI.Widget.label(tab, { text: "🌿 Advanced Hair & Grass System", bold: true });
             
+            // Shader Selection
             Entropy.UI.Widget.label(tab, { text: "Shader Selection", bold: true });
             Entropy.UI.Widget.button(tab, {
-                text: hairParams.pipelineId === customPipelineId ? "✅ Using Custom Shader" : "Use Custom Shader (JS)",
+                text: hairParams.pipelineId === customPipelineId ? "✅ Using Enhanced Custom Shader" : "Use Enhanced Custom Shader",
                 onClick: () => {
                     hairParams.pipelineId = customPipelineId;
                     updateHair();
@@ -305,7 +471,8 @@ addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tab, { text: "Colors", bold: true });
+            // Colors Section
+            Entropy.UI.Widget.label(tab, { text: "🎨 Color Settings", bold: true });
             Entropy.UI.Widget.colorInput(tab, {
                 label: "Base Color",
                 color: hairParams.baseColor,
@@ -324,7 +491,77 @@ addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tab, { text: "Physical Properties", bold: true });
+            Entropy.UI.Widget.slider(tab, {
+                label: "Color Variation",
+                value: hairParams.colorVariation,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.colorVariation = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Color Band Position",
+                value: hairParams.colorBandPosition,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.colorBandPosition = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Color Band Width",
+                value: hairParams.colorBandWidth,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.colorBandWidth = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            // Shape & Form Section
+            Entropy.UI.Widget.label(tab, { text: "📐 Shape & Form", bold: true });
+            
+            Entropy.UI.Widget.slider(tab, {
+                label: "Blade Curvature",
+                value: hairParams.bladeCurvature,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.bladeCurvature = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Blade Twist",
+                value: hairParams.bladeTwist,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.bladeTwist = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Blade Taper",
+                value: hairParams.bladeTaper,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.bladeTaper = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            // Physical Properties
+            Entropy.UI.Widget.label(tab, { text: "⚙️ Physical Properties", bold: true });
             
             Entropy.UI.Widget.slider(tab, {
                 label: "Density",
@@ -370,18 +607,113 @@ addon.onInit(async () => {
                 }
             });
 
+            // Clustering & Distribution
+            Entropy.UI.Widget.label(tab, { text: "🌾 Clustering & Distribution", bold: true });
+
             Entropy.UI.Widget.slider(tab, {
-                label: "Brownian Strength",
-                value: hairParams.brownianStrength,
+                label: "Clumping Strength",
+                value: hairParams.clumpingStrength,
                 min: 0.0,
-                max: 0.5,
+                max: 1.0,
                 onChange: (val: string) => {
-                    hairParams.brownianStrength = parseFloat(val);
+                    hairParams.clumpingStrength = parseFloat(val);
                     updateHair();
                 }
             });
 
-            Entropy.UI.Widget.label(tab, { text: "Environment", bold: true });
+            Entropy.UI.Widget.slider(tab, {
+                label: "Clumping Scale",
+                value: hairParams.clumpingScale,
+                min: 1.0,
+                max: 20.0,
+                onChange: (val: string) => {
+                    hairParams.clumpingScale = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Lean Direction X",
+                value: hairParams.leanDirectionX,
+                min: -2.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.leanDirectionX = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Lean Direction Z",
+                value: hairParams.leanDirectionZ,
+                min: -2.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.leanDirectionZ = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            // Lighting & Material
+            Entropy.UI.Widget.label(tab, { text: "💡 Lighting & Material", bold: true });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Specular Strength",
+                value: hairParams.specularStrength,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.specularStrength = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Edge Darkening",
+                value: hairParams.edgeDarkening,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.edgeDarkening = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Subsurface Scattering",
+                value: hairParams.subsurfaceScattering,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.subsurfaceScattering = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Translucency",
+                value: hairParams.translucency,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    hairParams.translucency = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.slider(tab, {
+                label: "Rim Light Strength",
+                value: hairParams.rimLightStrength,
+                min: 0.0,
+                max: 2.0,
+                onChange: (val: string) => {
+                    hairParams.rimLightStrength = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            // Environment
+            Entropy.UI.Widget.label(tab, { text: "🌬️ Environment", bold: true });
             
             Entropy.UI.Widget.slider(tab, {
                 label: "Wind Strength",
@@ -405,7 +737,19 @@ addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tab, { text: "Rendering & Landscape", bold: true });
+            Entropy.UI.Widget.slider(tab, {
+                label: "Brownian Strength",
+                value: hairParams.brownianStrength,
+                min: 0.0,
+                max: 0.5,
+                onChange: (val: string) => {
+                    hairParams.brownianStrength = parseFloat(val);
+                    updateHair();
+                }
+            });
+
+            // Rendering & Landscape
+            Entropy.UI.Widget.label(tab, { text: "🖥️ Rendering & Landscape", bold: true });
 
             Entropy.UI.Widget.slider(tab, {
                 label: "Grid Size",
@@ -438,6 +782,85 @@ addon.onInit(async () => {
                 }
             });
 
+            // Presets
+            Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🌾 Realistic Grass",
+                onClick: () => {
+                    hairParams.bladeCurvature = 0.3;
+                    hairParams.bladeTwist = 0.1;
+                    hairParams.bladeTaper = 0.8;
+                    hairParams.colorVariation = 0.2;
+                    hairParams.clumpingStrength = 0.15;
+                    hairParams.subsurfaceScattering = 0.6;
+                    hairParams.translucency = 0.3;
+                    hairParams.rimLightStrength = 0.4;
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "💇 Long Hair",
+                onClick: () => {
+                    hairParams.bladeHeight = 5.0;
+                    hairParams.bladeCurvature = 1.2;
+                    hairParams.bladeTwist = 0.3;
+                    hairParams.bladeTaper = 0.9;
+                    hairParams.clumpingStrength = 0.5;
+                    hairParams.windStrength = 1.5;
+                    hairParams.specularStrength = 0.6;
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🌊 Kelp/Seaweed",
+                onClick: () => {
+                    hairParams.bladeHeight = 6.0;
+                    hairParams.bladeCurvature = 1.8;
+                    hairParams.bladeTwist = 0.5;
+                    hairParams.bladeTaper = 0.5;
+                    hairParams.windSpeed = 0.1;
+                    hairParams.windStrength = 3.0;
+                    hairParams.baseColor = [0.1, 0.2, 0.15, 1.0];
+                    hairParams.tipColor = [0.2, 0.5, 0.3, 1.0];
+                    hairParams.translucency = 0.5;
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "✨ Magical Glow",
+                onClick: () => {
+                    hairParams.colorVariation = 0.4;
+                    hairParams.colorBandPosition = 0.7;
+                    hairParams.colorBandWidth = 0.6;
+                    hairParams.rimLightStrength = 1.5;
+                    hairParams.subsurfaceScattering = 0.8;
+                    hairParams.specularStrength = 0.7;
+                    hairParams.baseColor = [0.2, 0.1, 0.4, 1.0];
+                    hairParams.tipColor = [0.6, 0.3, 0.9, 1.0];
+                    updateHair();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🔥 Fire Grass",
+                onClick: () => {
+                    hairParams.bladeCurvature = 0.8;
+                    hairParams.bladeTwist = 0.4;
+                    hairParams.windStrength = 4.0;
+                    hairParams.windSpeed = 2.0;
+                    hairParams.baseColor = [0.8, 0.2, 0.0, 1.0];
+                    hairParams.tipColor = [1.0, 0.9, 0.0, 1.0];
+                    hairParams.colorBandPosition = 0.6;
+                    hairParams.rimLightStrength = 1.2;
+                    hairParams.translucency = 0.7;
+                    updateHair();
+                }
+            });
+
             Entropy.UI.Widget.button(tab, {
                 text: "Reset to Defaults",
                 onClick: () => {
@@ -457,7 +880,22 @@ addon.onInit(async () => {
                         landscapeYOffset: 0.0,
                         baseColor: [0.1, 0.3, 0.35, 1.0],
                         tipColor: [0.2, 0.7, 0.8, 1.0],
-                        pipelineId: customPipelineId
+                        pipelineId: customPipelineId,
+                        bladeCurvature: 0.5,
+                        bladeTwist: 0.2,
+                        bladeTaper: 0.7,
+                        colorVariation: 0.15,
+                        colorBandPosition: 0.5,
+                        colorBandWidth: 0.3,
+                        specularStrength: 0.2,
+                        clumpingStrength: 0.0,
+                        clumpingScale: 5.0,
+                        leanDirectionX: 0.0,
+                        leanDirectionZ: 0.0,
+                        edgeDarkening: 0.3,
+                        subsurfaceScattering: 0.4,
+                        translucency: 0.2,
+                        rimLightStrength: 0.5
                     };
                     updateHair();
                 }
