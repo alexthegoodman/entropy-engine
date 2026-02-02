@@ -510,21 +510,21 @@ addon.onInit(async () => {
     Entropy.println("Water Plane Addon create lights...");
 
     // Create a few point lights with different colors
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [-3.0, 4.0, 5.0],
         color: [1.0, 0.2, 0.2], // Red
         intensity: 8.0,
         maxDistance: 50.0
     });
 
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [3.0, 4.0, 10.0],
         color: [0.2, 0.2, 1.0], // Blue
         intensity: 8.0,
         maxDistance: 50.0
     });
 
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [0.0, 5.0, -10.0],
         color: [0.2, 1.0, 0.2], // Green
         intensity: 8.0,

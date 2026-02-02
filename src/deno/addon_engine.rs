@@ -77,6 +77,8 @@ pub struct PipelineConfig {
     
     pub extra_bind_groups: Option<Vec<BindGroupDef>>,
 
+    pub lighting_bindings: Option<Vec<BindingConfig>>,
+
 }
 
 
@@ -452,6 +454,7 @@ pub struct AddonContext {
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
     pub pipeline_configs: HashMap<String, PipelineConfig>,
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
+    pub lighting_bind_groups: HashMap<String, Vec<wgpu::BindGroup>>,
     pub bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>, // 0: model, 1: group, 2: camera
     pub lighting_bind_group_layouts: Vec<Arc<wgpu::BindGroupLayout>>,
     pub surface_format: Option<wgpu::TextureFormat>,
@@ -917,7 +920,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         
         ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
 
-        // println!("Prep for lighting shader: {:?}", config.layout);
+        println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);
 
         // If a lighting shader is provided, create a lighting pipeline
         if let Some(lighting_shader_source) = &config.lighting_shader {
@@ -926,7 +929,13 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 source: wgpu::ShaderSource::Wgsl(lighting_shader_source.as_str().into()),
             });
 
-            let lighting_layouts: Vec<&wgpu::BindGroupLayout> = ctx.lighting_bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+            let mut lighting_layouts: Vec<&wgpu::BindGroupLayout> = ctx.lighting_bind_group_layouts.iter().map(|l| l.as_ref()).collect();
+            
+            // Append extra layouts to the lighting pipeline layout
+            for l in &created_layouts {
+                lighting_layouts.push(l);
+            }
+
             let lighting_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some(&format!("{} Lighting Pipeline Layout", config.name)),
                 bind_group_layouts: &lighting_layouts,
@@ -960,9 +969,58 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             });
 
             ctx.lighting_pipelines.insert(id.clone(), Arc::new(lighting_pipeline));
+
+            println!("More for lighting shader: {:?} {:?}", config.name, config.layout);
+
+            // Create lighting bind groups if provided
+            if let Some(bindings) = &config.lighting_bindings {
+                let mut bind_groups = Vec::new();
+                let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+                for b in bindings {
+                    groups.entry(b.group).or_default().push(b.clone());
+                }
+
+                let mut sorted_groups: Vec<_> = groups.into_iter().collect();
+                sorted_groups.sort_by_key(|(g, _)| *g);
+
+                for (group_idx, group_bindings) in sorted_groups {
+                    let layout = &lighting_layouts[group_idx as usize];
+                    let mut wgpu_entries = Vec::new();
+                    let mut created_buffers = Vec::new();
+
+                    for b in group_bindings {
+                        match &b.resource {
+                            ResourceType::Uniform { data } => {
+                                let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some(&format!("Lighting Uniform {}:{}", group_idx, b.binding)),
+                                    contents: bytemuck::cast_slice(data),
+                                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                                });
+                                created_buffers.push(buffer);
+                            },
+                            _ => {} // Handle others as needed
+                        }
+                    }
+
+                    for (i, buffer) in created_buffers.iter().enumerate() {
+                        wgpu_entries.push(wgpu::BindGroupEntry {
+                            binding: i as u32, // Simplified for now
+                            resource: buffer.as_entire_binding(),
+                        });
+                    }
+
+                    let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout,
+                        entries: &wgpu_entries,
+                        label: Some(&format!("Lighting BindGroup {}", group_idx)),
+                    });
+                    bind_groups.push(bg);
+                }
+                ctx.lighting_bind_groups.insert(id.clone(), bind_groups);
+            }
         }
 
-        // println!("Done with lighting shader: {:?}", config.layout);
+        println!("Done with lighting shader: {:?}", config.name);
         
         ctx.pipeline_configs.insert(id.clone(), config);
         
@@ -1054,6 +1112,7 @@ impl AddonEngine {
             pipelines: HashMap::new(),
             pipeline_configs: HashMap::new(),
             lighting_pipelines: HashMap::new(),
+            lighting_bind_groups: HashMap::new(),
             bind_group_layouts: Vec::new(),
             lighting_bind_group_layouts: Vec::new(),
             surface_format: None,

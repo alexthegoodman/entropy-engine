@@ -3397,6 +3397,7 @@ impl EntropyPipeline {
 
             // 2. Lighting Pass for PBR objects
             let mut custom_lighting_pid = None;
+            let mut extra_lighting_bind_groups = Vec::new();
             
             {
                 let mut op_state = editor.addon_engine.runtime.op_state();
@@ -3407,6 +3408,9 @@ impl EntropyPipeline {
                         if let Some(pid) = &cube.pipeline_id {
                             if ctx.lighting_pipelines.contains_key(pid) {
                                 custom_lighting_pid = Some(pid.clone());
+                                if let Some(bgs) = ctx.lighting_bind_groups.get(pid) {
+                                    extra_lighting_bind_groups = bgs.clone();
+                                }
                                 break;
                             }
                         }
@@ -3442,11 +3446,11 @@ impl EntropyPipeline {
                 lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
             }
 
-            if let Some(pid) = custom_lighting_pid {
+            if let Some(pid) = &custom_lighting_pid {
                 let mut op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
                 if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                    if let Some(lp) = ctx.lighting_pipelines.get(&pid) {
+                    if let Some(lp) = ctx.lighting_pipelines.get(pid) {
                         lighting_pass.set_pipeline(lp);
                     }
                 }
@@ -3458,6 +3462,12 @@ impl EntropyPipeline {
             lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
             lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
             lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
+
+            // Set extra bind groups for custom lighting
+            for (i, bg) in extra_lighting_bind_groups.iter().enumerate() {
+                lighting_pass.set_bind_group((i + 4) as u32, bg, &[]);
+            }
+
             lighting_pass.draw(0..3, 0..1);
             drop(lighting_pass);
         }

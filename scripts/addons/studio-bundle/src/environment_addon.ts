@@ -153,7 +153,7 @@ let fogColor = [0.7, 0.8, 1.0, 1.0];
 let isCycleEnabled = true;
 
 addon.onInit(async () => {
-    Entropy.println("Environment Addon Initialized!");
+    Entropy.println("Environment Addon starting...");
 
     // Create custom pipeline for environment lighting (with Fog uniform)
     const envPipeline = Entropy.Pipeline.create({
@@ -166,7 +166,28 @@ addon.onInit(async () => {
                     { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
                 ]
             }
+        ],
+        lightingBindings: [
+            {
+                group: 4,
+                binding: 0,
+                resource: {
+                    type: "Uniform",
+                    value: { data: [0.7, 0.8, 1.0, 1.0, 0.005, 0.0, 0.0, 0.0] } // Fog color + density + padding
+                }
+            }
         ]
+    });
+
+    Entropy.println("Environment Addon Pipeline Created! " + envPipeline);
+
+    addon.Model.createProcedural({
+        type: "cube",
+        pipelineId: envPipeline,
+        parameters: {
+            position: [1.0, 2.0, 0.0],
+            scale: [1.0, 1.0, 1.0]
+        }
     });
 
     // We can't apply the pipeline to EVERYTHING globally yet via API,
@@ -210,8 +231,30 @@ addon.onInit(async () => {
             sunIntensity: intensity,
             horizonColor: horizon,
             zenithColor: zenith
-        });
+        } as any);
     };
+
+    // Create a few point lights with different colors
+    addon.Lighting.createPointLight({
+        position: [-3.0, 4.0, 5.0],
+        color: [1.0, 0.2, 0.2], // Red
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.2, 0.2, 1.0], // Blue
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -10.0],
+        color: [0.2, 1.0, 0.2], // Green
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
 
     // Create UI Tab
     const tab = addon.UI.createTab({
@@ -270,18 +313,18 @@ addon.onInit(async () => {
     // Simple loop for time cycle
     // Note: In a real addon we might want an onUpdate hook
     // For now we use setInterval (Deno supports it)
-    setInterval(() => {
-        if (isCycleEnabled) {
-            timeOfDay += (1 / (dayDuration * 60)); // assuming 60fps update logic? 
-            // wait, setInterval is real time.
-            // 1 / dayDuration is increment per second.
-            // if we run at 100ms interval:
-            timeOfDay += (0.1 / dayDuration);
+    // setInterval(() => {
+    //     if (isCycleEnabled) {
+    //         timeOfDay += (1 / (dayDuration * 60)); // assuming 60fps update logic? 
+    //         // wait, setInterval is real time.
+    //         // 1 / dayDuration is increment per second.
+    //         // if we run at 100ms interval:
+    //         timeOfDay += (0.1 / dayDuration);
             
-            if (timeOfDay > 1.0) timeOfDay = 0.0;
-            updateEnvironment();
-        }
-    }, 100);
+    //         if (timeOfDay > 1.0) timeOfDay = 0.0;
+    //         updateEnvironment();
+    //     }
+    // }, 100);
 
     updateEnvironment();
 });

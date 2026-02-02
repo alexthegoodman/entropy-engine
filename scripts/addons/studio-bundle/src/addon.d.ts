@@ -131,6 +131,11 @@ export interface ButtonConfig {
 }
 
 export interface PipelineConfig {
+  name: string;
+  pbr?: boolean;
+  lightingShader?: string;
+  extraBindGroups?: any[];
+  lightingBindings?: any[];
   [key: string]: unknown;
 }
 

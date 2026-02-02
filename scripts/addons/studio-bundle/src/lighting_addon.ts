@@ -137,21 +137,21 @@ addon.onInit(async () => {
     }
 
     // Create a few point lights with different colors
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [-3.0, 4.0, 1.0],
         color: [1.0, 0.2, 0.2], // Red
         intensity: 2.0,
         maxDistance: 10.0
     });
 
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [3.0, 4.0, 1.0],
         color: [0.2, 0.2, 1.0], // Blue
         intensity: 2.0,
         maxDistance: 10.0
     });
 
-    Entropy.Lighting.createPointLight({
+    addon.Lighting.createPointLight({
         position: [0.0, 5.0, -1.0],
         color: [0.2, 1.0, 0.2], // Green
         intensity: 3.0,
@@ -167,7 +167,7 @@ addon.onInit(async () => {
                 text: "Spawn Yellow Light at Camera",
                 onClick: () => {
                     // Note: We don't have camera position in JS yet, so we'll just spawn at a fixed spot
-                    Entropy.Lighting.createPointLight({
+                    addon.Lighting.createPointLight({
                         position: [0, 10, 5],
                         color: [1.0, 1.0, 0.0],
                         intensity: 5.0,

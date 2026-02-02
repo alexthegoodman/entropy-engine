@@ -216,7 +216,10 @@ globalThis.Entropy = {
     },
     Pipeline: {
         create: (config) => {
-            return ops.op_pipeline_create(config);
+            return ops.op_pipeline_create({
+                ...config,
+                lightingBindings: config.lightingBindings || null
+            });
         }
     },
     Landscape: {
