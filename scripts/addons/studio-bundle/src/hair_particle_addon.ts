@@ -740,10 +740,7 @@ let ornamentPipelineId: string | null = null;
 
 function updateOrnaments() {
     if (!hairParams.ornamentsEnabled) {
-        if (ornamentMeshId) {
-            // TODO: Remove ornament mesh when disabled
-            // addon.Mesh.remove(ornamentMeshId);
-        }
+        addon.Model.clearMeshes();
         return;
     }
 
@@ -828,7 +825,7 @@ function updateOrnaments() {
                             hairParams.leanDirectionX,
                             hairParams.leanDirectionZ,
                             hairParams.landscapeYOffset,
-                            0, 0, 0 // padding
+                            0, 0, 0, 0 // padding
                         ]
                     }
                 }
@@ -851,12 +848,22 @@ function updateOrnaments() {
         ]
     };
 
-    // This would be your engine-specific call
-    // ornamentMeshId = addon.Mesh.createInstanced(ornamentData);
+    if (ornamentPipelineId) {
+        // Clear old ornaments
+        addon.Model.clearMeshes();
 
-    // TODO: I do believe we just need the createMesh like from water plane, or even a special createInstanced. Then, we probably need something for updating and maybe removing too.
-    
-    Entropy.println(`Ornaments updated: ${ornamentInstances} orbs across ${Math.floor(totalBlades * hairParams.ornamentProbability)} clusters`);
+        // Create instanced mesh
+        addon.Model.createMesh({
+            vertexData: Array.from(sphereVertices),
+            indexData: Array.from(sphereIndices),
+            instanceCount: ornamentInstances,
+            pipelineId: ornamentPipelineId,
+            position: [0, 0, 0],
+            bindings: ornamentData.bindings
+        });
+        
+        Entropy.println(`Ornaments updated: ${ornamentInstances} orbs across ${Math.floor(totalBlades * hairParams.ornamentProbability)} clusters`);
+    }
 }
 
 addon.onInit(async () => {

@@ -35,8 +35,12 @@ globalThis.Entropy = {
                             vertexData: config.vertexData || [],
                             indexData: config.indexData || [],
                             pipelineId: config.pipelineId,
+                            instanceCount: config.instanceCount || 1,
                             bindings: config.bindings || []
                         });
+                    },
+                    clearMeshes: () => {
+                        ops.op_meshes_clear(metadata.name);
                     }
                 },
                 Landscape: {

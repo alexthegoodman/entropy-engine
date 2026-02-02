@@ -67,10 +67,18 @@ export interface ProceduralSkyConfig {
 }
 
 export interface ScopedAPI {
-  Model: {
-    createProcedural: (config: ProceduralModelConfig) => void;
-    createMesh: (config: any) => void;
-  };
+        Model: {
+            createProcedural: (config: { type: string; parameters?: any; pipelineId?: string }) => void;
+            createMesh: (config: { 
+                position: number[]; 
+                vertexData: number[]; 
+                indexData: number[]; 
+                pipelineId: string; 
+                instanceCount?: number;
+                bindings?: any[] 
+            }) => void;
+            clearMeshes: () => void;
+        };
   Landscape: {
     create: (config: LandscapeConfig) => void;
   };

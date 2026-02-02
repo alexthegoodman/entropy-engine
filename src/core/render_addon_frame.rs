@@ -475,8 +475,11 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 // It just appends extras.
                 
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                render_pass.set_index_buffer(
+                    mesh.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
             }
 
             for grass in &mut pbr_grasses {
@@ -744,8 +747,11 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 }
                 
                 render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                render_pass.set_index_buffer(
+                    mesh.index_buffer.slice(..),
+                    wgpu::IndexFormat::Uint32,
+                );
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
             }
 
             for grass in &mut non_pbr_grasses {

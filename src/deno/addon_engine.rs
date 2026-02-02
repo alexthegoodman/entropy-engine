@@ -111,6 +111,10 @@ pub struct MeshConfig {
 
 
 
+    pub instance_count: Option<u32>,
+
+
+
     pub bindings: Option<Vec<BindingConfig>>,
 
 
@@ -392,6 +396,7 @@ pub struct AddonContext {
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
+    pub pending_clears: Vec<String>, // addon_names to clear meshes for
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -896,6 +901,14 @@ fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] co
 }
 
 #[op2(fast)]
+fn op_meshes_clear(state: &mut OpState, #[string] addon_name: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_meshes.retain(|(name, _)| name != &addon_name);
+        ctx.pending_clears.push(addon_name);
+    }
+}
+
+#[op2(fast)]
 fn op_println(
     state: &mut OpState,
     #[string] msg: String
@@ -913,6 +926,7 @@ extension!(
         op_pipeline_create,
         op_cube_spawn,
         op_mesh_create,
+        op_meshes_clear,
         op_landscape_create,
         op_grass_create,
         op_noise_create,
@@ -971,6 +985,7 @@ impl AddonEngine {
             landscape_particle_layout: None,
             pending_cubes: Vec::new(),
             pending_meshes: Vec::new(),
+            pending_clears: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
@@ -1377,21 +1392,28 @@ let mut samplers = Vec::new();
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_meshes, pending_landscapes, pending_grasses, pending_point_lights) = {
+        let (pending_cubes, pending_meshes, pending_clears, pending_landscapes, pending_grasses, pending_point_lights) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 (
                     std::mem::take(&mut ctx.pending_cubes),
                     std::mem::take(&mut ctx.pending_meshes),
+                    std::mem::take(&mut ctx.pending_clears),
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
+
+        if !pending_clears.is_empty() {
+            for addon_name in pending_clears {
+                renderer_state.addon_meshes.remove(&addon_name);
+            }
+        }
 
         if !pending_point_lights.is_empty() {
             for (addon_name, config) in pending_point_lights {
@@ -1468,7 +1490,8 @@ let mut samplers = Vec::new();
                              config.position,
                              uuid::Uuid::new_v4().to_string(),
                              uniform_buffers,
-                             samplers
+                             samplers,
+                             config.instance_count.unwrap_or(1),
                          );
 
                          renderer_state.addon_meshes
