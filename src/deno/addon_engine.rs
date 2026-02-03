@@ -834,6 +834,13 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
                 ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
             ];
+        } else if config.layout.as_deref() == Some("mesh") {
+            // Group 0: Camera
+            // Group 1: MeshUniforms (Transform)
+            layouts = vec![
+                ctx.bind_group_layouts[0].as_ref(), // Camera
+                ctx.bind_group_layouts[1].as_ref(), // Model/Mesh Transform
+            ];
         } 
         
          if let Some(extras) = &config.extra_bind_groups {
@@ -843,6 +850,11 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
                     ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
+                ];
+            } else if config.layout.as_deref() == Some("mesh") {
+                layouts = vec![
+                    ctx.bind_group_layouts[0].as_ref(), // Camera
+                    ctx.bind_group_layouts[1].as_ref(), // Model
                 ];
             } else {
                 layouts = vec![ctx.bind_group_layouts[0].as_ref()]; // Start with Camera (Group 0)
@@ -1551,6 +1563,7 @@ impl AddonEngine {
 
                          let mut mesh = CustomMesh::new(
                              &gpu.device,
+                             &gpu.queue,
                              vertex_bytes,
                              index_bytes,
                              pipeline,
@@ -1562,6 +1575,11 @@ impl AddonEngine {
                              samplers,
                              config.instance_count.unwrap_or(1),
                              time_buffer,
+
+                             &renderer_state.model_bind_group_layout,
+                             &renderer_state.texture_render_mode_buffer,
+                             &renderer_state.group_bind_group_layout,
+                             camera
                          );
                          
                          if let Some(rotation) = config.rotation {

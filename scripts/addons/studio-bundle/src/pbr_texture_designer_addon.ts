@@ -200,7 +200,7 @@ function updatePreview() {
     addon.Model.clearMeshes();
     addon.Model.createMesh({
         pipelineId: texParams.pipelineId,
-        position: [0, 5, 0],
+        position: [-2, 0, -2],
         rotation: texParams.previewRotation,
         scale: [2, 2, 2],
         vertexData: vertices,
@@ -304,6 +304,7 @@ addon.onInit(async () => {
     const pipelineId = Entropy.Pipeline.create({
         name: "PBR_Preview_Pipeline",
         pbr: true,
+        layout: "mesh",
         vertexShader: PREVIEW_SHADER,
         fragmentShader: PREVIEW_SHADER,
         extraBindGroups: [

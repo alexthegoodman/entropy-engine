@@ -468,8 +468,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
                         
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        render_pass.set_bind_group(1, &mesh.model_bind_group, &[]);
+
                         for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                            render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                            render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
                         }
 
                         if let Some(time_buffer) = &mesh.time_buffer {
@@ -799,13 +801,27 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        
+                        // Create a temporary bind group for the transform
+                        let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                            layout: &renderer_state.model_bind_group_layout,
+                            entries: &[wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: mesh.transform.uniform_buffer.as_entire_binding(),
+                            }],
+                            label: Some("Mesh Transform Bind Group"),
+                        });
+                        render_pass.set_bind_group(1, &transform_bind_group, &[]);
+
                         for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                            render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                            render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
                         }
                         
                         if let Some(time_buffer) = &mesh.time_buffer {
                             queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                         }
+                        
+                        mesh.transform.update_uniform_buffer(&queue);
                         
                         render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                         render_pass.set_index_buffer(
