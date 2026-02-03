@@ -477,14 +477,14 @@ fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[strin
     }
 }
 
-#[op2]
+#[op2(fast)]
 fn op_addon_save_image(
     state: &mut OpState,
     #[string] _addon_name: String,
     #[string] filename: String,
     width: u32,
     height: u32,
-    #[serde] rgba_data: Vec<u8>
+    #[buffer] rgba_data: &[u8]
 ) -> Result<(), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         let project_id = &ctx.project_id;
