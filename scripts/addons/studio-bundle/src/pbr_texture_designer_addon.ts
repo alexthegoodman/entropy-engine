@@ -79,7 +79,8 @@ struct GbufferOutput {
 fn fs_main(in: VertexOutput) -> GbufferOutput {
     let albedo = textureSample(t_diffuse, s_diffuse, in.uv);
     let normal_map = textureSample(t_normal, s_diffuse, in.uv).rgb * 2.0 - 1.0;
-    let arm = textureSample(t_arm, s_diffuse, in.uv);
+    let arm1 = textureSample(t_arm, s_diffuse, in.uv);
+    let arm = vec4<f32>(arm1.x, arm1.y, 0.35, 1.0);
     
     var out: GbufferOutput;
     out.position = vec4<f32>(in.world_pos, 1.0);
