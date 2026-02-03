@@ -181,11 +181,12 @@ addon.onInit(async () => {
 
     Entropy.println("Environment Addon Pipeline Created! " + envPipeline);
 
+    // TODO: need something else besides cube to render this pipeline, cube for now
     addon.Model.createProcedural({
         type: "cube",
         pipelineId: envPipeline,
         parameters: {
-            position: [1.0, 2.0, 0.0],
+            position: [1.0, 10.0, 0.0],
             scale: [1.0, 1.0, 1.0]
         }
     });
@@ -336,26 +337,26 @@ addon.onInit(async () => {
 
     updateEnvironment();
 
-    // Spawn some test cubes to see the fog and environment lighting
-    for (let i = 0; i < 10; i++) {
-        addon.Model.createProcedural({
-            type: "cube",
-            pipelineId: envPipeline,
-            renderRole: "Sky",
-            parameters: {
-                position: [0, 2.0, -i * 10.0], // Row of cubes going into the distance
-                scale: [2.0, 2.0, 2.0]
-            }
-        } as any);
-    }
+    // // Spawn some test cubes to see the fog and environment lighting
+    // for (let i = 0; i < 10; i++) {
+    //     addon.Model.createProcedural({
+    //         type: "cube",
+    //         pipelineId: envPipeline,
+    //         renderRole: "Sky",
+    //         parameters: {
+    //             position: [0, 2.0, -i * 10.0], // Row of cubes going into the distance
+    //             scale: [2.0, 2.0, 2.0]
+    //         }
+    //     } as any);
+    // }
 
-    // Spawn a large "floor" cube
-    addon.Model.createProcedural({
-        type: "cube",
-        pipelineId: envPipeline,
-        parameters: {
-            position: [0, -1.0, -50.0],
-            scale: [100.0, 1.0, 100.0]
-        }
-    });
+    // // Spawn a large "floor" cube
+    // addon.Model.createProcedural({
+    //     type: "cube",
+    //     pipelineId: envPipeline,
+    //     parameters: {
+    //         position: [0, -1.0, -50.0],
+    //         scale: [100.0, 1.0, 100.0]
+    //     }
+    // });
 });

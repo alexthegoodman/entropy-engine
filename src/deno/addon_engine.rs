@@ -660,6 +660,17 @@ fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Resu
 }
 
 #[op2]
+#[string]
+fn op_generate_uuid(state: &mut OpState) -> Result<String, deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let id = Uuid::new_v4().to_string();
+        Ok(id)
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
 fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         ctx.audio_engine.play_synth(config.freq, &config.waveform, config.duration, config.cutoff, config.gain);
@@ -1262,7 +1273,8 @@ extension!(
         op_audio_play_synth,
         op_audio_play_test,
         op_addon_on_project_changed,
-        op_addon_set_visibility
+        op_addon_set_visibility,
+        op_generate_uuid
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],

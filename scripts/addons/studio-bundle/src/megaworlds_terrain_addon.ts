@@ -27,12 +27,12 @@ let addonState: {
 } = {
     currentParams: { ...terrainParams },
     savedComponents: [],
-    activeComponentId: crypto.randomUUID()
+    activeComponentId: Entropy.generateUUID()
 };
 
 let newComponentName = "New Rust Terrain Component";
 
-async function generateTerrain(params: typeof terrainParams, id: string = crypto.randomUUID()) {
+async function generateTerrain(params: typeof terrainParams, id: string = Entropy.generateUUID()) {
     // 1. Create a noise handle in Rust
     const noiseId = addon.Noise.create({
         type: "fbm",
@@ -120,7 +120,7 @@ const renderTerrainUI = (windowId: string) => {
         text: "Randomize Seed & Regenerate",
         onClick: () => {
             addonState.currentParams.seed = Math.floor(Math.random() * 1000);
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
         }
     });
 
@@ -128,7 +128,7 @@ const renderTerrainUI = (windowId: string) => {
         text: addonState.currentParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
         onClick: () => {
             addonState.currentParams.usePBR = !addonState.currentParams.usePBR;
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
         }
     });
 
@@ -149,7 +149,7 @@ addon.onInit(async () => {
         }
     }
 
-    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+    generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
     if (Entropy.Composer) {
         Entropy.Composer.registerEditor("Simple Procedural Terrain", renderTerrainUI);

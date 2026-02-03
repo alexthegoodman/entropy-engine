@@ -387,6 +387,9 @@ globalThis.Entropy = {
     },
     println: (msg) => {
         ops.op_println(String(msg));
+    },
+    generateUUID: () => {
+        return ops.op_generate_uuid();
     }
 };
 

@@ -328,6 +328,7 @@ export interface EntropyAPI {
     playTestTone: () => void;
   };
   println: (msg: unknown) => void;
+  generateUUID: () => string;
   _process_events: (eventIds: string[]) => void;
 }
 

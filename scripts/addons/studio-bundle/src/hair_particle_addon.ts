@@ -71,7 +71,7 @@ let addonState: {
 } = {
     currentParams: { ...hairParams },
     savedComponents: [],
-    activeComponentId: crypto.randomUUID()
+    activeComponentId: Entropy.generateUUID()
 };
 
 let newComponentName = "New Hair Component";
@@ -719,7 +719,7 @@ const ornamentFragShader = `
     }
 `;
 
-function updateHair(params: typeof hairParams, id: string = crypto.randomUUID()) {
+function updateHair(params: typeof hairParams, id: string = Entropy.generateUUID()) {
     addon.Particles.createHair({
         ...params,
         id: id,
@@ -762,7 +762,7 @@ function updateHair(params: typeof hairParams, id: string = crypto.randomUUID())
 let ornamentMeshId: string | null = null;
 let ornamentPipelineId: string | null = null;
 
-function updateOrnaments(params: typeof hairParams, id: string = crypto.randomUUID()) {
+function updateOrnaments(params: typeof hairParams, id: string = Entropy.generateUUID()) {
     if (!params.ornamentsEnabled) {
         return;
     }
@@ -956,8 +956,8 @@ addon.onInit(async () => {
         }
     }
 
-    updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
-    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+    updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
     // Atmospheric lighting
     addon.Lighting.createPointLight({
@@ -1037,7 +1037,7 @@ addon.onInit(async () => {
             text: addonState.currentParams.ornamentsEnabled ? "✅ Ornaments Enabled" : "❌ Ornaments Disabled",
             onClick: () => {
                 addonState.currentParams.ornamentsEnabled = !addonState.currentParams.ornamentsEnabled;
-                updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1048,7 +1048,7 @@ addon.onInit(async () => {
                 text: `Shape: ${shapes[addonState.currentParams.ornamentClusterShape]}`,
                 onClick: () => {
                     addonState.currentParams.ornamentClusterShape = (addonState.currentParams.ornamentClusterShape + 1) % shapes.length;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1059,7 +1059,7 @@ addon.onInit(async () => {
                 max: 1.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentProbability = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1070,7 +1070,7 @@ addon.onInit(async () => {
                 max: 20,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentCount = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1081,7 +1081,7 @@ addon.onInit(async () => {
                 max: 1.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentHeightPosition = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1092,7 +1092,7 @@ addon.onInit(async () => {
                 max: 0.5,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentHeightRange = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1103,7 +1103,7 @@ addon.onInit(async () => {
                 max: 0.5,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentSize = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1114,7 +1114,7 @@ addon.onInit(async () => {
                 max: 1.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentSizeVariation = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1123,7 +1123,7 @@ addon.onInit(async () => {
                 color: addonState.currentParams.ornamentColor,
                 onChange: (newColor: number[]) => {
                     addonState.currentParams.ornamentColor = newColor;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1134,7 +1134,7 @@ addon.onInit(async () => {
                 max: 1.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentColorVariation = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1145,7 +1145,7 @@ addon.onInit(async () => {
                 max: 2.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentGlow = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1156,7 +1156,7 @@ addon.onInit(async () => {
                 max: 3.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentRotationSpeed = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1167,7 +1167,7 @@ addon.onInit(async () => {
                 max: 2.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentWeight = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1178,7 +1178,7 @@ addon.onInit(async () => {
                 max: 2.0,
                 onChange: (val: string) => {
                     addonState.currentParams.ornamentInertia = parseFloat(val);
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1195,7 +1195,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentColor = [1.0, 0.85, 0.3, 1.0];
                     addonState.currentParams.ornamentGlow = 0.3;
                     addonState.currentParams.ornamentProbability = 0.15;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1211,7 +1211,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentGlow = 0.6;
                     addonState.currentParams.ornamentProbability = 0.2;
                     addonState.currentParams.ornamentWeight = 0.5;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1227,7 +1227,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentGlow = 1.5;
                     addonState.currentParams.ornamentProbability = 0.25;
                     addonState.currentParams.ornamentRotationSpeed = 1.5;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1243,7 +1243,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentGlow = 0.1;
                     addonState.currentParams.ornamentProbability = 0.5;
                     addonState.currentParams.ornamentWeight = 0.8;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1259,7 +1259,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentGlow = 2.0;
                     addonState.currentParams.ornamentProbability = 0.1;
                     addonState.currentParams.ornamentRotationSpeed = 2.5;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
 
@@ -1275,7 +1275,7 @@ addon.onInit(async () => {
                     addonState.currentParams.ornamentGlow = 0.2;
                     addonState.currentParams.ornamentProbability = 0.12;
                     addonState.currentParams.ornamentWeight = 1.2;
-                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
         }
@@ -1287,7 +1287,7 @@ addon.onInit(async () => {
             color: addonState.currentParams.baseColor,
             onChange: (newColor: number[]) => {
                 addonState.currentParams.baseColor = newColor;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1296,7 +1296,7 @@ addon.onInit(async () => {
             color: addonState.currentParams.tipColor,
             onChange: (newColor: number[]) => {
                 addonState.currentParams.tipColor = newColor;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1307,7 +1307,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.colorVariation = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1318,7 +1318,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.colorBandPosition = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1329,7 +1329,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.colorBandWidth = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1343,7 +1343,7 @@ addon.onInit(async () => {
             max: 2.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeCurvature = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1354,7 +1354,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeTwist = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1365,7 +1365,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeTaper = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1379,7 +1379,7 @@ addon.onInit(async () => {
             max: 100.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeDensity = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1390,7 +1390,7 @@ addon.onInit(async () => {
             max: 10.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeHeight = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1401,7 +1401,7 @@ addon.onInit(async () => {
             max: 2.0,
             onChange: (val: string) => {
                 addonState.currentParams.bladeHeightVariability = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1412,7 +1412,7 @@ addon.onInit(async () => {
             max: 0.5,
             onChange: (val: string) => {
                 addonState.currentParams.bladeWidth = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1426,7 +1426,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.clumpingStrength = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1437,7 +1437,7 @@ addon.onInit(async () => {
             max: 20.0,
             onChange: (val: string) => {
                 addonState.currentParams.clumpingScale = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1448,7 +1448,7 @@ addon.onInit(async () => {
             max: 2.0,
             onChange: (val: string) => {
                 addonState.currentParams.leanDirectionX = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1459,7 +1459,7 @@ addon.onInit(async () => {
             max: 2.0,
             onChange: (val: string) => {
                 addonState.currentParams.leanDirectionZ = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1473,7 +1473,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.specularStrength = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1484,7 +1484,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.edgeDarkening = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1495,7 +1495,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.subsurfaceScattering = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1506,7 +1506,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.translucency = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1517,7 +1517,7 @@ addon.onInit(async () => {
             max: 2.0,
             onChange: (val: string) => {
                 addonState.currentParams.rimLightStrength = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1531,7 +1531,7 @@ addon.onInit(async () => {
             max: 10.0,
             onChange: (val: string) => {
                 addonState.currentParams.windStrength = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1542,7 +1542,7 @@ addon.onInit(async () => {
             max: 5.0,
             onChange: (val: string) => {
                 addonState.currentParams.windSpeed = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1556,7 +1556,7 @@ addon.onInit(async () => {
             max: 10.0,
             onChange: (val: string) => {
                 addonState.currentParams.gridSize = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1567,7 +1567,7 @@ addon.onInit(async () => {
             max: 500.0,
             onChange: (val: string) => {
                 addonState.currentParams.renderDistance = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1576,7 +1576,7 @@ addon.onInit(async () => {
             value: hairParams.landscapeYOffset,
             onChange: (val: string) => {
                 addonState.currentParams.landscapeYOffset = parseFloat(val);
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1594,7 +1594,7 @@ addon.onInit(async () => {
                 addonState.currentParams.subsurfaceScattering = 0.6;
                 addonState.currentParams.translucency = 0.3;
                 addonState.currentParams.rimLightStrength = 0.4;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1608,7 +1608,7 @@ addon.onInit(async () => {
                 addonState.currentParams.clumpingStrength = 0.5;
                 addonState.currentParams.windStrength = 1.5;
                 addonState.currentParams.specularStrength = 0.6;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1624,7 +1624,7 @@ addon.onInit(async () => {
                 addonState.currentParams.baseColor = [0.1, 0.2, 0.15, 1.0];
                 addonState.currentParams.tipColor = [0.2, 0.5, 0.3, 1.0];
                 addonState.currentParams.translucency = 0.5;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1639,7 +1639,7 @@ addon.onInit(async () => {
                 addonState.currentParams.specularStrength = 0.7;
                 addonState.currentParams.baseColor = [0.2, 0.1, 0.4, 1.0];
                 addonState.currentParams.tipColor = [0.6, 0.3, 0.9, 1.0];
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1655,7 +1655,7 @@ addon.onInit(async () => {
                 addonState.currentParams.colorBandPosition = 0.6;
                 addonState.currentParams.rimLightStrength = 1.2;
                 addonState.currentParams.translucency = 0.7;
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
 
@@ -1710,8 +1710,8 @@ addon.onInit(async () => {
                     ornamentSpacing: 0.0,
                     ornamentInertia: 0.7
                 };
-                updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
-                updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+                updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+                updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
     }
@@ -1731,8 +1731,8 @@ addon.onInit(async () => {
         if (data) {
             addonState = { ...addonState, ...data };
         }
-        updateHair(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
-        updateOrnaments(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
+        updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+        updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
     });
 
     const tab = addon.UI.createTab({
