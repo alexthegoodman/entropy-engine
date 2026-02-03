@@ -315,7 +315,7 @@ pub struct PBRTextureData {
     pub rough: Option<File>, // png, tiff, and jpg seem stable
     pub metallic: Option<File>, // png, tiff, and jpg seem stable
     pub ao: Option<File>, // png, tiff, and jpg seem stable
-    pub arm: Option<File>, // png, tiff, and jpg seem stable
+    pub arm: Option<File>, // png, tiff, and jpg seem stable // if arm is used, then ao, rough, and metallic are not needed
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]

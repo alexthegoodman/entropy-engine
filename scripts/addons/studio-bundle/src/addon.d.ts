@@ -125,6 +125,7 @@ export interface ScopedAPI {
   };
   IO: {
     save: (data: any) => void;
+    saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
     load: () => any;
   };
 }

@@ -136,6 +136,9 @@ globalThis.Entropy = {
                     save: (data) => {
                         ops.op_addon_save_data(metadata.name, JSON.stringify(data));
                     },
+                    saveImage: (filename, width, height, data) => {
+                        ops.op_addon_save_image(metadata.name, filename, width, height, data);
+                    },
                     load: () => {
                         const json = ops.op_addon_load_data(metadata.name);
                         if (!json || json === "") return null;

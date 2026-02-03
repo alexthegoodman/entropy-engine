@@ -470,6 +470,45 @@ fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[strin
 }
 
 #[op2]
+fn op_addon_save_image(
+    state: &mut OpState,
+    #[string] _addon_name: String,
+    #[string] filename: String,
+    width: u32,
+    height: u32,
+    #[serde] rgba_data: Vec<u8>
+) -> Result<(), deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let project_id = &ctx.project_id;
+        
+        let textures_dir = crate::helpers::utilities::get_textures_dir(project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve textures directory"))?;
+            
+        let file_path = textures_dir.join(filename);
+        
+        if rgba_data.len() != (width * height * 4) as usize {
+            return Err(deno_error::JsErrorBox::generic(format!(
+                "Invalid image data length. Expected {}, got {}",
+                width * height * 4,
+                rgba_data.len()
+            )));
+        }
+
+        image::save_buffer(
+            &file_path,
+            &rgba_data,
+            width,
+            height,
+            image::ExtendedColorType::Rgba8,
+        ).map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to save image: {}", e)))?;
+
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
 #[string]
 fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Result<String, deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
@@ -1064,6 +1103,7 @@ extension!(
         op_ui_widget_numeric_input,
         op_ui_widget_dropdown,
         op_addon_save_data,
+        op_addon_save_image,
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_test,

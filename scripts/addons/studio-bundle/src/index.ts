@@ -8,3 +8,4 @@ import "./environment_addon";
 import "./water_plane_addon";
 import "./daw_synth_addon";
 import "./game_composer_addon";
+import "./pbr_texture_designer_addon";
