@@ -158,24 +158,32 @@ addon.onInit(async () => {
         maxDistance: 15.0
     });
 
+    const renderLightingUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "Add Dynamic Lights", bold: true });
+        Entropy.UI.Widget.button(tab, {
+            text: "Spawn Yellow Light at Camera",
+            onClick: () => {
+                // Note: We don't have camera position in JS yet, so we'll just spawn at a fixed spot
+                addon.Lighting.createPointLight({
+                    position: [0, 10, 5],
+                    color: [1.0, 1.0, 0.0],
+                    intensity: 5.0,
+                    maxDistance: 30.0
+                });
+                Entropy.println("Spawned yellow light!");
+            }
+        });
+    };
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Lighting Demo", renderLightingUI);
+    }
+
     // Add UI to spawn more lights
     const tab = addon.UI.createTab({
         title: "Lighting Controls",
         onRender: () => {
-            Entropy.UI.Widget.label(tab, { text: "Add Dynamic Lights", bold: true });
-            Entropy.UI.Widget.button(tab, {
-                text: "Spawn Yellow Light at Camera",
-                onClick: () => {
-                    // Note: We don't have camera position in JS yet, so we'll just spawn at a fixed spot
-                    addon.Lighting.createPointLight({
-                        position: [0, 10, 5],
-                        color: [1.0, 1.0, 0.0],
-                        intensity: 5.0,
-                        maxDistance: 30.0
-                    });
-                    Entropy.println("Spawned yellow light!");
-                }
-            });
+            renderLightingUI(tab);
         }
     });
 });

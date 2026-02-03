@@ -195,76 +195,78 @@ async function generateTerrain() {
 addon.onInit(async () => {
     Entropy.println("Procedural Terrain (JS-side generation) Initializing...");
 
+    const renderTerrainUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "Terrain Generation (JS-side)", bold: true });
+        Entropy.UI.Widget.label(tab, { text: "" }); // Spacer
+        Entropy.UI.Widget.label(tab, { text: "Current Settings", bold: true });
+        Entropy.UI.Widget.label(tab, { text: `Seed: ${terrainParams.seed}` });
+        Entropy.UI.Widget.label(tab, { 
+            text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
+        });
+        Entropy.UI.Widget.label(tab, { 
+            text: `Points: ${terrainParams.width * terrainParams.height}` 
+        });
+        Entropy.UI.Widget.label(tab, { text: `Octaves: ${terrainParams.octaves}` });
+        Entropy.UI.Widget.label(tab, { text: `Frequency: ${terrainParams.frequency}` });
+        Entropy.UI.Widget.label(tab, { 
+            text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
+        });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: "🎲 Randomize Seed & Regenerate",
+            onClick: () => {
+                terrainParams.seed = Math.floor(Math.random() * 1000);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: terrainParams.usePBR ? "🎨 Switch to non-PBR (Green)" : "✨ Switch to PBR",
+            onClick: () => {
+                terrainParams.usePBR = !terrainParams.usePBR;
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "📈 Increase Resolution (256x256)",
+            onClick: () => {
+                terrainParams.width = 256;
+                terrainParams.height = 256;
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "📉 Decrease Resolution (64x64)",
+            onClick: () => {
+                terrainParams.width = 64;
+                terrainParams.height = 64;
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🔄 Reset to Default (128x128)",
+            onClick: () => {
+                terrainParams.width = 128;
+                terrainParams.height = 128;
+                generateTerrain();
+            }
+        });
+    };
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Procedural Terrain", renderTerrainUI);
+    }
+
     generateTerrain();
 
     // Tab 1
     const tab1 = addon.UI.createTab({
         title: "Noise Settings",
         onRender: async () => {
-            // render callback
-            // Entropy.println("onRender: " + tab1);
-
-            Entropy.UI.Widget.label(tab1, { text: "Terrain Generation (JS-side)", bold: true });
-            Entropy.UI.Widget.label(tab1, { text: "" }); // Spacer
-            Entropy.UI.Widget.label(tab1, { text: "Current Settings", bold: true });
-            Entropy.UI.Widget.label(tab1, { text: `Seed: ${terrainParams.seed}` });
-            Entropy.UI.Widget.label(tab1, { 
-                text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
-            });
-            Entropy.UI.Widget.label(tab1, { 
-                text: `Points: ${terrainParams.width * terrainParams.height}` 
-            });
-            Entropy.UI.Widget.label(tab1, { text: `Octaves: ${terrainParams.octaves}` });
-            Entropy.UI.Widget.label(tab1, { text: `Frequency: ${terrainParams.frequency}` });
-            Entropy.UI.Widget.label(tab1, { 
-                text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
-            });
-
-            // Entropy.println("onRender 2: " + tab1);
-            
-            // TODO: buttons not rendering
-            Entropy.UI.Widget.button(tab1, {
-                text: "🎲 Randomize Seed & Regenerate",
-                onClick: () => {
-                    terrainParams.seed = Math.floor(Math.random() * 1000);
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab1, {
-                text: terrainParams.usePBR ? "🎨 Switch to non-PBR (Green)" : "✨ Switch to PBR",
-                onClick: () => {
-                    terrainParams.usePBR = !terrainParams.usePBR;
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab1, {
-                text: "📈 Increase Resolution (256x256)",
-                onClick: () => {
-                    terrainParams.width = 256;
-                    terrainParams.height = 256;
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab1, {
-                text: "📉 Decrease Resolution (64x64)",
-                onClick: () => {
-                    terrainParams.width = 64;
-                    terrainParams.height = 64;
-                    generateTerrain();
-                }
-            });
-
-            Entropy.UI.Widget.button(tab1, {
-                text: "🔄 Reset to Default (128x128)",
-                onClick: () => {
-                    terrainParams.width = 128;
-                    terrainParams.height = 128;
-                    generateTerrain();
-                }
-            });
+            renderTerrainUI(tab1);
         }
     });
 

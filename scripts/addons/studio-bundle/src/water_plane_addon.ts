@@ -530,4 +530,45 @@ addon.onInit(async () => {
         intensity: 8.0,
         maxDistance: 50.0
     });
+
+    const renderWaterUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "🌊 Water Plane Settings", bold: true });
+        Entropy.UI.Widget.label(tab, { text: "Depth Colors", bold: true });
+        // Simplified color inputs for now
+        Entropy.UI.Widget.label(tab, { text: "Colors are currently hardcoded in the buffer." });
+        
+        Entropy.UI.Widget.label(tab, { text: "Wave Parameters", bold: true });
+        Entropy.UI.Widget.label(tab, { text: "Wave 1 Amplitude: " + waterConfig[16] });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: "Calm Water",
+            onClick: () => {
+                waterConfig[16] = 0.5;
+                waterConfig[17] = 0.05;
+                // Re-create mesh or update bindings if supported. 
+                // For now, we'll just log.
+                Entropy.println("Water set to Calm");
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "Stormy Water",
+            onClick: () => {
+                waterConfig[16] = 3.0;
+                waterConfig[17] = 0.15;
+                Entropy.println("Water set to Stormy");
+            }
+        });
+    };
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("WaterPlaneAddon", renderWaterUI);
+    }
+
+    const tab = addon.UI.createTab({
+        title: "Water Plane",
+        onRender: () => {
+            renderWaterUI(tab);
+        }
+    });
 });

@@ -256,57 +256,65 @@ addon.onInit(async () => {
         maxDistance: 50.0
     });
 
+    const renderEnvironmentUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "Time Control", bold: true });
+        Entropy.UI.Widget.slider(tab, {
+            label: "Time of Day",
+            value: timeOfDay,
+            min: 0,
+            max: 1,
+            onChange: (val: any) => {
+                timeOfDay = parseFloat(val);
+                updateEnvironment();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Day Duration (sec)",
+            value: dayDuration,
+            min: 10,
+            max: 600,
+            onChange: (val: any) => {
+                dayDuration = parseFloat(val);
+            }
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "Atmosphere", bold: true });
+        Entropy.UI.Widget.slider(tab, {
+            label: "Fog Density",
+            value: fogDensity,
+            min: 0,
+            max: 0.05,
+            onChange: (val: any) => {
+                fogDensity = parseFloat(val);
+            }
+        });
+
+        Entropy.UI.Widget.colorInput(tab, {
+            label: "Fog Color",
+            color: fogColor,
+            onChange: (col: any) => {
+                fogColor = col;
+            }
+        });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: isCycleEnabled ? "Pause Time Cycle" : "Resume Time Cycle",
+            onClick: () => {
+                isCycleEnabled = !isCycleEnabled;
+            }
+        });
+    };
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Environment", renderEnvironmentUI);
+    }
+
     // Create UI Tab
     const tab = addon.UI.createTab({
         title: "Environment",
         onRender: () => {
-            Entropy.UI.Widget.label(tab, { text: "Time Control", bold: true });
-            Entropy.UI.Widget.slider(tab, {
-                label: "Time of Day",
-                value: timeOfDay,
-                min: 0,
-                max: 1,
-                onChange: (val: any) => {
-                    timeOfDay = parseFloat(val);
-                    updateEnvironment();
-                }
-            });
-
-            Entropy.UI.Widget.slider(tab, {
-                label: "Day Duration (sec)",
-                value: dayDuration,
-                min: 10,
-                max: 600,
-                onChange: (val: any) => {
-                    dayDuration = parseFloat(val);
-                }
-            });
-
-            Entropy.UI.Widget.label(tab, { text: "Atmosphere", bold: true });
-            Entropy.UI.Widget.slider(tab, {
-                label: "Fog Density",
-                value: fogDensity,
-                min: 0,
-                max: 0.05,
-                onChange: (val: any) => {
-                    fogDensity = parseFloat(val);
-                }
-            });
-
-            Entropy.UI.Widget.colorInput(tab, {
-                label: "Fog Color",
-                color: fogColor,
-                onChange: (col: any) => {
-                    fogColor = col;
-                }
-            });
-            
-            Entropy.UI.Widget.button(tab, {
-                text: isCycleEnabled ? "Pause Time Cycle" : "Resume Time Cycle",
-                onClick: () => {
-                    isCycleEnabled = !isCycleEnabled;
-                }
-            });
+            renderEnvironmentUI(tab);
         }
     });
 
