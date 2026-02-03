@@ -44,19 +44,55 @@ let terrainParams = {
     use3D: false,
     time: 0.0,
     autoSyncPBR: false,
+    rockThreshold: 0.5,
     pipelineId: null
 };
 
 function applyPBRFromDesigner() {
     const designerTextures = globalThis.lastPBRDesignerTextures;
     if (designerTextures) {
-        // Apply Albedo
+        // 1. Generate a RockmapMask based on height
+        // We'll use a 128x128 mask for simplicity, or match terrain res
+        const res = terrainParams.width;
+        const maskData = new Uint8Array(res * res * 4);
+        
+        // Use Alea with the same seed to match the terrain height generation logic
+        const prng = Alea(terrainParams.seed);
+        const noise2D = createNoise2D(prng);
+        
+        for (let y = 0; y < res; y++) {
+            for (let x = 0; x < res; x++) {
+                const idx = (y * res + x) * 4;
+                const noiseValue = (fbm(
+                    noise2D,
+                    x, y,
+                    terrainParams.octaves,
+                    terrainParams.frequency,
+                    terrainParams.persistence,
+                    terrainParams.lacunarity
+                ) + 1) / 2; // Normalize to 0-1
+                
+                // If height is above threshold, it's rock (white mask)
+                const val = noiseValue > terrainParams.rockThreshold ? 255 : 0;
+                maskData[idx] = val;
+                maskData[idx + 1] = val;
+                maskData[idx + 2] = val;
+                maskData[idx + 3] = 255;
+            }
+        }
+        
+        const maskId = addon.Texture.create(res, res, maskData);
+
+        addon.Landscape.updateTexture(maskId, "RockmapMask");
+
+        // 2. Apply Albedo & Mask
         addon.Landscape.updateTexture(designerTextures.diffId, "Rockmap");
         
-        // Apply Normal
+        
+        // 3. Apply Normal
         addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", "Rockmap");
         
-        // Apply PBR Params
+        // 4. Apply PBR Params
         addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", "Rockmap");
     }
 }
@@ -290,6 +326,19 @@ addon.onInit(async () => {
                 }
             });
         } else {
+            Entropy.UI.Widget.slider(tab, {
+                label: "🪨 Rock Threshold",
+                value: terrainParams.rockThreshold,
+                min: 0.0,
+                max: 1.0,
+                onChange: (val: string) => {
+                    terrainParams.rockThreshold = parseFloat(val);
+                    if (terrainParams.autoSyncPBR) {
+                        applyPBRFromDesigner();
+                    }
+                }
+            });
+
             Entropy.UI.Widget.button(tab, {
                 text: "✨ Apply from PBR Designer",
                 onClick: () => {
