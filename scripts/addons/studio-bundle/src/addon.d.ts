@@ -75,7 +75,9 @@ export interface ScopedAPI {
   Model: {
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
-          position: number[]; 
+          position: number[];
+          rotation?: number[];
+          scale?: number[];
           vertexData: number[]; 
           indexData: number[]; 
           pipelineId: string; 

@@ -36,6 +36,8 @@ globalThis.Entropy = {
                     createMesh: (config) => {
                         ops.op_mesh_create(metadata.name, {
                             position: config.position || [0, 0, 0],
+                            rotation: config.rotation || [0, 0, 0],
+                            scale: config.scale || [1, 1, 1],
                             vertexData: config.vertexData || [],
                             indexData: config.indexData || [],
                             pipelineId: config.pipelineId,

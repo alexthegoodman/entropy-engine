@@ -100,6 +100,14 @@ pub struct MeshConfig {
 
 
 
+    pub rotation: Option<[f32; 3]>,
+
+
+
+    pub scale: Option<[f32; 3]>,
+
+
+
     pub vertex_data: Vec<f32>,
 
 
@@ -108,7 +116,7 @@ pub struct MeshConfig {
 
 
 
-        pub pipeline_id: String,
+    pub pipeline_id: String,
 
 
 
@@ -1541,7 +1549,7 @@ impl AddonEngine {
                          let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
                          let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
 
-                         let mesh = CustomMesh::new(
+                         let mut mesh = CustomMesh::new(
                              &gpu.device,
                              vertex_bytes,
                              index_bytes,
@@ -1555,7 +1563,14 @@ impl AddonEngine {
                              config.instance_count.unwrap_or(1),
                              time_buffer,
                          );
-                         let mut mesh = mesh;
+                         
+                         if let Some(rotation) = config.rotation {
+                             mesh.transform.update_rotation(rotation);
+                         }
+                         if let Some(scale) = config.scale {
+                             mesh.transform.update_scale(scale);
+                         }
+                         
                          mesh.render_role = config.render_role;
 
                          renderer_state.addon_meshes
