@@ -1585,10 +1585,14 @@ impl AddonEngine {
                         let mut landscape = landscape;
                         landscape.render_role = config.render_role;
 
+                        // renderer_state.addon_landscapes
+                        //     .entry(addon_name)
+                        //     .or_insert_with(Vec::new)
+                        //     .push(landscape);
+                        
+                        // better to have only 1 active landscape at a time
                         renderer_state.addon_landscapes
-                            .entry(addon_name)
-                            .or_insert_with(Vec::new)
-                            .push(landscape);
+                            .insert(addon_name, vec![landscape]);
                     }
                 }
             }

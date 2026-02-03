@@ -1,103 +1,15 @@
-// Terrain Generation Addon
-// Demonstrates procedural heightmap generation in JavaScript
-// Heights are generated JS-side and passed to Rust for rendering
+import { createNoise2D, createNoise3D } from 'simplex-noise';
+import Alea from 'alea';
 
-// Simple Simplex Noise implementation (no dependencies needed)
-class SimplexNoise {
-    public seed: number;
-    public grad3: number[][];
-    public p: number[];
-    public perm: number[];
-
-    constructor(seed = 0) {
-        this.seed = seed;
-        this.grad3 = [
-            [1,1,0], [-1,1,0], [1,-1,0], [-1,-1,0],
-            [1,0,1], [-1,0,1], [1,0,-1], [-1,0,-1],
-            [0,1,1], [0,-1,1], [0,1,-1], [0,-1,-1]
-        ];
-        this.p = [];
-        for (let i = 0; i < 256; i++) {
-            this.p[i] = Math.floor(this.seededRandom(i) * 256);
-        }
-        this.perm = [];
-        for (let i = 0; i < 512; i++) {
-            this.perm[i] = this.p[i & 255];
-        }
-    }
-
-    seededRandom(i: number) {
-        const x = Math.sin(i + this.seed) * 10000;
-        return x - Math.floor(x);
-    }
-
-    dot(g: number[], x: number, y: number) {
-        return g[0] * x + g[1] * y;
-    }
-
-    noise2D(xin: number, yin: number) {
-        const F2 = 0.5 * (Math.sqrt(3.0) - 1.0);
-        const G2 = (3.0 - Math.sqrt(3.0)) / 6.0;
-
-        let n0, n1, n2;
-        const s = (xin + yin) * F2;
-        const i = Math.floor(xin + s);
-        const j = Math.floor(yin + s);
-        const t = (i + j) * G2;
-        const X0 = i - t;
-        const Y0 = j - t;
-        const x0 = xin - X0;
-        const y0 = yin - Y0;
-
-        let i1, j1;
-        if (x0 > y0) { i1 = 1; j1 = 0; } 
-        else { i1 = 0; j1 = 1; }
-
-        const x1 = x0 - i1 + G2;
-        const y1 = y0 - j1 + G2;
-        const x2 = x0 - 1.0 + 2.0 * G2;
-        const y2 = y0 - 1.0 + 2.0 * G2;
-
-        const ii = i & 255;
-        const jj = j & 255;
-        const gi0 = this.perm[ii + this.perm[jj]] % 12;
-        const gi1 = this.perm[ii + i1 + this.perm[jj + j1]] % 12;
-        const gi2 = this.perm[ii + 1 + this.perm[jj + 1]] % 12;
-
-        let t0 = 0.5 - x0 * x0 - y0 * y0;
-        if (t0 < 0) n0 = 0.0;
-        else {
-            t0 *= t0;
-            n0 = t0 * t0 * this.dot(this.grad3[gi0], x0, y0);
-        }
-
-        let t1 = 0.5 - x1 * x1 - y1 * y1;
-        if (t1 < 0) n1 = 0.0;
-        else {
-            t1 *= t1;
-            n1 = t1 * t1 * this.dot(this.grad3[gi1], x1, y1);
-        }
-
-        let t2 = 0.5 - x2 * x2 - y2 * y2;
-        if (t2 < 0) n2 = 0.0;
-        else {
-            t2 *= t2;
-            n2 = t2 * t2 * this.dot(this.grad3[gi2], x2, y2);
-        }
-
-        return 70.0 * (n0 + n1 + n2);
-    }
-}
-
-// FBM (Fractional Brownian Motion) implementation
-function fbm(noise: SimplexNoise, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
+// FBM (Fractional Brownian Motion) implementation using the library
+function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
     let total = 0;
     let amplitude = 1;
     let maxValue = 0;
     let freq = frequency;
 
     for (let i = 0; i < octaves; i++) {
-        total += noise.noise2D(x * freq, y * freq) * amplitude;
+        total += noise2D(x * freq, y * freq) * amplitude;
         maxValue += amplitude;
         amplitude *= persistence;
         freq *= lacunarity;
@@ -108,8 +20,8 @@ function fbm(noise: SimplexNoise, x: number, y: number, octaves: number, frequen
 
 const addon = Entropy.Addon.register({
     name: "FlexNoise Terrain",
-    version: "3.0.0",
-    description: "Highly customizable procedural terrain with JS-side noise and UI controls",
+    version: "3.2.0",
+    description: "Highly customizable procedural terrain using simplex-noise and alea",
     author: ["Entropy Team"],
     capabilities: {
         graphics: true,
@@ -129,25 +41,46 @@ let terrainParams = {
     heightScale: 15.0,
     positionY: 0.0,
     terrainColor: [0.3, 0.5, 0.2, 1.0],
+    use3D: false,
+    time: 0.0,
     pipelineId: null
 };
 
 async function generateTerrain() {
     Entropy.println(`Regenerating FlexNoise Terrain: ${terrainParams.width}x${terrainParams.height}...`);
     
-    const noise = new SimplexNoise(terrainParams.seed);
+    // Use Alea for robust seeded random generation
+    const prng = Alea(terrainParams.seed);
+    const noise2D = createNoise2D(prng);
+    const noise3D = createNoise3D(prng);
+    
     const heights = [];
     
     for (let y = 0; y < terrainParams.height; y++) {
         for (let x = 0; x < terrainParams.width; x++) {
-            const noiseValue = fbm(
-                noise,
-                x, y,
-                terrainParams.octaves,
-                terrainParams.frequency,
-                terrainParams.persistence,
-                terrainParams.lacunarity
-            );
+            let noiseValue;
+            if (terrainParams.use3D) {
+                noiseValue = 0;
+                let amplitude = 1;
+                let freq = terrainParams.frequency;
+                let maxValue = 0;
+                for (let i = 0; i < terrainParams.octaves; i++) {
+                    noiseValue += noise3D(x * freq, y * freq, terrainParams.time) * amplitude;
+                    maxValue += amplitude;
+                    amplitude *= terrainParams.persistence;
+                    freq *= terrainParams.lacunarity;
+                }
+                noiseValue /= maxValue;
+            } else {
+                noiseValue = fbm(
+                    noise2D,
+                    x, y,
+                    terrainParams.octaves,
+                    terrainParams.frequency,
+                    terrainParams.persistence,
+                    terrainParams.lacunarity
+                );
+            }
             
             const height = noiseValue * terrainParams.heightScale;
             heights.push(height);
@@ -183,9 +116,8 @@ async function generateTerrain() {
 }
 
 addon.onInit(async () => {
-    Entropy.println("FlexNoise Terrain Addon Initializing...");
+    Entropy.println("FlexNoise Terrain Addon (Alea-seeded) Initializing...");
 
-    // Initial Load
     const savedData = addon.IO.load();
     if (savedData) {
         terrainParams = { ...terrainParams, ...savedData };
@@ -214,12 +146,25 @@ addon.onInit(async () => {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "🎲 Randomize Seed",
+            text: terrainParams.use3D ? "🧊 Noise: 3D (Animated)" : "📄 Noise: 2D (Static)",
             onClick: () => {
-                terrainParams.seed = Math.floor(Math.random() * 10000);
+                terrainParams.use3D = !terrainParams.use3D;
                 generateTerrain();
             }
         });
+
+        if (terrainParams.use3D) {
+            Entropy.UI.Widget.slider(tab, {
+                label: "3D Time/Depth",
+                value: terrainParams.time,
+                min: 0.0,
+                max: 10.0,
+                onChange: (val: string) => {
+                    terrainParams.time = parseFloat(val);
+                    generateTerrain();
+                }
+            });
+        }
 
         Entropy.UI.Widget.slider(tab, {
             label: "Frequency",
