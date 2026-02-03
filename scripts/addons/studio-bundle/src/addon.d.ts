@@ -20,7 +20,7 @@ export interface AddonMetadata {
 
 export type BindingResource = 
   | { type: "Uniform"; value: { data: number[] } }
-  | { type: "Texture"; id: string }
+  | { type: "Texture"; value: {id: string} }
   | { type: "Sampler" }
   | { type: "Time" };
 

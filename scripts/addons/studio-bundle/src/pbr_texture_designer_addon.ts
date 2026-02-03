@@ -213,9 +213,13 @@ function updatePreview() {
         }
     }
 
+    Entropy.println("PBR Texture Designer with Preview Creating Textures...");
+
     const diffId = addon.Texture.create(res, res, diffData);
     const norId = addon.Texture.create(res, res, norData);
     const armId = addon.Texture.create(res, res, armData);
+
+    Entropy.println("PBR Texture Designer with Preview Textures Created...");
 
     const { vertices, indices } = generateCubeData();
     
@@ -243,10 +247,10 @@ function updatePreview() {
                     }
                 }
             },
-            { group: 2, binding: 1, resource: { type: "Texture", id: diffId } },
+            { group: 2, binding: 1, resource: { type: "Texture", value: {id: diffId} } },
             { group: 2, binding: 2, resource: { type: "Sampler" } },
-            { group: 2, binding: 3, resource: { type: "Texture", id: norId } },
-            { group: 2, binding: 4, resource: { type: "Texture", id: armId } }
+        { group: 2, binding: 3, resource: { type: "Texture", value: {id: norId} } },
+            { group: 2, binding: 4, resource: { type: "Texture", value: {id: armId} } }
         ]
     });
 }
@@ -344,6 +348,8 @@ addon.onInit(async () => {
         ]
     });
 
+    Entropy.println("PBR Texture Designer with Preview Pipeline Created...");
+
     texParams.pipelineId = pipelineId;
 
     const savedData = addon.IO.load();
@@ -373,7 +379,11 @@ addon.onInit(async () => {
         maxDistance: 50.0
     });
 
+    Entropy.println("Created PBR Texture Preview lights, about to create preview...");
+
     updatePreview();
+
+    Entropy.println("PBR Texture Designer with Preview continuing...");
 
     const renderUI = (tab: string) => {
         Entropy.UI.Widget.label(tab, { text: "🎨 PBR Texture Designer", bold: true });
@@ -442,4 +452,6 @@ addon.onInit(async () => {
         title: "Texture Designer",
         onRender: async () => renderUI(tab)
     });
+
+    Entropy.println("PBR Texture Designer with Preview Inititialzed!");
 });
