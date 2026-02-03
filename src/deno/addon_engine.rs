@@ -451,6 +451,40 @@ pub struct AddonContext {
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: String,
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
+    pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
+    pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub enum LandscapeTextureUpdate {
+    Regular { texture_id: String, kind: crate::helpers::saved_data::LandscapeTextureKinds },
+    Pbr { texture_id: String, kind: crate::heightfield_landscapes::Landscape::PBRTextureKind, material_type: crate::heightfield_landscapes::Landscape::PBRMaterialType },
+}
+
+#[op2]
+fn op_landscape_update_texture(
+    state: &mut OpState,
+    #[string] addon_name: String,
+    #[string] texture_id: String,
+    #[serde] kind: crate::helpers::saved_data::LandscapeTextureKinds,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Regular { texture_id, kind }));
+    }
+}
+
+#[op2]
+fn op_landscape_update_pbr_texture(
+    state: &mut OpState,
+    #[string] addon_name: String,
+    #[string] texture_id: String,
+    #[serde] kind: crate::heightfield_landscapes::Landscape::PBRTextureKind,
+    #[serde] material_type: crate::heightfield_landscapes::Landscape::PBRMaterialType,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
+    }
 }
 
 #[op2(fast)]
@@ -565,6 +599,14 @@ fn op_texture_create(
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         ctx.textures.insert(texture_id.clone(), Arc::new(view));
         
+        let core_texture = crate::core::Texture::Texture {
+            data: rgba_data.to_vec(),
+            width,
+            height,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+        };
+        ctx.addon_textures.insert(texture_id.clone(), core_texture);
+        
         Ok(texture_id)
     } else {
         Err(deno_error::JsErrorBox::generic("GPU resources not available"))
@@ -629,6 +671,14 @@ fn op_texture_load(
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         ctx.textures.insert(texture_id.clone(), Arc::new(view));
+
+        let core_texture = crate::core::Texture::Texture {
+            data: rgba_data,
+            width,
+            height,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+        };
+        ctx.addon_textures.insert(texture_id.clone(), core_texture);
         
         Ok(texture_id)
     } else {
@@ -1228,6 +1278,8 @@ extension!(
         op_mesh_create,
         op_meshes_clear,
         op_landscape_create,
+        op_landscape_update_texture,
+        op_landscape_update_pbr_texture,
         op_grass_create,
         op_noise_create,
         op_point_light_create,
@@ -1310,6 +1362,8 @@ impl AddonEngine {
             render_roles: HashMap::new(),
             project_id: project_id.clone(),
             textures: HashMap::new(),
+            addon_textures: HashMap::new(),
+            pending_landscape_texture_updates: Vec::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -1600,7 +1654,7 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_meshes, pending_clears, pending_landscapes, pending_grasses, pending_point_lights) = {
+        let (pending_cubes, pending_meshes, pending_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -1610,12 +1664,62 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_clears),
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
-                    std::mem::take(&mut ctx.pending_point_lights)
+                    std::mem::take(&mut ctx.pending_point_lights),
+                    std::mem::take(&mut ctx.pending_landscape_texture_updates)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
+
+        if !pending_landscape_texture_updates.is_empty() {
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                for (addon_name, update) in pending_landscape_texture_updates {
+                    if let Some(landscapes) = renderer_state.addon_landscapes.get_mut(&addon_name) {
+                        for landscape in landscapes {
+                            // Find texture data
+                            let texture_data = {
+                                let op_state = self.runtime.op_state();
+                                let op_state = op_state.borrow();
+                                let ctx = op_state.borrow::<AddonContext>();
+                                match update {
+                                    LandscapeTextureUpdate::Regular { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
+                                    LandscapeTextureUpdate::Pbr { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
+                                }
+                            };
+
+                            if let Some(texture) = texture_data {
+                                match update {
+                                    LandscapeTextureUpdate::Regular { kind, .. } => {
+                                        landscape.update_texture(
+                                            &gpu.device,
+                                            &gpu.queue,
+                                            &renderer_state.model_bind_group_layout, // Wait, is this the right layout? Landscape.rs says texture_bind_group_layout
+                                            &renderer_state.texture_render_mode_buffer,
+                                            &renderer_state.color_render_mode_buffer,
+                                            kind,
+                                            &texture
+                                        );
+                                    },
+                                    LandscapeTextureUpdate::Pbr { kind, material_type, .. } => {
+                                        landscape.update_pbr_texture(
+                                            &gpu.device,
+                                            &gpu.queue,
+                                            &renderer_state.model_bind_group_layout,
+                                            &renderer_state.texture_render_mode_buffer,
+                                            &renderer_state.color_render_mode_buffer,
+                                            kind,
+                                            material_type,
+                                            &texture
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {

@@ -43,7 +43,29 @@ let terrainParams = {
     terrainColor: [0.3, 0.5, 0.2, 1.0],
     use3D: false,
     time: 0.0,
+    autoSyncPBR: false,
     pipelineId: null
+};
+
+function applyPBRFromDesigner() {
+    const designerTextures = globalThis.lastPBRDesignerTextures;
+    if (designerTextures) {
+        // Apply Albedo
+        addon.Landscape.updateTexture(designerTextures.diffId, "Rockmap");
+        
+        // Apply Normal
+        addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", "Rockmap");
+        
+        // Apply PBR Params
+        addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", "Rockmap");
+    }
+}
+
+// Global listener for designer updates
+globalThis.onPBRDesignerUpdate = () => {
+    if (terrainParams.usePBR && terrainParams.autoSyncPBR) {
+        applyPBRFromDesigner();
+    }
 };
 
 async function generateTerrain() {
@@ -267,6 +289,31 @@ addon.onInit(async () => {
                     generateTerrain();
                 }
             });
+        } else {
+            Entropy.UI.Widget.button(tab, {
+                text: "✨ Apply from PBR Designer",
+                onClick: () => {
+                    const designerTextures = globalThis.lastPBRDesignerTextures;
+                    if (designerTextures) {
+                        Entropy.println("Applying textures from PBR Designer...");
+                        applyPBRFromDesigner();
+                        Entropy.println("✓ Textures applied to Primary material!");
+                    } else {
+                        Entropy.println("❌ No textures found in PBR Designer. Open it first!");
+                    }
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
+                text: terrainParams.autoSyncPBR ? "🔄 Auto-sync: ON" : "🔄 Auto-sync: OFF",
+                onClick: () => {
+                    terrainParams.autoSyncPBR = !terrainParams.autoSyncPBR;
+                    if (terrainParams.autoSyncPBR) {
+                        applyPBRFromDesigner();
+                    }
+                    generateTerrain(); // Refresh UI
+                }
+            });
         }
 
         Entropy.UI.Widget.label(tab, { text: "🎭 Terrain Presets", bold: true });
@@ -316,6 +363,28 @@ addon.onInit(async () => {
             terrainParams = { ...terrainParams, ...data };
             generateTerrain();
         }
+    });
+
+    // Atmospheric lighting
+    addon.Lighting.createPointLight({
+        position: [-3.0, 4.0, 65.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -60.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
     });
 
     generateTerrain();

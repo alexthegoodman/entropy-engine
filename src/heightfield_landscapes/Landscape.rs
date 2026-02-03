@@ -6,6 +6,7 @@ use rapier3d::prelude::{
     Collider, ColliderBuilder, ColliderHandle, InteractionGroups, RigidBody, RigidBodyBuilder,
     RigidBodyHandle,
 };
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use uuid::Uuid;
 use wgpu::util::{DeviceExt, TextureDataOrder};
@@ -21,11 +22,13 @@ use crate::helpers::landscapes::LandscapePixelData;
 use crate::helpers::saved_data::LandscapeTextureKinds;
 use crate::core::editor::WindowSize;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum PBRTextureKind {
     Normal,
-    MetallicRoughnessAO,
+    AORoughnessMetallic,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum PBRMaterialType {
     Primary,
     Rockmap,
@@ -437,7 +440,7 @@ impl Landscape {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             // format: wgpu::TextureFormat::Rgba32Float,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             label: Some("landscape_texture_array"),
             view_formats: &[],
@@ -586,9 +589,9 @@ impl Landscape {
                     );
                 }
             },
-            PBRTextureKind::MetallicRoughnessAO => {
+            PBRTextureKind::AORoughnessMetallic => {
                 if self.pbr_params_texture_array.is_none() {
-                    self.create_pbr_texture_array(device, new_texture.size(), PBRTextureKind::MetallicRoughnessAO);
+                    self.create_pbr_texture_array(device, new_texture.size(), PBRTextureKind::AORoughnessMetallic);
                 }
                 if let Some(texture_array) = &self.pbr_params_texture_array {
                     queue.write_texture(
@@ -626,7 +629,7 @@ impl Landscape {
                 &mut self.normal_texture_array,
                 &mut self.normal_texture_array_view,
             ),
-            PBRTextureKind::MetallicRoughnessAO => (
+            PBRTextureKind::AORoughnessMetallic => (
                 "landscape_pbr_params_texture_array",
                 wgpu::TextureFormat::Rgba8Unorm, // Packing Metallic, Roughness, AO into RGBA8
                 &mut self.pbr_params_texture_array,

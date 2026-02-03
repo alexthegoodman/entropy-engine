@@ -75,9 +75,10 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let albedo = textureSample(g_buffer_albedo, s_g_buffer, tex_coords).rgb;
     let pbr_material = textureSample(g_buffer_pbr_material, s_g_buffer, tex_coords).rgb; // Metallic, Roughness, AO
 
-    let metallic = pbr_material.r;
+    // let ao = pbr_material.r;
+    let ao = 0.35; // more stable at times
     let roughness = pbr_material.g;
-    let ao = pbr_material.b;
+    let metallic = pbr_material.b;
 
     let directional_light_dir = normalize(directional_light.position - position);
     // let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point

@@ -204,14 +204,14 @@ pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_st
                                                                         arm_file.fileName.clone()
                                                                     ).await {
                                                                         let texture = Texture::new(data.0, data.1, data.2);
-                                                                        let texture = repack_arm_to_mra(texture);
+                                                                        // let texture = repack_arm_to_mra(texture); // now we just do arm
                                                                         landscape_obj.update_pbr_texture(
                                                                             &gpu_resources.device, 
                                                                             &gpu_resources.queue, 
                                                                             model_bind_group_layout, 
                                                                             &texture_render_mode_buffer, 
                                                                             &color_render_mode_buffer, 
-                                                                            PBRTextureKind::MetallicRoughnessAO, 
+                                                                            PBRTextureKind::AORoughnessMetallic, 
                                                                             PBRMaterialType::Rockmap, 
                                                                             &texture
                                                                         );
@@ -249,7 +249,7 @@ pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_st
 
                                                                     // let pbr_params_texture = Texture::from_bytes_1x1(&gpu_resources.device, &gpu_resources.queue, &pbr_params_data, "packed_pbr_params", false);
                                                                     if let Ok(texture) = pbr_params_data {
-                                                                        landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::MetallicRoughnessAO, PBRMaterialType::Rockmap, &texture);
+                                                                        landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::AORoughnessMetallic, PBRMaterialType::Rockmap, &texture);
                                                                     } else {
                                                                         println!("Can't create PBR Texture");
                                                                     }
@@ -293,14 +293,14 @@ pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_st
                                                                         arm_file.fileName.clone()
                                                                     ).await {
                                                                         let texture = Texture::new(data.0, data.1, data.2);
-                                                                        let texture = repack_arm_to_mra(texture);
+                                                                        // let texture = repack_arm_to_mra(texture); // no longer
                                                                         landscape_obj.update_pbr_texture(
                                                                             &gpu_resources.device, 
                                                                             &gpu_resources.queue, 
                                                                             model_bind_group_layout, 
                                                                             &texture_render_mode_buffer, 
                                                                             &color_render_mode_buffer, 
-                                                                            PBRTextureKind::MetallicRoughnessAO, 
+                                                                            PBRTextureKind::AORoughnessMetallic, 
                                                                             PBRMaterialType::Soil, 
                                                                             &texture
                                                                         );
@@ -338,7 +338,7 @@ pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_st
                                                                     let pbr_params_data = pack_pbr_textures(rough_tex, metallic_tex, ao_tex);
 
                                                                     if let Ok(texture) = pbr_params_data {
-                                                                        landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::MetallicRoughnessAO, PBRMaterialType::Soil, &texture);
+                                                                        landscape_obj.update_pbr_texture(&gpu_resources.device, &gpu_resources.queue, model_bind_group_layout, &texture_render_mode_buffer, &color_render_mode_buffer, PBRTextureKind::AORoughnessMetallic, PBRMaterialType::Soil, &texture);
                                                                     } else {
                                                                         println!("Can't create PBR Texture");
                                                                     }

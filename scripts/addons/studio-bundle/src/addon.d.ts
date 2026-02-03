@@ -1,5 +1,16 @@
 // Type definitions for Entropy API
 
+declare global {
+  var lastPBRDesignerTextures: {
+    diffId: string;
+    norId: string;
+    armId: string;
+    params: any;
+  } | undefined;
+  
+  var onPBRDesignerUpdate: (() => void) | undefined;
+}
+
 export interface Vec3 {
   0: number;
   1: number;
@@ -52,6 +63,23 @@ export interface LandscapeConfig {
   renderRole?: string | null;
 }
 
+export type LandscapeTextureKind = 
+  | "Primary" 
+  | "PrimaryMask" 
+  | "Rockmap" 
+  | "RockmapMask" 
+  | "Soil" 
+  | "SoilMask";
+
+export type PBRTextureKind = 
+  | "Normal" 
+  | "AORoughnessMetallic";
+
+export type PBRMaterialType = 
+  | "Primary" 
+  | "Rockmap" 
+  | "Soil";
+
 export type NoiseType = "fbm" | string;
 export type NoiseSource = "perlin" | string;
 
@@ -101,6 +129,8 @@ export interface ScopedAPI {
   };
   Landscape: {
     create: (config: LandscapeConfig) => void;
+    updateTexture: (textureId: string, kind: LandscapeTextureKind) => void;
+    updatePbrTexture: (textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
   };
   Noise: {
     create: (config: NoiseConfig) => string;

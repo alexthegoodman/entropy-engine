@@ -61,6 +61,12 @@ globalThis.Entropy = {
                             pipelineId: config.pipelineId || null,
                             render_role: config.renderRole || null
                         });
+                    },
+                    updateTexture: (textureId, kind) => {
+                        ops.op_landscape_update_texture(metadata.name, textureId, kind);
+                    },
+                    updatePbrTexture: (textureId, kind, materialType) => {
+                        ops.op_landscape_update_pbr_texture(metadata.name, textureId, kind, materialType);
                     }
                 },
                 Particles: {

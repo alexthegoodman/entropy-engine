@@ -61,7 +61,7 @@ pub enum FireType {
     Automatic,
 }
 
-#[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Copy)]
 pub enum LandscapeTextureKinds {
     Primary,
     PrimaryMask,

@@ -621,6 +621,18 @@ function updatePreview() {
     const norId = addon.Texture.create(res, res, norData);
     const armId = addon.Texture.create(res, res, armData);
 
+    // Expose for interop
+    globalThis.lastPBRDesignerTextures = {
+        diffId,
+        norId,
+        armId,
+        params: { ...texParams }
+    };
+
+    if (typeof globalThis.onPBRDesignerUpdate === 'function') {
+        globalThis.onPBRDesignerUpdate();
+    }
+
     const { vertices, indices } = generateCubeData();
     
     addon.Model.clearMeshes();
@@ -698,6 +710,8 @@ addon.onInit(async () => {
     if (savedData) {
         texParams = { ...texParams, ...savedData };
     }
+
+    Entropy.println("🎨 PBR Texture Designer Pro Initializing..." + pipelineId + " " + texParams.pipelineId);
 
     // Atmospheric lighting
     addon.Lighting.createPointLight({
