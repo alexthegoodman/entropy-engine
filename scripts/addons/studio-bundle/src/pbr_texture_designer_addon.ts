@@ -325,6 +325,28 @@ addon.onInit(async () => {
         texParams = { ...texParams, ...savedData };
     }
 
+    // Atmospheric lighting
+    addon.Lighting.createPointLight({
+        position: [-3.0, 4.0, 5.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -10.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 50.0
+    });
+
     updatePreview();
 
     const renderUI = (tab: string) => {
