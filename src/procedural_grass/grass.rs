@@ -128,6 +128,8 @@ pub struct Grass {
     pub uniform_buffers: Vec<wgpu::Buffer>,
     pub samplers: Vec<wgpu::Sampler>,
     pub config: GrassConfig,
+    pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
 }
 
 impl Grass {
@@ -267,6 +269,8 @@ impl Grass {
             uniform_buffers: Vec::new(),
             samplers: Vec::new(),
             config,
+            pipeline_id: None,
+            render_role: None,
         }
     }
 
@@ -468,6 +472,8 @@ impl Grass {
             uniform_buffers: Vec::new(),
             samplers: Vec::new(),
             config,
+            pipeline_id: None,
+            render_role: None,
         }
     }
 

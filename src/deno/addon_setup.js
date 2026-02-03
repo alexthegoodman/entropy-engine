@@ -28,7 +28,8 @@ globalThis.Entropy = {
                             ops.op_cube_spawn(metadata.name, {
                                 position: config.parameters?.position || [0, 0, 0],
                                 scale: config.parameters?.scale || [1, 1, 1],
-                                pipeline_id: config.pipelineId || null
+                                pipeline_id: config.pipelineId || null,
+                                render_role: config.renderRole || null
                             });
                         }
                     },
@@ -38,6 +39,7 @@ globalThis.Entropy = {
                             vertexData: config.vertexData || [],
                             indexData: config.indexData || [],
                             pipelineId: config.pipelineId,
+                            render_role: config.renderRole || null,
                             instanceCount: config.instanceCount || 1,
                             bindings: config.bindings || []
                         });
@@ -54,7 +56,8 @@ globalThis.Entropy = {
                             heights: config.heights || null,
                             noiseId: config.noiseId || null,
                             position: config.position || [0, 0, 0],
-                            pipelineId: config.pipelineId || null
+                            pipelineId: config.pipelineId || null,
+                            render_role: config.renderRole || null
                         });
                     }
                 },
@@ -76,6 +79,7 @@ globalThis.Entropy = {
                             baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
                             tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
                             pipelineId: config.pipelineId || null,
+                            renderRole: config.renderRole || null,
                             bindings: config.bindings || []
                         };
                         ops.op_println(String("CreateOrUpdate Hair (2): " + metadata.name + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
@@ -253,7 +257,8 @@ globalThis.Entropy = {
                 heights: config.heights || null,
                 noiseId: config.noiseId || null,
                 position: config.position || [0, 0, 0],
-                pipelineId: config.pipelineId || null
+                pipelineId: config.pipelineId || null,
+                render_role: config.renderRole || null
             });
         }
     },
@@ -276,6 +281,7 @@ globalThis.Entropy = {
                 baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
                 tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
                 pipelineId: config.pipelineId || null,
+                render_role: config.renderRole || null,
                 bindings: config.bindings || []
             });
         }
@@ -338,6 +344,9 @@ globalThis.Entropy.Composer = {
     },
     getEditor: (addonName) => {
         return globalThis.Entropy.Composer.editors[addonName];
+    },
+    setRolePipeline: (role, pipelineId) => {
+        ops.op_composer_set_role_pipeline(role, pipelineId);
     }
 };
 

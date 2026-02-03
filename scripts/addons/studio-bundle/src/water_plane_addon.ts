@@ -496,6 +496,7 @@ addon.onInit(async () => {
 
     addon.Model.createMesh({
         pipelineId: pipelineId,
+        renderRole: "Water",
         position: [0, -300, 0],
         vertexData: grid.vertices,
         indexData: grid.indices,
@@ -505,7 +506,7 @@ addon.onInit(async () => {
             { group: 2, binding: 1, resource: { type: "Sampler" } },
             { group: 3, binding: 0, resource: { type: "Uniform", value: { data: Array.from(waterConfig) } } }
         ]
-    });
+    } as any);
 
     Entropy.println("Water Plane Addon create lights...");
 

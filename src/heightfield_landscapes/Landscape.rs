@@ -58,6 +58,7 @@ pub struct Landscape {
     pub terrain_size: f32,
     pub terrain_height: f32,
     pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
 }
 
 impl Landscape {
@@ -365,7 +366,8 @@ impl Landscape {
             normal_texture_array_view: None,
             pbr_params_texture_array: None,
             pbr_params_texture_array_view: None,
-            pipeline_id
+            pipeline_id,
+            render_role: None,
         }
     }
 

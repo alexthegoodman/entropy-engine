@@ -214,6 +214,7 @@ export interface EntropyAPI {
   Composer?: {
       registerEditor: (addonName: string, renderFn: (windowId: string) => void) => void;
       getEditor: (addonName: string) => ((windowId: string) => void) | undefined;
+      setRolePipeline: (role: string, pipelineId: string) => void;
   };
   Pipeline: {
     create: (config: PipelineConfig) => string;

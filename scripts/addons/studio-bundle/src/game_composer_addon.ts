@@ -12,6 +12,7 @@ interface ComponentInstance {
     id: string;
     name: string;
     addon: string;
+    projectId: string; // The project ID in that addon
     position: [number, number, number];
     scale: [number, number, number];
     visible: boolean;
@@ -75,6 +76,11 @@ addon.onInit(async () => {
                          const idx = availablePipelines.indexOf(current);
                          const next = availablePipelines[(idx + 1) % availablePipelines.length];
                          composerState.roles[role] = next;
+                         
+                         if (Entropy.Composer && Entropy.Composer.setRolePipeline) {
+                             Entropy.Composer.setRolePipeline(role, next);
+                         }
+                         
                          Entropy.println(`Role ${role} switched to ${next}`);
                      }
                  });
@@ -104,6 +110,7 @@ addon.onInit(async () => {
                          id: Math.random().toString(36).substr(2, 9),
                          name: nextAddon.defaultName + " " + (composerState.components.length + 1),
                          addon: nextAddon.name,
+                         projectId: "default", // or current project id
                          position: [0, 0, 0],
                          scale: [1, 1, 1],
                          visible: true

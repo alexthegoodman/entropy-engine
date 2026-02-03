@@ -184,8 +184,9 @@ async function generateTerrain() {
         heights: heights,  // Pass JS-generated heights!
         noiseId: null,     // Not using Rust-side noise
         position: [0, 0, 0],
-        pipelineId: pipelineId
-    });
+        pipelineId: pipelineId,
+        renderRole: "Terrain"
+    } as any);
     // const uploadTime = performance.now() - uploadStart;
     
     // Entropy.println(`Uploaded to Rust in ${uploadTime.toFixed(2)}ms`);

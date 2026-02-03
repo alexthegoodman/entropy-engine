@@ -341,11 +341,12 @@ addon.onInit(async () => {
         addon.Model.createProcedural({
             type: "cube",
             pipelineId: envPipeline,
+            renderRole: "Sky",
             parameters: {
                 position: [0, 2.0, -i * 10.0], // Row of cubes going into the distance
                 scale: [2.0, 2.0, 2.0]
             }
-        });
+        } as any);
     }
 
     // Spawn a large "floor" cube

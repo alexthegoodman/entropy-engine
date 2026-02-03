@@ -716,6 +716,7 @@ const ornamentFragShader = `
 function updateHair() {
     addon.Particles.createHair({
         ...hairParams,
+        renderRole: "Vegetation",
         base_color: hairParams.baseColor,
         tip_color: hairParams.tipColor,
         bindings: [

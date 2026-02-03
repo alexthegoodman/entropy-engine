@@ -366,167 +366,182 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
-            for cube in &pbr_cubes {
-                let mut pipeline_set = false;
-                if let Some(pid) = &cube.pipeline_id {
-                    if pid != "default" {
-                        let mut op_state = editor.addon_engine.runtime.op_state();
-                        let op_state = op_state.borrow();
-                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                render_pass.set_pipeline(custom_pipeline);
-                                pipeline_set = true;
+            {
+                let op_state = editor.addon_engine.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                    
+                    for cube in &pbr_cubes {
+                        let mut pipeline_set = false;
+                        
+                        // 1. Check Role Override
+                        if let Some(role) = &cube.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
                             }
                         }
-                    }
-                }
 
-                if !pipeline_set {
-                    render_pass.set_pipeline(&geometry_pipeline);
-                }
-
-                cube.transform.update_uniform_buffer(&queue);
-                render_pass.set_bind_group(1, &cube.bind_group, &[]);
-                render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    cube.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
-            }
-
-            for landscape in &pbr_landscapes {
-                let mut pipeline_set = false;
-                if let Some(pid) = &landscape.pipeline_id {
-                    if pid != "default" {
-                        let mut op_state = editor.addon_engine.runtime.op_state();
-                        let op_state = op_state.borrow();
-                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                render_pass.set_pipeline(custom_pipeline);
-                                pipeline_set = true;
+                        // 2. Check Explicit Pipeline
+                        if !pipeline_set {
+                            if let Some(pid) = &cube.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
                             }
                         }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        cube.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                        render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            cube.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
                     }
-                }
 
-                if !pipeline_set {
-                    render_pass.set_pipeline(&geometry_pipeline);
-                }
+                    for landscape in &pbr_landscapes {
+                        let mut pipeline_set = false;
 
-                landscape.transform.update_uniform_buffer(&queue);
-                render_pass.set_bind_group(1, &landscape.bind_group, &[]);
-                render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    landscape.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
-            }
+                        // 1. Check Role Override
+                        if let Some(role) = &landscape.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
 
-            for mesh in &pbr_meshes {
-                render_pass.set_pipeline(&mesh.pipeline);
-                
-                // Bind groups
-                // Note: Standard layout puts Camera at 0. CustomMesh bind_groups are extras.
-                // But if the pipeline was created via generic layout, maybe it expects Camera at 0?
-                // Yes, generic layout starts with Camera at 0.
-                // So we set Camera (0) and then custom groups (1..).
-                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                
-                for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                    render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
-                }
+                        if !pipeline_set {
+                            if let Some(pid) = &landscape.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
+                            }
+                        }
 
-                if let Some(time_buffer) = &mesh.time_buffer {
-                    queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
-                }
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
 
-                mesh.transform.update_uniform_buffer(&queue); // Assuming CustomMesh has transform with uniform buffer logic?
-                // Wait, CustomMesh transform uses Transform_2::Transform which has update_uniform_buffer?
-                // Let's check Transform_2.
-                // Yes, if it is Transform_2.
-                // But I should check if I imported Transform_2 in CustomMesh. I did.
-                // And does it have a bind group? CustomMesh doesn't expose a separate transform bind group.
-                // It likely bakes the transform into a uniform buffer that might be part of "Uniform" binding?
-                // In my generic implementation in `addon_engine`, I didn't bake the transform automatically into bindings.
-                // The user has to provide it?
-                // Or does CustomMesh hold a transform buffer?
-                // In `CustomMesh::new`, I created a `Transform`.
-                // But I didn't put its buffer into `bind_groups` automatically.
-                // If the shader needs Model matrix, it needs to be in a bind group.
-                // The default pipeline created by `create_addon_pipeline` expects:
-                // Group 0: Camera
-                // Group 1: ModelUniform (model_matrix, normal_matrix)
-                // BUT, my `op_pipeline_create` for EXTRA bind groups starts appending extras after Group 0?
-                // No, `op_pipeline_create` logic:
-                // `layouts = vec![camera]`
-                // then appends extras.
-                // So Group 1 is first extra.
-                // BUT `create_addon_pipeline` default vertex shader uses:
-                // Group 0: Camera
-                // Group 1: Model
-                // This conflict!
-                // If I use default vertex shader, I need Group 1 to be Model.
-                // If I use custom vertex shader (like Water), I can define my own groups.
-                // My Water shader uses Group 1 for Time. It doesn't use Model matrix (it uses position in vertex shader directly or uniform).
-                // So for Water, it's fine.
-                // But for generic mesh?
-                // If I want standard Model transform support, I should ensure Group 1 is Model if using default shader.
-                // But `op_pipeline_create` doesn't enforce this if `extra_bind_groups` are used.
-                // It just appends extras.
-                
-                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    mesh.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
-            }
+                        landscape.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                        render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            landscape.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                    }
 
-            for grass in &mut pbr_grasses {
-                // Update uniforms based on camera/player position
-                // Similar to how it's done in render_frame
-                if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(model_id) = &player_character.model_id {
-                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                        if let Some(player_model) = player_model {
-                            let model_mesh = player_model.meshes.get(0);
-                            if let Some(model_mesh) = model_mesh {
-                                grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                    for mesh in &pbr_meshes {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &mesh.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&mesh.pipeline);
+                        }
+                        
+                        render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                            render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                        }
+
+                        if let Some(time_buffer) = &mesh.time_buffer {
+                            queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
+                        }
+
+                        mesh.transform.update_uniform_buffer(&queue);
+                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                    }
+
+                    for grass in &mut pbr_grasses {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &grass.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&grass.render_pipeline);
+                        }
+
+                        // Update uniforms
+                        if let Some(player_character) = &renderer_state.player_character {
+                            if let Some(model_id) = &player_character.model_id {
+                                let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                                if let Some(player_model) = player_model {
+                                    let model_mesh = player_model.meshes.get(0);
+                                    if let Some(model_mesh) = model_mesh {
+                                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                                    } else {
+                                        grass.update_uniforms(&queue, time as f32, camera.position);
+                                    }
+                                } else {
+                                    grass.update_uniforms(&queue, time as f32, camera.position);
+                                }
+                            } else if let Some(sphere) = &player_character.sphere {
+                                grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                             } else {
                                 grass.update_uniforms(&queue, time as f32, camera.position);
                             }
                         } else {
                             grass.update_uniforms(&queue, time as f32, camera.position);
                         }
-                    } else if let Some(sphere) = &player_character.sphere {
-                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                    } else {
-                        grass.update_uniforms(&queue, time as f32, camera.position);
+
+                        render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                        render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+
+                        for (i, bind_group) in grass.bind_groups.iter().enumerate() {
+                            render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+                        }
+
+                        render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                        let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+                        let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
+
+                        render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
                     }
-                } else {
-                    grass.update_uniforms(&queue, time as f32, camera.position);
                 }
-
-                render_pass.set_pipeline(&grass.render_pipeline);
-                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
-
-                for (i, bind_group) in grass.bind_groups.iter().enumerate() {
-                    render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
-                }
-
-                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
-                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
-
-                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
             }
             drop(render_pass);
 
@@ -681,127 +696,182 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
-            for cube in non_pbr_cubes {
-                let mut pipeline_set = false;
-                if let Some(pid) = &cube.pipeline_id {
-                    if pid != "default" {
-                        let mut op_state = editor.addon_engine.runtime.op_state();
-                        let op_state = op_state.borrow();
-                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                render_pass.set_pipeline(custom_pipeline);
-                                pipeline_set = true;
+            {
+                let op_state = editor.addon_engine.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                    
+                    for cube in &non_pbr_cubes {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &cube.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
                             }
                         }
-                    }
-                }
 
-                if !pipeline_set {
-                    // Non-PBR with default pipeline is not ideal as geometry_pipeline expects G-buffer targets
-                    // But we'll use it if nothing else is set
-                    render_pass.set_pipeline(&geometry_pipeline);
-                }
-
-                cube.transform.update_uniform_buffer(&queue);
-                render_pass.set_bind_group(1, &cube.bind_group, &[]);
-                render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    cube.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
-            }
-
-            for landscape in non_pbr_landscapes {
-                let mut pipeline_set = false;
-                if let Some(pid) = &landscape.pipeline_id {
-                    if pid != "default" {
-                        let mut op_state = editor.addon_engine.runtime.op_state();
-                        let op_state = op_state.borrow();
-                        if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                            if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
-                                render_pass.set_pipeline(custom_pipeline);
-                                pipeline_set = true;
+                        if !pipeline_set {
+                            if let Some(pid) = &cube.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
                             }
                         }
+
+                        if !pipeline_set {
+                            // Non-PBR with default pipeline is not ideal as geometry_pipeline expects G-buffer targets
+                            // But we'll use it if nothing else is set
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        cube.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                        render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            cube.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
                     }
-                }
 
-                if !pipeline_set {
-                    render_pass.set_pipeline(&geometry_pipeline);
-                }
+                    for landscape in &non_pbr_landscapes {
+                        let mut pipeline_set = false;
 
-                landscape.transform.update_uniform_buffer(&queue);
-                render_pass.set_bind_group(1, &landscape.bind_group, &[]);
-                render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    landscape.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
-            }
+                        // 1. Check Role Override
+                        if let Some(role) = &landscape.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
 
-            for mesh in &non_pbr_meshes {
-                render_pass.set_pipeline(&mesh.pipeline);
-                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                    render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
-                }
-                
-                if let Some(time_buffer) = &mesh.time_buffer {
-                    queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
-                }
-                
-                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(
-                    mesh.index_buffer.slice(..),
-                    wgpu::IndexFormat::Uint32,
-                );
-                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
-            }
+                        if !pipeline_set {
+                            if let Some(pid) = &landscape.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
+                            }
+                        }
 
-            for grass in &mut non_pbr_grasses {
-                // Update uniforms
-                if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(model_id) = &player_character.model_id {
-                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                        if let Some(player_model) = player_model {
-                            let model_mesh = player_model.meshes.get(0);
-                            if let Some(model_mesh) = model_mesh {
-                                grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        landscape.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                        render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            landscape.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                    }
+
+                    for mesh in &non_pbr_meshes {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &mesh.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&mesh.pipeline);
+                        }
+
+                        render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                            render_pass.set_bind_group((i + 1) as u32, bind_group, &[]);
+                        }
+                        
+                        if let Some(time_buffer) = &mesh.time_buffer {
+                            queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
+                        }
+                        
+                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            mesh.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                    }
+
+                    for grass in &mut non_pbr_grasses {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &grass.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&grass.render_pipeline);
+                        }
+
+                        // Update uniforms
+                        if let Some(player_character) = &renderer_state.player_character {
+                            if let Some(model_id) = &player_character.model_id {
+                                let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                                if let Some(player_model) = player_model {
+                                    let model_mesh = player_model.meshes.get(0);
+                                    if let Some(model_mesh) = model_mesh {
+                                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                                    } else {
+                                        grass.update_uniforms(&queue, time as f32, camera.position);
+                                    }
+                                } else {
+                                    grass.update_uniforms(&queue, time as f32, camera.position);
+                                }
+                            } else if let Some(sphere) = &player_character.sphere {
+                                grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
                             } else {
                                 grass.update_uniforms(&queue, time as f32, camera.position);
                             }
                         } else {
                             grass.update_uniforms(&queue, time as f32, camera.position);
                         }
-                    } else if let Some(sphere) = &player_character.sphere {
-                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                    } else {
-                        grass.update_uniforms(&queue, time as f32, camera.position);
+
+                        render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+                        render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+
+                        for (i, bind_group) in grass.bind_groups.iter().enumerate() {
+                            render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+                        }
+
+                        render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+                        let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+                        let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
+
+                        render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
                     }
-                } else {
-                    grass.update_uniforms(&queue, time as f32, camera.position);
                 }
-
-                render_pass.set_pipeline(&grass.render_pipeline);
-                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
-
-                for (i, bind_group) in grass.bind_groups.iter().enumerate() {
-                    render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
-                }
-
-                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
-                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
-
-                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
             }
             drop(render_pass);
         }

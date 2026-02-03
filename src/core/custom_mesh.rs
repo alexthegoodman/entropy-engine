@@ -17,6 +17,7 @@ pub struct CustomMesh {
     pub uniform_buffers: Vec<wgpu::Buffer>, // Store created uniform buffers to keep them alive
     pub samplers: Vec<wgpu::Sampler>, // Add this
     pub time_buffer: Option<wgpu::Buffer>,
+    pub render_role: Option<String>,
 }
 
 impl CustomMesh {
@@ -79,6 +80,7 @@ impl CustomMesh {
             uniform_buffers,
             samplers,
             time_buffer,
+            render_role: None,
         }
     }
 }

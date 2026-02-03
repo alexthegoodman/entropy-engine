@@ -79,6 +79,7 @@ pub struct Cube {
     pub index_count: u32,
     pub group_bind_group: wgpu::BindGroup,
     pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
 }
 
 impl Cube {
@@ -290,6 +291,7 @@ impl Cube {
             index_count: INDICES.len() as u32,
             group_bind_group: tmp_group_bind_group,
             pipeline_id: None,
+            render_role: None,
         }
     }
 }

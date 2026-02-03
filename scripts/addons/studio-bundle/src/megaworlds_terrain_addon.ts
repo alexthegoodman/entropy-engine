@@ -50,8 +50,9 @@ async function generateTerrain() {
         height: 128,
         noiseId: noiseId,
         position: [0, 0, 0],
-        pipelineId: pipelineId
-    });
+        pipelineId: pipelineId,
+        renderRole: "Terrain"
+    } as any);
 }
 
 const renderTerrainUI = (windowId: string) => {

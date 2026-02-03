@@ -108,11 +108,23 @@ pub struct MeshConfig {
 
 
 
-    pub pipeline_id: String,
+        pub pipeline_id: String,
 
 
 
-    pub instance_count: Option<u32>,
+    
+
+
+
+        pub render_role: Option<String>,
+
+
+
+    
+
+
+
+        pub instance_count: Option<u32>,
 
 
 
@@ -206,11 +218,23 @@ pub enum ResourceType {
 
 pub struct CubeConfig {
 
+
+
     pub position: [f32; 3],
+
+
 
     pub scale: [f32; 3],
 
+
+
     pub pipeline_id: Option<String>,
+
+
+
+    pub render_role: Option<String>,
+
+
 
 }
 
@@ -328,6 +352,8 @@ pub struct LandscapeConfig {
 
     pub pipeline_id: Option<String>,
 
+    pub render_role: Option<String>,
+
 }
 
 
@@ -349,6 +375,7 @@ pub struct AddonGrassConfig {
     pub base_color: Option<[f32; 4]>,
     pub tip_color: Option<[f32; 4]>,
     pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
     pub bindings: Option<Vec<BindingConfig>>,
 }
 
@@ -411,6 +438,7 @@ pub struct AddonContext {
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
+    pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: String,
 }
 
@@ -657,6 +685,12 @@ fn op_ui_widget_numeric_input(
             .or_default()
             .push(UiWidget::NumericInput { id, label, value });
     }
+}
+
+#[op2(fast)]
+fn op_composer_set_role_pipeline(state: &mut OpState, #[string] role: String, #[string] pipeline_id: String) {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    ctx.render_roles.insert(role, pipeline_id);
 }
 
 #[op2]
@@ -994,6 +1028,7 @@ extension!(
         op_grass_create,
         op_noise_create,
         op_point_light_create,
+        op_composer_set_role_pipeline,
         op_lighting_update_sun,
         op_println,
         op_ui_create_window,
@@ -1065,6 +1100,7 @@ impl AddonEngine {
             ui_widgets: HashMap::new(),
             ui_events: Arc::new(Mutex::new(Vec::new())),
             new_tabs: Vec::new(),
+            render_roles: HashMap::new(),
             project_id: project_id.clone(),
         };
         runtime.op_state().borrow_mut().put(context);
@@ -1406,6 +1442,7 @@ impl AddonEngine {
                     cube.transform.update_position(config.position);
                     cube.transform.update_scale(config.scale);
                     cube.pipeline_id = config.pipeline_id;
+                    cube.render_role = config.render_role;
                     
                     renderer_state.addon_cubes
                         .entry(addon_name)
@@ -1453,6 +1490,8 @@ impl AddonEngine {
                              config.instance_count.unwrap_or(1),
                              time_buffer,
                          );
+                         let mut mesh = mesh;
+                         mesh.render_role = config.render_role;
 
                          renderer_state.addon_meshes
                              .entry(addon_name)
@@ -1518,6 +1557,8 @@ impl AddonEngine {
                             camera,
                             config.pipeline_id
                         );
+                        let mut landscape = landscape;
+                        landscape.render_role = config.render_role;
 
                         renderer_state.addon_landscapes
                             .entry(addon_name)
@@ -1551,6 +1592,7 @@ impl AddonEngine {
                                 if let Some(landscape_y_offset) = config.landscape_y_offset { grass.config.landscape_y_offset = landscape_y_offset; }
                                 if let Some(base_color) = config.base_color { grass.config.base_color = base_color; }
                                 if let Some(tip_color) = config.tip_color { grass.config.tip_color = tip_color; }
+                                if config.render_role.is_some() { grass.render_role = config.render_role.clone(); }
 
                                 // Update bindings if provided
                                 if let Some(bindings) = config.bindings.clone() {
@@ -1605,6 +1647,8 @@ impl AddonEngine {
 
                     grass.id = config.id.clone();
                     grass.addon_name = Some(addon_name.clone());
+                    grass.pipeline_id = config.pipeline_id.clone();
+                    grass.render_role = config.render_role.clone();
 
                     // Apply config overrides
                     if let Some(grid_size) = config.grid_size { grass.config.grid_size = grid_size; }
