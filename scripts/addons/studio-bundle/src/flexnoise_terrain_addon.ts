@@ -50,7 +50,7 @@ class SimplexNoise {
         const y0 = yin - Y0;
 
         let i1, j1;
-        if (x0 > y0) { i1 = 1; j1 = 0; }
+        if (x0 > y0) { i1 = 1; j1 = 0; } 
         else { i1 = 0; j1 = 1; }
 
         const x1 = x0 - i1 + G2;
@@ -107,9 +107,9 @@ function fbm(noise: SimplexNoise, x: number, y: number, octaves: number, frequen
 }
 
 const addon = Entropy.Addon.register({
-    name: "Procedural Terrain",
-    version: "2.0.0",
-    description: "Generates terrain using JS-side noise (height data passed to Rust)",
+    name: "FlexNoise Terrain",
+    version: "3.0.0",
+    description: "Highly customizable procedural terrain with JS-side noise and UI controls",
     author: ["Entropy Team"],
     capabilities: {
         graphics: true,
@@ -118,7 +118,7 @@ const addon = Entropy.Addon.register({
 });
 
 let terrainParams = {
-    seed: Math.floor(Math.random() * 1000),
+    seed: 42,
     frequency: 0.005,
     octaves: 6,
     persistence: 0.5,
@@ -126,19 +126,17 @@ let terrainParams = {
     usePBR: true,
     width: 128,
     height: 128,
-    heightScale: 2.0
+    heightScale: 15.0,
+    positionY: 0.0,
+    terrainColor: [0.3, 0.5, 0.2, 1.0],
+    pipelineId: null
 };
 
 async function generateTerrain() {
-  // TODO: performance.now() is not currently exposed to via addon sdk
-    // const startTime = performance.now();
-    
-    // 1. Generate heights on JS side
-    Entropy.println(`Generating ${terrainParams.width}x${terrainParams.height} heightmap in JavaScript...`);
+    Entropy.println(`Regenerating FlexNoise Terrain: ${terrainParams.width}x${terrainParams.height}...`);
     
     const noise = new SimplexNoise(terrainParams.seed);
     const heights = [];
-    const totalPoints = terrainParams.width * terrainParams.height;
     
     for (let y = 0; y < terrainParams.height; y++) {
         for (let x = 0; x < terrainParams.width; x++) {
@@ -151,125 +149,236 @@ async function generateTerrain() {
                 terrainParams.lacunarity
             );
             
-            // Scale and offset the height
             const height = noiseValue * terrainParams.heightScale;
             heights.push(height);
         }
     }
     
-    // const genTime = performance.now() - startTime;
-    Entropy.println(`Generated ${totalPoints} height values in N/A ms`);
-    Entropy.println(`Data size: ${(heights.length * 4 / 1024).toFixed(2)} KB (assuming f32)`);
-
-    // 2. Create pipeline if needed
     let pipelineId = "default";
     if (!terrainParams.usePBR) {
         pipelineId = Entropy.Pipeline.create({
-            name: "terrain_green",
+            name: "terrain_custom_color",
             pbr: false,
             fragmentShader: `
+                struct VertexOutput {
+                    @location(0) color: vec4<f32>,
+                }
                 @fragment
-                fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-                    return vec4<f32>(0.2, 0.8, 0.2, 1.0);
+                fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+                    return vec4<f32>(${terrainParams.terrainColor[0]}, ${terrainParams.terrainColor[1]}, ${terrainParams.terrainColor[2]}, 1.0);
                 }
             `
         });
     }
 
-    // 3. Pass heights array to Rust (no noiseId - data is JS-generated!)
-    // const uploadStart = performance.now();
     addon.Landscape.create({
         width: terrainParams.width,
         height: terrainParams.height,
-        heights: heights,  // Pass JS-generated heights!
-        noiseId: null,     // Not using Rust-side noise
-        position: [0, 0, 0],
+        heights: heights,
+        noiseId: null,
+        position: [0, terrainParams.positionY, 0],
         pipelineId: pipelineId,
         renderRole: "Terrain"
     } as any);
-    // const uploadTime = performance.now() - uploadStart;
-    
-    // Entropy.println(`Uploaded to Rust in ${uploadTime.toFixed(2)}ms`);
-    // Entropy.println(`Total time: ${(genTime + uploadTime).toFixed(2)}ms`);
 }
 
 addon.onInit(async () => {
-    Entropy.println("Procedural Terrain (JS-side generation) Initializing...");
+    Entropy.println("FlexNoise Terrain Addon Initializing...");
+
+    // Initial Load
+    const savedData = addon.IO.load();
+    if (savedData) {
+        terrainParams = { ...terrainParams, ...savedData };
+    }
 
     const renderTerrainUI = (tab: string) => {
-        Entropy.UI.Widget.label(tab, { text: "Terrain Generation (JS-side)", bold: true });
-        Entropy.UI.Widget.label(tab, { text: "" }); // Spacer
-        Entropy.UI.Widget.label(tab, { text: "Current Settings", bold: true });
-        Entropy.UI.Widget.label(tab, { text: `Seed: ${terrainParams.seed}` });
-        Entropy.UI.Widget.label(tab, { 
-            text: `Resolution: ${terrainParams.width}x${terrainParams.height}` 
-        });
-        Entropy.UI.Widget.label(tab, { 
-            text: `Points: ${terrainParams.width * terrainParams.height}` 
-        });
-        Entropy.UI.Widget.label(tab, { text: `Octaves: ${terrainParams.octaves}` });
-        Entropy.UI.Widget.label(tab, { text: `Frequency: ${terrainParams.frequency}` });
-        Entropy.UI.Widget.label(tab, { 
-            text: `Mode: ${terrainParams.usePBR ? "PBR" : "Non-PBR"}` 
-        });
+        Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
         Entropy.UI.Widget.button(tab, {
-            text: "🎲 Randomize Seed & Regenerate",
+            text: "💾 Save Terrain Settings",
             onClick: () => {
-                terrainParams.seed = Math.floor(Math.random() * 1000);
+                addon.IO.save(terrainParams);
+                Entropy.println("Terrain settings saved!");
+            }
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "🎲 Noise Fundamentals", bold: true });
+        
+        Entropy.UI.Widget.numericInput(tab, {
+            label: "Seed",
+            value: terrainParams.seed,
+            onChange: (val: string) => {
+                terrainParams.seed = parseInt(val);
                 generateTerrain();
             }
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: terrainParams.usePBR ? "🎨 Switch to non-PBR (Green)" : "✨ Switch to PBR",
+            text: "🎲 Randomize Seed",
+            onClick: () => {
+                terrainParams.seed = Math.floor(Math.random() * 10000);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Frequency",
+            value: terrainParams.frequency,
+            min: 0.0001,
+            max: 0.05,
+            onChange: (val: string) => {
+                terrainParams.frequency = parseFloat(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Octaves",
+            value: terrainParams.octaves,
+            min: 1,
+            max: 12,
+            onChange: (val: string) => {
+                terrainParams.octaves = parseInt(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Persistence",
+            value: terrainParams.persistence,
+            min: 0.0,
+            max: 1.0,
+            onChange: (val: string) => {
+                terrainParams.persistence = parseFloat(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Lacunarity",
+            value: terrainParams.lacunarity,
+            min: 1.0,
+            max: 4.0,
+            onChange: (val: string) => {
+                terrainParams.lacunarity = parseFloat(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "📐 Geometry & Scale", bold: true });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Height Scale",
+            value: terrainParams.heightScale,
+            min: 0.1,
+            max: 100.0,
+            onChange: (val: string) => {
+                terrainParams.heightScale = parseFloat(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Y Position",
+            value: terrainParams.positionY,
+            min: -500.0,
+            max: 500.0,
+            onChange: (val: string) => {
+                terrainParams.positionY = parseFloat(val);
+                generateTerrain();
+            }
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "🖥️ Resolution", bold: true });
+        
+        const resolutions = [64, 128, 256, 512];
+        resolutions.forEach(res => {
+            Entropy.UI.Widget.button(tab, {
+                text: `Set Resolution: ${res}x${res}`,
+                onClick: () => {
+                    terrainParams.width = res;
+                    terrainParams.height = res;
+                    generateTerrain();
+                }
+            });
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "🎨 Visuals", bold: true });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: terrainParams.usePBR ? "✨ Mode: PBR (Realistic)" : "🎨 Mode: Custom Color",
             onClick: () => {
                 terrainParams.usePBR = !terrainParams.usePBR;
                 generateTerrain();
             }
         });
 
+        if (!terrainParams.usePBR) {
+            Entropy.UI.Widget.colorInput(tab, {
+                label: "Terrain Color",
+                color: terrainParams.terrainColor,
+                onChange: (newColor: number[]) => {
+                    terrainParams.terrainColor = newColor;
+                    generateTerrain();
+                }
+            });
+        }
+
+        Entropy.UI.Widget.label(tab, { text: "🎭 Terrain Presets", bold: true });
+        
         Entropy.UI.Widget.button(tab, {
-            text: "📈 Increase Resolution (256x256)",
+            text: "🏔️ Sharp Mountains",
             onClick: () => {
-                terrainParams.width = 256;
-                terrainParams.height = 256;
+                terrainParams.frequency = 0.01;
+                terrainParams.octaves = 8;
+                terrainParams.persistence = 0.5;
+                terrainParams.heightScale = 40.0;
                 generateTerrain();
             }
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "📉 Decrease Resolution (64x64)",
+            text: "🏜️ Rolling Hills",
             onClick: () => {
-                terrainParams.width = 64;
-                terrainParams.height = 64;
+                terrainParams.frequency = 0.003;
+                terrainParams.octaves = 4;
+                terrainParams.persistence = 0.3;
+                terrainParams.heightScale = 10.0;
                 generateTerrain();
             }
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "🔄 Reset to Default (128x128)",
+            text: "🌊 Sea Bed",
             onClick: () => {
-                terrainParams.width = 128;
-                terrainParams.height = 128;
+                terrainParams.frequency = 0.002;
+                terrainParams.octaves = 3;
+                terrainParams.persistence = 0.4;
+                terrainParams.heightScale = 5.0;
+                terrainParams.positionY = -15.0;
                 generateTerrain();
             }
         });
     };
 
     if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("Procedural Terrain", renderTerrainUI);
+        Entropy.Composer.registerEditor("FlexNoise Terrain", renderTerrainUI);
     }
 
-    generateTerrain();
-
-    // Tab 1
-    const tab1 = addon.UI.createTab({
-        title: "Noise Settings",
-        onRender: async () => {
-            renderTerrainUI(tab1);
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            terrainParams = { ...terrainParams, ...data };
+            generateTerrain();
         }
     });
 
-    
+    generateTerrain();
+
+    const tab = addon.UI.createTab({
+        title: "FlexNoise",
+        onRender: async () => {
+            renderTerrainUI(tab);
+        }
+    });
 });
