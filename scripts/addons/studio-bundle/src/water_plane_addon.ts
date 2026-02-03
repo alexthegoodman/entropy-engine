@@ -1,3 +1,5 @@
+
+
 const WATER_SHADER = `
 // ===== UNIFORMS & BINDINGS =====
 struct Camera {
@@ -395,7 +397,7 @@ let addonState: {
 } = {
     currentParams: { ...waterParams },
     savedComponents: [],
-    activeComponentId: "default"
+    activeComponentId: crypto.randomUUID()
 };
 
 let newComponentName = "New Water Component";
@@ -479,7 +481,7 @@ addon.onInit(async () => {
         }
     }
 
-    updateWater(addonState.currentParams, addonState.activeComponentId || "default");
+    updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
 
     const renderWaterUI = (tab: string) => {
         Entropy.Addon.setVisibility("Advanced Water Plane", true);
@@ -528,18 +530,18 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
         Entropy.UI.Widget.label(tab, { text: "🎨 Color & Depth", bold: true });
-        Entropy.UI.Widget.colorInput(tab, { label: "Shallow Color", color: addonState.currentParams.shallowColor, onChange: (c: number[]) => { addonState.currentParams.shallowColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Medium Color", color: addonState.currentParams.mediumColor, onChange: (c: number[]) => { addonState.currentParams.mediumColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Deep Color", color: addonState.currentParams.deepColor, onChange: (c: number[]) => { addonState.currentParams.deepColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Water Y Height", value: addonState.currentParams.waterY, min: -1000, max: 1000, onChange: (v: string) => { addonState.currentParams.waterY = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Shallow Color", color: addonState.currentParams.shallowColor, onChange: (c: number[]) => { addonState.currentParams.shallowColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Medium Color", color: addonState.currentParams.mediumColor, onChange: (c: number[]) => { addonState.currentParams.mediumColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Deep Color", color: addonState.currentParams.deepColor, onChange: (c: number[]) => { addonState.currentParams.deepColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Water Y Height", value: addonState.currentParams.waterY, min: -1000, max: 1000, onChange: (v: string) => { addonState.currentParams.waterY = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
 
         Entropy.UI.Widget.label(tab, { text: "🌊 Wave Parameters", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Amp", value: addonState.currentParams.wave1.amp, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.wave1.amp = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Freq", value: addonState.currentParams.wave1.freq, min: 0, max: 0.5, onChange: (v: string) => { addonState.currentParams.wave1.freq = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Amp", value: addonState.currentParams.wave1.amp, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.wave1.amp = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Freq", value: addonState.currentParams.wave1.freq, min: 0, max: 0.5, onChange: (v: string) => { addonState.currentParams.wave1.freq = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         
         Entropy.UI.Widget.label(tab, { text: "✨ Effects & Foam", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Sparkle Intensity", value: addonState.currentParams.sparkleIntensity, min: 0, max: 5, onChange: (v: string) => { addonState.currentParams.sparkleIntensity = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Foam Range", value: addonState.currentParams.shorelineFoamRange, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.shorelineFoamRange = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Sparkle Intensity", value: addonState.currentParams.sparkleIntensity, min: 0, max: 5, onChange: (v: string) => { addonState.currentParams.sparkleIntensity = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Foam Range", value: addonState.currentParams.shorelineFoamRange, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.shorelineFoamRange = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
 
         Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
         Entropy.UI.Widget.button(tab, { text: "🏝️ Tropical Lagoon", onClick: () => {
@@ -547,14 +549,14 @@ addon.onInit(async () => {
             addonState.currentParams.mediumColor = [0.0, 0.4, 0.6, 1.0];
             addonState.currentParams.wave1.amp = 0.5;
             addonState.currentParams.sparkleIntensity = 2.0;
-            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
+            updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }});
         Entropy.UI.Widget.button(tab, { text: "⛈️ Stormy Ocean", onClick: () => {
             addonState.currentParams.shallowColor = [0.2, 0.25, 0.3, 1.0];
             addonState.currentParams.mediumColor = [0.1, 0.15, 0.2, 1.0];
             addonState.currentParams.wave1.amp = 4.0;
             addonState.currentParams.wave1.speed = 2.0;
-            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
+            updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }});
     };
 
@@ -571,7 +573,7 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             addonState = { ...addonState, ...data };
-            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
+            updateWater(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }
     });
 

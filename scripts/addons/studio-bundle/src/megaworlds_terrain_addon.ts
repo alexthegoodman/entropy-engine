@@ -1,6 +1,7 @@
 // Terrain Generation Addon
 // Demonstrates procedural heightmap generation in JavaScript via Rust Noise API
 
+
 const addon = Entropy.Addon.register({
     name: "Simple Procedural Terrain",
     version: "1.2.0",
@@ -26,12 +27,12 @@ let addonState: {
 } = {
     currentParams: { ...terrainParams },
     savedComponents: [],
-    activeComponentId: "default"
+    activeComponentId: crypto.randomUUID()
 };
 
 let newComponentName = "New Rust Terrain Component";
 
-async function generateTerrain(params: typeof terrainParams, id: string = "default") {
+async function generateTerrain(params: typeof terrainParams, id: string = crypto.randomUUID()) {
     // 1. Create a noise handle in Rust
     const noiseId = addon.Noise.create({
         type: "fbm",
@@ -119,7 +120,7 @@ const renderTerrainUI = (windowId: string) => {
         text: "Randomize Seed & Regenerate",
         onClick: () => {
             addonState.currentParams.seed = Math.floor(Math.random() * 1000);
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }
     });
 
@@ -127,7 +128,7 @@ const renderTerrainUI = (windowId: string) => {
         text: addonState.currentParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
         onClick: () => {
             addonState.currentParams.usePBR = !addonState.currentParams.usePBR;
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }
     });
 
@@ -148,7 +149,7 @@ addon.onInit(async () => {
         }
     }
 
-    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
 
     if (Entropy.Composer) {
         Entropy.Composer.registerEditor("Simple Procedural Terrain", renderTerrainUI);

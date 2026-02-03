@@ -1,6 +1,7 @@
 import { createNoise2D } from 'simplex-noise';
 import Alea from 'alea';
 
+
 const addon = Entropy.Addon.register({
     name: "PBR Texture Designer Pro",
     version: "2.0.0",
@@ -158,7 +159,7 @@ let addonState: {
 } = {
     currentParams: { ...texParams },
     savedComponents: [],
-    activeComponentId: "default"
+    activeComponentId: crypto.randomUUID()
 };
 
 let newComponentName = "New Texture Component";
@@ -534,7 +535,7 @@ addon.onInit(async () => {
     addon.Lighting.createPointLight({ position: [3.0, 4.0, 10.0], color: [0.9, 0.9, 0.9], intensity: 8.0, maxDistance: 50.0 });
     addon.Lighting.createPointLight({ position: [0.0, 5.0, -10.0], color: [0.9, 0.9, 0.9], intensity: 8.0, maxDistance: 50.0 });
 
-    updatePreview(addonState.currentParams, addonState.activeComponentId || "default");
+    updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
 
     const renderUI = (tab: string) => {
         Entropy.Addon.setVisibility("PBR Texture Designer Pro", true);
@@ -562,64 +563,64 @@ addon.onInit(async () => {
         Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
         Entropy.UI.Widget.label(tab, { text: "📐 Pattern Selection", bold: true });
         let patternOptions = ["noise", "wood_grain", "marble", "brick", "hex_tiles", "scales", "fabric", "rust"] as PatternType[];
-        Entropy.UI.Widget.dropdown(tab, { label: "Pattern Type", options: patternOptions, selectedIndex: patternOptions.indexOf(addonState.currentParams.patternType), onChange: (val) => { addonState.currentParams.patternType = patternOptions[parseInt(val)]; updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Pattern Scale", value: addonState.currentParams.patternScale, min: 0.1, max: 5.0, onChange: (v) => { addonState.currentParams.patternScale = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.dropdown(tab, { label: "Pattern Type", options: patternOptions, selectedIndex: patternOptions.indexOf(addonState.currentParams.patternType), onChange: (val) => { addonState.currentParams.patternType = patternOptions[parseInt(val)]; updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Pattern Scale", value: addonState.currentParams.patternScale, min: 0.1, max: 5.0, onChange: (v) => { addonState.currentParams.patternScale = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         Entropy.UI.Widget.label(tab, { text: "🎨 Colors", bold: true });
-        Entropy.UI.Widget.colorInput(tab, { label: "Base Color", color: addonState.currentParams.baseColor, onChange: (c) => { addonState.currentParams.baseColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Secondary Color", color: addonState.currentParams.secondaryColor, onChange: (c) => { addonState.currentParams.secondaryColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Tertiary Color", color: addonState.currentParams.tertiaryColor, onChange: (c) => { addonState.currentParams.tertiaryColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Base Color", color: addonState.currentParams.baseColor, onChange: (c) => { addonState.currentParams.baseColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Secondary Color", color: addonState.currentParams.secondaryColor, onChange: (c) => { addonState.currentParams.secondaryColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Tertiary Color", color: addonState.currentParams.tertiaryColor, onChange: (c) => { addonState.currentParams.tertiaryColor = c; updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         Entropy.UI.Widget.label(tab, { text: "🔧 Core Settings", bold: true });
-        Entropy.UI.Widget.numericInput(tab, { label: "Seed", value: addonState.currentParams.seed, onChange: (val) => { addonState.currentParams.seed = parseInt(val); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Normal Strength", value: addonState.currentParams.normalStrength, min: 0.1, max: 20.0, onChange: (v) => { addonState.currentParams.normalStrength = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.numericInput(tab, { label: "Seed", value: addonState.currentParams.seed, onChange: (val) => { addonState.currentParams.seed = parseInt(val); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Normal Strength", value: addonState.currentParams.normalStrength, min: 0.1, max: 20.0, onChange: (v) => { addonState.currentParams.normalStrength = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         Entropy.UI.Widget.label(tab, { text: "💎 Material (PBR)", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Roughness", value: addonState.currentParams.roughness, min: 0, max: 1, onChange: (v) => { addonState.currentParams.roughness = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-        Entropy.UI.Widget.slider(tab, { label: "Metallic", value: addonState.currentParams.metallic, min: 0, max: 1, onChange: (v) => { addonState.currentParams.metallic = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Roughness", value: addonState.currentParams.roughness, min: 0, max: 1, onChange: (v) => { addonState.currentParams.roughness = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+        Entropy.UI.Widget.slider(tab, { label: "Metallic", value: addonState.currentParams.metallic, min: 0, max: 1, onChange: (v) => { addonState.currentParams.metallic = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         
         if (addonState.currentParams.patternType === 'wood_grain') {
             Entropy.UI.Widget.label(tab, { text: "🌲 Wood Grain Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Ring Frequency", value: addonState.currentParams.woodRingFrequency, min: 0.1, max: 1.0, onChange: (v) => { addonState.currentParams.woodRingFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Grain Turbulence", value: addonState.currentParams.woodGrainTurbulence, min: 0.5, max: 5.0, onChange: (v) => { addonState.currentParams.woodGrainTurbulence = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Grain Stretch", value: addonState.currentParams.woodGrainStretch, min: 1.0, max: 5.0, onChange: (v) => { addonState.currentParams.woodGrainStretch = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Ring Frequency", value: addonState.currentParams.woodRingFrequency, min: 0.1, max: 1.0, onChange: (v) => { addonState.currentParams.woodRingFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Grain Turbulence", value: addonState.currentParams.woodGrainTurbulence, min: 0.5, max: 5.0, onChange: (v) => { addonState.currentParams.woodGrainTurbulence = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Grain Stretch", value: addonState.currentParams.woodGrainStretch, min: 1.0, max: 5.0, onChange: (v) => { addonState.currentParams.woodGrainStretch = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'marble') {
             Entropy.UI.Widget.label(tab, { text: "⚪ Marble Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Vein Frequency", value: addonState.currentParams.marbleVeinFrequency, min: 0.01, max: 0.1, onChange: (v) => { addonState.currentParams.marbleVeinFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Vein Contrast", value: addonState.currentParams.marbleVeinContrast, min: 0.1, max: 2.0, onChange: (v) => { addonState.currentParams.marbleVeinContrast = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Turbulence", value: addonState.currentParams.marbleTurbulence, min: 0.5, max: 10.0, onChange: (v) => { addonState.currentParams.marbleTurbulence = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Vein Frequency", value: addonState.currentParams.marbleVeinFrequency, min: 0.01, max: 0.1, onChange: (v) => { addonState.currentParams.marbleVeinFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Vein Contrast", value: addonState.currentParams.marbleVeinContrast, min: 0.1, max: 2.0, onChange: (v) => { addonState.currentParams.marbleVeinContrast = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Turbulence", value: addonState.currentParams.marbleTurbulence, min: 0.5, max: 10.0, onChange: (v) => { addonState.currentParams.marbleTurbulence = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'brick') {
             Entropy.UI.Widget.label(tab, { text: "🧱 Brick Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Brick Width", value: addonState.currentParams.brickWidth, min: 20, max: 128, onChange: (v) => { addonState.currentParams.brickWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Brick Height", value: addonState.currentParams.brickHeight, min: 10, max: 64, onChange: (v) => { addonState.currentParams.brickHeight = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Mortar Width", value: addonState.currentParams.mortarWidth, min: 1, max: 10, onChange: (v) => { addonState.currentParams.mortarWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Brick Variation", value: addonState.currentParams.brickVariation, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.brickVariation = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Brick Width", value: addonState.currentParams.brickWidth, min: 20, max: 128, onChange: (v) => { addonState.currentParams.brickWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Brick Height", value: addonState.currentParams.brickHeight, min: 10, max: 64, onChange: (v) => { addonState.currentParams.brickHeight = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Mortar Width", value: addonState.currentParams.mortarWidth, min: 1, max: 10, onChange: (v) => { addonState.currentParams.mortarWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Brick Variation", value: addonState.currentParams.brickVariation, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.brickVariation = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'hex_tiles') {
             Entropy.UI.Widget.label(tab, { text: "⬡ Hex Tile Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Hex Size", value: addonState.currentParams.hexSize, min: 10, max: 100, onChange: (v) => { addonState.currentParams.hexSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Grout Width", value: addonState.currentParams.hexGroutWidth, min: 1, max: 10, onChange: (v) => { addonState.currentParams.hexGroutWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Tile Variation", value: addonState.currentParams.hexVariation, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.hexVariation = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Hex Size", value: addonState.currentParams.hexSize, min: 10, max: 100, onChange: (v) => { addonState.currentParams.hexSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Grout Width", value: addonState.currentParams.hexGroutWidth, min: 1, max: 10, onChange: (v) => { addonState.currentParams.hexGroutWidth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Tile Variation", value: addonState.currentParams.hexVariation, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.hexVariation = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'scales') {
             Entropy.UI.Widget.label(tab, { text: "🐉 Scale Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Scale Size", value: addonState.currentParams.scaleSize, min: 10, max: 100, onChange: (v) => { addonState.currentParams.scaleSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Scale Overlap", value: addonState.currentParams.scaleOverlap, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.scaleOverlap = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Scale Roughness", value: addonState.currentParams.scaleRoughness, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.scaleRoughness = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Scale Size", value: addonState.currentParams.scaleSize, min: 10, max: 100, onChange: (v) => { addonState.currentParams.scaleSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Scale Overlap", value: addonState.currentParams.scaleOverlap, min: 0.0, max: 0.5, onChange: (v) => { addonState.currentParams.scaleOverlap = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Scale Roughness", value: addonState.currentParams.scaleRoughness, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.scaleRoughness = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'fabric') {
             Entropy.UI.Widget.label(tab, { text: "🧵 Fabric Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Warp Frequency", value: addonState.currentParams.warpFrequency, min: 0.01, max: 0.5, onChange: (v) => { addonState.currentParams.warpFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Weft Frequency", value: addonState.currentParams.weftFrequency, min: 0.01, max: 0.5, onChange: (v) => { addonState.currentParams.weftFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Weave Intensity", value: addonState.currentParams.weaveIntensity, min: 0.1, max: 2.0, onChange: (v) => { addonState.currentParams.weaveIntensity = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Warp Frequency", value: addonState.currentParams.warpFrequency, min: 0.01, max: 0.5, onChange: (v) => { addonState.currentParams.warpFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Weft Frequency", value: addonState.currentParams.weftFrequency, min: 0.01, max: 0.5, onChange: (v) => { addonState.currentParams.weftFrequency = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Weave Intensity", value: addonState.currentParams.weaveIntensity, min: 0.1, max: 2.0, onChange: (v) => { addonState.currentParams.weaveIntensity = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         if (addonState.currentParams.patternType === 'rust') {
             Entropy.UI.Widget.label(tab, { text: "🦀 Rust Settings", bold: true });
-            Entropy.UI.Widget.slider(tab, { label: "Rust Coverage", value: addonState.currentParams.rustCoverage, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.rustCoverage = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Rust Spot Size", value: addonState.currentParams.rustSpotSize, min: 0.01, max: 0.2, onChange: (v) => { addonState.currentParams.rustSpotSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
-            Entropy.UI.Widget.slider(tab, { label: "Rust Depth", value: addonState.currentParams.rustDepth, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.rustDepth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+            Entropy.UI.Widget.slider(tab, { label: "Rust Coverage", value: addonState.currentParams.rustCoverage, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.rustCoverage = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Rust Spot Size", value: addonState.currentParams.rustSpotSize, min: 0.01, max: 0.2, onChange: (v) => { addonState.currentParams.rustSpotSize = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
+            Entropy.UI.Widget.slider(tab, { label: "Rust Depth", value: addonState.currentParams.rustDepth, min: 0.0, max: 1.0, onChange: (v) => { addonState.currentParams.rustDepth = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
         }
         Entropy.UI.Widget.label(tab, { text: "🔄 Preview Rotation", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Rotation Y", value: addonState.currentParams.previewRotation[1], min: 0, max: 6.28, onChange: (v) => { addonState.currentParams.previewRotation[1] = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Rotation Y", value: addonState.currentParams.previewRotation[1], min: 0, max: 6.28, onChange: (v) => { addonState.currentParams.previewRotation[1] = parseFloat(v); updatePreview(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); } });
     };
 
     if (Entropy.Composer) {

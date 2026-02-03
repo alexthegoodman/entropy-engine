@@ -1,6 +1,7 @@
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 import Alea from 'alea';
 
+
 // FBM (Fractional Brownian Motion) implementation using the library
 function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
     let total = 0;
@@ -55,7 +56,7 @@ let addonState: {
 } = {
     currentParams: { ...terrainParams },
     savedComponents: [],
-    activeComponentId: "default"
+    activeComponentId: crypto.randomUUID()
 };
 
 let newComponentName = "New Terrain Component";
@@ -229,7 +230,7 @@ addon.onInit(async () => {
         Entropy.UI.Widget.button(tab, {
             text: "➕ Save Current as Component",
             onClick: () => {
-                const id = Math.random().toString(36).substr(2, 9);
+                const id = crypto.randomUUID();
                 addonState.savedComponents.push({
                     id,
                     name: newComponentName,
@@ -261,7 +262,7 @@ addon.onInit(async () => {
             value: addonState.currentParams.seed,
             onChange: (val: string) => {
                 addonState.currentParams.seed = parseInt(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -269,7 +270,7 @@ addon.onInit(async () => {
             text: addonState.currentParams.use3D ? "🧊 Noise: 3D (Animated)" : "📄 Noise: 2D (Static)",
             onClick: () => {
                 addonState.currentParams.use3D = !addonState.currentParams.use3D;
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -281,7 +282,7 @@ addon.onInit(async () => {
                 max: 10.0,
                 onChange: (val: string) => {
                     addonState.currentParams.time = parseFloat(val);
-                    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
                 }
             });
         }
@@ -293,7 +294,7 @@ addon.onInit(async () => {
             max: 0.05,
             onChange: (val: string) => {
                 addonState.currentParams.frequency = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -304,7 +305,7 @@ addon.onInit(async () => {
             max: 12,
             onChange: (val: string) => {
                 addonState.currentParams.octaves = parseInt(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -315,7 +316,7 @@ addon.onInit(async () => {
             max: 1.0,
             onChange: (val: string) => {
                 addonState.currentParams.persistence = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -326,7 +327,7 @@ addon.onInit(async () => {
             max: 4.0,
             onChange: (val: string) => {
                 addonState.currentParams.lacunarity = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -339,7 +340,7 @@ addon.onInit(async () => {
             max: 100.0,
             onChange: (val: string) => {
                 addonState.currentParams.heightScale = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -350,7 +351,7 @@ addon.onInit(async () => {
             max: 500.0,
             onChange: (val: string) => {
                 addonState.currentParams.positionY = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -363,7 +364,7 @@ addon.onInit(async () => {
                 onClick: () => {
                     addonState.currentParams.width = res;
                     addonState.currentParams.height = res;
-                    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
                 }
             });
         });
@@ -374,7 +375,7 @@ addon.onInit(async () => {
             text: addonState.currentParams.usePBR ? "✨ Mode: PBR (Realistic)" : "🎨 Mode: Custom Color",
             onClick: () => {
                 addonState.currentParams.usePBR = !addonState.currentParams.usePBR;
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -384,7 +385,7 @@ addon.onInit(async () => {
                 color: addonState.currentParams.terrainColor,
                 onChange: (newColor: number[]) => {
                     addonState.currentParams.terrainColor = newColor;
-                    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
                 }
             });
         } else {
@@ -422,7 +423,7 @@ addon.onInit(async () => {
                     if (addonState.currentParams.autoSyncPBR) {
                         applyPBRFromDesigner();
                     }
-                    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default"); // Refresh UI
+                    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID()); // Refresh UI
                 }
             });
         }
@@ -436,7 +437,7 @@ addon.onInit(async () => {
                 addonState.currentParams.octaves = 8;
                 addonState.currentParams.persistence = 0.5;
                 addonState.currentParams.heightScale = 40.0;
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -447,7 +448,7 @@ addon.onInit(async () => {
                 addonState.currentParams.octaves = 4;
                 addonState.currentParams.persistence = 0.3;
                 addonState.currentParams.heightScale = 10.0;
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
 
@@ -459,7 +460,7 @@ addon.onInit(async () => {
                 addonState.currentParams.persistence = 0.4;
                 addonState.currentParams.heightScale = 5.0;
                 addonState.currentParams.positionY = -15.0;
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+                generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
             }
         });
     };
@@ -477,7 +478,7 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             addonState = { ...addonState, ...data };
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
         }
     });
 
@@ -503,7 +504,7 @@ addon.onInit(async () => {
         maxDistance: 150.0
     });
 
-    generateTerrain(addonState.currentParams, addonState.activeComponentId || "default");
+    generateTerrain(addonState.currentParams, addonState.activeComponentId || crypto.randomUUID());
 
     const tab = addon.UI.createTab({
         title: "FlexNoise",
