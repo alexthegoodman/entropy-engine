@@ -34,6 +34,8 @@ let composerState: {
     components: []
 };
 
+let activeProjectId: string | null = null;
+
 const availablePipelines = [
     "default", 
     "custom_hair_shader_enhanced", 
@@ -55,18 +57,31 @@ const availableAddons = [
 addon.onInit(async () => {
     Entropy.println("Game Composer Initializing...");
 
-    const saved = addon.IO.load();
-    if (saved) {
-        composerState = { ...composerState, ...saved };
-    }
+    addon.onProjectChanged((newProjectId) => {
+        Entropy.println("Project changed: " + newProjectId);
+
+        activeProjectId = newProjectId;
+
+        const saved = addon.IO.load();
+        if (saved) {
+            composerState = { ...composerState, ...saved };
+        }
+
+        Entropy.println("ReLoaded game composer settings");
+    });
 
     const tab = addon.UI.createTab({
         title: "Game Composer",
         onRender: () => {
              Entropy.UI.Widget.label(tab, { text: "🎬 Game Composer", bold: true });
-             
+             Entropy.UI.Widget.label(tab, { text: "Welcome! Use this tool to assemble your scene by combining" });
+             Entropy.UI.Widget.label(tab, { text: "components from different addons and managing global render styles." });
+             Entropy.UI.Widget.label(tab, { text: "" });
+
              // === RENDER ROLES ===
              Entropy.UI.Widget.label(tab, { text: "🎭 Render Roles", bold: true });
+             Entropy.UI.Widget.label(tab, { text: "Assign global pipelines to specific roles. All objects tagged with" });
+             Entropy.UI.Widget.label(tab, { text: "a role will use the selected pipeline regardless of their origin." });
              
              Object.keys(composerState.roles).forEach(role => {
                  Entropy.UI.Widget.button(tab, {
@@ -90,6 +105,7 @@ addon.onInit(async () => {
 
              // === SCENE GRAPH ===
              Entropy.UI.Widget.label(tab, { text: "📦 Scene Components", bold: true });
+             Entropy.UI.Widget.label(tab, { text: "Add and manage instances of your enabled addons." });
              
              composerState.components.forEach((comp) => {
                  const isActive = comp.id === composerState.activeComponentId;
@@ -127,6 +143,7 @@ addon.onInit(async () => {
              
              if (activeComp) {
                  Entropy.UI.Widget.label(tab, { text: `🔍 Inspector: ${activeComp.name}`, bold: true });
+                 Entropy.UI.Widget.label(tab, { text: "Edit local properties and access the full addon interface below." });
                  Entropy.UI.Widget.label(tab, { text: `Addon Source: ${activeComp.addon}` });
                  
                  Entropy.UI.Widget.button(tab, {
