@@ -1,4 +1,3 @@
-
 const WATER_SHADER = `
 // ===== UNIFORMS & BINDINGS =====
 struct Camera {
@@ -24,42 +23,21 @@ struct WaterConfig {
     medium_color: vec4<f32>,
     deep_color: vec4<f32>,
     player_pos: vec4<f32>,
-    ripple_amplitude_multiplier: f32,
-    ripple_freq: f32,
-    ripple_speed: f32,
-    shoreline_foam_range: f32,
-    crest_foam_min: f32,
-    crest_foam_max: f32,
-    sparkle_intensity: f32,
-    sparkle_threshold: f32,
-    subsurface_multiplier: f32,
-    fresnel_power: f32,
-    fresnel_multiplier: f32,
     
-    // Wave 1 parameters
-    wave1_amplitude: f32,
-    wave1_frequency: f32,
-    wave1_speed: f32,
-    wave1_steepness: f32,
-    wave1_direction: vec2<f32>,
+    ripple_foam_params: vec4<f32>,    // x: amp, y: freq, z: speed, w: foam_range
+    foam_sparkle_params: vec4<f32>,   // x: crest_min, y: crest_max, z: sparkle_int, w: sparkle_thresh
+    lighting_params: vec4<f32>,       // x: subsurface, y: fresnel_pow, z: fresnel_mult, w: reflection_int
     
-    // Wave 2 parameters
-    wave2_amplitude: f32,
-    wave2_frequency: f32,
-    wave2_speed: f32,
-    wave2_steepness: f32,
-    wave2_direction: vec2<f32>,
+    wave1_params: vec4<f32>,          // x: amp, y: freq, z: speed, w: steep
+    wave1_dir: vec4<f32>,             // x,y: direction, z,w: padding
     
-    // Wave 3 parameters
-    wave3_amplitude: f32,
-    wave3_frequency: f32,
-    wave3_speed: f32,
-    wave3_steepness: f32,
-    wave3_direction: vec2<f32>,
+    wave2_params: vec4<f32>,          // x: amp, y: freq, z: speed, w: steep
+    wave2_dir: vec4<f32>,             // x,y: direction, z,w: padding
+    
+    wave3_params: vec4<f32>,          // x: amp, y: freq, z: speed, w: steep
+    wave3_dir: vec4<f32>,             // x,y: direction, z,w: padding
 
-    landscape_height: f32,
-    landscape_size: f32,
-    landscape_y_offset: f32
+    landscape_params: vec4<f32>,      // x: height, y: size, z: y_offset, w: padding
 }
 @group(3) @binding(0)
 var<uniform> water_config: WaterConfig;
@@ -89,17 +67,18 @@ struct GbufferOutput {
 
 // ===== LANDSCAPE SAMPLING =====
 fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
-    let landscape_size = water_config.landscape_size;
-    let max_height = water_config.landscape_height;
+    let landscape_size = water_config.landscape_params.y;
+    let max_height = water_config.landscape_params.x;
+    let y_offset = water_config.landscape_params.z;
     
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
     
     let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
-    return (height_sample.r * max_height) + water_config.landscape_y_offset;
+    return (height_sample.r * max_height) + y_offset;
 }
 
-// ===== IMPROVED NOISE FUNCTIONS =====
+// ===== NOISE FUNCTIONS =====
 fn hash(p: vec2<f32>) -> f32 {
     let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.13);
     let p3_dot = dot(p3, vec3<f32>(p3.y + 3.333, p3.z + 3.333, p3.x + 3.333));
@@ -118,29 +97,12 @@ fn noise(p: vec2<f32>) -> f32 {
     );
 }
 
-// Derivative noise for proper normal calculation
 fn noise_derivative(p: vec2<f32>) -> vec3<f32> {
     let eps = 0.01;
     let center = noise(p);
     let dx = (noise(p + vec2<f32>(eps, 0.0)) - center) / eps;
     let dy = (noise(p + vec2<f32>(0.0, eps)) - center) / eps;
     return vec3<f32>(dx, dy, center);
-}
-
-// Fractional Brownian Motion for multi-scale detail
-fn fbm(p: vec2<f32>, octaves: i32) -> f32 {
-    var value = 0.0;
-    var amplitude = 0.5;
-    var frequency = 1.0;
-    var coord = p;
-    
-    for (var i = 0; i < octaves; i++) {
-        value += amplitude * noise(coord * frequency);
-        frequency *= 2.0;
-        amplitude *= 0.5;
-    }
-    
-    return value;
 }
 
 fn fbm_derivative(p: vec2<f32>, octaves: i32) -> vec3<f32> {
@@ -204,48 +166,37 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     var normal = vec3<f32>(0.0, 1.0, 0.0);
     var velocity = vec2<f32>(0.0, 0.0);
 
-    // Normalize wave directions from config
-    let dir1 = normalize(water_config.wave1_direction);
-    let dir2 = normalize(water_config.wave2_direction);
-    let dir3 = normalize(water_config.wave3_direction);
+    let dir1 = normalize(water_config.wave1_dir.xy);
+    let dir2 = normalize(water_config.wave2_dir.xy);
+    let dir3 = normalize(water_config.wave3_dir.xy);
 
-    // Large Gerstner Waves (using configurable parameters)
-    let wave1 = gerstner_wave(pos.xz, dir1, water_config.wave1_steepness, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
-    let wave2 = gerstner_wave(pos.xz, dir2, water_config.wave2_steepness, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
-    let wave3 = gerstner_wave(pos.xz, dir3, water_config.wave3_steepness, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
+    let wave1 = gerstner_wave(pos.xz, dir1, water_config.wave1_params.w, water_config.wave1_params.x, water_config.wave1_params.y, water_config.wave1_params.z);
+    let wave2 = gerstner_wave(pos.xz, dir2, water_config.wave2_params.w, water_config.wave2_params.x, water_config.wave2_params.y, water_config.wave2_params.z);
+    let wave3 = gerstner_wave(pos.xz, dir3, water_config.wave3_params.w, water_config.wave3_params.x, water_config.wave3_params.y, water_config.wave3_params.z);
     
     pos += wave1 + wave2 + wave3;
 
-    velocity += gerstner_wave_velocity(pos.xz, dir1, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
-    velocity += gerstner_wave_velocity(pos.xz, dir2, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
-    velocity += gerstner_wave_velocity(pos.xz, dir3, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
+    velocity += gerstner_wave_velocity(pos.xz, dir1, water_config.wave1_params.x, water_config.wave1_params.y, water_config.wave1_params.z);
+    velocity += gerstner_wave_velocity(pos.xz, dir2, water_config.wave2_params.x, water_config.wave2_params.y, water_config.wave2_params.z);
+    velocity += gerstner_wave_velocity(pos.xz, dir3, water_config.wave3_params.x, water_config.wave3_params.y, water_config.wave3_params.z);
 
-    // Calculate normals
-    let n_wave1 = gerstner_wave_normal(pos.xz, dir1, water_config.wave1_steepness, water_config.wave1_amplitude, water_config.wave1_frequency, water_config.wave1_speed);
-    let n_wave2 = gerstner_wave_normal(pos.xz, dir2, water_config.wave2_steepness, water_config.wave2_amplitude, water_config.wave2_frequency, water_config.wave2_speed);
-    let n_wave3 = gerstner_wave_normal(pos.xz, dir3, water_config.wave3_steepness, water_config.wave3_amplitude, water_config.wave3_frequency, water_config.wave3_speed);
+    let n_wave1 = gerstner_wave_normal(pos.xz, dir1, water_config.wave1_params.w, water_config.wave1_params.x, water_config.wave1_params.y, water_config.wave1_params.z);
+    let n_wave2 = gerstner_wave_normal(pos.xz, dir2, water_config.wave2_params.w, water_config.wave2_params.x, water_config.wave2_params.y, water_config.wave2_params.z);
+    let n_wave3 = gerstner_wave_normal(pos.xz, dir3, water_config.wave3_params.w, water_config.wave3_params.x, water_config.wave3_params.y, water_config.wave3_params.z);
     
     normal.x = -(n_wave1.x + n_wave2.x + n_wave3.x);
     normal.z = -(n_wave1.z + n_wave2.z + n_wave3.z);
     normal.y = 1.0 - (n_wave1.y + n_wave2.y + n_wave3.y);
     normal = normalize(normal);
 
-    // Calculate tangent and bitangent for normal mapping
     let tangent = normalize(vec3<f32>(1.0, normal.x, 0.0));
     let bitangent = normalize(cross(normal, tangent));
 
-    // Player Interaction Ripples
     let dist_to_player = distance(pos.xz, water_config.player_pos.xz);
     if (dist_to_player < 10.0) {
-        let ripple_amplitude = water_config.ripple_amplitude_multiplier * (1.0 - dist_to_player / 10.0);
-        let ripple_offset = ripple_amplitude * sin(dist_to_player * water_config.ripple_freq - u_time.time * water_config.ripple_speed);
+        let ripple_amplitude = water_config.ripple_foam_params.x * (1.0 - dist_to_player / 10.0);
+        let ripple_offset = ripple_amplitude * sin(dist_to_player * water_config.ripple_foam_params.y - u_time.time * water_config.ripple_foam_params.z);
         pos.y += ripple_offset;
-        
-        let ripple_normal_strength = ripple_amplitude * water_config.ripple_freq * cos(dist_to_player * water_config.ripple_freq - u_time.time * water_config.ripple_speed);
-        let dir_to_player = normalize(vec2<f32>(pos.x - water_config.player_pos.x, pos.z - water_config.player_pos.z));
-        normal.x += dir_to_player.x * ripple_normal_strength * 0.5;
-        normal.z += dir_to_player.y * ripple_normal_strength * 0.5;
-        normal = normalize(normal);
     }
 
     out.world_position = pos;
@@ -265,110 +216,71 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let view_dir = normalize(camera.view_pos.xyz - in.world_position);
     var normal = normalize(in.normal);
     
-    // Calculate water depth
     let terrain_height = sample_landscape_height(in.world_position.xz);
     let water_depth = max(in.world_position.y - terrain_height, 0.0);
     
-    // ===== HIGH-FREQUENCY NORMAL DETAIL (replaces texture sampling) =====
+    // Detailed normals
     let detail_coord1 = in.world_position.xz * 0.5 + in.wave_velocity * u_time.time * 0.3;
     let detail_deriv1 = fbm_derivative(detail_coord1, 3);
     let detail_coord2 = in.world_position.xz * 1.5 - vec2<f32>(u_time.time * 0.2, u_time.time * 0.15);
     let detail_deriv2 = fbm_derivative(detail_coord2, 3);
-    let detail_coord3 = in.world_position.xz * 4.0 + vec2<f32>(u_time.time * 0.1, -u_time.time * 0.12);
-    let detail_deriv3 = fbm_derivative(detail_coord3, 2);
     
     var detail_normal = vec3<f32>(0.0, 1.0, 0.0);
-    detail_normal.x = detail_deriv1.x * 0.4 + detail_deriv2.x * 0.3 + detail_deriv3.x * 0.2;
-    detail_normal.z = detail_deriv1.y * 0.4 + detail_deriv2.y * 0.3 + detail_deriv3.y * 0.2;
+    detail_normal.x = detail_deriv1.x * 0.4 + detail_deriv2.x * 0.3;
+    detail_normal.z = detail_deriv1.y * 0.4 + detail_deriv2.y * 0.3;
     detail_normal = normalize(detail_normal);
     
     let tangent = normalize(in.tangent);
     let bitangent = normalize(in.bitangent);
-    let detail_world_normal = normalize(
-        detail_normal.x * tangent +
-        detail_normal.y * normal +
-        detail_normal.z * bitangent
-    );
+    let detail_world_normal = normalize(detail_normal.x * tangent + detail_normal.y * normal + detail_normal.z * bitangent);
     
-    let detail_strength = mix(0.3, 0.7, smoothstep(5.0, 1.0, water_depth));
+    let detail_strength = mix(0.1, 0.4, smoothstep(5.0, 0.0, water_depth));
     normal = normalize(mix(normal, detail_world_normal, detail_strength));
     
-    // ===== LIGHTING & COLOR =====
     // Fresnel
     let ndotv = max(dot(normal, view_dir), 0.0);
-    let fresnel = pow(1.0 - ndotv, water_config.fresnel_power);
+    let fresnel = pow(1.0 - ndotv, water_config.lighting_params.y);
     
-    // Depth-based colors
-    let shallow_color = water_config.shallow_color.xyz;
-    let medium_color = water_config.medium_color.xyz;
-    let deep_color = water_config.deep_color.xyz;
-    let sky_reflection = vec3<f32>(0.6, 0.8, 1.0); // Keep sky reflection as a constant for now
-    
+    // Depth Colors
     var water_color: vec3<f32>;
     if (water_depth < 2.0) {
-        water_color = mix(shallow_color, medium_color, water_depth / 2.0);
+        water_color = mix(water_config.shallow_color.xyz, water_config.medium_color.xyz, water_depth / 2.0);
     } else if (water_depth < 10.0) {
-        water_color = mix(medium_color, deep_color, (water_depth - 2.0) / 8.0);
+        water_color = mix(water_config.medium_color.xyz, water_config.deep_color.xyz, (water_depth - 2.0) / 8.0);
     } else {
-        water_color = deep_color;
+        water_color = water_config.deep_color.xyz;
     }
     
-    var final_color = mix(water_color, sky_reflection, fresnel * water_config.fresnel_multiplier);
+    let sky_reflection = vec3<f32>(0.6, 0.8, 1.0);
+    var final_color = mix(water_color, sky_reflection, fresnel * water_config.lighting_params.z);
     
-    // Scattered sun specular
+    // Specular & Sparkle
     let sun_dir = normalize(vec3<f32>(0.3, 0.8, 0.5));
     let reflect_dir = reflect(-sun_dir, normal);
+    let spec = pow(max(dot(view_dir, reflect_dir), 0.0), 200.0);
     
-    let spec_base = pow(max(dot(view_dir, reflect_dir), 0.0), 80.0);
-    let spec_sharp = pow(max(dot(view_dir, reflect_dir), 0.0), 300.0);
+    let sparkle_noise = noise(in.world_position.xz * 40.0 + u_time.time * 2.0);
+    let sparkle = step(water_config.foam_sparkle_params.w, sparkle_noise) * pow(max(dot(view_dir, reflect_dir), 0.0), 400.0);
     
-    // High-frequency sparkles
-    let sparkle_detail = pow(max(dot(view_dir, reflect_dir), 0.0), 600.0);
-    let sparkle_noise = noise(in.world_position.xz * 30.0 + u_time.time * 3.0);
-    let sparkle = step(water_config.sparkle_threshold, sparkle_noise) * sparkle_detail;
+    final_color += vec3<f32>(1.0, 1.0, 0.9) * (spec * 0.5 + sparkle * water_config.foam_sparkle_params.z);
     
-    final_color += vec3<f32>(1.0, 1.0, 0.95) * (spec_base * 0.4 + spec_sharp * 0.6 + sparkle * water_config.sparkle_intensity);
-    
-    // FOAM
-    var foam_amount = 0.0;
-    
-    let shoreline_foam = smoothstep(water_config.shoreline_foam_range, 0.0, water_depth);
+    // Foam
+    let shoreline_foam = smoothstep(water_config.ripple_foam_params.w, 0.0, water_depth);
     let wave_steepness = length(vec2<f32>(normal.x, normal.z));
-    let crest_foam = smoothstep(water_config.crest_foam_min, water_config.crest_foam_max, wave_steepness) * smoothstep(0.5, 2.0, in.world_position.y);
-    let velocity_strength = length(in.wave_velocity);
-    let velocity_foam = smoothstep(0.5, 1.5, velocity_strength);
+    let crest_foam = smoothstep(water_config.foam_sparkle_params.x, water_config.foam_sparkle_params.y, wave_steepness);
     
-    foam_amount = max(shoreline_foam, max(crest_foam * 0.7, velocity_foam * 0.5));
+    let foam_pattern = noise(in.world_position.xz * 20.0 + u_time.time);
+    let foam = max(shoreline_foam, crest_foam) * step(0.5, foam_pattern);
+    final_color = mix(final_color, vec3<f32>(0.9, 0.95, 1.0), foam * 0.7);
     
-    // Multi-scale foam texture
-    let foam_coord1 = in.world_position.xz * 12.0 + u_time.time * 0.5 + in.wave_velocity * 0.3;
-    let foam_coord2 = in.world_position.xz * 24.0 - u_time.time * 0.4;
-    let foam_coord3 = in.world_position.xz * 48.0 + u_time.time * 0.8;
-    
-    let foam_noise1 = noise(foam_coord1);
-    let foam_noise2 = noise(foam_coord2);
-    let foam_noise3 = noise(foam_coord3);
-    
-    let foam_pattern = foam_noise1 * 0.5 + foam_noise2 * 0.3 + foam_noise3 * 0.2;
-    let foam_threshold = mix(0.55, 0.3, foam_amount);
-    let foam_mask = smoothstep(foam_threshold - 0.15, foam_threshold + 0.15, foam_pattern);
-    
-    let foam_color = vec3<f32>(0.95, 0.98, 1.0);
-    foam_amount = foam_amount * foam_mask;
-    final_color = mix(final_color, foam_color, foam_amount * 0.85);
-    
-    // Subsurface scattering
-    let subsurface = smoothstep(5.0, 0.0, water_depth) * max(dot(normalize(in.normal), sun_dir), 0.0);
-    final_color += shallow_color * subsurface * water_config.subsurface_multiplier;
-    
-    let ambient = 0.3;
-    final_color = max(final_color, water_color * ambient);
+    // Subsurface
+    let subsurface = smoothstep(4.0, 0.0, water_depth) * max(dot(normal, sun_dir), 0.0);
+    final_color += water_config.shallow_color.xyz * subsurface * water_config.lighting_params.x;
 
-    // ===== FINAL OUTPUT =====
     output.position = vec4<f32>(in.world_position, 1.0);
     output.normal = vec4<f32>(normal, 1.0);
-    output.albedo = vec4<f32>(final_color, 0.85); // Use a fixed alpha for now
-    output.pbr_material = vec4<f32>(0.0, 0.08, 0.35, 1.0); // Roughness, Metallic, Reflectance, (not used)
+    output.albedo = vec4<f32>(final_color, 0.85);
+    output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
     return output;
 }
 `;
@@ -377,7 +289,6 @@ function generateGrid(size: number, resolution: number) {
     const vertices = [];
     const indices = [];
     const halfSize = size / 2;
-    
     for (let row = 0; row <= resolution; row++) {
         for (let col = 0; col <= resolution; col++) {
             const x = -halfSize + (col / resolution) * size;
@@ -385,191 +296,172 @@ function generateGrid(size: number, resolution: number) {
             vertices.push(x, 0, z);
         }
     }
-
     for (let row = 0; row < resolution; row++) {
         for (let col = 0; col < resolution; col++) {
             const topLeft = row * (resolution + 1) + col;
             const topRight = topLeft + 1;
             const bottomLeft = (row + 1) * (resolution + 1) + col;
             const bottomRight = bottomLeft + 1;
-
             indices.push(topLeft, bottomLeft, topRight);
             indices.push(topRight, bottomLeft, bottomRight);
         }
     }
-    
     return { vertices, indices };
 }
 
-const waterConfig = new Float32Array([
-    0.2, 0.85, 0.95, 1.0, // shallow
-    0.0, 0.55, 0.75, 1.0, // medium
-    0.0, 0.25, 0.45, 1.0, // deep
-    0.0, 0.0, 0.0, 0.0,   // player_pos (will be updated if we had logic for it)
-
-    1.5, 0.25, 3.0, 2.5,  // ripple stuff
-    0.45, 0.75, 0.8, 0.7, // foam/sparkle
-    0.35, 2.5, 0.6, 0.0,  // fresnel + padding? No, subsurface, fresnel_power, fresnel_mult, PAD
-
-    // Wave 1
-    1.5, 0.08, 0.8, 0.3, 1.0, 0.5, 0.0, 0.0, // dir is vec2, so 2 floats + 2 padding? No, struct packing.
-    // Rust struct:
-    // wave1_amplitude: f32,
-    // wave1_frequency: f32,
-    // wave1_speed: f32,
-    // wave1_steepness: f32,
-    // wave1_direction: [f32; 2],
-    // Rust aligns vec2 to 8 bytes.
-    // So: float, float, float, float (16 bytes)
-    // vec2 (8 bytes).
-    // Total 24 bytes?
-    // Wait, bytemuck::cast_slice handles simple packing, but WGSL uniform alignment is tricky (std140).
-    // However, if we use `bytemuck` on Rust side, it just dumps bytes.
-    // If we use WGSL `var<uniform>`, it expects std140.
-    // Rust struct `WaterConfig` has `repr(C)`.
-    // Let's check `src/water_plane/config.rs`.
-    // It has `#[repr(C)]`.
-    // If it works in Rust with bytemuck, it should work here if we match the layout.
-    // But we need to be careful about alignment.
-    // Let's blindly copy the values for now assuming tighter packing or compatible packing.
-    // Actually, `[f32; 2]` in Rust `repr(C)` is just 2 floats.
-    // So 1.5, 0.08, 0.8, 0.3, 1.0, 0.5.
+let waterParams: any = {
+    shallowColor: [0.2, 0.85, 0.95, 1.0],
+    mediumColor: [0.0, 0.55, 0.75, 1.0],
+    deepColor: [0.0, 0.25, 0.45, 1.0],
+    waterY: -300.0,
     
-    // Wave 1
-    1.5, 0.08, 0.8, 0.3, 1.0, 0.5,
-
-    // Wave 2
-    1.2, 0.09, 1.2, 0.3, -0.7, 1.0,
-
-    // Wave 3
-    0.8, 0.12, 1.5, 0.25, 0.8, -0.6,
-
-    // Landscape
-    100.0, 100.0, 0.0, 0.0, // padding? struct end padding?
+    rippleAmp: 1.5,
+    rippleFreq: 0.25,
+    rippleSpeed: 3.0,
+    shorelineFoamRange: 2.5,
     
-    0.0, 0.0, 0.0, 0.0 // explicit padding
-]);
+    crestFoamMin: 0.45,
+    crestFoamMax: 0.75,
+    sparkleIntensity: 1.5,
+    sparkleThreshold: 0.8,
+    
+    subsurfaceMult: 0.35,
+    fresnelPower: 2.5,
+    fresnelMult: 0.6,
+    
+    wave1: { amp: 1.5, freq: 0.08, speed: 0.8, steep: 0.3, dir: [1.0, 0.5] },
+    wave2: { amp: 1.2, freq: 0.09, speed: 1.2, steep: 0.3, dir: [-0.7, 1.0] },
+    wave3: { amp: 0.8, freq: 0.12, speed: 1.5, steep: 0.25, dir: [0.8, -0.6] },
+    
+    landscapeHeight: 100.0,
+    landscapeSize: 4096.0,
+    landscapeYOffset: 0.0,
+    
+    gridResolution: 256,
+    gridSize: 4096.0,
+    pipelineId: null
+};
 
-const addon = Entropy.Addon.register({
-    name: "WaterPlaneAddon",
-    version: "1.0.0",
-    description: "Procedural Water Plane",
-    author: ["Entropy"],
-    capabilities: {
-        "render": true
-    }
-});
+function updateWater() {
+    const configData = [
+        ...waterParams.shallowColor,
+        ...waterParams.mediumColor,
+        ...waterParams.deepColor,
+        0, 0, 0, 0, // player_pos placeholder
+        
+        waterParams.rippleAmp, waterParams.rippleFreq, waterParams.rippleSpeed, waterParams.shorelineFoamRange,
+        waterParams.crestFoamMin, waterParams.crestFoamMax, waterParams.sparkleIntensity, waterParams.sparkleThreshold,
+        waterParams.subsurfaceMult, waterParams.fresnelPower, waterParams.fresnelMult, 0.0,
+        
+        waterParams.wave1.amp, waterParams.wave1.freq, waterParams.wave1.speed, waterParams.wave1.steep,
+        ...waterParams.wave1.dir, 0, 0,
+        
+        waterParams.wave2.amp, waterParams.wave2.freq, waterParams.wave2.speed, waterParams.wave2.steep,
+        ...waterParams.wave2.dir, 0, 0,
+        
+        waterParams.wave3.amp, waterParams.wave3.freq, waterParams.wave3.speed, waterParams.wave3.steep,
+        ...waterParams.wave3.dir, 0, 0,
+        
+        waterParams.landscapeHeight, waterParams.landscapeSize, waterParams.landscapeYOffset, 0.0
+    ];
 
-addon.onInit(async () => {
-    Entropy.println("Water Plane Addon Initializing...");
+    const grid = generateGrid(waterParams.gridSize, waterParams.gridResolution);
 
-    const pipelineId = Entropy.Pipeline.create({
-        name: "WaterPipeline",
-        vertexShader: WATER_SHADER,
-        fragmentShader: WATER_SHADER,
-        pbr: false, // We output to GBuffer manually in shader
-        extraBindGroups: [
-            {
-                entries: [
-                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Time" } // Group 1
-                ]
-            },
-            {
-                entries: [
-                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" }, // Group 2
-                    { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" }
-                ]
-            },
-            {
-                entries: [
-                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" } // Group 3 (Config)
-                ]
-            }
-        ]
-    });
-
-    Entropy.println("Water Plane Addon gen grid...");
-
-    const grid = generateGrid(4096.0, 256);
-
-    Entropy.println("Water Plane Addon create mesh... " + pipelineId);
-
+    addon.Model.clearMeshes();
     addon.Model.createMesh({
-        pipelineId: pipelineId,
+        pipelineId: waterParams.pipelineId,
         renderRole: "Water",
-        position: [0, -300, 0],
+        position: [0, waterParams.waterY, 0],
         vertexData: grid.vertices,
         indexData: grid.indices,
         bindings: [
             { group: 1, binding: 0, resource: { type: "Time" } },
-            { group: 2, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } }, // Special ID
+            { group: 2, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
             { group: 2, binding: 1, resource: { type: "Sampler" } },
-            { group: 3, binding: 0, resource: { type: "Uniform", value: { data: Array.from(waterConfig) } } }
+            { group: 3, binding: 0, resource: { type: "Uniform", value: { data: configData } } }
         ]
     } as any);
+}
 
-    Entropy.println("Water Plane Addon create lights...");
+const addon = Entropy.Addon.register({
+    name: "Advanced Water Plane",
+    version: "2.0.0",
+    description: "Highly customizable procedural water with presets",
+    author: ["Entropy Team"],
+    capabilities: { graphics: true, ui: true }
+});
 
-    // Create a few point lights with different colors
-    addon.Lighting.createPointLight({
-        position: [-3.0, 4.0, 5.0],
-        color: [1.0, 0.2, 0.2], // Red
-        intensity: 8.0,
-        maxDistance: 50.0
+addon.onInit(async () => {
+    const pipelineId = Entropy.Pipeline.create({
+        name: "AdvancedWaterPipeline",
+        vertexShader: WATER_SHADER,
+        fragmentShader: WATER_SHADER,
+        pbr: true,
+        extraBindGroups: [
+            { entries: [{ binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Time" }] },
+            { entries: [{ binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" }, { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" }] },
+            { entries: [{ binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }] }
+        ]
     });
 
-    addon.Lighting.createPointLight({
-        position: [3.0, 4.0, 10.0],
-        color: [0.2, 0.2, 1.0], // Blue
-        intensity: 8.0,
-        maxDistance: 50.0
-    });
-
-    addon.Lighting.createPointLight({
-        position: [0.0, 5.0, -10.0],
-        color: [0.2, 1.0, 0.2], // Green
-        intensity: 8.0,
-        maxDistance: 50.0
-    });
+    waterParams.pipelineId = pipelineId;
+    updateWater();
 
     const renderWaterUI = (tab: string) => {
         Entropy.UI.Widget.label(tab, { text: "🌊 Water Plane Settings", bold: true });
-        Entropy.UI.Widget.label(tab, { text: "Depth Colors", bold: true });
-        // Simplified color inputs for now
-        Entropy.UI.Widget.label(tab, { text: "Colors are currently hardcoded in the buffer." });
-        
-        Entropy.UI.Widget.label(tab, { text: "Wave Parameters", bold: true });
-        Entropy.UI.Widget.label(tab, { text: "Wave 1 Amplitude: " + waterConfig[16] });
         
         Entropy.UI.Widget.button(tab, {
-            text: "Calm Water",
-            onClick: () => {
-                waterConfig[16] = 0.5;
-                waterConfig[17] = 0.05;
-                // Re-create mesh or update bindings if supported. 
-                // For now, we'll just log.
-                Entropy.println("Water set to Calm");
-            }
+            text: "💾 Save Settings",
+            onClick: () => addon.IO.save(waterParams)
         });
 
-        Entropy.UI.Widget.button(tab, {
-            text: "Stormy Water",
-            onClick: () => {
-                waterConfig[16] = 3.0;
-                waterConfig[17] = 0.15;
-                Entropy.println("Water set to Stormy");
-            }
-        });
+        Entropy.UI.Widget.label(tab, { text: "🎨 Color & Depth", bold: true });
+        Entropy.UI.Widget.colorInput(tab, { label: "Shallow Color", color: waterParams.shallowColor, onChange: (c: number[]) => { waterParams.shallowColor = c; updateWater(); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Medium Color", color: waterParams.mediumColor, onChange: (c: number[]) => { waterParams.mediumColor = c; updateWater(); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Deep Color", color: waterParams.deepColor, onChange: (c: number[]) => { waterParams.deepColor = c; updateWater(); } });
+        Entropy.UI.Widget.slider(tab, { label: "Water Y Height", value: waterParams.waterY, min: -1000, max: 1000, onChange: (v: string) => { waterParams.waterY = parseFloat(v); updateWater(); } });
+
+        Entropy.UI.Widget.label(tab, { text: "🌊 Wave Parameters", bold: true });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Amp", value: waterParams.wave1.amp, min: 0, max: 10, onChange: (v: string) => { waterParams.wave1.amp = parseFloat(v); updateWater(); } });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Freq", value: waterParams.wave1.freq, min: 0, max: 0.5, onChange: (v: string) => { waterParams.wave1.freq = parseFloat(v); updateWater(); } });
+        
+        Entropy.UI.Widget.label(tab, { text: "✨ Effects & Foam", bold: true });
+        Entropy.UI.Widget.slider(tab, { label: "Sparkle Intensity", value: waterParams.sparkleIntensity, min: 0, max: 5, onChange: (v: string) => { waterParams.sparkleIntensity = parseFloat(v); updateWater(); } });
+        Entropy.UI.Widget.slider(tab, { label: "Foam Range", value: waterParams.shorelineFoamRange, min: 0, max: 10, onChange: (v: string) => { waterParams.shorelineFoamRange = parseFloat(v); updateWater(); } });
+
+        Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
+        Entropy.UI.Widget.button(tab, { text: "🏝️ Tropical Lagoon", onClick: () => {
+            waterParams.shallowColor = [0.1, 0.9, 0.8, 1.0];
+            waterParams.mediumColor = [0.0, 0.4, 0.6, 1.0];
+            waterParams.wave1.amp = 0.5;
+            waterParams.sparkleIntensity = 2.0;
+            updateWater();
+        }});
+        Entropy.UI.Widget.button(tab, { text: "⛈️ Stormy Ocean", onClick: () => {
+            waterParams.shallowColor = [0.2, 0.25, 0.3, 1.0];
+            waterParams.mediumColor = [0.1, 0.15, 0.2, 1.0];
+            waterParams.wave1.amp = 4.0;
+            waterParams.wave1.speed = 2.0;
+            updateWater();
+        }});
     };
 
-    if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("WaterPlaneAddon", renderWaterUI);
-    }
+    if (Entropy.Composer) Entropy.Composer.registerEditor("Water Plane", renderWaterUI);
 
-    const tab = addon.UI.createTab({
-        title: "Water Plane",
-        onRender: () => {
-            renderWaterUI(tab);
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            waterParams = { ...waterParams, ...data };
+            updateWater();
         }
     });
+
+    // Try initial load
+    const savedData = addon.IO.load();
+    if (savedData) {
+        waterParams = { ...waterParams, ...savedData };
+        updateWater();
+    }
+
+    const tab = addon.UI.createTab({ title: "Water", onRender: () => renderWaterUI(tab) });
 });
