@@ -1,3 +1,4 @@
+use crate::core::pipeline::{EntropyPipeline, Workspace};
 use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
@@ -83,6 +84,7 @@ pub struct UiContext<'a> {
     pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimeline,
     pub gpu_resources: &'a Option<Arc<GpuResources>>,
     pub current_app: AppExperience,
+    pub next_workspace: &'a mut Option<Workspace>,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -193,6 +195,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                             match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
                                     editor.world_state = Some(new_state);
+                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -216,6 +219,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     for (project_name, project_id) in self.context.projects.iter() {
                         if ui.button(project_name).clicked() {
                             pollster::block_on(load_game_project(editor, project_id));
+                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                         }
                     }
                 } else if self.context.current_app == AppExperience::OpenWorldStudio {
@@ -238,6 +242,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 Ok(new_state) => {
                                     editor.stunts_state = Some(new_state);
                                     editor.sync_stunts_objects();
+                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -262,6 +267,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                         if ui.button(project_name).clicked() {
                             load_video_project(editor, project_id);
                             editor.sync_stunts_objects();
+                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                         }
                     }
                 } else if self.context.current_app == AppExperience::Stunts {
@@ -283,6 +289,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                             match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
                                     editor.sophia_state = Some(new_state);
+                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -306,6 +313,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     for (project_name, project_id) in self.context.projects.iter() {
                         if ui.button(project_name).clicked() {
                             // pollster::block_on(load_writing_project(editor, project_id));
+                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                         }
                     }
                 } else if self.context.current_app == AppExperience::Sophia {
