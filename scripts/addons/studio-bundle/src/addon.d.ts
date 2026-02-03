@@ -54,6 +54,7 @@ export interface ProceduralModelConfig {
 }
 
 export interface LandscapeConfig {
+  id?: string | null;
   width: number;
   height: number;
   heights?: number[] | null;
@@ -115,6 +116,7 @@ export interface ScopedAPI {
   Model: {
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
+          id?: string | null;
           position: number[];
           rotation?: number[];
           scale?: number[];
@@ -275,6 +277,10 @@ export interface EntropyAPI {
   Composer?: {
       registerEditor: (addonName: string, renderFn: (windowId: string) => void) => void;
       getEditor: (addonName: string) => ((windowId: string) => void) | undefined;
+      registerRenderer: (addonName: string, renderFn: (id: string, params: any) => void) => void;
+      getRenderer: (addonName: string) => ((id: string, params: any) => void) | undefined;
+      registerComponent: (addonName: string, componentId: string, name: string, params: any) => void;
+      getComponents: (addonName: string) => Record<string, { name: string, params: any }>;
       setRolePipeline: (role: string, pipelineId: string) => void;
   };
   Pipeline: {

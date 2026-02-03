@@ -388,11 +388,28 @@ globalThis.Entropy.IO = {
 // Composer Registry (Global)
 globalThis.Entropy.Composer = {
     editors: {},
+    renderers: {}, // addonName -> renderFn(id, params)
+    components: {}, // addonName -> { componentId -> { name, params } }
     registerEditor: (addonName, renderFn) => {
         globalThis.Entropy.Composer.editors[addonName] = renderFn;
     },
     getEditor: (addonName) => {
         return globalThis.Entropy.Composer.editors[addonName];
+    },
+    registerRenderer: (addonName, renderFn) => {
+        globalThis.Entropy.Composer.renderers[addonName] = renderFn;
+    },
+    getRenderer: (addonName) => {
+        return globalThis.Entropy.Composer.renderers[addonName];
+    },
+    registerComponent: (addonName, componentId, name, params) => {
+        if (!globalThis.Entropy.Composer.components[addonName]) {
+            globalThis.Entropy.Composer.components[addonName] = {};
+        }
+        globalThis.Entropy.Composer.components[addonName][componentId] = { name, params };
+    },
+    getComponents: (addonName) => {
+        return globalThis.Entropy.Composer.components[addonName] || {};
     },
     setRolePipeline: (role, pipelineId) => {
         ops.op_composer_set_role_pipeline(role, pipelineId);

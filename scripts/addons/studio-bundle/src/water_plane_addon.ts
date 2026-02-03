@@ -385,39 +385,55 @@ let waterParams: any = {
     
     gridResolution: 256,
     gridSize: 4096.0,
-    pipelineId: null
+    pipelineId: null as string | null
 };
 
-function updateWater() {
+let addonState: {
+    currentParams: typeof waterParams,
+    savedComponents: { id: string, name: string, params: typeof waterParams }[],
+    activeComponentId: string | null
+} = {
+    currentParams: { ...waterParams },
+    savedComponents: [],
+    activeComponentId: "default"
+};
+
+let newComponentName = "New Water Component";
+
+function updateWater(params: typeof waterParams, id: string = "default") {
     const configData = [
-        ...waterParams.shallowColor,
-        ...waterParams.mediumColor,
-        ...waterParams.deepColor,
+        ...params.shallowColor,
+        ...params.mediumColor,
+        ...params.deepColor,
         0, 0, 0, 0, // player_pos placeholder
         
-        waterParams.rippleAmp, waterParams.rippleFreq, waterParams.rippleSpeed, waterParams.shorelineFoamRange,
-        waterParams.crestFoamMin, waterParams.crestFoamMax, waterParams.sparkleIntensity, waterParams.sparkleThreshold,
-        waterParams.subsurfaceMult, waterParams.fresnelPower, waterParams.fresnelMult, 0.0,
+        params.rippleAmp, params.rippleFreq, params.rippleSpeed, params.shorelineFoamRange,
+        params.crestFoamMin, params.crestFoamMax, params.sparkleIntensity, params.sparkleThreshold,
+        params.subsurfaceMult, params.fresnelPower, params.fresnelMult, 0.0,
         
-        waterParams.wave1.amp, waterParams.wave1.freq, waterParams.wave1.speed, waterParams.wave1.steep,
-        ...waterParams.wave1.dir, 0, 0,
+        params.wave1.amp, params.wave1.freq, params.wave1.speed, params.wave1.steep,
+        ...params.wave1.dir, 0, 0,
         
-        waterParams.wave2.amp, waterParams.wave2.freq, waterParams.wave2.speed, waterParams.wave2.steep,
-        ...waterParams.wave2.dir, 0, 0,
+        params.wave2.amp, params.wave2.freq, params.wave2.speed, params.wave2.steep,
+        ...params.wave2.dir, 0, 0,
         
-        waterParams.wave3.amp, waterParams.wave3.freq, waterParams.wave3.speed, waterParams.wave3.steep,
-        ...waterParams.wave3.dir, 0, 0,
+        params.wave3.amp, params.wave3.freq, params.wave3.speed, params.wave3.steep,
+        ...params.wave3.dir, 0, 0,
         
-        waterParams.landscapeHeight, waterParams.landscapeSize, waterParams.landscapeYOffset, 0.0
+        params.landscapeHeight, params.landscapeSize, params.landscapeYOffset, 0.0
     ];
 
-    const grid = generateGrid(waterParams.gridSize, waterParams.gridResolution);
+    const grid = generateGrid(params.gridSize, params.gridResolution);
 
-    addon.Model.clearMeshes();
+    // Note: In a multi-component system, we shouldn't clear all meshes.
+    // Instead, we target the specific mesh for this 'id'.
+    // If the engine doesn't support specific mesh clearing, we might need to add it.
+    // For now, we'll just add/update.
     addon.Model.createMesh({
-        pipelineId: waterParams.pipelineId,
+        id: id,
+        pipelineId: params.pipelineId,
         renderRole: "Water",
-        position: [0, waterParams.waterY, 0],
+        position: [0, params.waterY, 0],
         vertexData: grid.vertices,
         indexData: grid.indices,
         bindings: [
@@ -451,64 +467,112 @@ addon.onInit(async () => {
         ]
     });
 
-    waterParams.pipelineId = pipelineId;
-    updateWater();
+    addonState.currentParams.pipelineId = pipelineId;
+
+    const savedData = addon.IO.load();
+    if (savedData) {
+        addonState = { ...addonState, ...savedData };
+        if (Entropy.Composer) {
+            addonState.savedComponents.forEach(comp => {
+                Entropy.Composer!.registerComponent("Advanced Water Plane", comp.id, comp.name, comp.params);
+            });
+        }
+    }
+
+    updateWater(addonState.currentParams, addonState.activeComponentId || "default");
 
     const renderWaterUI = (tab: string) => {
         Entropy.UI.Widget.label(tab, { text: "🌊 Water Plane Settings", bold: true });
         
         Entropy.UI.Widget.button(tab, {
-            text: "💾 Save Settings",
-            onClick: () => addon.IO.save(waterParams)
+            text: "💾 Save All to Project",
+            onClick: () => {
+                addon.IO.save(addonState);
+                if (Entropy.Composer) {
+                    addonState.savedComponents.forEach(comp => {
+                        Entropy.Composer!.registerComponent("Advanced Water Plane", comp.id, comp.name, comp.params);
+                    });
+                }
+            }
         });
 
+        Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
+        
+        Entropy.UI.Widget.button(tab, {
+            text: "➕ Save Current as Component",
+            onClick: () => {
+                const id = Math.random().toString(36).substr(2, 9);
+                addonState.savedComponents.push({
+                    id,
+                    name: newComponentName,
+                    params: JSON.parse(JSON.stringify(addonState.currentParams))
+                });
+                if (Entropy.Composer) {
+                    Entropy.Composer!.registerComponent("Advanced Water Plane", id, newComponentName, addonState.currentParams);
+                }
+                Entropy.println(`Saved component: ${newComponentName}`);
+            }
+        });
+
+        addonState.savedComponents.forEach(comp => {
+            Entropy.UI.Widget.button(tab, {
+                text: `📂 Load & Render: ${comp.name}`,
+                onClick: () => {
+                    addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
+                    addonState.activeComponentId = comp.id;
+                    updateWater(addonState.currentParams, comp.id);
+                }
+            });
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
         Entropy.UI.Widget.label(tab, { text: "🎨 Color & Depth", bold: true });
-        Entropy.UI.Widget.colorInput(tab, { label: "Shallow Color", color: waterParams.shallowColor, onChange: (c: number[]) => { waterParams.shallowColor = c; updateWater(); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Medium Color", color: waterParams.mediumColor, onChange: (c: number[]) => { waterParams.mediumColor = c; updateWater(); } });
-        Entropy.UI.Widget.colorInput(tab, { label: "Deep Color", color: waterParams.deepColor, onChange: (c: number[]) => { waterParams.deepColor = c; updateWater(); } });
-        Entropy.UI.Widget.slider(tab, { label: "Water Y Height", value: waterParams.waterY, min: -1000, max: 1000, onChange: (v: string) => { waterParams.waterY = parseFloat(v); updateWater(); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Shallow Color", color: addonState.currentParams.shallowColor, onChange: (c: number[]) => { addonState.currentParams.shallowColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Medium Color", color: addonState.currentParams.mediumColor, onChange: (c: number[]) => { addonState.currentParams.mediumColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.colorInput(tab, { label: "Deep Color", color: addonState.currentParams.deepColor, onChange: (c: number[]) => { addonState.currentParams.deepColor = c; updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Water Y Height", value: addonState.currentParams.waterY, min: -1000, max: 1000, onChange: (v: string) => { addonState.currentParams.waterY = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
 
         Entropy.UI.Widget.label(tab, { text: "🌊 Wave Parameters", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Amp", value: waterParams.wave1.amp, min: 0, max: 10, onChange: (v: string) => { waterParams.wave1.amp = parseFloat(v); updateWater(); } });
-        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Freq", value: waterParams.wave1.freq, min: 0, max: 0.5, onChange: (v: string) => { waterParams.wave1.freq = parseFloat(v); updateWater(); } });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Amp", value: addonState.currentParams.wave1.amp, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.wave1.amp = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Wave 1 Freq", value: addonState.currentParams.wave1.freq, min: 0, max: 0.5, onChange: (v: string) => { addonState.currentParams.wave1.freq = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
         
         Entropy.UI.Widget.label(tab, { text: "✨ Effects & Foam", bold: true });
-        Entropy.UI.Widget.slider(tab, { label: "Sparkle Intensity", value: waterParams.sparkleIntensity, min: 0, max: 5, onChange: (v: string) => { waterParams.sparkleIntensity = parseFloat(v); updateWater(); } });
-        Entropy.UI.Widget.slider(tab, { label: "Foam Range", value: waterParams.shorelineFoamRange, min: 0, max: 10, onChange: (v: string) => { waterParams.shorelineFoamRange = parseFloat(v); updateWater(); } });
+        Entropy.UI.Widget.slider(tab, { label: "Sparkle Intensity", value: addonState.currentParams.sparkleIntensity, min: 0, max: 5, onChange: (v: string) => { addonState.currentParams.sparkleIntensity = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
+        Entropy.UI.Widget.slider(tab, { label: "Foam Range", value: addonState.currentParams.shorelineFoamRange, min: 0, max: 10, onChange: (v: string) => { addonState.currentParams.shorelineFoamRange = parseFloat(v); updateWater(addonState.currentParams, addonState.activeComponentId || "default"); } });
 
         Entropy.UI.Widget.label(tab, { text: "🎭 Presets", bold: true });
         Entropy.UI.Widget.button(tab, { text: "🏝️ Tropical Lagoon", onClick: () => {
-            waterParams.shallowColor = [0.1, 0.9, 0.8, 1.0];
-            waterParams.mediumColor = [0.0, 0.4, 0.6, 1.0];
-            waterParams.wave1.amp = 0.5;
-            waterParams.sparkleIntensity = 2.0;
-            updateWater();
+            addonState.currentParams.shallowColor = [0.1, 0.9, 0.8, 1.0];
+            addonState.currentParams.mediumColor = [0.0, 0.4, 0.6, 1.0];
+            addonState.currentParams.wave1.amp = 0.5;
+            addonState.currentParams.sparkleIntensity = 2.0;
+            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
         }});
         Entropy.UI.Widget.button(tab, { text: "⛈️ Stormy Ocean", onClick: () => {
-            waterParams.shallowColor = [0.2, 0.25, 0.3, 1.0];
-            waterParams.mediumColor = [0.1, 0.15, 0.2, 1.0];
-            waterParams.wave1.amp = 4.0;
-            waterParams.wave1.speed = 2.0;
-            updateWater();
+            addonState.currentParams.shallowColor = [0.2, 0.25, 0.3, 1.0];
+            addonState.currentParams.mediumColor = [0.1, 0.15, 0.2, 1.0];
+            addonState.currentParams.wave1.amp = 4.0;
+            addonState.currentParams.wave1.speed = 2.0;
+            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
         }});
     };
 
-    if (Entropy.Composer) Entropy.Composer.registerEditor("Water Plane", renderWaterUI);
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Advanced Water Plane", renderWaterUI);
+        if (Entropy.Composer.registerRenderer) {
+            Entropy.Composer.registerRenderer("Advanced Water Plane", (id: string, params: any) => {
+                updateWater(params, id);
+            });
+        }
+    }
 
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            waterParams = { ...waterParams, ...data };
-            updateWater();
+            addonState = { ...addonState, ...data };
+            updateWater(addonState.currentParams, addonState.activeComponentId || "default");
         }
     });
-
-    // Try initial load
-    const savedData = addon.IO.load();
-    if (savedData) {
-        waterParams = { ...waterParams, ...savedData };
-        updateWater();
-    }
 
     const tab = addon.UI.createTab({ title: "Water", onRender: () => renderWaterUI(tab) });
 });

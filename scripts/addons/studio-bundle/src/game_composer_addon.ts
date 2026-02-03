@@ -1,7 +1,7 @@
 const addon = Entropy.Addon.register({
     name: "Game Composer",
-    version: "1.1.0",
-    description: "Advanced Scene Composition and Render Role management",
+    version: "1.2.0",
+    description: "Advanced Scene Composition and Component management",
     author: ["Entropy Team"],
     capabilities: {
         ui: true
@@ -12,7 +12,8 @@ interface ComponentInstance {
     id: string;
     name: string;
     addon: string;
-    projectId: string; // The project ID in that addon
+    componentId: string; // The ID from the addon's registry
+    params: any; // Cached params for rendering
     position: [number, number, number];
     scale: [number, number, number];
     visible: boolean;
@@ -20,7 +21,7 @@ interface ComponentInstance {
 
 let composerState: {
     roles: Record<string, string>;
-    activeComponentId: string | null;
+    activeInstanceId: string | null;
     components: ComponentInstance[];
 } = {
     roles: {
@@ -30,7 +31,7 @@ let composerState: {
         "Water": "default",
         "Lighting": "default"
     },
-    activeComponentId: null,
+    activeInstanceId: null,
     components: []
 };
 
@@ -45,142 +46,148 @@ const availablePipelines = [
     "wireframe"
 ];
 
-const availableAddons = [
-    { name: "Hair Particles with Ornaments", defaultName: "Grass System" },
-    { name: "Simple Procedural Terrain", defaultName: "Rust Terrain" },
-    { name: "Procedural Terrain", defaultName: "JS Terrain" },
-    { name: "Environment", defaultName: "Atmosphere" },
-    { name: "WaterPlaneAddon", defaultName: "Ocean" },
-    { name: "Lighting Demo", defaultName: "Dynamic Lights" }
+const sourceAddons = [
+    "Hair Particles with Ornaments",
+    "FlexNoise Terrain",
+    "Advanced Water Plane",
+    "PBR Texture Designer Pro"
 ];
+
+function refreshScene() {
+    Entropy.println("Refreshing Composer scene...");
+    composerState.components.forEach(inst => {
+        if (inst.visible) {
+            const renderer = Entropy.Composer?.getRenderer(inst.addon);
+            if (renderer) {
+                // We might want to merge inst.position into inst.params here
+                // For now, addons handle their own positions in params
+                renderer(inst.id, inst.params);
+            }
+        }
+    });
+}
 
 addon.onInit(async () => {
     Entropy.println("Game Composer Initializing...");
 
     addon.onProjectChanged((newProjectId) => {
         Entropy.println("Project changed: " + newProjectId);
-
         activeProjectId = newProjectId;
-
         const saved = addon.IO.load();
         if (saved) {
             composerState = { ...composerState, ...saved };
+            // Need a delay to let other addons register? 
+            // Or just refresh whenever possible.
+            setTimeout(() => refreshScene(), 1000);
         }
-
-        Entropy.println("ReLoaded game composer settings");
     });
 
     const tab = addon.UI.createTab({
         title: "Game Composer",
         onRender: () => {
              Entropy.UI.Widget.label(tab, { text: "🎬 Game Composer", bold: true });
-             Entropy.UI.Widget.label(tab, { text: "Welcome! Use this tool to assemble your scene by combining" });
-             Entropy.UI.Widget.label(tab, { text: "components from different addons and managing global render styles." });
-             Entropy.UI.Widget.label(tab, { text: "" });
-
+             
              // === RENDER ROLES ===
              Entropy.UI.Widget.label(tab, { text: "🎭 Render Roles", bold: true });
-             Entropy.UI.Widget.label(tab, { text: "Assign global pipelines to specific roles. All objects tagged with" });
-             Entropy.UI.Widget.label(tab, { text: "a role will use the selected pipeline regardless of their origin." });
-             
              Object.keys(composerState.roles).forEach(role => {
                  const current = composerState.roles[role];
-                 const selectedIndex = availablePipelines.indexOf(current);
-                 
                  Entropy.UI.Widget.dropdown(tab, {
                      label: role,
                      options: availablePipelines,
-                     selectedIndex: selectedIndex >= 0 ? selectedIndex : 0,
+                     selectedIndex: availablePipelines.indexOf(current) || 0,
                      onChange: (indexStr: string) => {
-                         const idx = parseInt(indexStr);
-                         const next = availablePipelines[idx];
+                         const next = availablePipelines[parseInt(indexStr)];
                          composerState.roles[role] = next;
-                         
-                         if (Entropy.Composer && Entropy.Composer.setRolePipeline) {
-                             Entropy.Composer.setRolePipeline(role, next);
-                         }
-                         
-                         Entropy.println(`Role ${role} switched to ${next}`);
+                         Entropy.Composer?.setRolePipeline(role, next);
                      }
                  });
+             });
+
+             Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
+
+             // === COMPONENT LIBRARY ===
+             Entropy.UI.Widget.label(tab, { text: "📚 Component Library", bold: true });
+             sourceAddons.forEach(addonName => {
+                 const components = Entropy.Composer?.getComponents(addonName) || {};
+                 const ids = Object.keys(components);
+                 if (ids.length > 0) {
+                     Entropy.UI.Widget.label(tab, { text: `From ${addonName}:` });
+                     ids.forEach(compId => {
+                         const comp = components[compId];
+                         Entropy.UI.Widget.button(tab, {
+                             text: `➕ Add ${comp.name}`,
+                             onClick: () => {
+                                 const newInst: ComponentInstance = {
+                                     id: Math.random().toString(36).substr(2, 9),
+                                     name: comp.name,
+                                     addon: addonName,
+                                     componentId: compId,
+                                     params: comp.params,
+                                     position: [0, 0, 0],
+                                     scale: [1, 1, 1],
+                                     visible: true
+                                 };
+                                 composerState.components.push(newInst);
+                                 composerState.activeInstanceId = newInst.id;
+                                 refreshScene();
+                             }
+                         });
+                     });
+                 }
              });
 
              Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
              // === SCENE GRAPH ===
-             Entropy.UI.Widget.label(tab, { text: "📦 Scene Components", bold: true });
-             Entropy.UI.Widget.label(tab, { text: "Add and manage instances of your enabled addons." });
-             
-             composerState.components.forEach((comp) => {
-                 const isActive = comp.id === composerState.activeComponentId;
+             Entropy.UI.Widget.label(tab, { text: "📦 Active Scene Components", bold: true });
+             composerState.components.forEach((inst) => {
+                 const isActive = inst.id === composerState.activeInstanceId;
                  Entropy.UI.Widget.button(tab, {
-                     text: (isActive ? "👉 " : "   ") + comp.name + (comp.visible ? "" : " (Hidden)"),
+                     text: (isActive ? "👉 " : "   ") + inst.name + (inst.visible ? "" : " (Hidden)"),
                      onClick: () => {
-                         composerState.activeComponentId = comp.id;
+                         composerState.activeInstanceId = inst.id;
                      }
                  });
              });
 
              Entropy.UI.Widget.button(tab, {
-                 text: "➕ Add Component",
-                 onClick: () => {
-                     // In a real app we'd show a menu. Here we'll cycle through available addons.
-                     const nextAddon = availableAddons[composerState.components.length % availableAddons.length];
-                     const newComp: ComponentInstance = {
-                         id: Math.random().toString(36).substr(2, 9),
-                         name: nextAddon.defaultName + " " + (composerState.components.length + 1),
-                         addon: nextAddon.name,
-                         projectId: "default", // or current project id
-                         position: [0, 0, 0],
-                         scale: [1, 1, 1],
-                         visible: true
-                     };
-                     composerState.components.push(newComp);
-                     composerState.activeComponentId = newComp.id;
-                 }
+                 text: "🔄 Refresh Scene",
+                 onClick: () => refreshScene()
              });
 
              Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
              // === INSPECTOR ===
-             const activeComp = composerState.components.find(c => c.id === composerState.activeComponentId);
-             
-             if (activeComp) {
-                 Entropy.UI.Widget.label(tab, { text: `🔍 Inspector: ${activeComp.name}`, bold: true });
-                 Entropy.UI.Widget.label(tab, { text: "Edit local properties and access the full addon interface below." });
-                 Entropy.UI.Widget.label(tab, { text: `Addon Source: ${activeComp.addon}` });
+             const activeInst = composerState.components.find(c => c.id === composerState.activeInstanceId);
+             if (activeInst) {
+                 Entropy.UI.Widget.label(tab, { text: `🔍 Inspector: ${activeInst.name}`, bold: true });
                  
                  Entropy.UI.Widget.button(tab, {
-                     text: activeComp.visible ? "👁️ Visible" : "🌑 Hidden",
-                     onClick: () => { activeComp.visible = !activeComp.visible; }
+                     text: activeInst.visible ? "👁️ Visible" : "🌑 Hidden",
+                     onClick: () => { 
+                         activeInst.visible = !activeInst.visible; 
+                         refreshScene();
+                     }
                  });
 
                  Entropy.UI.Widget.button(tab, {
-                    text: "🗑️ Delete Component",
+                    text: "🗑️ Remove Instance",
                     onClick: () => {
-                        composerState.components = composerState.components.filter(c => c.id !== activeComp.id);
-                        composerState.activeComponentId = null;
+                        composerState.components = composerState.components.filter(c => c.id !== activeInst.id);
+                        composerState.activeInstanceId = null;
+                        refreshScene();
                     }
                  });
 
-                 Entropy.UI.Widget.label(tab, { text: "Generic Properties", bold: true });
-                 // Note: Slider/NumericInput for Vec3 would be better, but we use what we have
-                 Entropy.UI.Widget.label(tab, { text: `Position: [${activeComp.position.join(", ")}]` });
-
-                 Entropy.UI.Widget.label(tab, { text: "--- Addon Properties ---", bold: true });
-                 
-                 if (Entropy.Composer && Entropy.Composer.getEditor) {
-                     const editor = Entropy.Composer.getEditor(activeComp.addon);
-                     if (editor) {
-                         // Render the embedded editor from the other addon!
-                         editor(tab);
-                     } else {
-                         Entropy.UI.Widget.label(tab, { text: "⚠️ No Editor Interface Found" });
-                         Entropy.UI.Widget.label(tab, { text: `Make sure '${activeComp.addon}' is enabled.` });
-                     }
+                 Entropy.UI.Widget.label(tab, { text: "--- Deep Edit ---", bold: true });
+                 const editor = Entropy.Composer?.getEditor(activeInst.addon);
+                 if (editor) {
+                     // Note: The addon editor will edit its OWN currentParams.
+                     // We might need to sync them back to the instance!
+                     editor(tab);
                  }
              } else {
-                 Entropy.UI.Widget.label(tab, { text: "Select a component to edit properties." });
+                 Entropy.UI.Widget.label(tab, { text: "Select an instance to edit." });
              }
              
              Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
@@ -196,4 +203,3 @@ addon.onInit(async () => {
         }
     });
 });
-

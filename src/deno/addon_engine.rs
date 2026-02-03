@@ -345,25 +345,16 @@ pub struct NoiseConfig {
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-
 #[serde(rename_all = "camelCase")]
-
 pub struct LandscapeConfig {
-
+    pub id: Option<String>,
     pub width: usize,
-
     pub height: usize,
-
     pub heights: Option<Vec<f32>>,
-
     pub noise_id: Option<String>,
-
     pub position: [f32; 3],
-
     pub pipeline_id: Option<String>,
-
     pub render_role: Option<String>,
-
 }
 
 
@@ -1874,8 +1865,10 @@ impl AddonEngine {
                             150.0 * 4.0,  // square_height
                         );
 
+                        let id = config.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+
                         let landscape = Landscape::new(
-                            &Uuid::new_v4().to_string(),
+                            &id,
                             &data,
                             &gpu.device,
                             &gpu.queue,
@@ -1890,12 +1883,14 @@ impl AddonEngine {
                         let mut landscape = landscape;
                         landscape.render_role = config.render_role;
 
-                        // renderer_state.addon_landscapes
-                        //     .entry(addon_name)
-                        //     .or_insert_with(Vec::new)
-                        //     .push(landscape);
-                        
-                        // better to have only 1 active landscape at a time
+                        // let landscapes = renderer_state.addon_landscapes.entry(addon_name).or_insert_with(Vec::new);
+                        // if let Some(pos) = landscapes.iter().position(|l| l.id == id) {
+                        //     landscapes[pos] = landscape;
+                        // } else {
+                        //     landscapes.push(landscape);
+                        // }
+
+                        // we only want 1 landscape to render at any given time
                         renderer_state.addon_landscapes
                             .insert(addon_name, vec![landscape]);
                     }
