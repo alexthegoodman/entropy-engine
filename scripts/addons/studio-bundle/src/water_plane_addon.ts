@@ -482,6 +482,7 @@ addon.onInit(async () => {
     updateWater(addonState.currentParams, addonState.activeComponentId || "default");
 
     const renderWaterUI = (tab: string) => {
+        Entropy.Addon.setVisibility("Advanced Water Plane", true);
         Entropy.UI.Widget.label(tab, { text: "🌊 Water Plane Settings", bold: true });
         
         Entropy.UI.Widget.button(tab, {

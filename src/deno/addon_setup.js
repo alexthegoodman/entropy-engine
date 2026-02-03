@@ -5,6 +5,8 @@ globalThis.Entropy = {
         register: (metadata) => {
             ops.op_addon_register(metadata);
             
+            const getAddonName = () => globalThis.__entropy_current_addon_context_override || metadata.name;
+
             // Return scoped API
             return {
                 onInit: (callback) => {
@@ -16,6 +18,9 @@ globalThis.Entropy = {
                 onProjectChanged: (callback) => {
                     ops.op_addon_on_project_changed(metadata.name, callback);
                 },
+                setVisibility: (visible) => {
+                    ops.op_addon_set_visibility(metadata.name, visible);
+                },
                 UI: {
                     createTab: (config) => {
                         const tabId = ops.op_ui_create_tab(metadata.name, config, config.onRender);
@@ -25,7 +30,7 @@ globalThis.Entropy = {
                 Model: {
                     createProcedural: (config) => {
                         if (config.type === "cube") {
-                            ops.op_cube_spawn(metadata.name, {
+                            ops.op_cube_spawn(getAddonName(), {
                                 position: config.parameters?.position || [0, 0, 0],
                                 scale: config.parameters?.scale || [1, 1, 1],
                                 pipeline_id: config.pipelineId || null,
@@ -34,7 +39,8 @@ globalThis.Entropy = {
                         }
                     },
                     createMesh: (config) => {
-                        ops.op_mesh_create(metadata.name, {
+                        ops.op_mesh_create(getAddonName(), {
+                            id: config.id || null,
                             position: config.position || [0, 0, 0],
                             rotation: config.rotation || [0, 0, 0],
                             scale: config.scale || [1, 1, 1],
@@ -47,12 +53,13 @@ globalThis.Entropy = {
                         });
                     },
                     clearMeshes: () => {
-                        ops.op_meshes_clear(metadata.name);
+                        ops.op_meshes_clear(getAddonName());
                     }
                 },
                 Landscape: {
                     create: (config) => {
-                        ops.op_landscape_create(metadata.name, {
+                        ops.op_landscape_create(getAddonName(), {
+                            id: config.id || null,
                             width: config.width,
                             height: config.height,
                             heights: config.heights || null,
@@ -63,10 +70,10 @@ globalThis.Entropy = {
                         });
                     },
                     updateTexture: (textureId, kind) => {
-                        ops.op_landscape_update_texture(metadata.name, textureId, kind);
+                        ops.op_landscape_update_texture(getAddonName(), textureId, kind);
                     },
                     updatePbrTexture: (textureId, kind, materialType) => {
-                        ops.op_landscape_update_pbr_texture(metadata.name, textureId, kind, materialType);
+                        ops.op_landscape_update_pbr_texture(getAddonName(), textureId, kind, materialType);
                     }
                 },
                 Particles: {
@@ -87,11 +94,11 @@ globalThis.Entropy = {
                             baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
                             tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
                             pipelineId: config.pipelineId || null,
-                            renderRole: config.renderRole || null,
+                            render_role: config.renderRole || null,
                             bindings: config.bindings || []
                         };
-                        ops.op_println(String("CreateOrUpdate Hair (2): " + metadata.name + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
-                        ops.op_grass_create(metadata.name, merged_config);
+                        ops.op_println(String("CreateOrUpdate Hair (2): " + getAddonName() + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
+                        ops.op_grass_create(getAddonName(), merged_config);
                     }
                 },
                 Noise: {
@@ -117,7 +124,7 @@ globalThis.Entropy = {
                 },
                 Lighting: {
                     createPointLight: (config) => {
-                        ops.op_point_light_create(metadata.name, {
+                        ops.op_point_light_create(getAddonName(), {
                             position: config.position || [0, 0, 0],
                             color: config.color || [1, 1, 1],
                             intensity: config.intensity || 1.0,
@@ -167,6 +174,9 @@ globalThis.Entropy = {
                     }
                 }
             };
+        },
+        setVisibility: (addonName, visible) => {
+            ops.op_addon_set_visibility(addonName, visible);
         }
     },
     UI: {
@@ -300,7 +310,9 @@ globalThis.Entropy = {
     },
     Landscape: {
         create: (config) => {
-            return ops.op_landscape_create("Global", {
+            const target = globalThis.__entropy_current_addon_context_override || "Global";
+            return ops.op_landscape_create(target, {
+                id: config.id || null,
                 width: config.width,
                 height: config.height,
                 heights: config.heights || null,
@@ -313,8 +325,8 @@ globalThis.Entropy = {
     },
     Particles: {
         createHair: (config) => {
-            // This is for Global. There is another createHair defined here!
-            return ops.op_grass_create("Global", {
+            const target = globalThis.__entropy_current_addon_context_override || "Global";
+            return ops.op_grass_create(target, {
                 id: config.id || null,
                 gridSize: config.gridSize || 2.0,
                 renderDistance: config.renderDistance || 150.0,
@@ -350,7 +362,8 @@ globalThis.Entropy = {
     },
     Lighting: {
         createPointLight: (config) => {
-            return ops.op_point_light_create("Global", {
+            const target = globalThis.__entropy_current_addon_context_override || "Global";
+            return ops.op_point_light_create(target, {
                 position: config.position || [0, 0, 0],
                 color: config.color || [1, 1, 1],
                 intensity: config.intensity || 1.0,

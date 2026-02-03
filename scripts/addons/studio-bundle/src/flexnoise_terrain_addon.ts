@@ -201,6 +201,7 @@ addon.onInit(async () => {
     }
 
     const renderTerrainUI = (tab: string) => {
+        Entropy.Addon.setVisibility("FlexNoise Terrain", true);
         Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
         Entropy.UI.Widget.button(tab, {

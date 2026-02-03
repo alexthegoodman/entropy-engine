@@ -113,6 +113,7 @@ export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
+  setVisibility: (visible: boolean) => void;
   Model: {
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
@@ -261,6 +262,7 @@ export interface EntropyAPI {
   Addon: {
     register: (metadata: AddonMetadata) => ScopedAPI;
     onCleanup: (callback: CleanupCallback) => void;
+    setVisibility: (addonName: string, visible: boolean) => void;
   };
   UI: {
     createWindow: (config: WindowConfig) => string;

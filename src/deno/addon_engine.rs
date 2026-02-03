@@ -85,61 +85,18 @@ pub struct PipelineConfig {
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
 #[serde(rename_all = "camelCase")]
-
-
-
 pub struct MeshConfig {
-
-
-
+    pub id: Option<String>,
     pub position: [f32; 3],
-
-
-
     pub rotation: Option<[f32; 3]>,
-
-
-
     pub scale: Option<[f32; 3]>,
-
-
-
     pub vertex_data: Vec<f32>,
-
-
-
     pub index_data: Vec<u32>,
-
-
-
     pub pipeline_id: String,
-
-
-
-    
-
-
-
-        pub render_role: Option<String>,
-
-
-
-    
-
-
-
-        pub instance_count: Option<u32>,
-
-
-
+    pub render_role: Option<String>,
+    pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
-
-
-
 }
 
 
@@ -444,6 +401,7 @@ pub struct AddonContext {
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
+    pub hidden_addons: HashSet<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1258,6 +1216,17 @@ fn op_println(
     Ok(())
 }
 
+#[op2(fast)]
+fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String, visible: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if visible {
+            ctx.hidden_addons.remove(&addon_name);
+        } else {
+            ctx.hidden_addons.insert(addon_name);
+        }
+    }
+}
+
 extension!(
     entropy_addons,
     ops = [
@@ -1292,7 +1261,8 @@ extension!(
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_test,
-        op_addon_on_project_changed
+        op_addon_on_project_changed,
+        op_addon_set_visibility
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -1355,6 +1325,7 @@ impl AddonEngine {
             textures: HashMap::new(),
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
+            hidden_addons: HashSet::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -1784,6 +1755,8 @@ impl AddonEngine {
                          let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
                          let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
 
+                         let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
                          let mut mesh = CustomMesh::new(
                              &gpu.device,
                              &gpu.queue,
@@ -1793,7 +1766,7 @@ impl AddonEngine {
                              config.pipeline_id.clone(),
                              bind_groups,
                              config.position,
-                             uuid::Uuid::new_v4().to_string(),
+                             id.clone(),
                              uniform_buffers,
                              samplers,
                              config.instance_count.unwrap_or(1),
@@ -1814,10 +1787,12 @@ impl AddonEngine {
                          
                          mesh.render_role = config.render_role;
 
-                         renderer_state.addon_meshes
-                             .entry(addon_name)
-                             .or_insert_with(Vec::new)
-                             .push(mesh);
+                         let meshes = renderer_state.addon_meshes.entry(addon_name).or_insert_with(Vec::new);
+                         if let Some(pos) = meshes.iter().position(|m| m.id == id) {
+                             meshes[pos] = mesh;
+                         } else {
+                             meshes.push(mesh);
+                         }
                      }
                 }
             }

@@ -980,6 +980,7 @@ addon.onInit(async () => {
     });
 
     const renderHairUI = (tab: string) => {
+        Entropy.Addon.setVisibility("Hair Particles with Ornaments", true);
         Entropy.UI.Widget.label(tab, { text: "🌸 Hair & Grass with Ornaments", bold: true });
         
         Entropy.UI.Widget.button(tab, {

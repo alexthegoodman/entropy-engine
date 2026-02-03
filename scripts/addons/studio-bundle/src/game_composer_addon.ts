@@ -55,36 +55,35 @@ const sourceAddons = [
 
 function refreshScene() {
     Entropy.println("Refreshing Composer scene...");
+    
+    // Use context override so everything spawned belongs to "Game Composer" bucket in Rust
+    (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+    
     composerState.components.forEach(inst => {
         if (inst.visible) {
             const renderer = Entropy.Composer?.getRenderer(inst.addon);
             if (renderer) {
-                // We might want to merge inst.position into inst.params here
-                // For now, addons handle their own positions in params
                 renderer(inst.id, inst.params);
             }
         }
     });
+
+    (globalThis as any).__entropy_current_addon_context_override = null;
 }
 
 addon.onInit(async () => {
     Entropy.println("Game Composer Initializing...");
 
-    addon.onProjectChanged((newProjectId) => {
-        Entropy.println("Project changed: " + newProjectId);
-        activeProjectId = newProjectId;
-        const saved = addon.IO.load();
-        if (saved) {
-            composerState = { ...composerState, ...saved };
-            // Need a delay to let other addons register? 
-            // Or just refresh whenever possible.
-            setTimeout(() => refreshScene(), 1000);
-        }
-    });
-
     const tab = addon.UI.createTab({
         title: "Game Composer",
         onRender: () => {
+             // Hide other addons' internal outputs when viewing the composer
+             sourceAddons.forEach(name => {
+                 Entropy.Addon.setVisibility(name, false);
+             });
+             // Always show our own managed components
+             Entropy.Addon.setVisibility("Game Composer", true);
+
              Entropy.UI.Widget.label(tab, { text: "🎬 Game Composer", bold: true });
              
              // === RENDER ROLES ===

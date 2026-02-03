@@ -537,6 +537,7 @@ addon.onInit(async () => {
     updatePreview(addonState.currentParams, addonState.activeComponentId || "default");
 
     const renderUI = (tab: string) => {
+        Entropy.Addon.setVisibility("PBR Texture Designer Pro", true);
         Entropy.UI.Widget.label(tab, { text: "🎨 PBR Texture Designer Pro", bold: true });
         Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
             addon.IO.save(addonState);
