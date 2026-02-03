@@ -1,8 +1,7 @@
 import { createNoise2D } from 'simplex-noise';
 import Alea from 'alea';
 
-
-const addon = Entropy.Addon.register({
+const addonInfo = {
     name: "PBR Texture Designer Pro",
     version: "2.0.0",
     description: "Procedural PBR Texture Generator with Multiple Pattern Types",
@@ -11,7 +10,9 @@ const addon = Entropy.Addon.register({
         graphics: true,
         ui: true
     }
-});
+};
+
+const addon = Entropy.Addon.register(addonInfo);
 
 const PREVIEW_SHADER = `
 struct Camera {
@@ -525,7 +526,7 @@ addon.onInit(async () => {
         addonState = { ...addonState, ...savedData };
         if (Entropy.Composer) {
             addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent("PBR Texture Designer Pro", comp.id, comp.name, comp.params);
+                Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
             });
         }
     }
@@ -538,12 +539,12 @@ addon.onInit(async () => {
     updatePreview(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
     const renderUI = (tab: string) => {
-        Entropy.Addon.setVisibility("PBR Texture Designer Pro", true);
+        Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "🎨 PBR Texture Designer Pro", bold: true });
         Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
             addon.IO.save(addonState);
             if (Entropy.Composer) {
-                addonState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent("PBR Texture Designer Pro", comp.id, comp.name, comp.params); });
+                addonState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params); });
             }
         }});
         Entropy.UI.Widget.button(tab, { text: "🚀 GENERATE & SAVE PNGs", onClick: () => saveTextures(addonState.currentParams) });
@@ -551,7 +552,7 @@ addon.onInit(async () => {
         Entropy.UI.Widget.button(tab, { text: "➕ Save Current as Component", onClick: () => {
             const id = Math.random().toString(36).substr(2, 9);
             addonState.savedComponents.push({ id, name: newComponentName, params: JSON.parse(JSON.stringify(addonState.currentParams)) });
-            if (Entropy.Composer) { Entropy.Composer!.registerComponent("PBR Texture Designer Pro", id, newComponentName, addonState.currentParams); }
+            if (Entropy.Composer) { Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams); }
         }});
         addonState.savedComponents.forEach(comp => {
             Entropy.UI.Widget.button(tab, { text: `📂 Load & Render: ${comp.name}`, onClick: () => {
@@ -624,13 +625,29 @@ addon.onInit(async () => {
     };
 
     if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("PBR Texture Designer Pro", renderUI);
+        Entropy.Composer.registerEditor(addonInfo.name, renderUI);
         if (Entropy.Composer.registerRenderer) {
-            Entropy.Composer.registerRenderer("PBR Texture Designer Pro", (id: string, params: any) => {
+            Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: any) => {
                 updatePreview(params, id);
             });
         }
     }
+
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            addonState = { ...addonState, ...data };
+
+            // Register components with the composer
+            if (Entropy.Composer) {
+                addonState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+                });
+            }
+
+            updatePreview(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+        }
+    });
 
     const tab = addon.UI.createTab({ title: "Texture Designer Pro", onRender: async () => renderUI(tab) });
     Entropy.println("✓ PBR Texture Designer Pro Initialized!");

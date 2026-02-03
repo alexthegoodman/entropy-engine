@@ -1,25 +1,8 @@
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 import Alea from 'alea';
+import type { PBRMaterialType } from './addon';
 
-
-// FBM (Fractional Brownian Motion) implementation using the library
-function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
-    let total = 0;
-    let amplitude = 1;
-    let maxValue = 0;
-    let freq = frequency;
-
-    for (let i = 0; i < octaves; i++) {
-        total += noise2D(x * freq, y * freq) * amplitude;
-        maxValue += amplitude;
-        amplitude *= persistence;
-        freq *= lacunarity;
-    }
-
-    return total / maxValue;
-}
-
-const addon = Entropy.Addon.register({
+const addonInfo = {
     name: "FlexNoise Terrain",
     version: "3.2.0",
     description: "Highly customizable procedural terrain using simplex-noise and alea",
@@ -28,7 +11,9 @@ const addon = Entropy.Addon.register({
         graphics: true,
         ui: true
     }
-});
+};
+
+const addon = Entropy.Addon.register(addonInfo);
 
 let terrainParams = {
     seed: 42,
@@ -39,7 +24,7 @@ let terrainParams = {
     usePBR: true,
     width: 128,
     height: 128,
-    heightScale: 15.0,
+    heightScale: 1.5,
     positionY: 0.0,
     terrainColor: [0.3, 0.5, 0.2, 1.0],
     use3D: false,
@@ -61,53 +46,96 @@ let addonState: {
 
 let newComponentName = "New Terrain Component";
 
-function applyPBRFromDesigner() {
+let interopState = {
+    selectedSlot: "Rockmap" as "Primary" | "Rockmap" | "Soil",
+    selectedTextureCompId: ""
+};
+
+// FBM (Fractional Brownian Motion) implementation using the library
+function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
+    let total = 0;
+    let amplitude = 1;
+    let maxValue = 0;
+    let freq = frequency;
+
+    for (let i = 0; i < octaves; i++) {
+        total += noise2D(x * freq, y * freq) * amplitude;
+        maxValue += amplitude;
+        amplitude *= persistence;
+        freq *= lacunarity;
+    }
+
+    return total / maxValue;
+}
+
+function applyRockmapMask() {
+    const res = addonState.currentParams.width;
+    const maskData = new Uint8Array(res * res * 4);
+    
+    // Use Alea with the same seed to match the terrain height generation logic
+    const prng = Alea(addonState.currentParams.seed);
+    const noise2D = createNoise2D(prng);
+    
+    for (let y = 0; y < res; y++) {
+        for (let x = 0; x < res; x++) {
+            const idx = (y * res + x) * 4;
+            const noiseValue = (fbm(
+                noise2D,
+                x, y,
+                addonState.currentParams.octaves,
+                addonState.currentParams.frequency,
+                addonState.currentParams.persistence,
+                addonState.currentParams.lacunarity
+            ) + 1) / 2; // Normalize to 0-1
+            
+            // If height is above threshold, it's rock (white mask)
+            const val = noiseValue > addonState.currentParams.rockThreshold ? 255 : 0;
+            maskData[idx] = val;
+            maskData[idx + 1] = val;
+            maskData[idx + 2] = val;
+            maskData[idx + 3] = 255;
+        }
+    }
+    
+    const maskId = addon.Texture.create(res, res, maskData);
+    addon.Landscape.updateTexture(maskId, "RockmapMask");
+}
+
+function applyPBRToSlot(slot: PBRMaterialType) {
     const designerTextures = globalThis.lastPBRDesignerTextures;
     if (designerTextures) {
-        // 1. Generate a RockmapMask based on height
-        // We'll use a 128x128 mask for simplicity, or match terrain res
-        const res = addonState.currentParams.width;
-        const maskData = new Uint8Array(res * res * 4);
-        
-        // Use Alea with the same seed to match the terrain height generation logic
-        const prng = Alea(addonState.currentParams.seed);
-        const noise2D = createNoise2D(prng);
-        
-        for (let y = 0; y < res; y++) {
-            for (let x = 0; x < res; x++) {
-                const idx = (y * res + x) * 4;
-                const noiseValue = (fbm(
-                    noise2D,
-                    x, y,
-                    addonState.currentParams.octaves,
-                    addonState.currentParams.frequency,
-                    addonState.currentParams.persistence,
-                    addonState.currentParams.lacunarity
-                ) + 1) / 2; // Normalize to 0-1
-                
-                // If height is above threshold, it's rock (white mask)
-                const val = noiseValue > addonState.currentParams.rockThreshold ? 255 : 0;
-                maskData[idx] = val;
-                maskData[idx + 1] = val;
-                maskData[idx + 2] = val;
-                maskData[idx + 3] = 255;
-            }
+        Entropy.println(`Applying PBR textures to ${slot}...`);
+
+        // 1. Handle Masks if needed
+        if (slot === "Rockmap") {
+            applyRockmapMask();
+        } else if (slot === "Primary") {
+            const res = addonState.currentParams.width;
+            const maskData = new Uint8Array(res * res * 4).fill(255);
+            const maskId = addon.Texture.create(res, res, maskData);
+            addon.Landscape.updateTexture(maskId, "PrimaryMask");
+        } else if (slot === "Soil") {
+            const res = addonState.currentParams.width;
+            const maskData = new Uint8Array(res * res * 4).fill(255);
+            const maskId = addon.Texture.create(res, res, maskData);
+            addon.Landscape.updateTexture(maskId, "SoilMask");
         }
-        
-        const maskId = addon.Texture.create(res, res, maskData);
 
-        addon.Landscape.updateTexture(maskId, "RockmapMask");
-
-        // 2. Apply Albedo & Mask
-        addon.Landscape.updateTexture(designerTextures.diffId, "Rockmap");
-        
+        // 2. Apply Albedo
+        addon.Landscape.updateTexture(designerTextures.diffId, slot);
         
         // 3. Apply Normal
-        addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", "Rockmap");
+        addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", slot);
         
         // 4. Apply PBR Params
-        addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", "Rockmap");
+        addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", slot);
+        
+        Entropy.println(`✓ ${slot} updated!`);
     }
+}
+
+function applyPBRFromDesigner() {
+    applyPBRToSlot("Rockmap");
 }
 
 // Global listener for designer updates
@@ -196,13 +224,13 @@ addon.onInit(async () => {
         // Register components with the composer
         if (Entropy.Composer) {
             addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent("FlexNoise Terrain", comp.id, comp.name, comp.params);
+                Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
             });
         }
     }
 
     const renderTerrainUI = (tab: string) => {
-        Entropy.Addon.setVisibility("FlexNoise Terrain", true);
+        Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
         Entropy.UI.Widget.button(tab, {
@@ -212,7 +240,7 @@ addon.onInit(async () => {
                 // Re-register
                 if (Entropy.Composer) {
                     addonState.savedComponents.forEach(comp => {
-                        Entropy.Composer!.registerComponent("FlexNoise Terrain", comp.id, comp.name, comp.params);
+                        Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
                     });
                 }
                 Entropy.println("Terrain state saved!");
@@ -237,7 +265,7 @@ addon.onInit(async () => {
                     params: JSON.parse(JSON.stringify(addonState.currentParams))
                 });
                 if (Entropy.Composer) {
-                    Entropy.Composer!.registerComponent("FlexNoise Terrain", id, newComponentName, addonState.currentParams);
+                    Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
                 }
                 Entropy.println(`Saved component: ${newComponentName}`);
             }
@@ -337,7 +365,7 @@ addon.onInit(async () => {
             label: "Height Scale",
             value: addonState.currentParams.heightScale,
             min: 0.1,
-            max: 100.0,
+            max: 10.0,
             onChange: (val: string) => {
                 addonState.currentParams.heightScale = parseFloat(val);
                 generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
@@ -389,43 +417,89 @@ addon.onInit(async () => {
                 }
             });
         } else {
-            Entropy.UI.Widget.slider(tab, {
-                label: "🪨 Rock Threshold",
-                value: addonState.currentParams.rockThreshold,
-                min: 0.0,
-                max: 1.0,
-                onChange: (val: string) => {
-                    addonState.currentParams.rockThreshold = parseFloat(val);
-                    if (addonState.currentParams.autoSyncPBR) {
-                        applyPBRFromDesigner();
-                    }
-                }
-            });
+            // Entropy.UI.Widget.slider(tab, {
+            //     label: "🪨 Rock Threshold",
+            //     value: addonState.currentParams.rockThreshold,
+            //     min: 0.0,
+            //     max: 1.0,
+            //     onChange: (val: string) => {
+            //         addonState.currentParams.rockThreshold = parseFloat(val);
+            //         if (addonState.currentParams.autoSyncPBR) {
+            //             applyPBRFromDesigner();
+            //         }
+            //     }
+            // });
 
-            Entropy.UI.Widget.button(tab, {
-                text: "✨ Apply from PBR Designer",
-                onClick: () => {
-                    const designerTextures = globalThis.lastPBRDesignerTextures;
-                    if (designerTextures) {
-                        Entropy.println("Applying textures from PBR Designer...");
-                        applyPBRFromDesigner();
-                        Entropy.println("✓ Textures applied to Primary material!");
-                    } else {
-                        Entropy.println("❌ No textures found in PBR Designer. Open it first!");
-                    }
-                }
-            });
+            // Entropy.UI.Widget.button(tab, {
+            //     text: `✨ Apply from PBR Designer to ${interopState.selectedSlot}`,
+            //     onClick: () => {
+            //         const designerTextures = globalThis.lastPBRDesignerTextures;
+            //         if (designerTextures) {
+            //             applyPBRToSlot(interopState.selectedSlot);
+            //         } else {
+            //             Entropy.println("❌ No textures found in PBR Designer. Open it first!");
+            //         }
+            //     }
+            // });
 
-            Entropy.UI.Widget.button(tab, {
-                text: addonState.currentParams.autoSyncPBR ? "🔄 Auto-sync: ON" : "🔄 Auto-sync: OFF",
-                onClick: () => {
-                    addonState.currentParams.autoSyncPBR = !addonState.currentParams.autoSyncPBR;
-                    if (addonState.currentParams.autoSyncPBR) {
-                        applyPBRFromDesigner();
+            // Entropy.UI.Widget.button(tab, {
+            //     text: addonState.currentParams.autoSyncPBR ? "🔄 Auto-sync: ON" : "🔄 Auto-sync: OFF",
+            //     onClick: () => {
+            //         addonState.currentParams.autoSyncPBR = !addonState.currentParams.autoSyncPBR;
+            //         if (addonState.currentParams.autoSyncPBR) {
+            //             applyPBRFromDesigner();
+            //         }
+            //         generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID()); // Refresh UI
+            //     }
+            // });
+        }
+
+        Entropy.UI.Widget.label(tab, { text: "🔗 Texture Interop", bold: true });
+        
+        const slots = ["Primary", "Rockmap", "Soil"];
+        Entropy.UI.Widget.dropdown(tab, {
+            label: "Target Slot",
+            options: slots,
+            selectedIndex: slots.indexOf(interopState.selectedSlot),
+            onChange: (idx) => {
+                interopState.selectedSlot = slots[parseInt(idx)] as any;
+            }
+        });
+
+        if (Entropy.Composer) {
+            const texAddonName = "PBR Texture Designer Pro";
+            const texComponents = Entropy.Composer.getComponents(texAddonName) || {};
+            const texCompIds = Object.keys(texComponents);
+            const texCompNames = texCompIds.map(id => texComponents[id].name);
+
+            if (texCompIds.length > 0) {
+                Entropy.UI.Widget.dropdown(tab, {
+                    label: "Texture Component",
+                    options: texCompNames,
+                    selectedIndex: Math.max(0, texCompIds.indexOf(interopState.selectedTextureCompId)),
+                    onChange: (idx) => {
+                        interopState.selectedTextureCompId = texCompIds[parseInt(idx)];
                     }
-                    generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID()); // Refresh UI
-                }
-            });
+                });
+
+                Entropy.UI.Widget.button(tab, {
+                    text: "✨ Apply Selected Component",
+                    onClick: () => {
+                        const compId = interopState.selectedTextureCompId || texCompIds[0];
+                        const comp = texComponents[compId];
+                        if (comp) {
+                            const renderer = Entropy.Composer?.getRenderer(texAddonName);
+                            if (renderer) {
+                                // This updates globalThis.lastPBRDesignerTextures
+                                renderer("temp_interop_gen", comp.params);
+                                applyPBRToSlot(interopState.selectedSlot);
+                            }
+                        }
+                    }
+                });
+            } else {
+                Entropy.UI.Widget.label(tab, { text: "(No Texture Components saved yet)" });
+            }
         }
 
         Entropy.UI.Widget.label(tab, { text: "🎭 Terrain Presets", bold: true });
@@ -436,7 +510,7 @@ addon.onInit(async () => {
                 addonState.currentParams.frequency = 0.01;
                 addonState.currentParams.octaves = 8;
                 addonState.currentParams.persistence = 0.5;
-                addonState.currentParams.heightScale = 40.0;
+                addonState.currentParams.heightScale = 7.0;
                 generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
@@ -447,7 +521,7 @@ addon.onInit(async () => {
                 addonState.currentParams.frequency = 0.003;
                 addonState.currentParams.octaves = 4;
                 addonState.currentParams.persistence = 0.3;
-                addonState.currentParams.heightScale = 10.0;
+                addonState.currentParams.heightScale = 1.5;
                 generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
@@ -458,7 +532,7 @@ addon.onInit(async () => {
                 addonState.currentParams.frequency = 0.002;
                 addonState.currentParams.octaves = 3;
                 addonState.currentParams.persistence = 0.4;
-                addonState.currentParams.heightScale = 5.0;
+                addonState.currentParams.heightScale = 1.25;
                 addonState.currentParams.positionY = -15.0;
                 generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
@@ -466,9 +540,9 @@ addon.onInit(async () => {
     };
 
     if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("FlexNoise Terrain", renderTerrainUI);
+        Entropy.Composer.registerEditor(addonInfo.name, renderTerrainUI);
         if (Entropy.Composer.registerRenderer) {
-            Entropy.Composer.registerRenderer("FlexNoise Terrain", (id: string, params: any) => {
+            Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: any) => {
                 generateTerrain(params, id);
             });
         }
@@ -478,6 +552,14 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             addonState = { ...addonState, ...data };
+
+            // Register components with the composer
+            if (Entropy.Composer) {
+                addonState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+                });
+            }
+
             generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
         }
     });
