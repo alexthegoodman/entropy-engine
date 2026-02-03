@@ -196,7 +196,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
                 for (addon_name, cubes) in &renderer_state.addon_cubes {
                     if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if addon_name != active_name && addon_name != "Global" {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
                             continue;
                         }
                     } else if addon_name != "Global" {
@@ -223,7 +223,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                 for (addon_name, landscapes) in &renderer_state.addon_landscapes {
                     if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if addon_name != active_name && addon_name != "Global" {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
                             continue;
                         }
                     } else if addon_name != "Global" {
@@ -250,7 +250,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                 for (addon_name, meshes) in &renderer_state.addon_meshes {
                     if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if addon_name != active_name && addon_name != "Global" {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
                             continue;
                         }
                     } else if addon_name != "Global" {
@@ -273,7 +273,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                 for (addon_name, grasses) in &mut renderer_state.addon_grasses {
                     if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if addon_name != active_name && addon_name != "Global" {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
                             continue;
                         }
                     } else if addon_name != "Global" {

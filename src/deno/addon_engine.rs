@@ -296,6 +296,8 @@ pub enum UiWidget {
 
         NumericInput { id: String, label: String, value: f32 },
 
+        Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
+
     }
 
 
@@ -687,6 +689,28 @@ fn op_ui_widget_numeric_input(
     }
 }
 
+#[op2]
+fn op_ui_widget_dropdown(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    #[serde] options: Vec<String>,
+    #[bigint] selected_index: usize,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_insert_with(Vec::new)
+            .push(UiWidget::Dropdown {
+                id,
+                label,
+                options,
+                selected_index,
+            });
+    }
+}
+
 #[op2(fast)]
 fn op_composer_set_role_pipeline(state: &mut OpState, #[string] role: String, #[string] pipeline_id: String) {
     let mut ctx = state.borrow_mut::<AddonContext>();
@@ -1038,6 +1062,7 @@ extension!(
         op_ui_widget_color_input,
         op_ui_widget_slider,
         op_ui_widget_numeric_input,
+        op_ui_widget_dropdown,
         op_addon_save_data,
         op_addon_load_data,
         op_audio_play_synth,
@@ -1863,6 +1888,27 @@ impl AddonEngine {
                                                  }
                                              });
                                          }
+                                         UiWidget::Dropdown { id: drop_id, label, options, selected_index } => {
+                                             ui.horizontal(|ui| {
+                                                 ui.label(label);
+                                                 let mut current_selected = *selected_index;
+                                                 let mut changed = false;
+                                                 egui::ComboBox::from_id_source(drop_id)
+                                                     .selected_text(&options[current_selected])
+                                                     .show_ui(ui, |ui| {
+                                                         for (i, option) in options.iter().enumerate() {
+                                                             if ui.selectable_value(&mut current_selected, i, option).clicked() {
+                                                                 changed = true;
+                                                             }
+                                                         }
+                                                     });
+                                                 
+                                                 if changed {
+                                                     let payload = format!("{}|{}", drop_id, current_selected);
+                                                     events_to_push.push(payload);
+                                                 }
+                                             });
+                                         }
                                      }
                                  }
                              }
@@ -1964,6 +2010,27 @@ impl AddonEngine {
                                      let mut current_value = *value;
                                      if ui.add(egui::DragValue::new(&mut current_value)).changed() {
                                          let payload = format!("{}|{}", num_id, current_value);
+                                         events_to_push.push(payload);
+                                     }
+                                 });
+                             }
+                             UiWidget::Dropdown { id: drop_id, label, options, selected_index } => {
+                                 ui.horizontal(|ui| {
+                                     ui.label(label);
+                                     let mut current_selected = *selected_index;
+                                     let mut changed = false;
+                                     egui::ComboBox::from_id_source(drop_id)
+                                         .selected_text(&options[current_selected])
+                                         .show_ui(ui, |ui| {
+                                             for (i, option) in options.iter().enumerate() {
+                                                 if ui.selectable_value(&mut current_selected, i, option).clicked() {
+                                                     changed = true;
+                                                 }
+                                             }
+                                         });
+                                     
+                                     if changed {
+                                         let payload = format!("{}|{}", drop_id, current_selected);
                                          events_to_push.push(payload);
                                      }
                                  });

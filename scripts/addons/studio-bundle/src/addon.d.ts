@@ -27,6 +27,7 @@ export interface ProceduralModelConfig {
   type: "cube";
   parameters?: CubeParameters;
   pipelineId?: string | null;
+  renderRole?: string | null;
 }
 
 export interface LandscapeConfig {
@@ -36,6 +37,7 @@ export interface LandscapeConfig {
   noiseId?: string | null;
   position?: Position;
   pipelineId?: string | null;
+  renderRole?: string | null;
 }
 
 export type NoiseType = "fbm" | string;
@@ -71,12 +73,13 @@ export interface ScopedAPI {
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   Model: {
-      createProcedural: (config: { type: string; parameters?: any; pipelineId?: string }) => void;
+      createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
           position: number[]; 
           vertexData: number[]; 
           indexData: number[]; 
           pipelineId: string; 
+          renderRole?: string;
           instanceCount?: number;
           bindings?: any[] 
       }) => void;
@@ -109,6 +112,7 @@ export interface ScopedAPI {
       baseColor?: [number, number, number, number];
       tipColor?: [number, number, number, number];
       pipelineId?: string | null;
+      renderRole?: string | null;
       bindings?: any[];
     }) => void;
   };
@@ -194,6 +198,13 @@ export interface PipelineConfig {
   [key: string]: unknown;
 }
 
+export interface DropdownConfig {
+    label: string;
+    options: string[];
+    selectedIndex: number;
+    onChange?: (index: string) => void;
+}
+
 // Main Entropy API
 export interface EntropyAPI {
   Addon: {
@@ -209,6 +220,7 @@ export interface EntropyAPI {
       colorInput: (windowId: string, config: ColorInputConfig) => void;
       slider: (windowId: string, config: SliderConfig) => void;
       numericInput: (windowId: string, config: NumericInputConfig) => void;
+      dropdown: (windowId: string, config: DropdownConfig) => void;
     };
   };
   Composer?: {
@@ -224,6 +236,27 @@ export interface EntropyAPI {
   };
   Noise: {
     create: (config: NoiseConfig) => string;
+  };
+  Particles: {
+    createHair: (config: {
+      id?: string | null;
+      gridSize?: number;
+      renderDistance?: number;
+      windStrength?: number;
+      windSpeed?: number;
+      bladeHeight?: number;
+      bladeWidth?: number;
+      brownianStrength?: number;
+      bladeDensity?: number;
+      landscapeSize?: number;
+      landscapeHeight?: number;
+      landscapeYOffset?: number;
+      baseColor?: [number, number, number, number];
+      tipColor?: [number, number, number, number];
+      pipelineId?: string | null;
+      renderRole?: string | null;
+      bindings?: any[];
+    }) => string;
   };
   Lighting: {
     createPointLight: (config: any) => void;

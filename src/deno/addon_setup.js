@@ -210,6 +210,18 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onChange;
                 }
+            },
+            dropdown: (windowId, config) => {
+                const label = config?.label || "";
+                const options = config?.options || [];
+                const selectedIndex = config?.selectedIndex || 0;
+                const id = Math.random().toString(36).substring(2, 15);
+                ops.op_ui_widget_dropdown(windowId, label, options, selectedIndex, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
             }
         }
     },

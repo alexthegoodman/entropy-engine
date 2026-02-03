@@ -84,12 +84,16 @@ addon.onInit(async () => {
              Entropy.UI.Widget.label(tab, { text: "a role will use the selected pipeline regardless of their origin." });
              
              Object.keys(composerState.roles).forEach(role => {
-                 Entropy.UI.Widget.button(tab, {
-                     text: `${role}: ${composerState.roles[role]}`,
-                     onClick: () => {
-                         const current = composerState.roles[role];
-                         const idx = availablePipelines.indexOf(current);
-                         const next = availablePipelines[(idx + 1) % availablePipelines.length];
+                 const current = composerState.roles[role];
+                 const selectedIndex = availablePipelines.indexOf(current);
+                 
+                 Entropy.UI.Widget.dropdown(tab, {
+                     label: role,
+                     options: availablePipelines,
+                     selectedIndex: selectedIndex >= 0 ? selectedIndex : 0,
+                     onChange: (indexStr: string) => {
+                         const idx = parseInt(indexStr);
+                         const next = availablePipelines[idx];
                          composerState.roles[role] = next;
                          
                          if (Entropy.Composer && Entropy.Composer.setRolePipeline) {
