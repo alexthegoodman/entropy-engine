@@ -10,12 +10,12 @@ var<uniform> camera: Camera;
 struct Time {
     time: f32,
 };
-@group(1) @binding(0)
+@group(2) @binding(0)
 var<uniform> u_time: Time;
 
-@group(2) @binding(0)
+@group(3) @binding(0)
 var landscape_texture: texture_2d<f32>;
-@group(2) @binding(1)
+@group(3) @binding(1)
 var landscape_sampler: sampler;
 
 struct WaterConfig {
@@ -39,7 +39,7 @@ struct WaterConfig {
 
     landscape_params: vec4<f32>,      // x: height, y: size, z: y_offset, w: padding
 }
-@group(3) @binding(0)
+@group(4) @binding(0)
 var<uniform> water_config: WaterConfig;
 
 
@@ -285,27 +285,70 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
 }
 `;
 
+// function generateGrid(size: number, resolution: number) {
+//     const vertices = [];
+//     const indices = [];
+//     const halfSize = size / 2;
+//     for (let row = 0; row <= resolution; row++) {
+//         for (let col = 0; col <= resolution; col++) {
+//             const x = -halfSize + (col / resolution) * size;
+//             const z = -halfSize + (row / resolution) * size;
+//             vertices.push(x, 0, z);
+//         }
+//     }
+//     for (let row = 0; row < resolution; row++) {
+//         for (let col = 0; col < resolution; col++) {
+//             const topLeft = row * (resolution + 1) + col;
+//             const topRight = topLeft + 1;
+//             const bottomLeft = (row + 1) * (resolution + 1) + col;
+//             const bottomRight = bottomLeft + 1;
+//             indices.push(topLeft, bottomLeft, topRight);
+//             indices.push(topRight, bottomLeft, bottomRight);
+//         }
+//     }
+//     return { vertices, indices };
+// }
+
 function generateGrid(size: number, resolution: number) {
     const vertices = [];
     const indices = [];
     const halfSize = size / 2;
+    
     for (let row = 0; row <= resolution; row++) {
         for (let col = 0; col <= resolution; col++) {
             const x = -halfSize + (col / resolution) * size;
             const z = -halfSize + (row / resolution) * size;
-            vertices.push(x, 0, z);
+            const y = 0;
+            
+            // Position (3)
+            vertices.push(x, y, z);
+            
+            // Normal (3) - pointing up for a flat plane
+            vertices.push(0, 1, 0);
+            
+            // UV / tex_coords (2)
+            const u = col / resolution;
+            const v = row / resolution;
+            vertices.push(u, v);
+            
+            // Color (4) - white/default
+            vertices.push(1, 1, 1, 1);
         }
     }
+    
+    // Indices stay the same
     for (let row = 0; row < resolution; row++) {
         for (let col = 0; col < resolution; col++) {
             const topLeft = row * (resolution + 1) + col;
             const topRight = topLeft + 1;
             const bottomLeft = (row + 1) * (resolution + 1) + col;
             const bottomRight = bottomLeft + 1;
+            
             indices.push(topLeft, bottomLeft, topRight);
             indices.push(topRight, bottomLeft, bottomRight);
         }
     }
+    
     return { vertices, indices };
 }
 
@@ -375,10 +418,10 @@ function updateWater() {
         vertexData: grid.vertices,
         indexData: grid.indices,
         bindings: [
-            { group: 1, binding: 0, resource: { type: "Time" } },
-            { group: 2, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
-            { group: 2, binding: 1, resource: { type: "Sampler" } },
-            { group: 3, binding: 0, resource: { type: "Uniform", value: { data: configData } } }
+            { group: 2, binding: 0, resource: { type: "Time" } },
+            { group: 3, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
+            { group: 3, binding: 1, resource: { type: "Sampler" } },
+            { group: 4, binding: 0, resource: { type: "Uniform", value: { data: configData } } }
         ]
     } as any);
 }
@@ -394,6 +437,7 @@ const addon = Entropy.Addon.register({
 addon.onInit(async () => {
     const pipelineId = Entropy.Pipeline.create({
         name: "AdvancedWaterPipeline",
+        layout: "mesh",
         vertexShader: WATER_SHADER,
         fragmentShader: WATER_SHADER,
         pbr: true,

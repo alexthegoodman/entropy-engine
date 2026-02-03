@@ -382,7 +382,7 @@ const ornamentVertexShader = `
     struct TimeUniform {
         time: f32,
     }
-    @group(1) @binding(0)
+    @group(2) @binding(0)
     var<uniform> time_uniform: TimeUniform;
 
     struct OrnamentUniforms {
@@ -411,7 +411,7 @@ const ornamentVertexShader = `
         landscape_y_offset: f32,
         _padding: vec2<f32>,
     }
-    @group(2) @binding(0)
+    @group(3) @binding(0)
     var<uniform> uniforms: OrnamentUniforms;
 
     struct VertexInput {
@@ -622,7 +622,7 @@ const ornamentFragShader = `
     struct TimeUniform {
         time: f32,
     }
-    @group(1) @binding(0)
+    @group(2) @binding(0)
     var<uniform> time_uniform: TimeUniform;
 
     struct OrnamentUniforms {
@@ -651,7 +651,7 @@ const ornamentFragShader = `
         landscape_y_offset: f32,
         _padding: vec2<f32>,
     }
-    @group(2) @binding(0)
+    @group(3) @binding(0)
     var<uniform> uniforms: OrnamentUniforms;
 
     struct OrnamentColorParams {
@@ -660,7 +660,7 @@ const ornamentFragShader = `
         glow_intensity: f32,
         _padding2: vec2<f32>,
     }
-    @group(3) @binding(0)
+    @group(4) @binding(0)
     var<uniform> color_params: OrnamentColorParams;
 
     struct VertexOutput {
@@ -764,7 +764,7 @@ function updateOrnaments() {
     // Create a simple sphere mesh for the orbs
     const sphereVertices: number[] = [];
     const sphereIndices: number[] = [];
-    
+
     // Generate icosphere
     const segments = 8;
     for (let lat = 0; lat <= segments; lat++) {
@@ -781,14 +781,23 @@ function updateOrnaments() {
             const y = cosTheta;
             const z = sinPhi * sinTheta;
 
-            // Position
+            // Position (3)
             sphereVertices.push(x, y, z);
-            // Normal (same as position for sphere)
+            
+            // Normal (3) - same as position for a unit sphere
             sphereVertices.push(x, y, z);
+            
+            // UV / tex_coords (2)
+            const u = lon / segments;
+            const v = lat / segments;
+            sphereVertices.push(u, v);
+            
+            // Color (4) - white/default
+            sphereVertices.push(1, 1, 1, 1);
         }
     }
 
-    // Generate indices
+    // Generate indices (unchanged)
     for (let lat = 0; lat < segments; lat++) {
         for (let lon = 0; lon < segments; lon++) {
             const first = lat * (segments + 1) + lon;
@@ -813,14 +822,14 @@ function updateOrnaments() {
         pipelineId: ornamentPipelineId,
         bindings: [
             {
-                group: 1,
+                group: 2,
                 binding: 0,
                 resource: {
                     type: "Time"
                 }
             },
             {
-                group: 2,
+                group: 3,
                 binding: 0,
                 resource: {
                     type: "Uniform",
@@ -855,7 +864,7 @@ function updateOrnaments() {
                 }
             },
             {
-                group: 3,
+                group: 4,
                 binding: 0,
                 resource: {
                     type: "Uniform",
@@ -911,7 +920,7 @@ addon.onInit(async () => {
     // Create ornament pipeline
     ornamentPipelineId = Entropy.Pipeline.create({
         name: "ornament_shader",
-        layout: "custom",
+        layout: "mesh",
         pbr: true,
         vertexShader: ornamentVertexShader,
         fragmentShader: ornamentFragShader,
