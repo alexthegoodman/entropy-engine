@@ -101,6 +101,14 @@ globalThis.Entropy = {
                         });
                     }
                 },
+                Texture: {
+                    create: (width, height, data) => {
+                        return ops.op_texture_create(width, height, data);
+                    },
+                    load: (filename) => {
+                        return ops.op_texture_load(filename);
+                    }
+                },
                 Lighting: {
                     createPointLight: (config) => {
                         ops.op_point_light_create(metadata.name, {

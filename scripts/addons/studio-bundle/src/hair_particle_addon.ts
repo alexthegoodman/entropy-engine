@@ -825,14 +825,14 @@ function updateOrnaments() {
                 group: 2,
                 binding: 0,
                 resource: {
-                    type: "Time"
+                    type: "Time" as "Time"
                 }
             },
             {
                 group: 3,
                 binding: 0,
                 resource: {
-                    type: "Uniform",
+                    type: "Uniform" as "Uniform",
                     value: {
                         data: [
                             0, // player_pos_x (reserved/placeholder)
@@ -867,7 +867,7 @@ function updateOrnaments() {
                 group: 4,
                 binding: 0,
                 resource: {
-                    type: "Uniform",
+                    type: "Uniform" as "Uniform",
                     value: {
                         data: [
                             ...hairParams.ornamentColor,

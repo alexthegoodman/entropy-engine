@@ -18,6 +18,18 @@ export interface AddonMetadata {
   [key: string]: unknown;
 }
 
+export type BindingResource = 
+  | { type: "Uniform"; value: { data: number[] } }
+  | { type: "Texture"; id: string }
+  | { type: "Sampler" }
+  | { type: "Time" };
+
+export interface BindingConfig {
+  group: number;
+  binding: number;
+  resource: BindingResource;
+}
+
 export interface CubeParameters {
   position?: Position;
   scale?: Scale;
@@ -83,7 +95,7 @@ export interface ScopedAPI {
           pipelineId: string; 
           renderRole?: string;
           instanceCount?: number;
-          bindings?: any[] 
+          bindings?: BindingConfig[] 
       }) => void;
       clearMeshes: () => void;
   };
@@ -92,6 +104,10 @@ export interface ScopedAPI {
   };
   Noise: {
     create: (config: NoiseConfig) => string;
+  };
+  Texture: {
+    create: (width: number, height: number, data: Uint8Array | number[]) => string;
+    load: (filename: string) => string;
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
@@ -115,7 +131,7 @@ export interface ScopedAPI {
       tipColor?: [number, number, number, number];
       pipelineId?: string | null;
       renderRole?: string | null;
-      bindings?: any[];
+      bindings?: BindingConfig[];
     }) => void;
   };
   UI: {
@@ -240,6 +256,10 @@ export interface EntropyAPI {
   Noise: {
     create: (config: NoiseConfig) => string;
   };
+  Texture: {
+    create: (width: number, height: number, data: Uint8Array | number[]) => string;
+    load: (filename: string) => string;
+  };
   Particles: {
     createHair: (config: {
       id?: string | null;
@@ -258,7 +278,7 @@ export interface EntropyAPI {
       tipColor?: [number, number, number, number];
       pipelineId?: string | null;
       renderRole?: string | null;
-      bindings?: any[];
+      bindings?: BindingConfig[];
     }) => string;
   };
   Lighting: {

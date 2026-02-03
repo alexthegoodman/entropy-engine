@@ -30,11 +30,18 @@ struct PreviewParams {
     seed: f32,
     base_color: vec4<f32>,
     params1: vec4<f32>, // x: roughness, y: metallic, z: ao_strength, w: normal_strength
-    params2: vec4<f32>, // x: height_freq, y: height_octaves, z: persistence, w: lacunarity
-    params3: vec4<f32>, // x: color_variation, y: color_noise_freq, z, w: padding
 }
 @group(2) @binding(0)
 var<uniform> p: PreviewParams;
+
+@group(2) @binding(1)
+var t_diffuse: texture_2d<f32>;
+@group(2) @binding(2)
+var s_diffuse: sampler;
+@group(2) @binding(3)
+var t_normal: texture_2d<f32>;
+@group(2) @binding(4)
+var t_arm: texture_2d<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -60,35 +67,6 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-// Noise helpers
-fn hash(p: vec2<f32>) -> f32 {
-    let p3 = fract(vec3<f32>(p.x, p.y, p.x) * 0.13);
-    let p3_dot = dot(p3, vec3<f32>(p3.y + 3.333, p3.z + 3.333, p3.x + 3.333));
-    return fract((p3.x + p3.y) * p3_dot);
-}
-
-fn noise(p: vec2<f32>) -> f32 {
-    let i = floor(p);
-    let f = fract(p);
-    let u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(hash(i + vec2<f32>(0.0, 0.0)), hash(i + vec2<f32>(1.0, 0.0)), u.x),
-               mix(hash(i + vec2<f32>(0.0, 1.0)), hash(i + vec2<f32>(1.0, 1.0)), u.x), u.y);
-}
-
-fn get_height(uv: vec2<f32>) -> f32 {
-    var val = 0.0;
-    var amp = 1.0;
-    var freq = p.params2.x * 100.0;
-    var max_v = 0.0;
-    for(var i = 0; i < 4; i++) { // Fixed octaves for shader
-        val += noise(uv * freq + p.seed) * amp;
-        max_v += amp;
-        amp *= p.params2.z;
-        freq *= p.params2.w;
-    }
-    return val / max_v;
-}
-
 struct GbufferOutput {
     @location(0) position: vec4<f32>,
     @location(1) normal: vec4<f32>,
@@ -98,34 +76,15 @@ struct GbufferOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> GbufferOutput {
-    let h = get_height(in.uv);
+    let albedo = textureSample(t_diffuse, s_diffuse, in.uv);
+    let normal_map = textureSample(t_normal, s_diffuse, in.uv).rgb * 2.0 - 1.0;
+    let arm = textureSample(t_arm, s_diffuse, in.uv);
     
-    // Normal calculation
-    let eps = 0.005;
-    let hL = get_height(in.uv - vec2<f32>(eps, 0.0));
-    let hR = get_height(in.uv + vec2<f32>(eps, 0.0));
-    let hU = get_height(in.uv - vec2<f32>(0.0, eps));
-    let hD = get_height(in.uv + vec2<f32>(0.0, eps));
-    
-    let nx = (hL - hR) * p.params1.w;
-    let ny = (hU - hD) * p.params1.w;
-    let nz = 1.0;
-    let local_normal = normalize(vec3<f32>(nx, ny, nz));
-    
-    // Albedo with variation
-    let cNoise = noise(in.uv * p.params3.y * 50.0 + p.seed * 2.0);
-    let albedo = p.base_color.rgb + (cNoise - 0.5) * p.params3.x;
-    
-    // ARM
-    // let ao = (h * 0.5 + 0.5) * p.params1.z;
-    let ao = 0.25;
-    let material = vec4<f32>(p.params1.y, p.params1.x, ao, 1.0); // metallic, roughness, ao
-
     var out: GbufferOutput;
     out.position = vec4<f32>(in.world_pos, 1.0);
-    out.normal = vec4<f32>(normalize(in.normal + local_normal * 0.5), 1.0);
-    out.albedo = vec4<f32>(albedo, 1.0);
-    out.pbr_material = material;
+    out.normal = vec4<f32>(normalize(in.normal + normal_map * 0.5), 1.0);
+    out.albedo = albedo;
+    out.pbr_material = arm;
     return out;
 }
 `;
@@ -133,6 +92,7 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
 let texParams = {
     seed: 1234,
     resolution: 512,
+    previewRes: 128,
     baseColor: [0.5, 0.4, 0.3, 1.0],
     roughness: 0.8,
     metallic: 0.0,
@@ -152,7 +112,7 @@ function generateCubeData() {
     // Format: position(3) + normal(3) + uv(2) + color(4) = 12 floats per vertex
     const vertices = [
         // Front face
-        -1, -1,  1,  0, 0, 1,  0, 1,  1, 1, 1, 1,  // pos, normal, uv, color
+        -1, -1,  1,  0, 0, 1,  0, 1,  1, 1, 1, 1,
          1, -1,  1,  0, 0, 1,  1, 1,  1, 1, 1, 1,
          1,  1,  1,  0, 0, 1,  1, 0,  1, 1, 1, 1,
         -1,  1,  1,  0, 0, 1,  0, 0,  1, 1, 1, 1,
@@ -182,7 +142,6 @@ function generateCubeData() {
         -1,  1,  1, -1, 0, 0,  1, 0,  1, 1, 1, 1,
         -1,  1, -1, -1, 0, 0,  0, 0,  1, 1, 1, 1,
     ];
-    // indices stay the same
     const indices = [
         0, 1, 2, 0, 2, 3,
         4, 5, 6, 4, 6, 7,
@@ -196,6 +155,67 @@ function generateCubeData() {
 
 function updatePreview() {
     if (!texParams.pipelineId) return;
+
+    const res = texParams.previewRes;
+    const prng = Alea(texParams.seed);
+    const noise2D = createNoise2D(prng);
+    const colorPrng = Alea(texParams.seed + 1);
+    const colorNoise2D = createNoise2D(colorPrng);
+
+    const diffData = new Uint8Array(res * res * 4);
+    const norData = new Uint8Array(res * res * 4);
+    const armData = new Uint8Array(res * res * 4);
+
+    const getHeight = (x: number, y: number) => {
+        let val = 0;
+        let amp = 1;
+        let freq = texParams.heightFrequency * (512 / res);
+        let maxV = 0;
+        for (let i = 0; i < texParams.heightOctaves; i++) {
+            val += (noise2D(x * freq, y * freq) + 1) / 2 * amp;
+            maxV += amp;
+            amp *= texParams.heightPersistence;
+            freq *= texParams.heightLacunarity;
+        }
+        return val / maxV;
+    };
+
+    for (let y = 0; y < res; y++) {
+        for (let x = 0; x < res; x++) {
+            const idx = (y * res + x) * 4;
+            const h = getHeight(x, y);
+
+            const cNoise = (colorNoise2D(x * texParams.colorNoiseFreq * (512 / res), y * texParams.colorNoiseFreq * (512 / res)) + 1) / 2;
+            const v = (cNoise - 0.5) * texParams.colorVariation;
+            diffData[idx] = Math.max(0, Math.min(255, (texParams.baseColor[0] + v) * 255));
+            diffData[idx + 1] = Math.max(0, Math.min(255, (texParams.baseColor[1] + v) * 255));
+            diffData[idx + 2] = Math.max(0, Math.min(255, (texParams.baseColor[2] + v) * 255));
+            diffData[idx + 3] = 255;
+
+            const ao = Math.max(0, Math.min(255, (h * 0.5 + 0.5) * texParams.aoStrength * 255));
+            armData[idx] = texParams.metallic * 255; 
+            armData[idx + 1] = texParams.roughness * 255; 
+            armData[idx + 2] = ao; 
+            armData[idx + 3] = 255;
+
+            const hL = getHeight(x - 1, y);
+            const hR = getHeight(x + 1, y);
+            const hU = getHeight(x, y - 1);
+            const hD = getHeight(x, y + 1);
+            const nx = (hL - hR) * texParams.normalStrength;
+            const ny = (hU - hD) * texParams.normalStrength;
+            const nz = 1.0;
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            norData[idx] = Math.floor((nx / len * 0.5 + 0.5) * 255);
+            norData[idx + 1] = Math.floor((ny / len * 0.5 + 0.5) * 255);
+            norData[idx + 2] = Math.floor((nz / len * 0.5 + 0.5) * 255);
+            norData[idx + 3] = 255;
+        }
+    }
+
+    const diffId = addon.Texture.create(res, res, diffData);
+    const norId = addon.Texture.create(res, res, norData);
+    const armId = addon.Texture.create(res, res, armData);
 
     const { vertices, indices } = generateCubeData();
     
@@ -216,15 +236,17 @@ function updatePreview() {
                     type: "Uniform",
                     value: {
                         data: [
-                            texParams.seed, 0, 0, 0, // seed + pad
+                            texParams.seed, 0, 0, 0,
                             ...texParams.baseColor,
                             texParams.roughness, texParams.metallic, texParams.aoStrength, texParams.normalStrength,
-                            texParams.heightFrequency, texParams.heightOctaves, texParams.heightPersistence, texParams.heightLacunarity,
-                            texParams.colorVariation, texParams.colorNoiseFreq, 0, 0
                         ]
                     }
                 }
-            }
+            },
+            { group: 2, binding: 1, resource: { type: "Texture", id: diffId } },
+            { group: 2, binding: 2, resource: { type: "Sampler" } },
+            { group: 2, binding: 3, resource: { type: "Texture", id: norId } },
+            { group: 2, binding: 4, resource: { type: "Texture", id: armId } }
         ]
     });
 }
@@ -312,7 +334,11 @@ addon.onInit(async () => {
         extraBindGroups: [
             {
                 entries: [
-                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+                    { binding: 1, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 2, visibility: ["Fragment"], resourceType: "Sampler" },
+                    { binding: 3, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 4, visibility: ["Fragment"], resourceType: "Texture" }
                 ]
             }
         ]
