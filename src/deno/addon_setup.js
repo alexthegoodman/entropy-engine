@@ -180,7 +180,10 @@ globalThis.Entropy = {
             },
             button: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
-                const id = Math.random().toString(36).substring(2, 15);
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + text + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+                
                 ops.op_ui_widget_button(windowId, text, id);
                 
                 // Add to event listeners
@@ -192,7 +195,10 @@ globalThis.Entropy = {
             colorInput: (windowId, config) => {
                 const label = config?.label || "";
                 const color = config?.color || [1, 1, 1, 1];
-                const id = Math.random().toString(36).substring(2, 15);
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
                 ops.op_ui_widget_color_input(windowId, label, color, id);
 
                 if (config?.onChange) {
@@ -205,7 +211,10 @@ globalThis.Entropy = {
                 const value = config?.value || 0;
                 const min = config?.min || 0;
                 const max = config?.max || 100;
-                const id = Math.random().toString(36).substring(2, 15);
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
                 ops.op_ui_widget_slider(windowId, label, value, min, max, id);
 
                 if (config?.onChange) {
@@ -216,7 +225,10 @@ globalThis.Entropy = {
             numericInput: (windowId, config) => {
                 const label = config?.label || "";
                 const value = config?.value || 0;
-                const id = Math.random().toString(36).substring(2, 15);
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
                 ops.op_ui_widget_numeric_input(windowId, label, value, id);
 
                 if (config?.onChange) {
@@ -227,8 +239,11 @@ globalThis.Entropy = {
             dropdown: (windowId, config) => {
                 const label = config?.label || "";
                 const options = config?.options || [];
-                const selectedIndex = config?.selectedIndex || 0;
-                const id = Math.random().toString(36).substring(2, 15);
+                const selectedIndex = BigInt(config?.selectedIndex || 0);
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
                 ops.op_ui_widget_dropdown(windowId, label, options, selectedIndex, id);
 
                 if (config?.onChange) {
@@ -265,6 +280,9 @@ globalThis.Entropy = {
                 }
             }
         }
+    },
+    _reset_widget_counter: () => {
+        globalThis._entropy_widget_counter = 0;
     },
     Pipeline: {
         create: (config) => {

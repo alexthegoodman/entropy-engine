@@ -1998,6 +1998,25 @@ impl AddonEngine {
     }
 
     pub fn render_ui(&mut self, ctx: &egui::Context) {
+        // 0. Reset widget counter in JS
+        {
+            let scope = &mut self.runtime.handle_scope();
+            let global = scope.get_current_context().global(scope);
+            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                if entropy_val.is_object() {
+                    let entropy_obj = entropy_val.to_object(scope).unwrap();
+                    let reset_key = v8::String::new(scope, "_reset_widget_counter").unwrap();
+                    if let Some(reset_val) = entropy_obj.get(scope, reset_key.into()) {
+                        if reset_val.is_function() {
+                            let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
+                            let _ = reset_func.call(scope, entropy_obj.into(), &[]);
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Prepare: Clear widgets
         {
             let mut op_state = self.runtime.op_state();
@@ -2013,7 +2032,9 @@ impl AddonEngine {
                 let mut op_state = self.runtime.op_state();
                 let mut op_state = op_state.borrow_mut();
                 if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                    context.ui_windows.iter().map(|(id, (_, cb))| (id.clone(), cb.clone())).collect::<Vec<_>>()
+                    let mut windows: Vec<_> = context.ui_windows.iter().map(|(id, (_, cb))| (id.clone(), cb.clone())).collect();
+                    windows.sort_by(|a, b| a.0.cmp(&b.0));
+                    windows
                 } else {
                     Vec::new()
                 }
@@ -2022,6 +2043,24 @@ impl AddonEngine {
             let scope = &mut self.runtime.handle_scope();
             let tc = &mut v8::TryCatch::new(scope);
             for (_id, cb) in callbacks {
+                // Reset widget counter for each window
+                {
+                    let global = tc.get_current_context().global(tc);
+                    let entropy_key = v8::String::new(tc, "Entropy").unwrap();
+                    if let Some(entropy_val) = global.get(tc, entropy_key.into()) {
+                        if entropy_val.is_object() {
+                            let entropy_obj = entropy_val.to_object(tc).unwrap();
+                            let reset_key = v8::String::new(tc, "_reset_widget_counter").unwrap();
+                            if let Some(reset_val) = entropy_obj.get(tc, reset_key.into()) {
+                                if reset_val.is_function() {
+                                    let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
+                                    let _ = reset_func.call(tc, entropy_obj.into(), &[]);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let func = v8::Local::new(tc, cb);
                 let receiver = v8::undefined(tc);
                 let _ = func.call(tc, receiver.into(), &[]); 
@@ -2042,7 +2081,10 @@ impl AddonEngine {
             let op_state = self.runtime.op_state();
             let op_state = op_state.borrow();
             if let Some(context) = op_state.try_borrow::<AddonContext>() {
-                for (id, (config, _)) in &context.ui_windows {
+                let mut sorted_windows: Vec<_> = context.ui_windows.iter().collect();
+                sorted_windows.sort_by(|a, b| a.0.cmp(b.0));
+
+                for (id, (config, _)) in sorted_windows {
                     let mut open = true;
                     egui::Window::new(&config.title)
                         .id(egui::Id::new(id))
@@ -2135,6 +2177,25 @@ impl AddonEngine {
     }
 
     pub fn render_tab(&mut self, ui: &mut egui::Ui, tab_id: &str) {
+        // 0. Reset widget counter in JS
+        {
+            let scope = &mut self.runtime.handle_scope();
+            let global = scope.get_current_context().global(scope);
+            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                if entropy_val.is_object() {
+                    let entropy_obj = entropy_val.to_object(scope).unwrap();
+                    let reset_key = v8::String::new(scope, "_reset_widget_counter").unwrap();
+                    if let Some(reset_val) = entropy_obj.get(scope, reset_key.into()) {
+                        if reset_val.is_function() {
+                            let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
+                            let _ = reset_func.call(scope, entropy_obj.into(), &[]);
+                        }
+                    }
+                }
+            }
+        }
+
         // 1. Clear widgets for this tab
         {
             let mut op_state = self.runtime.op_state();
