@@ -106,42 +106,44 @@ function applyRockmapMask() {
     addon.Landscape.updateTexture(maskId, "RockmapMask");
 }
 
-function applyPBRToSlot(slot: PBRMaterialType) {
-    const designerTextures = globalThis.lastPBRDesignerTextures;
-    if (designerTextures) {
-        Entropy.println(`Applying PBR textures to ${slot}...`);
+function applyPBRToSlot(pbrid: string, slot: PBRMaterialType) {
+    if (globalThis.lastPBRDesignerTextures) {
+        const designerTextures = globalThis.lastPBRDesignerTextures[pbrid];
+        if (designerTextures) {
+            Entropy.println(`Applying PBR textures to ${slot}...`);
 
-        // 1. Handle Masks if needed
-        if (slot === "Rockmap") {
-            applyRockmapMask();
-        } else if (slot === "Primary") {
-            const res = addonState.currentParams.width;
-            const maskData = new Uint8Array(res * res * 4).fill(255);
-            const maskId = addon.Texture.create(res, res, maskData);
-            addon.Landscape.updateTexture(maskId, "PrimaryMask");
-        } else if (slot === "Soil") {
-            const res = addonState.currentParams.width;
-            const maskData = new Uint8Array(res * res * 4).fill(255);
-            const maskId = addon.Texture.create(res, res, maskData);
-            addon.Landscape.updateTexture(maskId, "SoilMask");
+            // 1. Handle Masks if needed
+            if (slot === "Rockmap") {
+                applyRockmapMask();
+            } else if (slot === "Primary") {
+                const res = addonState.currentParams.width;
+                const maskData = new Uint8Array(res * res * 4).fill(255);
+                const maskId = addon.Texture.create(res, res, maskData);
+                addon.Landscape.updateTexture(maskId, "PrimaryMask");
+            } else if (slot === "Soil") {
+                const res = addonState.currentParams.width;
+                const maskData = new Uint8Array(res * res * 4).fill(255);
+                const maskId = addon.Texture.create(res, res, maskData);
+                addon.Landscape.updateTexture(maskId, "SoilMask");
+            }
+
+            // 2. Apply Albedo
+            addon.Landscape.updateTexture(designerTextures.diffId, slot);
+            
+            // 3. Apply Normal
+            addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", slot);
+            
+            // 4. Apply PBR Params
+            addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", slot);
+            
+            Entropy.println(`✓ ${slot} updated!`);
         }
-
-        // 2. Apply Albedo
-        addon.Landscape.updateTexture(designerTextures.diffId, slot);
-        
-        // 3. Apply Normal
-        addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", slot);
-        
-        // 4. Apply PBR Params
-        addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", slot);
-        
-        Entropy.println(`✓ ${slot} updated!`);
     }
 }
 
-function applyPBRFromDesigner() {
-    applyPBRToSlot("Rockmap");
-}
+// function applyPBRFromDesigner() {
+//     applyPBRToSlot("Rockmap");
+// }
 
 function restoreLayerTextures() {
     if (!Entropy.Composer) return;
@@ -154,17 +156,16 @@ function restoreLayerTextures() {
         // Safe access in case textureLayers is undefined in old saves
         const layersMap = addonState.currentParams.textureLayers || {};
         const compId = layersMap[slot as "Primary" | "Rockmap" | "Soil"];
+
+        Entropy.println("---PBR Texture Designer Pro restoreLayerTextures... " + JSON.stringify(layersMap) + " " + slot + " comp by id " + (compId ? JSON.stringify(components[compId]) : "null compId"));
         
         if (compId && components[compId]) {
              const renderer = Entropy.Composer?.getRenderer(texAddonName);
              if (renderer) {
-                 // Regenerate textures in the designer (updates globalThis.lastPBRDesignerTextures)
-                 // We use a silent ID to avoid messing up the main preview if possible, 
-                 // though the PBR addon currently updates its single global state.
-                 renderer("temp_interop_restore", components[compId].params);
+                 renderer(compId, components[compId].params);
                  
                  // Apply to landscape
-                 applyPBRToSlot(slot as "Primary" | "Rockmap" | "Soil");
+                 applyPBRToSlot(compId, slot as "Primary" | "Rockmap" | "Soil");
 
                  Entropy.println("---PBR Texture Designer Pro restoreLayerTextures!!! " + JSON.stringify(components[compId].params));
              }
@@ -173,11 +174,11 @@ function restoreLayerTextures() {
 }
 
 // Global listener for designer updates
-globalThis.onPBRDesignerUpdate = () => {
-    if (addonState.currentParams.usePBR && addonState.currentParams.autoSyncPBR) {
-        applyPBRFromDesigner();
-    }
-};
+// globalThis.onPBRDesignerUpdate = () => {
+//     if (addonState.currentParams.usePBR && addonState.currentParams.autoSyncPBR) {
+//         applyPBRFromDesigner();
+//     }
+// };
 
 async function generateTerrain(params: typeof terrainParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = "default") {
     Entropy.println(`Regenerating FlexNoise Terrain (${id}): ${params.width}x${params.height}...`);
@@ -252,16 +253,17 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
         renderRole: "Terrain"
     } as any);
 
-    if (params.usePBR) {
-        restoreLayerTextures();
-    }
+    // restoreLayerTextures();
 }
 
 addon.onInit(async () => {
     Entropy.println("FlexNoise Terrain Addon (Alea-seeded) Initializing...");
 
     if (Entropy.Composer) {
-        Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
+        // Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
+        //     restoreLayerTextures();
+        // };
+        Entropy.Composer.initCallbacks["Game Composer"] = () => {
             restoreLayerTextures();
         };
     }
@@ -519,11 +521,26 @@ addon.onInit(async () => {
                             }
                             addonState.currentParams.textureLayers[interopState.selectedSlot] = compId;
 
+                            let savedComponent = addonState.savedComponents.find((c) => c.id === compId);
+
+                            if (savedComponent) {
+                                savedComponent.params.textureLayers[interopState.selectedSlot] = compId;
+                            } else {
+                                addonState.savedComponents.push({
+                                    id: addonState.activeComponentId as string,
+                                    name: "New Component",
+                                    params: addonState.currentParams
+                                })
+                            }
+
                             const renderer = Entropy.Composer?.getRenderer(texAddonName);
                             if (renderer) {
                                 // This updates globalThis.lastPBRDesignerTextures
                                 renderer("temp_interop_gen", comp.params);
-                                applyPBRToSlot(interopState.selectedSlot);
+                                applyPBRToSlot("temp_interop_gen", interopState.selectedSlot);
+
+                                Entropy.println("---PBR Texture Designer Pro applyPBRToSlot!!! " + JSON.stringify(comp.params) + " and.. " + JSON.stringify(addonState.currentParams));
+
                             }
                             
                             Entropy.println(`Linked component ${comp.name} to ${interopState.selectedSlot}`);

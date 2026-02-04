@@ -1,4 +1,4 @@
-const addon = Entropy.Addon.register({
+const addonInfo = {
     name: "Game Composer",
     version: "2.0.0",
     description: "Advanced Scene Composition and Component management",
@@ -6,7 +6,9 @@ const addon = Entropy.Addon.register({
     capabilities: {
         ui: true
     }
-});
+};
+
+const addon = Entropy.Addon.register(addonInfo);
 
 interface ComponentInstance {
     id: string;
@@ -82,6 +84,9 @@ function refreshScene() {
                         scale: inst.scale 
                     } 
                 };
+
+                Entropy.println("Game Composer render ... " + JSON.stringify(renderParams));
+
                 renderer(inst.id, renderParams);
             }
         }
@@ -97,7 +102,7 @@ addon.onInit(async () => {
     const savedData = addon.IO.load();
     if (savedData) {
         composerState = { ...composerState, ...savedData };
-        refreshScene();
+        // refreshScene();
     }
 
     // Atmospheric lighting
@@ -127,6 +132,10 @@ addon.onInit(async () => {
         if (data) {
             composerState = { ...composerState, ...data };
             refreshScene();
+
+            if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
+                Entropy.Composer.initCallbacks[addonInfo.name]();
+            }
         }
     });
 

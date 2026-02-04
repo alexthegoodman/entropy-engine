@@ -468,7 +468,11 @@ function updatePreview(params: typeof texParams, id: string = "default") {
     const norId = addon.Texture.create(res, res, norData);
     const armId = addon.Texture.create(res, res, armData);
 
-    globalThis.lastPBRDesignerTextures = { diffId, norId, armId, params: { ...params } };
+    if (!globalThis.lastPBRDesignerTextures) {
+        globalThis.lastPBRDesignerTextures = {};
+    }
+
+    globalThis.lastPBRDesignerTextures[id] = { diffId, norId, armId, params: { ...params } };
     if (typeof globalThis.onPBRDesignerUpdate === 'function') globalThis.onPBRDesignerUpdate();
 
     const { vertices, indices } = generateCubeData();

@@ -2,11 +2,12 @@
 
 declare global {
   var lastPBRDesignerTextures: {
+    [key: string]: {
     diffId: string;
     norId: string;
     armId: string;
     params: any;
-  } | undefined;
+  }} | undefined;
   
   var onPBRDesignerUpdate: (() => void) | undefined;
 }
