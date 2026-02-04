@@ -99,176 +99,38 @@ pub struct MeshConfig {
     pub bindings: Option<Vec<BindingConfig>>,
 }
 
-
-
-
-
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BindingConfig {
+    pub group: u32,
+    pub binding: u32,
+    pub resource: ResourceType,
+}
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
-#[serde(rename_all = "camelCase")]
-
-
-
-pub struct BindingConfig {
-
-
-
-    pub group: u32,
-
-
-
-    pub binding: u32,
-
-
-
-    pub resource: ResourceType,
-
-
-
+#[serde(tag = "type", content = "value")]
+pub enum ResourceType {
+    Uniform { data: Vec<f32> },
+    Texture { id: Option<String> }, // "Landscape" is special
+    Sampler,
+    Time, // Smart default for time buffer
+    Buffer { id: String },
+    Storage { id: String },
+    StorageTexture { id: String },
+    StorageTextureRgba16 { id: String },
+    TextureNonFilterable { id: String },
 }
 
 
 
-
-
-
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
-
-
-
-
-#[serde(tag = "type", content = "value")]
-
-
-
-
-
-
-
-pub enum ResourceType {
-
-
-
-
-
-
-
-    Uniform { data: Vec<f32> },
-
-
-
-
-
-
-
-    Texture { id: Option<String> }, // "Landscape" is special
-
-
-
-
-
-
-
-    Sampler,
-
-
-
-
-
-
-
-    Time, // Smart default for time buffer
-
-
-
-
-
-
-
-        Buffer { id: String },
-
-
-
-
-
-
-
-        Storage { id: String },
-
-
-
-
-
-
-
-        StorageTexture { id: String },
-
-
-
-
-
-
-
-    }
-
-
-
-
-
-
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-
-
-
 #[serde(rename_all = "camelCase")]
-
-
-
 pub struct CubeConfig {
-
-
-
     pub position: [f32; 3],
-
-
-
     pub scale: [f32; 3],
-
-
-
     pub pipeline_id: Option<String>,
-
-
-
     pub render_role: Option<String>,
-
-
-
 }
 
 
@@ -1623,14 +1485,13 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                     return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Buffer not found: {}", id)));
                                 }
                             },
-                            ResourceType::StorageTexture { id } | ResourceType::Texture { id: Some(id) } => {
+                            ResourceType::StorageTexture { id } | ResourceType::StorageTextureRgba16 { id } | ResourceType::Texture { id: Some(id) } | ResourceType::TextureNonFilterable { id } => {
                                 if let Some(view) = ctx.textures.get(id) {
                                     wgpu_entries.push(wgpu::BindGroupEntry {
                                         binding: b.binding,
                                         resource: wgpu::BindingResource::TextureView(view),
                                     });
                                 } else {
-                                    println!("Compute Dispatch: Texture not found: {}", id);
                                     return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Texture not found: {}", id)));
                                 }
                             },
@@ -1938,6 +1799,8 @@ impl AddonEngine {
                         let id_str = match &b.resource {
                             ResourceType::Texture { id: Some(id) } => Some(id.clone()),
                             ResourceType::StorageTexture { id } => Some(id.clone()),
+                            ResourceType::StorageTextureRgba16 { id } => Some(id.clone()),
+                            ResourceType::TextureNonFilterable { id } => Some(id.clone()),
                             _ => None,
                         };
                         if let Some(id) = id_str {
@@ -2002,6 +1865,8 @@ impl AddonEngine {
                 let id_str = match &b.resource {
                     ResourceType::Texture { id: Some(id) } => Some(id.clone()),
                     ResourceType::StorageTexture { id } => Some(id.clone()),
+                    ResourceType::StorageTextureRgba16 { id } => Some(id.clone()),
+                    ResourceType::TextureNonFilterable { id } => Some(id.clone()),
                     _ => None,
                 };
 
