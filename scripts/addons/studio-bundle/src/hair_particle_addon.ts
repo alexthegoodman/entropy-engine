@@ -719,10 +719,14 @@ const ornamentFragShader = `
     }
 `;
 
-function updateHair(params: typeof hairParams, id: string = Entropy.generateUUID()) {
+function updateHair(params: typeof hairParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = Entropy.generateUUID()) {
+    const pos = params._transform?.position || [0, 0, 0];
+    // Scale might need to be applied to blade dimensions or grid size, but for now let's just assume position.
+    
     addon.Particles.createHair({
         ...params,
         id: id,
+        position: pos, // Pass position to the underlying system
         renderRole: "Vegetation",
         base_color: params.baseColor,
         tip_color: params.tipColor,
@@ -762,7 +766,7 @@ function updateHair(params: typeof hairParams, id: string = Entropy.generateUUID
 let ornamentMeshId: string | null = null;
 let ornamentPipelineId: string | null = null;
 
-function updateOrnaments(params: typeof hairParams, id: string = Entropy.generateUUID()) {
+function updateOrnaments(params: typeof hairParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = Entropy.generateUUID()) {
     if (!params.ornamentsEnabled) {
         return;
     }
@@ -819,6 +823,12 @@ function updateOrnaments(params: typeof hairParams, id: string = Entropy.generat
     const totalBlades = gridCells * gridCells * params.bladeDensity;
     const ornamentInstances = Math.floor(totalBlades * params.ornamentProbability * params.ornamentCount);
 
+    const pos = params._transform?.position || [0, 0, 0];
+    // For ornaments, we also need to pass the position to the shader if the shader uses player_pos relative logic
+    // But here we are moving the mesh itself. The shader logic `player_pos` usually centers the grid generation.
+    // If we move the mesh, we might be double-moving or moving the "window".
+    // For now, moving the mesh position is the standard Composer way.
+
     const ornamentData = {
         vertices: new Float32Array(sphereVertices),
         indices: new Uint32Array(sphereIndices),
@@ -839,8 +849,8 @@ function updateOrnaments(params: typeof hairParams, id: string = Entropy.generat
                     type: "Uniform" as "Uniform",
                     value: {
                         data: [
-                            0, // player_pos_x (reserved/placeholder)
-                            0, // player_pos_z (reserved/placeholder)
+                            pos[0], // pass transform x as player_pos_x override? 
+                            pos[2], // pass transform z as player_pos_z override?
                             params.gridSize,
                             params.renderDistance,
                             params.bladeDensity,
@@ -861,7 +871,7 @@ function updateOrnaments(params: typeof hairParams, id: string = Entropy.generat
                             params.bladeHeightVariability,
                             params.leanDirectionX,
                             params.leanDirectionZ,
-                            params.landscapeYOffset,
+                            params.landscapeYOffset, // This is usually relative to mesh 0
                             0, 0, 0 // padding
                         ]
                     }
@@ -892,7 +902,7 @@ function updateOrnaments(params: typeof hairParams, id: string = Entropy.generat
             indexData: Array.from(sphereIndices),
             instanceCount: ornamentInstances,
             pipelineId: ornamentPipelineId,
-            position: [0, 0, 0],
+            position: pos,
             bindings: ornamentData.bindings
         });
         

@@ -798,7 +798,7 @@ interface OceanParams {
 
 const addonInfo = {
     name: "FFT Ocean",
-    version: "1.0.0",
+    version: "1.1.0",
     description: "GPU-Accelerated FFT Ocean with Photorealistic Waves",
     author: ["Entropy Team", "Claude"],
     capabilities: {
@@ -831,6 +831,18 @@ let oceanParams: OceanParams = {
     foamThreshold: 0.5,
     foamIntensity: 0.7,
 };
+
+let addonState: {
+    currentParams: OceanParams,
+    savedComponents: { id: string, name: string, params: OceanParams }[],
+    activeComponentId: string | null
+} = {
+    currentParams: { ...oceanParams },
+    savedComponents: [],
+    activeComponentId: Entropy.generateUUID()
+};
+
+let newComponentName = "New Water Component";
 
 let pipelineIds = {
     spectrumInit: null as string | null,
@@ -943,14 +955,38 @@ addon.onInit(async () => {
     // Initialize textures and buffers
     initializeResources();
     
+    // Load saved data
+    const savedData = addon.IO.load();
+    if (savedData) {
+        addonState = { ...addonState, ...savedData };
+    }
+
+    // Register with Composer
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor(addonInfo.name, renderUI);
+        
+        if (Entropy.Composer.registerRenderer) {
+            Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: OceanParams) => {
+                // For the composer, we might want to respect the instance position
+                // The current shader assumes y=oceanHeight, but we should probably add world pos
+                createWaterMesh(id, params);
+            });
+        }
+
+        // Register saved components
+        addonState.savedComponents.forEach(comp => {
+            Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+        });
+    }
+
     // // Generate initial spectrum
     generateInitialSpectrum();
 
     // to test if water is active 2000 seconds in
     // updateOcean(2000);
     
-    // // Create water mesh
-    createWaterMesh();
+    // // Create water mesh (preview)
+    createWaterMesh("fft_ocean_preview", addonState.currentParams);
 
     // Atmospheric lighting
     addon.Lighting.createPointLight({
@@ -977,6 +1013,19 @@ addon.onInit(async () => {
     // Setup UI
     setupUI();
 
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            addonState = { ...addonState, ...data };
+            if (Entropy.Composer) {
+                addonState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+                });
+            }
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
+        }
+    });
+
     // Register update loop
     addon.onUpdate((time) => {
         updateOcean(time);
@@ -986,7 +1035,7 @@ addon.onInit(async () => {
 });
 
 function initializeResources() {
-    const N = oceanParams.resolution;
+    const N = addonState.currentParams.resolution;
 
     // Create textures using the new createStorage API
     textures.h0 = Entropy.Texture.createStorage(N, N, "Rgba16Float");
@@ -1011,20 +1060,20 @@ function generateInitialSpectrum() {
     
     // Update spectrum params
     const params = new Float32Array([
-        oceanParams.resolution,
-        oceanParams.oceanSize,
-        oceanParams.windSpeed,
-        oceanParams.windDirection[0],
-        oceanParams.windDirection[1],
-        oceanParams.amplitude,
-        oceanParams.gravity,
+        addonState.currentParams.resolution,
+        addonState.currentParams.oceanSize,
+        addonState.currentParams.windSpeed,
+        addonState.currentParams.windDirection[0],
+        addonState.currentParams.windDirection[1],
+        addonState.currentParams.amplitude,
+        addonState.currentParams.gravity,
         0.0, // padding
     ]);
     
     Entropy.Buffer.write(buffers.spectrumParams, params);
     
     // Dispatch compute
-    const N = oceanParams.resolution;
+    const N = addonState.currentParams.resolution;
     const workgroups = Math.ceil(N / 8);
     
     Entropy.Compute.dispatch({
@@ -1044,7 +1093,7 @@ function updateOcean(time: number) {
     //     Entropy.println(`🌊 FFT update loop running, time=${time.toFixed(2)}`);
     // }
 
-    const N = oceanParams.resolution;
+    const N = addonState.currentParams.resolution;
     const workgroups = Math.ceil(N / 8);
     const logN = Math.log2(N);
 
@@ -1052,9 +1101,9 @@ function updateOcean(time: number) {
     const timeParams = new Float32Array([
         time,
         N,
-        oceanParams.oceanSize,
-        oceanParams.gravity,
-        oceanParams.choppiness,
+        addonState.currentParams.oceanSize,
+        addonState.currentParams.gravity,
+        addonState.currentParams.choppiness,
         0, 0, 0 // padding
     ]);
     // Entropy.Buffer.write(buffers.timeParams!, timeParams); // Or use inline uniform
@@ -1105,7 +1154,7 @@ function updateOcean(time: number) {
     }
 
     // 4. Final Displacement Pass
-    const outputParams = new Float32Array([N, oceanParams.oceanSize, oceanParams.choppiness, 0]);
+    const outputParams = new Float32Array([N, addonState.currentParams.oceanSize, addonState.currentParams.choppiness, 0]);
     Entropy.Compute.dispatch({
         pipelineId: pipelineIds.displacement!,
         groups: [workgroups, workgroups, 1],
@@ -1118,11 +1167,11 @@ function updateOcean(time: number) {
     });
 }
 
-function createWaterMesh() {
+function createWaterMesh(id: string, params: OceanParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }) {
     if (!pipelineIds.waterRender) return;
     
     // Generate grid
-    const gridSize = oceanParams.oceanSize;
+    const gridSize = params.oceanSize;
     const resolution = 256; // Lower res for mesh than FFT
     
     const vertices: number[] = [];
@@ -1158,17 +1207,21 @@ function createWaterMesh() {
     }
     
     const waterConfig = [
-        ...oceanParams.shallowColor,
-        ...oceanParams.mediumColor,
-        ...oceanParams.deepColor,
-        oceanParams.oceanSize, oceanParams.oceanHeight, 0, 0,
-        oceanParams.fresnelPower, oceanParams.fresnelMult, oceanParams.specularPower, oceanParams.specularIntensity,
-        oceanParams.foamThreshold, oceanParams.foamIntensity, 0, 0,
+        ...params.shallowColor,
+        ...params.mediumColor,
+        ...params.deepColor,
+        params.oceanSize, params.oceanHeight, 0, 0,
+        params.fresnelPower, params.fresnelMult, params.specularPower, params.specularIntensity,
+        params.foamThreshold, params.foamIntensity, 0, 0,
     ];
+
+    const pos = params._transform?.position || [0, 0, 0];
+    const scale = params._transform?.scale || [1, 1, 1];
     
     addon.Model.createMesh({
-        id: "fft_ocean",
-        position: [0, 0, 0],
+        id: id,
+        position: pos,
+        scale: scale,
         vertexData: vertices,
         indexData: indices,
         pipelineId: pipelineIds.waterRender,
@@ -1183,7 +1236,7 @@ function createWaterMesh() {
         ]
     });
     
-    Entropy.println("Created water mesh");
+    Entropy.println(`Created water mesh: ${id} at ${pos}`);
 }
 
 function setupUI() {
@@ -1195,57 +1248,82 @@ function setupUI() {
 
 function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "🌊 FFT Ocean Simulation", bold: true });
+
+    Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
+        addon.IO.save(addonState);
+        if (Entropy.Composer) {
+            addonState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params); });
+        }
+    }});
+
+    Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
+    Entropy.UI.Widget.button(tab, { text: "➕ Save Current as Component", onClick: () => {
+        const id = Entropy.generateUUID();
+        addonState.savedComponents.push({ id, name: newComponentName, params: JSON.parse(JSON.stringify(addonState.currentParams)) });
+        if (Entropy.Composer) { Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams); }
+    }});
+    
+    addonState.savedComponents.forEach(comp => {
+        Entropy.UI.Widget.button(tab, { text: `📂 Load & Render: ${comp.name}`, onClick: () => {
+            addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
+            addonState.activeComponentId = comp.id;
+            generateInitialSpectrum();
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
+        }});
+    });
+    
+    Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
     
     Entropy.UI.Widget.label(tab, { text: "Ocean Parameters", bold: true });
     Entropy.UI.Widget.slider(tab, {
         label: "Wind Speed",
-        value: oceanParams.windSpeed,
+        value: addonState.currentParams.windSpeed,
         min: 0,
         max: 40,
         onChange: (v) => {
-            oceanParams.windSpeed = parseFloat(v);
+            addonState.currentParams.windSpeed = parseFloat(v);
             generateInitialSpectrum();
         }
     });
     
     Entropy.UI.Widget.slider(tab, {
         label: "Choppiness",
-        value: oceanParams.choppiness,
+        value: addonState.currentParams.choppiness,
         min: 0,
         max: 5,
         onChange: (v) => {
-            oceanParams.choppiness = parseFloat(v);
+            addonState.currentParams.choppiness = parseFloat(v);
         }
     });
     
     Entropy.UI.Widget.label(tab, { text: "Colors", bold: true });
     Entropy.UI.Widget.colorInput(tab, {
         label: "Shallow",
-        color: oceanParams.shallowColor,
+        color: addonState.currentParams.shallowColor,
         onChange: (c) => {
-            oceanParams.shallowColor = c as [number, number, number, number];
-            createWaterMesh();
+            addonState.currentParams.shallowColor = c as [number, number, number, number];
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
         }
     });
     
     Entropy.UI.Widget.colorInput(tab, {
         label: "Deep",
-        color: oceanParams.deepColor,
+        color: addonState.currentParams.deepColor,
         onChange: (c) => {
-            oceanParams.deepColor = c as [number, number, number, number];
-            createWaterMesh();
+            addonState.currentParams.deepColor = c as [number, number, number, number];
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
         }
     });
     
     Entropy.UI.Widget.label(tab, { text: "Foam", bold: true });
     Entropy.UI.Widget.slider(tab, {
         label: "Foam Threshold",
-        value: oceanParams.foamThreshold,
+        value: addonState.currentParams.foamThreshold,
         min: 0,
         max: 1,
         onChange: (v) => {
-            oceanParams.foamThreshold = parseFloat(v);
-            createWaterMesh();
+            addonState.currentParams.foamThreshold = parseFloat(v);
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
         }
     });
     

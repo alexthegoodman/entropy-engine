@@ -145,7 +145,7 @@ globalThis.onPBRDesignerUpdate = () => {
     }
 };
 
-async function generateTerrain(params: typeof terrainParams, id: string = "default") {
+async function generateTerrain(params: typeof terrainParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = "default") {
     Entropy.println(`Regenerating FlexNoise Terrain (${id}): ${params.width}x${params.height}...`);
     
     // Use Alea for robust seeded random generation
@@ -203,13 +203,17 @@ async function generateTerrain(params: typeof terrainParams, id: string = "defau
         });
     }
 
+    const posX = params._transform?.position?.[0] || 0;
+    const posY = (params._transform?.position?.[1] || 0) + params.positionY;
+    const posZ = params._transform?.position?.[2] || 0;
+
     addon.Landscape.create({
         id: id,
         width: params.width,
         height: params.height,
         heights: heights,
         noiseId: null,
-        position: [0, params.positionY, 0],
+        position: [posX, posY, posZ],
         pipelineId: pipelineId,
         renderRole: "Terrain"
     } as any);
