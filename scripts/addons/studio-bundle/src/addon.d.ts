@@ -32,11 +32,13 @@ export interface AddonMetadata {
 export type BindingResource = 
   | { type: "Uniform"; value: { data: number[] } }
   | { type: "Texture"; value: {id: string} }
+  | { type: "TextureNonFilterable"; value: {id: string} }
   | { type: "Sampler" }
   | { type: "Time" }
   | { type: "Buffer"; value: {id: string} }
   | { type: "Storage"; value: {id: string} }
-  | { type: "StorageTexture"; value: {id: string} };
+  | { type: "StorageTexture"; value: {id: string} }
+  | { type: "StorageTextureRgba16"; value: {id: string} };
 
 export interface BindingConfig {
   group: number;
@@ -279,7 +281,7 @@ export interface ButtonConfig {
 export interface BindingEntry {
   binding: number;
   visibility: ("Compute" | "Vertex" | "Fragment")[];
-  resourceType: "Uniform" | "Time" | "Texture" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture";
+  resourceType: "Uniform" | "Time" | "Texture" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16";
 }
 
 export interface PipelineConfig {

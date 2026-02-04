@@ -622,6 +622,7 @@ fn op_texture_create_ex(
 
         let format = match config.format.as_str() {
             "Rgba8Unorm" => wgpu::TextureFormat::Rgba8Unorm,
+            "Rgba16Float" => wgpu::TextureFormat::Rgba16Float,
             "Rgba32Float" => wgpu::TextureFormat::Rgba32Float,
             _ => wgpu::TextureFormat::Rgba8Unorm,
         };
@@ -655,6 +656,7 @@ fn op_texture_create_ex(
         if let Some(data) = rgba_data {
             let bytes_per_pixel = match format {
                 wgpu::TextureFormat::Rgba8Unorm => 4,
+                wgpu::TextureFormat::Rgba16Float => 8,
                 wgpu::TextureFormat::Rgba32Float => 16,
                 _ => 4,
             };
@@ -1213,6 +1215,11 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                              view_dimension: wgpu::TextureViewDimension::D2,
                              multisampled: false,
                          },
+                         "TextureNonFilterable" => wgpu::BindingType::Texture {
+                             sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                             view_dimension: wgpu::TextureViewDimension::D2,
+                             multisampled: false,
+                         },
                          "Sampler" => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                          _ => wgpu::BindingType::Buffer { // Default to uniform
                              ty: wgpu::BufferBindingType::Uniform,
@@ -1465,11 +1472,21 @@ fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputePipel
                     },
                     "StorageTexture" => wgpu::BindingType::StorageTexture {
                         access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba32Float, // Default for FFT, can be configurable later
+                        format: wgpu::TextureFormat::Rgba32Float, // Keep 32 for precision, but allow 16 if needed
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    "StorageTextureRgba16" => wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba16Float,
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     "Texture" => wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    "TextureNonFilterable" => wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: false },
                         view_dimension: wgpu::TextureViewDimension::D2,
                         multisampled: false,
                     },

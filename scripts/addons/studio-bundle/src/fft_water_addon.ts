@@ -360,10 +360,10 @@ struct OutputParams {
 var input_fft: texture_2d<f32>;
 
 @group(0) @binding(1)
-var output_displacement: texture_storage_2d<rgba32float, write>;
+var output_displacement: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(2)
-var output_derivatives: texture_storage_2d<rgba32float, write>;
+var output_derivatives: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(3)
 var<uniform> params: OutputParams;
@@ -689,7 +689,7 @@ addon.onInit(async () => {
         shaderSource: SPECTRUM_UPDATE_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
                 { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
@@ -701,7 +701,7 @@ addon.onInit(async () => {
         shaderSource: FFT_HORIZONTAL_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
                 { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
@@ -713,7 +713,7 @@ addon.onInit(async () => {
         shaderSource: FFT_VERTICAL_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
                 { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
@@ -725,9 +725,9 @@ addon.onInit(async () => {
         shaderSource: DISPLACEMENT_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
-                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
-                { binding: 2, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -776,8 +776,11 @@ function initializeResources() {
     textures.ht = Entropy.Texture.createStorage(N, N, "Rgba32Float");
     textures.pingpong[0] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
     textures.pingpong[1] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
-    textures.displacement = Entropy.Texture.createStorage(N, N, "Rgba32Float");
-    textures.derivatives = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    
+    // Displacement and derivatives need to be sampled with filtering in the vertex/fragment shaders
+    // Rgba16Float is highly precise but supports linear filtering on most hardware
+    textures.displacement = Entropy.Texture.createStorage(N, N, "Rgba16Float");
+    textures.derivatives = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     
     // Create uniform buffers
     buffers.spectrumParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
@@ -786,9 +789,9 @@ function initializeResources() {
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
 
     // Register update loop
-    // addon.onUpdate((time) => {
-    //     updateOcean(time);
-    // });
+    addon.onUpdate((time) => {
+        updateOcean(time);
+    });
 }
 
 function generateInitialSpectrum() {
@@ -844,8 +847,8 @@ function updateOcean(time: number) {
         pipelineId: pipelineIds.spectrumUpdate,
         groups: [workgroups, workgroups, 1],
         bindings: [
-            { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.h0 } } },
-            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.ht } } },
+            { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: textures.h0! } } },
+            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.ht! } } },
             { group: 0, binding: 2, resource: { type: "Uniform", value: { data: Array.from(timeParams) } } },
         ]
     });
@@ -860,7 +863,7 @@ function updateOcean(time: number) {
             pipelineId: pipelineIds.fftHorizontal!,
             groups: [workgroups, workgroups, 1],
             bindings: [
-                { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
+                { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: input! } } },
                 { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
@@ -877,7 +880,7 @@ function updateOcean(time: number) {
             pipelineId: pipelineIds.fftVertical!,
             groups: [workgroups, workgroups, 1],
             bindings: [
-                { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
+                { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: input! } } },
                 { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
@@ -891,9 +894,9 @@ function updateOcean(time: number) {
         pipelineId: pipelineIds.displacement!,
         groups: [workgroups, workgroups, 1],
         bindings: [
-            { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.pingpong[pingpong]! } } },
-            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.displacement! } } },
-            { group: 0, binding: 2, resource: { type: "StorageTexture", value: { id: textures.derivatives! } } },
+            { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: textures.pingpong[pingpong]! } } },
+            { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: textures.displacement! } } },
+            { group: 0, binding: 2, resource: { type: "StorageTextureRgba16", value: { id: textures.derivatives! } } },
             { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(outputParams) } } },
         ]
     });
