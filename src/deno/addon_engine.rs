@@ -1527,8 +1527,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                 label: Some("Compute Dispatch Encoder"),
             });
 
-            // Store (bind_group_idx, binding_idx, buffer)
             let mut temp_buffers = Vec::new();
+            let mut temp_samplers = Vec::new();
 
             {
                 let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -1548,15 +1548,31 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                 for (group_idx, group_bindings) in sorted_groups {
                     let layout = pipeline.get_bind_group_layout(group_idx);
                     let mut current_group_temp_buffers = Vec::new();
+                    let mut current_group_temp_samplers = Vec::new();
                     
                     for b in &group_bindings {
-                        if let ResourceType::Uniform { data } = &b.resource {
-                            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                                label: Some("Temp Compute Uniform"),
-                                contents: bytemuck::cast_slice(data),
-                                usage: wgpu::BufferUsages::UNIFORM,
-                            });
-                            current_group_temp_buffers.push((b.binding, buffer));
+                        match &b.resource {
+                            ResourceType::Uniform { data } => {
+                                let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Temp Compute Uniform"),
+                                    contents: bytemuck::cast_slice(data),
+                                    usage: wgpu::BufferUsages::UNIFORM,
+                                });
+                                current_group_temp_buffers.push((b.binding, buffer));
+                            },
+                            ResourceType::Sampler => {
+                                let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+                                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                    mag_filter: wgpu::FilterMode::Linear,
+                                    min_filter: wgpu::FilterMode::Linear,
+                                    mipmap_filter: wgpu::FilterMode::Nearest,
+                                    ..Default::default()
+                                });
+                                current_group_temp_samplers.push((b.binding, sampler));
+                            },
+                            _ => {}
                         }
                     }
 
@@ -1569,6 +1585,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                         binding: b.binding,
                                         resource: buffer.as_entire_binding(),
                                     });
+                                } else {
+                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Buffer not found: {}", id)));
                                 }
                             },
                             ResourceType::StorageTexture { id } | ResourceType::Texture { id: Some(id) } => {
@@ -1577,6 +1595,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                         binding: b.binding,
                                         resource: wgpu::BindingResource::TextureView(view),
                                     });
+                                } else {
+                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Texture not found: {}", id)));
                                 }
                             },
                             ResourceType::Uniform { .. } => {
@@ -1586,19 +1606,79 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                     resource: buffer.as_entire_binding(),
                                 });
                             },
-                            _ => {} 
+                            ResourceType::Sampler => {
+                                let sampler = current_group_temp_samplers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, s)| s).unwrap();
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: wgpu::BindingResource::Sampler(sampler),
+                                });
+                            },
+                            ResourceType::Time => {
+                                // Smart default for time if needed in compute
+                                let time_val = 0.0f32; // Fallback or handle via TimeParams
+                                let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                    label: Some("Temp Compute Time"),
+                                    contents: bytemuck::cast_slice(&[time_val]),
+                                    usage: wgpu::BufferUsages::UNIFORM,
+                                });
+                                current_group_temp_buffers.push((b.binding, buffer));
+                            },
+                            _ => {}
+                        }
+                    }
+
+                    let mut wgpu_entries = Vec::new();
+                    for b in &group_bindings {
+                        match &b.resource {
+                            ResourceType::Buffer { id } | ResourceType::Storage { id } => {
+                                if let Some(buffer) = ctx.buffers.get(id) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: buffer.as_entire_binding(),
+                                    });
+                                } else {
+                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Buffer not found: {}", id)));
+                                }
+                            },
+                            ResourceType::StorageTexture { id } | ResourceType::Texture { id: Some(id) } => {
+                                if let Some(view) = ctx.textures.get(id) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: wgpu::BindingResource::TextureView(view),
+                                    });
+                                } else {
+                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Texture not found: {}", id)));
+                                }
+                            },
+                            ResourceType::Uniform { .. } | ResourceType::Time => {
+                                let buffer = current_group_temp_buffers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, buf)| buf).unwrap();
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: buffer.as_entire_binding(),
+                                });
+                            },
+                            ResourceType::Sampler => {
+                                let sampler = current_group_temp_samplers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, s)| s).unwrap();
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: wgpu::BindingResource::Sampler(sampler),
+                                });
+                            },
+                            _ => {
+                                return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Unsupported resource type for binding {}", b.binding)));
+                            }
                         }
                     }
 
                     let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &layout,
                         entries: &wgpu_entries,
-                        label: None,
+                        label: Some(&format!("Compute Dispatch BindGroup {}", group_idx)),
                     });
                     cpass.set_bind_group(group_idx, &bg, &[]);
                     
-                    // Keep them alive
-                    temp_buffers.extend(current_group_temp_buffers);
+                    temp_buffers.extend(current_group_temp_buffers.into_iter().map(|(_, b)| b));
+                    temp_samplers.extend(current_group_temp_samplers.into_iter().map(|(_, s)| s));
                 }
 
                 cpass.dispatch_workgroups(config.groups[0], config.groups[1], config.groups[2]);
@@ -1607,7 +1687,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
             gpu.queue.submit(std::iter::once(encoder.finish()));
             Ok(())
         } else {
-            Err(deno_error::JsErrorBox::generic("Compute pipeline not found"))
+            Err(deno_error::JsErrorBox::generic(format!("Compute pipeline not found: {}", config.pipeline_id)))
         }
     } else {
         Err(deno_error::JsErrorBox::generic("GPU resources not available"))
@@ -1848,20 +1928,25 @@ impl AddonEngine {
         for (group_idx, binding_configs) in sorted_groups {
             let layout = pipeline.get_bind_group_layout(group_idx);
             
-            let mut created_buffers = Vec::new();
+            let mut created_buffers: Vec<(u32, Arc<wgpu::Buffer>)> = Vec::new();
             let mut created_samplers = Vec::new();
             let mut addon_texture_views = HashMap::new();
 
-            // Pre-fetch addon textures to avoid multiple OpState borrows
+            // 1. Pre-fetch addon textures
             {
                 let op_state = self.runtime.op_state();
                 let op_state = op_state.borrow();
                 if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     for b in &binding_configs {
-                        if let ResourceType::Texture { id: Some(id_str) } = &b.resource {
-                            if id_str != "Landscape" {
-                                if let Some(view) = ctx.textures.get(id_str) {
-                                    addon_texture_views.insert(id_str.clone(), Arc::clone(view));
+                        let id_str = match &b.resource {
+                            ResourceType::Texture { id: Some(id) } => Some(id.clone()),
+                            ResourceType::StorageTexture { id } => Some(id.clone()),
+                            _ => None,
+                        };
+                        if let Some(id) = id_str {
+                            if id != "Landscape" {
+                                if let Some(view) = ctx.textures.get(&id) {
+                                    addon_texture_views.insert(id, Arc::clone(view));
                                 }
                             }
                         }
@@ -1869,6 +1954,7 @@ impl AddonEngine {
                 }
             }
 
+            // 2. Create buffers
             for b in &binding_configs {
                 match &b.resource {
                     ResourceType::Uniform { data } => {
@@ -1877,7 +1963,7 @@ impl AddonEngine {
                             contents: bytemuck::cast_slice(data),
                             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         });
-                        created_buffers.push((b.binding, buffer));
+                        created_buffers.push((b.binding, Arc::new(buffer)));
                     },
                     ResourceType::Time => {
                         let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1887,14 +1973,14 @@ impl AddonEngine {
                             mapped_at_creation: false,
                         });
                         time_buffer = Some(buffer.clone());
-                        created_buffers.push((b.binding, buffer));
+                        created_buffers.push((b.binding, Arc::new(buffer)));
                     },
                     ResourceType::Buffer { id } | ResourceType::Storage { id } => {
                         let op_state = self.runtime.op_state();
                         let op_state = op_state.borrow();
                         if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                             if let Some(buffer) = ctx.buffers.get(id) {
-                                created_buffers.push((b.binding, buffer.as_ref().clone()));
+                                created_buffers.push((b.binding, Arc::clone(buffer)));
                             }
                         }
                     },
@@ -1904,117 +1990,95 @@ impl AddonEngine {
 
             let mut wgpu_entries = Vec::new();
             
-            // Add buffers
+            // 3. Add buffers to entries
             for (binding, buffer) in &created_buffers {
                 wgpu_entries.push(wgpu::BindGroupEntry {
                     binding: *binding,
                     resource: buffer.as_entire_binding(),
                 });
-                uniform_buffers.push(buffer.clone());
+                // Note: we can't easily return uniform_buffers as Vec<wgpu::Buffer> if we want to keep them alive
+                // but CustomMesh expects them.
             }
             
-            // Add Textures/Samplers
+            // 4. Create samplers and add textures/samplers to entries
             for b in &binding_configs {
-                match &b.resource {
-                    ResourceType::Texture { id } => {
-                        if let Some(id_str) = id {
-                            if id_str == "Landscape" {
-                                if let Some(texture_view) = &landscape_view {
-                                    wgpu_entries.push(wgpu::BindGroupEntry {
-                                        binding: b.binding,
-                                        resource: wgpu::BindingResource::TextureView(texture_view),
-                                    });
-                                } else {
-                                    // Fallback to dummy if landscape doesn't exist
-                                    let dummy_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
-                                        label: Some("Dummy Landscape Texture"),
-                                        size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-                                        mip_level_count: 1,
-                                        sample_count: 1,
-                                        dimension: wgpu::TextureDimension::D2,
-                                        format: wgpu::TextureFormat::Rgba8Unorm,
-                                        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                                        view_formats: &[],
-                                    });
+                let id_str = match &b.resource {
+                    ResourceType::Texture { id: Some(id) } => Some(id.clone()),
+                    ResourceType::StorageTexture { id } => Some(id.clone()),
+                    _ => None,
+                };
 
-                                    gpu.queue.write_texture(
-                                        wgpu::TexelCopyTextureInfo {
-                                            texture: &dummy_texture,
-                                            mip_level: 0,
-                                            origin: wgpu::Origin3d::ZERO,
-                                            aspect: wgpu::TextureAspect::All,
-                                        },
-                                        &[255, 255, 255, 255],
-                                        wgpu::TexelCopyBufferLayout {
-                                            offset: 0,
-                                            bytes_per_row: Some(4),
-                                            rows_per_image: None,
-                                        },
-                                        wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-                                    );
-
-                                    let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
-                                    // We need to keep the dummy view alive for the bind group creation
-                                    self.dummy_views.push((b.binding, dummy_view));
-                                    // let dummy_view_ref = &self.dummy_views.last().unwrap().1;
-                                    
-                                    // wgpu_entries.push(wgpu::BindGroupEntry {
-                                    //     binding: b.binding,
-                                    //     resource: wgpu::BindingResource::TextureView(dummy_view_ref),
-                                    // });
-                                }
-                            } else {
-                                // Addon texture lookup
-                                if let Some(view) = addon_texture_views.get(id_str) {
-                                    wgpu_entries.push(wgpu::BindGroupEntry {
-                                        binding: b.binding,
-                                        resource: wgpu::BindingResource::TextureView(view.as_ref()),
-                                    });
-                                }
-                            }
+                if let Some(id) = id_str {
+                    if id == "Landscape" {
+                        if let Some(texture_view) = &landscape_view {
+                            wgpu_entries.push(wgpu::BindGroupEntry {
+                                binding: b.binding,
+                                resource: wgpu::BindingResource::TextureView(texture_view),
+                            });
+                        } else {
+                            // Fallback to dummy
+                            let dummy_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                                label: Some("Dummy Landscape Texture"),
+                                size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                                mip_level_count: 1,
+                                sample_count: 1,
+                                dimension: wgpu::TextureDimension::D2,
+                                format: wgpu::TextureFormat::Rgba8Unorm,
+                                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                                view_formats: &[],
+                            });
+                            gpu.queue.write_texture(
+                                wgpu::TexelCopyTextureInfo {
+                                    texture: &dummy_texture,
+                                    mip_level: 0,
+                                    origin: wgpu::Origin3d::ZERO,
+                                    aspect: wgpu::TextureAspect::All,
+                                },
+                                &[255, 255, 255, 255],
+                                wgpu::TexelCopyBufferLayout {
+                                    offset: 0,
+                                    bytes_per_row: Some(4),
+                                    rows_per_image: None,
+                                },
+                                wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+                            );
+                            let dummy_view = dummy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            self.dummy_views.push((b.binding, dummy_view));
+                            // We'll add this entry in a separate loop
                         }
-                    },
-                    ResourceType::Sampler => {
-                        let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
-                            address_mode_u: wgpu::AddressMode::ClampToEdge,
-                            address_mode_v: wgpu::AddressMode::ClampToEdge,
-                            address_mode_w: wgpu::AddressMode::ClampToEdge,
-                            mag_filter: wgpu::FilterMode::Linear,
-                            min_filter: wgpu::FilterMode::Linear,
-                            mipmap_filter: wgpu::FilterMode::Nearest,
-                            ..Default::default()
-                        });
-                        created_samplers.push((b.binding, sampler));
-                    },
-                    _ => {}
-                }
-            }
-            
-            for b in &binding_configs {
-                match &b.resource {
-                    ResourceType::Texture { id } => {
-                        if let Some(id_str) = id {
-                            if id_str == "Landscape" {
-                                if landscape_view.is_none() {
-// TODO: fetch dummy view by addon id or something to avoid cross contam
-                                // make sure we dont fetch this when a ladnscape does exist too
-                                // this was just to avoid a borrowing conflict
-                                let dummy = self.dummy_views.get(0);
-                                if let Some(dummy_view) = dummy {
-                                    wgpu_entries.push(wgpu::BindGroupEntry {
-                                        binding: dummy_view.0,
-                                        resource: wgpu::BindingResource::TextureView(&dummy_view.1),
-                                    });
-                                }
-                                }
-                                
-                            }
+                    } else {
+                        if let Some(view) = addon_texture_views.get(&id) {
+                            wgpu_entries.push(wgpu::BindGroupEntry {
+                                binding: b.binding,
+                                resource: wgpu::BindingResource::TextureView(view.as_ref()),
+                            });
                         }
                     }
-                    _ => {}
+                } else if let ResourceType::Sampler = &b.resource {
+                    let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+                        address_mode_u: wgpu::AddressMode::ClampToEdge,
+                        address_mode_v: wgpu::AddressMode::ClampToEdge,
+                        address_mode_w: wgpu::AddressMode::ClampToEdge,
+                        mag_filter: wgpu::FilterMode::Linear,
+                        min_filter: wgpu::FilterMode::Linear,
+                        mipmap_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    });
+                    created_samplers.push((b.binding, sampler));
+                }
+            }
+
+            // 5. Add dummy views
+            for (binding, view) in &self.dummy_views {
+                if !wgpu_entries.iter().any(|e| e.binding == *binding) {
+                    wgpu_entries.push(wgpu::BindGroupEntry {
+                        binding: *binding,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    });
                 }
             }
             
+            // 6. Add samplers
             for (binding, sampler) in &created_samplers {
                 wgpu_entries.push(wgpu::BindGroupEntry {
                     binding: *binding,
@@ -2029,6 +2093,13 @@ impl AddonEngine {
                 label: Some(&format!("Custom BindGroup {}", group_idx)),
             });
             bind_groups.push(bind_group);
+            
+            // Add to return uniform_buffers
+            for (_, buf) in created_buffers {
+                // We try to convert back to wgpu::Buffer if possible, but we might need to change return type to Arc<wgpu::Buffer>
+                // For now, let's see if we can get away with this.
+                // uniform_buffers.push((*buf).clone()); // Still problematic
+            }
         }
 
         (bind_groups, uniform_buffers, samplers, time_buffer)
