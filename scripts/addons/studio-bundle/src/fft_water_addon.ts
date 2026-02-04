@@ -760,7 +760,7 @@ addon.onInit(async () => {
     generateInitialSpectrum();
     
     // // Create water mesh
-    // createWaterMesh();
+    createWaterMesh();
     
     // Setup UI
     setupUI();
@@ -816,7 +816,7 @@ function generateInitialSpectrum() {
         pipelineId: pipelineIds.spectrumInit,
         groups: [workgroups, workgroups, 1],
         bindings: [
-            { group: 0, binding: 0, resource: { type: "Storage", value: { id: textures.h0 } } },
+            { group: 0, binding: 0, resource: { type: "StorageTexture", value: { id: textures.h0! } } },
             { group: 0, binding: 1, resource: { type: "Uniform", value: { data: Array.from(params) } } },
         ]
     });
@@ -845,7 +845,7 @@ function updateOcean(time: number) {
         groups: [workgroups, workgroups, 1],
         bindings: [
             { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.h0 } } },
-            { group: 0, binding: 1, resource: { type: "Storage", value: { id: textures.ht } } },
+            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.ht } } },
             { group: 0, binding: 2, resource: { type: "Uniform", value: { data: Array.from(timeParams) } } },
         ]
     });
@@ -861,7 +861,7 @@ function updateOcean(time: number) {
             groups: [workgroups, workgroups, 1],
             bindings: [
                 { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
-                { group: 0, binding: 1, resource: { type: "Storage", value: { id: output! } } },
+                { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
         });
@@ -878,7 +878,7 @@ function updateOcean(time: number) {
             groups: [workgroups, workgroups, 1],
             bindings: [
                 { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
-                { group: 0, binding: 1, resource: { type: "Storage", value: { id: output! } } },
+                { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
         });
@@ -892,8 +892,8 @@ function updateOcean(time: number) {
         groups: [workgroups, workgroups, 1],
         bindings: [
             { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.pingpong[pingpong]! } } },
-            { group: 0, binding: 1, resource: { type: "Storage", value: { id: textures.displacement! } } },
-            { group: 0, binding: 2, resource: { type: "Storage", value: { id: textures.derivatives! } } },
+            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.displacement! } } },
+            { group: 0, binding: 2, resource: { type: "StorageTexture", value: { id: textures.derivatives! } } },
             { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(outputParams) } } },
         ]
     });

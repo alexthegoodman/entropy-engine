@@ -35,7 +35,8 @@ export type BindingResource =
   | { type: "Sampler" }
   | { type: "Time" }
   | { type: "Buffer"; value: {id: string} }
-  | { type: "Storage"; value: {id: string} };
+  | { type: "Storage"; value: {id: string} }
+  | { type: "StorageTexture"; value: {id: string} };
 
 export interface BindingConfig {
   group: number;
