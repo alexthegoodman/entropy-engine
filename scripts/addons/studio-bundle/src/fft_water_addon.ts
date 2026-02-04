@@ -609,12 +609,18 @@ interface OceanParams {
     foamIntensity: number;
 }
 
-const addon = Entropy.Addon.register({
+const addonInfo = {
     name: "FFT Ocean",
     version: "1.0.0",
     description: "GPU-Accelerated FFT Ocean with Photorealistic Waves",
     author: ["Entropy Team", "Claude"],
-});
+    capabilities: {
+        audio: true,
+        ui: true
+    }
+}
+
+const addon = Entropy.Addon.register(addonInfo);
 
 let oceanParams: OceanParams = {
     resolution: 256,
@@ -780,9 +786,9 @@ function initializeResources() {
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
 
     // Register update loop
-    addon.onUpdate((time) => {
-        updateOcean(time);
-    });
+    // addon.onUpdate((time) => {
+    //     updateOcean(time);
+    // });
 }
 
 function generateInitialSpectrum() {
