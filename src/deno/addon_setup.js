@@ -497,6 +497,7 @@ globalThis.Entropy.Composer = {
     editors: {},
     renderers: {}, // addonName -> renderFn(id, params)
     components: {}, // addonName -> { componentId -> { name, params } }
+    initCallbacks: {}, // addonName -> initCallback()
     registerEditor: (addonName, renderFn) => {
         globalThis.Entropy.Composer.editors[addonName] = renderFn;
     },

@@ -646,9 +646,16 @@ addon.onInit(async () => {
             }
 
             updatePreview(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+
+            if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
+                Entropy.Composer.initCallbacks[addonInfo.name]();
+            }
         }
     });
 
     const tab = addon.UI.createTab({ title: "Texture Designer Pro", onRender: async () => renderUI(tab) });
+
+    
+
     Entropy.println("✓ PBR Texture Designer Pro Initialized!");
 });

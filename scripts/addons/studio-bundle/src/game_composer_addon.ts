@@ -13,7 +13,7 @@ interface ComponentInstance {
     name: string;
     addon: string;
     componentId: string; // The ID from the addon's registry
-    params: any; // Cached params for rendering
+    params: any; // params are stored in each addons own file accessed via IO.Load(), only cached here but not saved to the composer state
     position: [number, number, number];
     scale: [number, number, number];
     visible: boolean;
@@ -92,6 +92,28 @@ addon.onInit(async () => {
         refreshScene();
     }
 
+    // Atmospheric lighting
+    addon.Lighting.createPointLight({
+        position: [-3.0, 4.0, 65.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -60.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
     addon.onProjectChanged((id) => {
         const data = addon.IO.load();
         if (data) {
@@ -148,7 +170,7 @@ addon.onInit(async () => {
                                      name: `${comp.name} Instance`,
                                      addon: addonName,
                                      componentId: compId,
-                                     params: JSON.parse(JSON.stringify(comp.params)), // Deep copy params
+                                     params: JSON.parse(JSON.stringify(comp.params)), // This will be stored in each addons own file
                                      position: [0, 0, 0],
                                      scale: [1, 1, 1],
                                      visible: true

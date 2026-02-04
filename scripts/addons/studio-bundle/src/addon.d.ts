@@ -332,6 +332,9 @@ export interface EntropyAPI {
       registerComponent: (addonName: string, componentId: string, name: string, params: any) => void;
       getComponents: (addonName: string) => Record<string, { name: string, params: any }>;
       setRolePipeline: (role: string, pipelineId: string) => void;
+      initCallbacks: {
+        [key: string]: () => void
+      }
   };
   Pipeline: {
     create: (config: PipelineConfig) => string;

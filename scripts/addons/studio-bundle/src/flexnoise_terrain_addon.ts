@@ -164,7 +164,9 @@ function restoreLayerTextures() {
                  renderer("temp_interop_restore", components[compId].params);
                  
                  // Apply to landscape
-                 applyPBRToSlot(slot as any);
+                 applyPBRToSlot(slot as "Primary" | "Rockmap" | "Soil");
+
+                 Entropy.println("---PBR Texture Designer Pro restoreLayerTextures!!! " + JSON.stringify(components[compId].params));
              }
         }
     });
@@ -257,6 +259,12 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
 
 addon.onInit(async () => {
     Entropy.println("FlexNoise Terrain Addon (Alea-seeded) Initializing...");
+
+    if (Entropy.Composer) {
+        Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
+            restoreLayerTextures();
+        };
+    }
 
     const savedData = addon.IO.load();
     if (savedData) {
@@ -469,42 +477,6 @@ addon.onInit(async () => {
                     generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
                 }
             });
-        } else {
-            // Entropy.UI.Widget.slider(tab, {
-            //     label: "🪨 Rock Threshold",
-            //     value: addonState.currentParams.rockThreshold,
-            //     min: 0.0,
-            //     max: 1.0,
-            //     onChange: (val: string) => {
-            //         addonState.currentParams.rockThreshold = parseFloat(val);
-            //         if (addonState.currentParams.autoSyncPBR) {
-            //             applyPBRFromDesigner();
-            //         }
-            //     }
-            // });
-
-            // Entropy.UI.Widget.button(tab, {
-            //     text: `✨ Apply from PBR Designer to ${interopState.selectedSlot}`,
-            //     onClick: () => {
-            //         const designerTextures = globalThis.lastPBRDesignerTextures;
-            //         if (designerTextures) {
-            //             applyPBRToSlot(interopState.selectedSlot);
-            //         } else {
-            //             Entropy.println("❌ No textures found in PBR Designer. Open it first!");
-            //         }
-            //     }
-            // });
-
-            // Entropy.UI.Widget.button(tab, {
-            //     text: addonState.currentParams.autoSyncPBR ? "🔄 Auto-sync: ON" : "🔄 Auto-sync: OFF",
-            //     onClick: () => {
-            //         addonState.currentParams.autoSyncPBR = !addonState.currentParams.autoSyncPBR;
-            //         if (addonState.currentParams.autoSyncPBR) {
-            //             applyPBRFromDesigner();
-            //         }
-            //         generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID()); // Refresh UI
-            //     }
-            // });
         }
 
         Entropy.UI.Widget.label(tab, { text: "🔗 Texture Interop", bold: true });
@@ -655,4 +627,8 @@ addon.onInit(async () => {
             renderTerrainUI(tab);
         }
     });
+
+    if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
+        Entropy.Composer.initCallbacks[addonInfo.name]();
+    }
 });
