@@ -31,7 +31,12 @@ let terrainParams = {
     time: 0.0,
     autoSyncPBR: false,
     rockThreshold: 0.5,
-    pipelineId: null as string | null
+    pipelineId: null as string | null,
+    textureLayers: {
+        "Primary": null as string | null,
+        "Rockmap": null as string | null,
+        "Soil": null as string | null
+    }
 };
 
 let addonState: {
@@ -138,6 +143,33 @@ function applyPBRFromDesigner() {
     applyPBRToSlot("Rockmap");
 }
 
+function restoreLayerTextures() {
+    if (!Entropy.Composer) return;
+    
+    const layers = ["Primary", "Rockmap", "Soil"];
+    const texAddonName = "PBR Texture Designer Pro";
+    const components = Entropy.Composer.getComponents(texAddonName) || {};
+    
+    layers.forEach(slot => {
+        // Safe access in case textureLayers is undefined in old saves
+        const layersMap = addonState.currentParams.textureLayers || {};
+        const compId = layersMap[slot as "Primary" | "Rockmap" | "Soil"];
+        
+        if (compId && components[compId]) {
+             const renderer = Entropy.Composer?.getRenderer(texAddonName);
+             if (renderer) {
+                 // Regenerate textures in the designer (updates globalThis.lastPBRDesignerTextures)
+                 // We use a silent ID to avoid messing up the main preview if possible, 
+                 // though the PBR addon currently updates its single global state.
+                 renderer("temp_interop_restore", components[compId].params);
+                 
+                 // Apply to landscape
+                 applyPBRToSlot(slot as any);
+             }
+        }
+    });
+}
+
 // Global listener for designer updates
 globalThis.onPBRDesignerUpdate = () => {
     if (addonState.currentParams.usePBR && addonState.currentParams.autoSyncPBR) {
@@ -217,6 +249,10 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
         pipelineId: pipelineId,
         renderRole: "Terrain"
     } as any);
+
+    if (params.usePBR) {
+        restoreLayerTextures();
+    }
 }
 
 addon.onInit(async () => {
@@ -225,6 +261,15 @@ addon.onInit(async () => {
     const savedData = addon.IO.load();
     if (savedData) {
         addonState = { ...addonState, ...savedData };
+        // Ensure textureLayers exists if loading old save
+        if (!addonState.currentParams.textureLayers) {
+            addonState.currentParams.textureLayers = {
+                "Primary": null,
+                "Rockmap": null,
+                "Soil": null
+            };
+        }
+
         // Register components with the composer
         if (Entropy.Composer) {
             addonState.savedComponents.forEach(comp => {
@@ -280,6 +325,10 @@ addon.onInit(async () => {
                 text: `📂 Load & Render: ${comp.name}`,
                 onClick: () => {
                     addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
+                    // Ensure textureLayers exists on load
+                    if (!addonState.currentParams.textureLayers) {
+                        addonState.currentParams.textureLayers = { "Primary": null, "Rockmap": null, "Soil": null };
+                    }
                     addonState.activeComponentId = comp.id;
                     generateTerrain(addonState.currentParams, comp.id);
                 }
@@ -492,12 +541,20 @@ addon.onInit(async () => {
                         const compId = interopState.selectedTextureCompId || texCompIds[0];
                         const comp = texComponents[compId];
                         if (comp) {
+                            // 1. SAVE THE ASSOCIATION
+                            if (!addonState.currentParams.textureLayers) {
+                                addonState.currentParams.textureLayers = { "Primary": null, "Rockmap": null, "Soil": null };
+                            }
+                            addonState.currentParams.textureLayers[interopState.selectedSlot] = compId;
+
                             const renderer = Entropy.Composer?.getRenderer(texAddonName);
                             if (renderer) {
                                 // This updates globalThis.lastPBRDesignerTextures
                                 renderer("temp_interop_gen", comp.params);
                                 applyPBRToSlot(interopState.selectedSlot);
                             }
+                            
+                            Entropy.println(`Linked component ${comp.name} to ${interopState.selectedSlot}`);
                         }
                     }
                 });
