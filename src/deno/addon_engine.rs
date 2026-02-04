@@ -1978,7 +1978,7 @@ impl AddonEngine {
             context.on_update_callbacks.clone()
         };
 
-        for (_addon_name, callback) in callbacks {
+        for (addon_name, callback) in callbacks {
             let scope = &mut self.runtime.handle_scope();
             let local_callback = v8::Local::new(scope, callback);
             let this = v8::undefined(scope);
@@ -1992,7 +1992,7 @@ impl AddonEngine {
             if tc.has_caught() {
                 if let Some(exception) = tc.exception() {
                     let msg = exception.to_rust_string_lossy(tc);
-                    println!("[ADDON UPDATE ERROR] {}", msg);
+                    println!("[ADDON UPDATE ERROR in {}] {}", addon_name, msg);
                 }
             }
         }

@@ -1893,10 +1893,11 @@ impl EntropyPipeline {
         };
 
         let is_viewport_visible = self.export_editor.as_ref().map(|e| e.is_viewport_visible).unwrap_or(true);
+        let current_time = self.start_time.elapsed().as_secs_f64();
 
         if is_viewport_visible || game_mode {
             if self.current_workspace == Workspace::GameEngine {
-                self.render_frame(Some(&view), 0.0, game_mode, viewport_rect);
+                self.render_frame(Some(&view), current_time, game_mode, viewport_rect);
             } else if self.current_workspace == Workspace::Stunts {
                 let current_time_s = self.export_editor.as_ref()
                     .map(|e| e.video_current_time_ms as f64 / 1000.0)
@@ -1905,7 +1906,7 @@ impl EntropyPipeline {
             } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
                 // render nothing
             } else { // Addons
-                self.render_addon_frame(Some(&view), 0.0, viewport_rect);
+                self.render_addon_frame(Some(&view), current_time, viewport_rect);
             }
         }
 

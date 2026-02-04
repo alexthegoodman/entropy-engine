@@ -110,15 +110,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         //     camera_binding.update_3d(queue, camera);
         // }
 
-        let window_size_bind_group = pipeline
+         let window_size_bind_group = pipeline
             .window_size_bind_group
             .as_ref()
             .expect("Couldn't get window size bind group");
-        // let camera = pipeline.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on pipeline
         let texture = pipeline.texture.as_ref().expect("Couldn't get texture");
 
         let time = pipeline.start_time.elapsed().as_secs_f32();
-        
+
         editor.addon_engine.update(renderer_state, camera, current_time);
 
         // Update procedural sky and directional light from addon or world state

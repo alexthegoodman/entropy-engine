@@ -670,7 +670,7 @@ let textures = {
 };
 
 addon.onInit(async () => {
-    Entropy.println("🌊 Initializing FFT Ocean...");
+    Entropy.println("🌊 FFT Ocean: onInit started");
     
     // Create compute pipelines
     pipelineIds.spectrumInit = Entropy.Pipeline.createCompute({
@@ -761,6 +761,28 @@ addon.onInit(async () => {
     
     // // Create water mesh
     createWaterMesh();
+
+    // Atmospheric lighting
+    addon.Lighting.createPointLight({
+        position: [-3.0, 4.0, 65.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -60.0],
+        color: [0.9, 0.9, 0.9],
+        intensity: 8.0,
+        maxDistance: 150.0
+    });
     
     // Setup UI
     setupUI();
@@ -827,6 +849,10 @@ function generateInitialSpectrum() {
 
 function updateOcean(time: number) {
     if (!pipelineIds.spectrumUpdate || !textures.h0 || !textures.ht) return;
+
+    // if (Math.random() < 0.01) {
+    //     Entropy.println(`🌊 FFT update loop running, time=${time.toFixed(2)}`);
+    // }
 
     const N = oceanParams.resolution;
     const workgroups = Math.ceil(N / 8);
