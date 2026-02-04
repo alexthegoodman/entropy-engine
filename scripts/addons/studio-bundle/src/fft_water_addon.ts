@@ -678,7 +678,7 @@ addon.onInit(async () => {
         shaderSource: SPECTRUM_INIT_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "Storage" },
+                { binding: 0, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 1, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -690,7 +690,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
-                { binding: 1, visibility: ["Compute"], resourceType: "Storage" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -702,7 +702,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
-                { binding: 1, visibility: ["Compute"], resourceType: "Storage" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -714,7 +714,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
-                { binding: 1, visibility: ["Compute"], resourceType: "Storage" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -726,8 +726,8 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
-                { binding: 1, visibility: ["Compute"], resourceType: "Storage" },
-                { binding: 2, visibility: ["Compute"], resourceType: "Storage" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 2, visibility: ["Compute"], resourceType: "StorageTexture" },
                 { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
