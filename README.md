@@ -4,7 +4,7 @@
 
 ![Entropy Engine / Chat Value](public/image.png "Entropy Engine / Chat Value")
 
-Vibe your startup with Entropy Engine
+Lightweight, powerful, sophisticated
 
 - Shift from grunt work to creative leadership
 - Command and coordinate your business through a centralized, agentic chat
@@ -12,10 +12,8 @@ Vibe your startup with Entropy Engine
 
 What’s included
 
-- 3 starter experiences:
-    - Game engine
-    - Video editor
-    - Writing experience
+- End-to-end game creation tools
+- Video capture and editing tools
 - Pre-built functionality with no plugins required
 - Native integration across tools for a unified workflow
 
@@ -44,56 +42,59 @@ Level Editor:
 Example Game:
 - `cargo run --bin game --release` (needs your game files to run)
 
-### Development Notes
-
-- Export animations in your GLB files with semantic labels (like LowerArm.r for the bone armature, or Walking for an animation name) as this will hook up automatically
-- JavaScript scripting is in active development to make extending the engine easier and less involved (see `/scripts`)
-
 ## Features
 
 ### Current Features:
 
+These are mostly hardcoded in Rust, but should ultimately be controllable via the Addon Scripts.
+
 - GLB (gltf) Import
 - GLB (gltf) animations
 - Physics with Rapier
-- Interactive, windy, procedural grass blades
-- Deferred rendering / lighting
-- PBR Materials
 - Shadow Mapping
-- Procedural trees (somewhat)
-- Procedural houses (for prototyping)
-- Water Planes
-- Quadtree landscapes with texture maps
-- Skybox Pipeline
-- Point lighting
-- Basic game behaviors (melee, chase, inventory, quests, etc)
-- Sprinting/Stamina
 - Magic particle effects (ex. fire from heavens, snow, etc)
-- Dialogue (integrates with UI and scripting)
-- JavaScript Scripting (replaced previous Rhai scripting to allow for TS and NPM modules in a JS bundle and more powerful add-ons)
-- Aiming (with crosshair ui), ammo, and reloading
+- JavaScript Scripting (for game mechanics and behaviors, not just for creating addons themselves)
 - Professional transform gizmo (as well as egui inputs)
 - Rendered images and videos
 - Rendered text with fonts
 - In-Game UI Pipeline
 - Procedural scattering of models
-- Heightmap creation CLI (specify features and flat areas too)
 - Mini-Map
 - Screen capture
 - Vector animations
 - Video export
 - Do level design via LLM powered chat
+- Wry webview embed for advanced rich text editing
+
+### Current Mechanics
+
+These are hardcoded in Rust currently but should be enabled by Game Scripts (not Addon Scripts).
+
+- Basic game behaviors (melee, chase, inventory, quests, etc)
+- Sprinting/Stamina
+- Dialogue (integrates with UI and scripting)
+- Aiming (with crosshair ui), ammo, and reloading
 - NPC Swarm Systems
 - Enemy looting
 - Procedural recoil for ranged weapons
 - Ranged weapon types (manual, semi-automatic, automatic)
-- Wry webview embed for advanced rich text editing
-- and more!
+
+### Currently Available In The Default Addon Bundle
+
+The default addon bundle is automatically loaded in for all users without any need to download or install.
+
+- Interactive, windy, hair particles (grass)
+- Deferred rendering / lighting
+- PBR Materials and Creation
+- Water Planes
+- Quadtree landscapes with texture maps
+- Skybox Pipeline
+- Point lighting
+- Heightmap creation CLI (specify features and flat areas too)
 
 ### Future Plans
 
-See <a href="./STUDIO_PLANS.md" target="_blank">STUDIO_PLANS.md</a> for info on improving the game creation workflows.
-Likewise, see 
-<a href="./VIDEO_PLANS.md" target="_blank">VIDEO_PLANS.md</a>, 
-<a href="./DOCS_PLANS.md" target="_blank">DOCS_PLANS.md</a>, and 
-<a href="./MARKETPLACE_PLANS.md" target="_blank">MARKETPLACE_PLANS.md</a>
+I have been developing a comprehensive addon engine which enables the creation of high performance addons using JavaScript. All the stuff will
+become addons actually. The whole goal is to have an addon for everything, and the Rust is just the engine for that.
+The addons have replicated and enhanced several existing features from water planes to hair particles.
+Next, I will need to make sure addons work for everything, so they are powerful can be quickly iterated on.
