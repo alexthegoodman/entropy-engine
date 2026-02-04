@@ -193,7 +193,7 @@ pub enum ResourceType {
 
 
 
-    Buffer { id: String },
+        Buffer { id: String },
 
 
 
@@ -201,7 +201,7 @@ pub enum ResourceType {
 
 
 
-    Storage { id: String },
+        Storage { id: String },
 
 
 
@@ -209,7 +209,23 @@ pub enum ResourceType {
 
 
 
-}
+        StorageTexture { id: String },
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+    
 
 
 
@@ -443,6 +459,7 @@ pub struct AddonContext {
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
     pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub on_update_callbacks: HashMap<String, v8::Global<v8::Function>>,
     pub on_project_changed_callbacks: HashMap<String, v8::Global<v8::Function>>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
@@ -574,6 +591,99 @@ fn op_addon_save_image(
         Ok(())
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureConfig {
+    pub width: u32,
+    pub height: u32,
+    pub format: String, // "Rgba8Unorm", "Rgba32Float", etc.
+    pub usage: Vec<String>, // ["Texture", "Storage", "CopyDst", "CopySrc"]
+}
+
+#[op2]
+#[string]
+fn op_texture_create_ex(
+    state: &mut OpState,
+    #[serde] config: TextureConfig,
+    #[buffer] rgba_data: Option<&[u8]>
+) -> Result<String, deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        let texture_id = format!("tex_{}", Uuid::new_v4());
+        
+        let texture_size = wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        };
+
+        let format = match config.format.as_str() {
+            "Rgba8Unorm" => wgpu::TextureFormat::Rgba8Unorm,
+            "Rgba32Float" => wgpu::TextureFormat::Rgba32Float,
+            _ => wgpu::TextureFormat::Rgba8Unorm,
+        };
+
+        let mut usage = wgpu::TextureUsages::empty();
+        for u in config.usage {
+            match u.as_str() {
+                "Texture" => usage |= wgpu::TextureUsages::TEXTURE_BINDING,
+                "Storage" => usage |= wgpu::TextureUsages::STORAGE_BINDING,
+                "CopyDst" => usage |= wgpu::TextureUsages::COPY_DST,
+                "CopySrc" => usage |= wgpu::TextureUsages::COPY_SRC,
+                _ => {}
+            }
+        }
+
+        if usage.is_empty() {
+            usage = wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST;
+        }
+
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(&format!("Addon Texture Ex {}", texture_id)),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        });
+
+        if let Some(data) = rgba_data {
+            let bytes_per_pixel = match format {
+                wgpu::TextureFormat::Rgba8Unorm => 4,
+                wgpu::TextureFormat::Rgba32Float => 16,
+                _ => 4,
+            };
+
+            if data.len() as u32 == config.width * config.height * bytes_per_pixel {
+                gpu.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    data,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(bytes_per_pixel * config.width),
+                        rows_per_image: None,
+                    },
+                    texture_size,
+                );
+            }
+        }
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        ctx.textures.insert(texture_id.clone(), Arc::new(view));
+        
+        Ok(texture_id)
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
     }
 }
 
@@ -831,6 +941,13 @@ fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
 fn op_addon_on_init(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.on_init_callbacks.entry(addon_name).or_default().push(callback);
+    }
+}
+
+#[op2]
+fn op_addon_on_update(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.on_update_callbacks.insert(addon_name, callback);
     }
 }
 
@@ -1346,6 +1463,11 @@ fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputePipel
                         has_dynamic_offset: false,
                         min_binding_size: None,
                     },
+                    "StorageTexture" => wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba32Float, // Default for FFT, can be configurable later
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
                     "Texture" => wgpu::BindingType::Texture {
                         sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         view_dimension: wgpu::TextureViewDimension::D2,
@@ -1449,6 +1571,14 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                     });
                                 }
                             },
+                            ResourceType::StorageTexture { id } | ResourceType::Texture { id: Some(id) } => {
+                                if let Some(view) = ctx.textures.get(id) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: wgpu::BindingResource::TextureView(view),
+                                    });
+                                }
+                            },
                             ResourceType::Uniform { .. } => {
                                 let buffer = current_group_temp_buffers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, buf)| buf).unwrap();
                                 wgpu_entries.push(wgpu::BindGroupEntry {
@@ -1543,6 +1673,7 @@ extension!(
     ops = [
         op_addon_register,
         op_addon_on_init,
+        op_addon_on_update,
         op_addon_on_cleanup,
         op_pipeline_create,
         op_compute_pipeline_create,
@@ -1572,6 +1703,7 @@ extension!(
         op_addon_save_data,
         op_addon_save_image,
         op_texture_create,
+        op_texture_create_ex,
         op_texture_load,
         op_addon_load_data,
         op_audio_play_synth,
@@ -1631,6 +1763,7 @@ impl AddonEngine {
             noise_generators: HashMap::new(),
             on_init_callbacks: HashMap::new(),
             on_cleanup_callbacks: HashMap::new(),
+            on_update_callbacks: HashMap::new(),
             on_project_changed_callbacks: HashMap::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
@@ -1901,8 +2034,35 @@ impl AddonEngine {
         (bind_groups, uniform_buffers, samplers, time_buffer)
     }
 
-    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera) {
+    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64) {
         let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
+
+        // 0. Run onUpdate callbacks
+        let callbacks = {
+            let state = self.runtime.op_state();
+            let state = state.borrow();
+            let context = state.borrow::<AddonContext>();
+            context.on_update_callbacks.clone()
+        };
+
+        for (_addon_name, callback) in callbacks {
+            let scope = &mut self.runtime.handle_scope();
+            let local_callback = v8::Local::new(scope, callback);
+            let this = v8::undefined(scope);
+            let time_v8 = v8::Number::new(scope, current_time);
+            let args = &[time_v8.into()];
+            
+            // Use TryCatch to avoid one addon crashing the whole loop
+            let tc = &mut v8::TryCatch::new(scope);
+            local_callback.call(tc, this.into(), args);
+            
+            if tc.has_caught() {
+                if let Some(exception) = tc.exception() {
+                    let msg = exception.to_rust_string_lossy(tc);
+                    println!("[ADDON UPDATE ERROR] {}", msg);
+                }
+            }
+        }
 
         // 1. Process UI Events
         let events = {

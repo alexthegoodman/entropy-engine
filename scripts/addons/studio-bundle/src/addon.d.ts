@@ -113,6 +113,7 @@ export interface ProceduralSkyConfig {
 
 export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
+  onUpdate: (callback: UpdateCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   setVisibility: (visible: boolean) => void;
@@ -142,6 +143,8 @@ export interface ScopedAPI {
   };
   Texture: {
     create: (width: number, height: number, data: Uint8Array | number[]) => string;
+    createStorage: (width: number, height: number, format?: string) => string;
+    createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     load: (filename: string) => string;
   };
   Audio: {
@@ -193,6 +196,13 @@ export interface ScopedAPI {
 
 export type BufferUsage = "Uniform" | "Storage" | "Vertex" | "Index";
 
+export interface TextureConfig {
+  width: number;
+  height: number;
+  format: string;
+  usage: string[];
+}
+
 export interface ComputePipelineConfig {
   name?: string;
   shaderSource: string;
@@ -208,6 +218,7 @@ export interface ComputeDispatchConfig {
 }
 
 export type InitCallback = () => void | void;
+export type UpdateCallback = (time: number) => void | void;
 export type CleanupCallback = () => void | void;
 export type ProjectChangedCallback = (newProjectId: string) => void | void;
 
@@ -338,6 +349,8 @@ export interface EntropyAPI {
   };
   Texture: {
     create: (width: number, height: number, data: Uint8Array | number[]) => string;
+    createStorage: (width: number, height: number, format?: string) => string;
+    createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
     load: (filename: string) => string;
   };
   Particles: {

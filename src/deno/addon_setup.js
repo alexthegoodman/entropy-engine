@@ -12,6 +12,9 @@ globalThis.Entropy = {
                 onInit: (callback) => {
                     ops.op_addon_on_init(metadata.name, callback);
                 },
+                onUpdate: (callback) => {
+                    ops.op_addon_on_update(metadata.name, callback);
+                },
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
                 },
@@ -117,6 +120,17 @@ globalThis.Entropy = {
                 Texture: {
                     create: (width, height, data) => {
                         return ops.op_texture_create(width, height, data);
+                    },
+                    createStorage: (width, height, format = "Rgba32Float") => {
+                        return ops.op_texture_create_ex({
+                            width,
+                            height,
+                            format,
+                            usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
+                        }, null);
+                    },
+                    createEx: (config, data = null) => {
+                        return ops.op_texture_create_ex(config, data);
                     },
                     load: (filename) => {
                         return ops.op_texture_load(filename);
@@ -416,6 +430,25 @@ globalThis.Entropy = {
                 persistence: config.persistence || 0.5,
                 lacunarity: config.lacunarity || 2.0
             });
+        }
+    },
+    Texture: {
+        create: (width, height, data) => {
+            return ops.op_texture_create(width, height, data);
+        },
+        createStorage: (width, height, format = "Rgba32Float") => {
+            return ops.op_texture_create_ex({
+                width,
+                height,
+                format,
+                usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
+            }, null);
+        },
+        createEx: (config, data = null) => {
+            return ops.op_texture_create_ex(config, data);
+        },
+        load: (filename) => {
+            return ops.op_texture_load(filename);
         }
     },
     Lighting: {
