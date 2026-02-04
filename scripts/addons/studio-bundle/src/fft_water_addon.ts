@@ -8,7 +8,7 @@
 const SPECTRUM_INIT_SHADER = `
 // Initialize H0(k) - the initial wave spectrum using Phillips spectrum
 struct SpectrumParams {
-    resolution: u32,
+    resolution: f32,
     ocean_size: f32,
     wind_speed: f32,
     wind_direction_x: f32,
@@ -19,7 +19,7 @@ struct SpectrumParams {
 }
 
 @group(0) @binding(0)
-var output_h0: texture_storage_2d<rgba32float, write>;
+var output_h0: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(1)
 var<uniform> params: SpectrumParams;
@@ -72,11 +72,11 @@ fn phillips_spectrum(k: vec2<f32>) -> f32 {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = params.resolution;
+    let N = 512u;
     
-    if (id.x >= N || id.y >= N) {
-        return;
-    }
+    // if (id.x >= N || id.y >= N) {
+    //     return;
+    // }
     
     // Wave vector k
     let n = vec2<f32>(f32(id.x) - f32(N) * 0.5, f32(id.y) - f32(N) * 0.5);
@@ -97,11 +97,57 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `;
 
+// const SPECTRUM_INIT_SHADER = `
+// struct SpectrumParams {
+//     resolution: f32,
+//     ocean_size: f32,
+//     wind_speed: f32,
+//     wind_direction_x: f32,
+//     wind_direction_y: f32,
+//     amplitude: f32,
+//     gravity: f32,
+//     padding: f32,
+// }
+
+// @group(0) @binding(0)
+// var output_h0: texture_storage_2d<rgba16float, write>;
+
+// @group(0) @binding(1)
+// var<uniform> params: SpectrumParams;
+
+// @compute @workgroup_size(8, 8, 1)
+// fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+//     let N = 512u;
+    
+//     // Safety check for texture bounds
+//     //if (id.x >= N || id.y >= N) { return; }
+
+//     // Create a simple 0.0 to 1.0 gradient based on position
+//     let uv = vec2<f32>(id.xy) / f32(N);
+    
+//     // Generate a simple test pattern:
+//     // Red/Green: Horizontal and vertical gradients
+//     // Blue: A simple sine wave to simulate "waves"
+//     let test_height = sin(uv.x * 10.0) * 0.5 + 0.5;
+    
+//     // Pack it into the h0 format (Real, Imaginary, etc.)
+//     // We use uv.x and uv.y so you can see if the orientation is correct
+//     let debug_val = vec4<f32>(
+//         uv.x,          // Real
+//         uv.y,          // Imaginary
+//         test_height,   // Placeholder for conjugate real
+//         1.0            // Alpha / Debug marker
+//     );
+
+//     textureStore(output_h0, vec2<i32>(id.xy), debug_val);
+// }
+// `;
+
 const SPECTRUM_UPDATE_SHADER = `
 // Update H(k,t) from H0(k) using dispersion relation
 struct TimeParams {
     time: f32,
-    resolution: u32,
+    resolution: f32,
     ocean_size: f32,
     gravity: f32,
     choppiness: f32,
@@ -114,7 +160,7 @@ struct TimeParams {
 var input_h0: texture_2d<f32>;
 
 @group(0) @binding(1)
-var output_ht: texture_storage_2d<rgba32float, write>;
+var output_ht: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(2)
 var<uniform> params: TimeParams;
@@ -126,11 +172,11 @@ fn cmul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = params.resolution;
+    let N = 512u;
     
-    if (id.x >= N || id.y >= N) {
-        return;
-    }
+    // if (id.x >= N || id.y >= N) {
+    //     return;
+    // }
     
     // Wave vector k
     let n = vec2<f32>(f32(id.x) - f32(N) * 0.5, f32(id.y) - f32(N) * 0.5);
@@ -171,10 +217,61 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 }
 `;
 
+// const SPECTRUM_UPDATE_SHADER = `
+// struct SpectrumParams {
+//     time: f32,
+//     resolution: f32,
+//     ocean_size: f32,
+//     gravity: f32,
+//     choppiness: f32,
+//     padding1: f32,
+//     padding2: f32,
+//     padding3: f32,
+// }
+
+// @group(0) @binding(0)
+// var input_h0: texture_2d<f32>;
+
+// @group(0) @binding(1)
+// var output_ht: texture_storage_2d<rgba16float, write>;
+
+// @group(0) @binding(2)
+// var<uniform> params: SpectrumParams;
+
+// @compute @workgroup_size(8, 8, 1)
+// fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+//     let N = 512u;
+    
+//     // Safety check for texture bounds
+//     //if (id.x >= N || id.y >= N) { return; }
+
+//     // Create a simple 0.0 to 1.0 gradient based on position
+//     let uv = vec2<f32>(id.xy) / f32(N);
+    
+//     // Generate a simple test pattern:
+//     // Red/Green: Horizontal and vertical gradients
+//     // Blue: A simple sine wave to simulate "waves"
+//     let test_height = sin(uv.x * 10.0) * 0.5 + 0.5;
+    
+//     // Pack it into the h0 format (Real, Imaginary, etc.)
+//     // We use uv.x and uv.y so you can see if the orientation is correct
+//     let debug_val = vec4<f32>(
+//         uv.x,          // Real
+//         uv.y,          // Imaginary
+//         test_height,   // Placeholder for conjugate real
+//         1.0            // Alpha / Debug marker
+//     );
+
+//     textureStore(output_ht, vec2<i32>(id.xy), debug_val);
+//     // textureStore(output_ht, vec2<i32>(id.xy), vec4<f32>(1.0, 0.0, 1.0, 1.0)); // Bright magenta
+// }
+// `;
+
+
 const FFT_HORIZONTAL_SHADER = `
 // Horizontal FFT pass using Cooley-Tukey butterfly algorithm
 struct FFTParams {
-    resolution: u32,
+    resolution: f32,
     stage: u32,      // Which butterfly stage (0 to log2(N)-1)
     direction: u32,  // 0 = forward, 1 = inverse
     pingpong: u32,   // 0 = read A write B, 1 = read B write A
@@ -184,7 +281,7 @@ struct FFTParams {
 var input_tex: texture_2d<f32>;
 
 @group(0) @binding(1)
-var output_tex: texture_storage_2d<rgba32float, write>;
+var output_tex: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(2)
 var<uniform> params: FFTParams;
@@ -204,11 +301,11 @@ fn csub(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = params.resolution;
+    let N = 512u;
     
-    if (id.x >= N || id.y >= N) {
-        return;
-    }
+    // if (id.x >= N || id.y >= N) {
+    //     return;
+    // }
     
     let stage = params.stage;
     let butterflySpan = 1u << stage;
@@ -270,7 +367,7 @@ fn bitReverse(x: u32) -> u32 {
 const FFT_VERTICAL_SHADER = `
 // Vertical FFT pass - same as horizontal but operates on columns
 struct FFTParams {
-    resolution: u32,
+    resolution: f32,
     stage: u32,
     direction: u32,
     pingpong: u32,
@@ -280,7 +377,7 @@ struct FFTParams {
 var input_tex: texture_2d<f32>;
 
 @group(0) @binding(1)
-var output_tex: texture_storage_2d<rgba32float, write>;
+var output_tex: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(2)
 var<uniform> params: FFTParams;
@@ -291,11 +388,11 @@ fn cmul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = params.resolution;
+    let N = 512u;
     
-    if (id.x >= N || id.y >= N) {
-        return;
-    }
+    // if (id.x >= N || id.y >= N) {
+    //     return;
+    // }
     
     let stage = params.stage;
     let butterflySpan = 1u << stage;
@@ -350,7 +447,7 @@ fn bitReverse(x: u32) -> u32 {
 const DISPLACEMENT_SHADER = `
 // Final pass: extract displacement, compute normals and jacobian for foam
 struct OutputParams {
-    resolution: u32,
+    resolution: f32,
     ocean_size: f32,
     choppiness: f32,
     padding: f32,
@@ -370,19 +467,28 @@ var<uniform> params: OutputParams;
 
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = params.resolution;
+    let N = 512u;
     
-    if (id.x >= N || id.y >= N) {
-        return;
-    }
+    // if (id.x >= N || id.y >= N) {
+    //     return;
+    // }
     
     let fft_data = textureLoad(input_fft, vec2<i32>(id.xy), 0);
     
-    // fft_data contains: (height.real, height.imag, choppy_x.real, choppy_z.real)
-    // We only need the real parts after FFT
-    let height = fft_data.x;
-    let choppy_x = fft_data.z;
-    let choppy_z = fft_data.w;
+    // // fft_data contains: (height.real, height.imag, choppy_x.real, choppy_z.real)
+    // // We only need the real parts after FFT
+    // let height = fft_data.x;
+    // let choppy_x = fft_data.z;
+    // let choppy_z = fft_data.w;
+
+    // CRITICAL: Normalize FFT output
+    // For a 2D FFT with separate horizontal and vertical passes, divide by N
+    let normalized = fft_data / f32(N);
+    
+    // Extract components (now from normalized data)
+    let height = normalized.x;
+    let choppy_x = normalized.z;
+    let choppy_z = normalized.w;
     
     // Sign correction for FFT indexing
     let sign_correction = select(1.0, -1.0, ((id.x + id.y) % 2u) == 1u);
@@ -432,22 +538,162 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
 // ===== WATER RENDERING SHADER =====
 
+// const WATER_RENDER_SHADER = `
+// // Water vertex and fragment shaders with FFT displacement sampling
+
+// // ===== UNIFORMS =====
+// struct Camera {
+//     view_proj: mat4x4<f32>,
+//     view_pos: vec4<f32>,
+// };
+// @group(0) @binding(0)
+// var<uniform> camera: Camera;
+
+// struct Time {
+//     time: f32,
+// };
+// @group(2) @binding(0)
+// var<uniform> u_time: Time;
+
+// @group(3) @binding(0)
+// var displacement_texture: texture_2d<f32>;
+// @group(3) @binding(1)
+// var derivatives_texture: texture_2d<f32>;
+// @group(3) @binding(2)
+// var ocean_sampler: sampler;
+
+// struct WaterConfig {
+//     shallow_color: vec4<f32>,
+//     medium_color: vec4<f32>,
+//     deep_color: vec4<f32>,
+    
+//     ocean_size: vec4<f32>,        // x: size, y: height, z,w: padding
+//     lighting_params: vec4<f32>,   // x: fresnel_pow, y: fresnel_mult, z: spec_pow, w: spec_int
+//     foam_params: vec4<f32>,       // x: threshold, y: intensity, z,w: padding
+// }
+// @group(4) @binding(0)
+// var<uniform> water_config: WaterConfig;
+
+// // ===== STRUCTS =====
+// struct VertexInput {
+//     @location(0) position: vec3<f32>,
+//     @location(1) normal: vec3<f32>,
+//     @location(2) tex_coords: vec2<f32>,
+//     @location(3) color: vec4<f32>
+// };
+
+// struct VertexOutput {
+//     @builtin(position) clip_position: vec4<f32>,
+//     @location(0) world_position: vec3<f32>,
+//     @location(1) normal: vec3<f32>,
+//     @location(2) uv: vec2<f32>,
+// };
+
+// struct GbufferOutput {
+//     @location(0) position: vec4<f32>,
+//     @location(1) normal: vec4<f32>,
+//     @location(2) albedo: vec4<f32>,
+//     @location(3) pbr_material: vec4<f32>,
+// }
+
+// // ===== VERTEX SHADER =====
+// @vertex
+// fn vs_main(in: VertexInput) -> VertexOutput {
+//     var out: VertexOutput;
+    
+//     // UV coordinates for displacement lookup
+//     let ocean_size = water_config.ocean_size.x;
+//     let uv = (in.position.xz + ocean_size * 0.5) / ocean_size;
+    
+//     // Sample displacement
+//     let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, uv, 0.0);
+//     let displacement = disp_data.xyz;
+    
+//     // Apply displacement to vertex
+//     var world_pos = in.position + displacement;
+//     world_pos.y += water_config.ocean_size.y; // Ocean height offset
+    
+//     // Compute normal from derivatives
+//     let deriv_data = textureSampleLevel(derivatives_texture, ocean_sampler, uv, 0.0);
+//     let dhdx = deriv_data.x;
+//     let dhdz = deriv_data.y;
+    
+//     let normal = normalize(vec3<f32>(-dhdx, 1.0, -dhdz));
+    
+//     out.world_position = world_pos;
+//     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
+//     out.normal = normal;
+//     out.uv = uv;
+    
+//     return out;
+// }
+
+// // ===== FRAGMENT SHADER =====
+// @fragment
+// fn fs_main(in: VertexOutput) -> GbufferOutput {
+//     var output: GbufferOutput;
+    
+//     let view_dir = normalize(camera.view_pos.xyz - in.world_position);
+//     let normal = normalize(in.normal);
+    
+//     // Sample foam from derivatives texture
+//     let deriv_data = textureSample(derivatives_texture, ocean_sampler, in.uv);
+//     let foam = deriv_data.z;
+    
+//     // Fresnel effect
+//     let ndotv = max(dot(normal, view_dir), 0.0);
+//     let fresnel = pow(1.0 - ndotv, water_config.lighting_params.x);
+    
+//     // Water depth coloring (simplified - you can add terrain height later)
+//     let water_depth = 5.0; // Placeholder
+//     var water_color: vec3<f32>;
+    
+//     if (water_depth < 2.0) {
+//         water_color = mix(
+//             water_config.shallow_color.xyz,
+//             water_config.medium_color.xyz,
+//             water_depth / 2.0
+//         );
+//     } else {
+//         water_color = mix(
+//             water_config.medium_color.xyz,
+//             water_config.deep_color.xyz,
+//             clamp((water_depth - 2.0) / 8.0, 0.0, 1.0)
+//         );
+//     }
+    
+//     // Sky reflection
+//     let sky_color = vec3<f32>(0.6, 0.8, 1.0);
+//     var final_color = mix(water_color, sky_color, fresnel * water_config.lighting_params.y);
+    
+//     // Specular highlight
+//     let sun_dir = normalize(vec3<f32>(0.3, 0.8, 0.5));
+//     let reflect_dir = reflect(-sun_dir, normal);
+//     let spec = pow(max(dot(view_dir, reflect_dir), 0.0), water_config.lighting_params.z);
+//     final_color += vec3<f32>(1.0, 1.0, 0.95) * spec * water_config.lighting_params.w;
+    
+//     // Foam
+//     let foam_intensity = smoothstep(
+//         water_config.foam_params.x,
+//         water_config.foam_params.x + 0.2,
+//         foam
+//     );
+//     final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
+    
+//     output.position = vec4<f32>(in.world_position, 1.0);
+//     output.normal = vec4<f32>(normal, 1.0);
+//     output.albedo = vec4<f32>(final_color, 0.85);
+//     output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
+    
+//     return output;
+// }
+// `;
+
 const WATER_RENDER_SHADER = `
-// Water vertex and fragment shaders with FFT displacement sampling
+// ===== DEBUG RAINBOW SHADER (FIXED) =====
 
-// ===== UNIFORMS =====
-struct Camera {
-    view_proj: mat4x4<f32>,
-    view_pos: vec4<f32>,
-};
-@group(0) @binding(0)
-var<uniform> camera: Camera;
-
-struct Time {
-    time: f32,
-};
-@group(2) @binding(0)
-var<uniform> u_time: Time;
+struct Camera { view_proj: mat4x4<f32>, view_pos: vec4<f32> };
+@group(0) @binding(0) var<uniform> camera: Camera;
 
 @group(3) @binding(0)
 var displacement_texture: texture_2d<f32>;
@@ -457,30 +703,20 @@ var derivatives_texture: texture_2d<f32>;
 var ocean_sampler: sampler;
 
 struct WaterConfig {
-    shallow_color: vec4<f32>,
-    medium_color: vec4<f32>,
-    deep_color: vec4<f32>,
-    
-    ocean_size: vec4<f32>,        // x: size, y: height, z,w: padding
-    lighting_params: vec4<f32>,   // x: fresnel_pow, y: fresnel_mult, z: spec_pow, w: spec_int
-    foam_params: vec4<f32>,       // x: threshold, y: intensity, z,w: padding
+    shallow_color: vec4<f32>, medium_color: vec4<f32>, deep_color: vec4<f32>,
+    ocean_size: vec4<f32>, lighting_params: vec4<f32>, foam_params: vec4<f32>
 }
-@group(4) @binding(0)
-var<uniform> water_config: WaterConfig;
+@group(4) @binding(0) var<uniform> water_config: WaterConfig;
 
-// ===== STRUCTS =====
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
     @location(2) tex_coords: vec2<f32>,
-    @location(3) color: vec4<f32>
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) world_position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) uv: vec2<f32>,
+    @location(1) uv: vec2<f32>,
 };
 
 struct GbufferOutput {
@@ -490,94 +726,45 @@ struct GbufferOutput {
     @location(3) pbr_material: vec4<f32>,
 }
 
-// ===== VERTEX SHADER =====
+// Helper: HSV to RGB for the rainbow effect
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    // FIXED: Using vec3 for clamp bounds to match the vec3 input
+    return c.z * mix(k.xxx, clamp(p - k.xxx, vec3<f32>(0.0), vec3<f32>(1.0)), c.y);
+}
+
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
-    
-    // UV coordinates for displacement lookup
     let ocean_size = water_config.ocean_size.x;
     let uv = (in.position.xz + ocean_size * 0.5) / ocean_size;
-    
-    // Sample displacement
-    let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, uv, 0.0);
-    let displacement = disp_data.xyz;
-    
-    // Apply displacement to vertex
-    var world_pos = in.position + displacement;
-    world_pos.y += water_config.ocean_size.y; // Ocean height offset
-    
-    // Compute normal from derivatives
-    let deriv_data = textureSampleLevel(derivatives_texture, ocean_sampler, uv, 0.0);
-    let dhdx = deriv_data.x;
-    let dhdz = deriv_data.y;
-    
-    let normal = normalize(vec3<f32>(-dhdx, 1.0, -dhdz));
+    let world_pos = in.position + vec3<f32>(0.0, water_config.ocean_size.y, 0.0);
     
     out.world_position = world_pos;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
-    out.normal = normal;
     out.uv = uv;
-    
     return out;
 }
 
-// ===== FRAGMENT SHADER =====
 @fragment
 fn fs_main(in: VertexOutput) -> GbufferOutput {
     var output: GbufferOutput;
-    
-    let view_dir = normalize(camera.view_pos.xyz - in.world_position);
-    let normal = normalize(in.normal);
-    
-    // Sample foam from derivatives texture
-    let deriv_data = textureSample(derivatives_texture, ocean_sampler, in.uv);
-    let foam = deriv_data.z;
-    
-    // Fresnel effect
-    let ndotv = max(dot(normal, view_dir), 0.0);
-    let fresnel = pow(1.0 - ndotv, water_config.lighting_params.x);
-    
-    // Water depth coloring (simplified - you can add terrain height later)
-    let water_depth = 5.0; // Placeholder
-    var water_color: vec3<f32>;
-    
-    if (water_depth < 2.0) {
-        water_color = mix(
-            water_config.shallow_color.xyz,
-            water_config.medium_color.xyz,
-            water_depth / 2.0
-        );
-    } else {
-        water_color = mix(
-            water_config.medium_color.xyz,
-            water_config.deep_color.xyz,
-            clamp((water_depth - 2.0) / 8.0, 0.0, 1.0)
-        );
-    }
-    
-    // Sky reflection
-    let sky_color = vec3<f32>(0.6, 0.8, 1.0);
-    var final_color = mix(water_color, sky_color, fresnel * water_config.lighting_params.y);
-    
-    // Specular highlight
-    let sun_dir = normalize(vec3<f32>(0.3, 0.8, 0.5));
-    let reflect_dir = reflect(-sun_dir, normal);
-    let spec = pow(max(dot(view_dir, reflect_dir), 0.0), water_config.lighting_params.z);
-    final_color += vec3<f32>(1.0, 1.0, 0.95) * spec * water_config.lighting_params.w;
-    
-    // Foam
-    let foam_intensity = smoothstep(
-        water_config.foam_params.x,
-        water_config.foam_params.x + 0.2,
-        foam
-    );
-    final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
-    
+
+    let ocean_size = water_config.ocean_size.x;
+    let uv = (in.world_position.xz + ocean_size * 0.5) / ocean_size;
+    // let uv = (in.world_position.xz) / ocean_size;
+    let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, uv, 0.0);
+
+    // drive Hue by UV sum for a diagonal rainbow
+    let hue = fract(in.uv.x * 5.0 + in.uv.y * 5.0); 
+    // let rainbow = hsv2rgb(vec3<f32>(disp_data.x, 0.8, 1.0));
+    let dispbow = vec3<f32>(disp_data.x, disp_data.y, disp_data.z);
+
     output.position = vec4<f32>(in.world_position, 1.0);
-    output.normal = vec4<f32>(normal, 1.0);
-    output.albedo = vec4<f32>(final_color, 0.85);
-    output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
+    output.normal = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    output.albedo = vec4<f32>(dispbow, 1.0);
+    output.pbr_material = vec4<f32>(0.0, 1.0, 0.0, 1.0);
     
     return output;
 }
@@ -623,11 +810,11 @@ const addonInfo = {
 const addon = Entropy.Addon.register(addonInfo);
 
 let oceanParams: OceanParams = {
-    resolution: 256,
-    oceanSize: 1000.0,
+    resolution: 512,
+    oceanSize: 256.0,
     windSpeed: 15.0,
     windDirection: [1.0, 0.7],
-    amplitude: 0.0002,
+    amplitude: 0.2,
     choppiness: 1.5,
     gravity: 9.81,
     
@@ -678,7 +865,7 @@ addon.onInit(async () => {
         shaderSource: SPECTRUM_INIT_SHADER,
         bindGroups: [{
             entries: [
-                { binding: 0, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 0, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 1, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -690,7 +877,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
-                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -702,7 +889,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
-                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -714,7 +901,7 @@ addon.onInit(async () => {
         bindGroups: [{
             entries: [
                 { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
-                { binding: 1, visibility: ["Compute"], resourceType: "StorageTexture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
             ]
         }]
@@ -758,6 +945,9 @@ addon.onInit(async () => {
     
     // // Generate initial spectrum
     generateInitialSpectrum();
+
+    // to test if water is active 2000 seconds in
+    // updateOcean(2000);
     
     // // Create water mesh
     createWaterMesh();
@@ -767,25 +957,30 @@ addon.onInit(async () => {
         position: [-3.0, 4.0, 65.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
-        maxDistance: 150.0
+        maxDistance: 350.0
     });
 
     addon.Lighting.createPointLight({
         position: [3.0, 4.0, 10.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
-        maxDistance: 150.0
+        maxDistance: 350.0
     });
 
     addon.Lighting.createPointLight({
         position: [0.0, 5.0, -60.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
-        maxDistance: 150.0
+        maxDistance: 350.0
     });
     
     // Setup UI
     setupUI();
+
+    // Register update loop
+    addon.onUpdate((time) => {
+        updateOcean(time);
+    });
     
     Entropy.println("✅ FFT Ocean initialized!");
 });
@@ -794,10 +989,10 @@ function initializeResources() {
     const N = oceanParams.resolution;
 
     // Create textures using the new createStorage API
-    textures.h0 = Entropy.Texture.createStorage(N, N, "Rgba32Float");
-    textures.ht = Entropy.Texture.createStorage(N, N, "Rgba32Float");
-    textures.pingpong[0] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
-    textures.pingpong[1] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.h0 = Entropy.Texture.createStorage(N, N, "Rgba16Float");
+    textures.ht = Entropy.Texture.createStorage(N, N, "Rgba16Float");
+    textures.pingpong[0] = Entropy.Texture.createStorage(N, N, "Rgba16Float");
+    textures.pingpong[1] = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     
     // Displacement and derivatives need to be sampled with filtering in the vertex/fragment shaders
     // Rgba16Float is highly precise but supports linear filtering on most hardware
@@ -809,11 +1004,6 @@ function initializeResources() {
     buffers.timeParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
     buffers.fftParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
-
-    // Register update loop
-    addon.onUpdate((time) => {
-        updateOcean(time);
-    });
 }
 
 function generateInitialSpectrum() {
@@ -841,7 +1031,7 @@ function generateInitialSpectrum() {
         pipelineId: pipelineIds.spectrumInit,
         groups: [workgroups, workgroups, 1],
         bindings: [
-            { group: 0, binding: 0, resource: { type: "StorageTexture", value: { id: textures.h0! } } },
+            { group: 0, binding: 0, resource: { type: "StorageTextureRgba16", value: { id: textures.h0! } } },
             { group: 0, binding: 1, resource: { type: "Uniform", value: { data: Array.from(params) } } },
         ]
     });
@@ -874,7 +1064,7 @@ function updateOcean(time: number) {
         groups: [workgroups, workgroups, 1],
         bindings: [
             { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: textures.h0! } } },
-            { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: textures.ht! } } },
+            { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: textures.ht! } } },
             { group: 0, binding: 2, resource: { type: "Uniform", value: { data: Array.from(timeParams) } } },
         ]
     });
@@ -890,7 +1080,7 @@ function updateOcean(time: number) {
             groups: [workgroups, workgroups, 1],
             bindings: [
                 { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: input! } } },
-                { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
+                { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
         });
@@ -907,7 +1097,7 @@ function updateOcean(time: number) {
             groups: [workgroups, workgroups, 1],
             bindings: [
                 { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: input! } } },
-                { group: 0, binding: 1, resource: { type: "StorageTexture", value: { id: output! } } },
+                { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: output! } } },
                 { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
             ]
         });
@@ -933,7 +1123,7 @@ function createWaterMesh() {
     
     // Generate grid
     const gridSize = oceanParams.oceanSize;
-    const resolution = 128; // Lower res for mesh than FFT
+    const resolution = 256; // Lower res for mesh than FFT
     
     const vertices: number[] = [];
     const indices: number[] = [];
@@ -985,7 +1175,8 @@ function createWaterMesh() {
         renderRole: "Water",
         bindings: [
             { group: 2, binding: 0, resource: { type: "Time" } },
-            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.displacement! } } },
+            // NOTE: when using textures.ht as input to the debug mesh shader, i see ripples. when using the actual textures.displacement, I see just black. When using pingpong[0], also just black.
+            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.ht! } } },
             { group: 3, binding: 1, resource: { type: "Texture", value: { id: textures.derivatives! } } },
             { group: 3, binding: 2, resource: { type: "Sampler" } },
             { group: 4, binding: 0, resource: { type: "Uniform", value: { data: waterConfig } } },
