@@ -335,6 +335,8 @@ pub struct AddonContext {
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
     pub buffers: HashMap<String, Arc<wgpu::Buffer>>,
+    pub compute_encoder: Option<wgpu::CommandEncoder>,
+    pub current_time: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1458,7 +1460,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                 current_group_temp_samplers.push((b.binding, sampler));
                             },
                             ResourceType::Time => {
-                                let time_val = 0.0f32; 
+                                let time_val = ctx.current_time as f32; 
                                 let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                     label: Some("Temp Compute Time"),
                                     contents: bytemuck::cast_slice(&[time_val]),
@@ -1715,6 +1717,8 @@ impl AddonEngine {
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
             buffers: HashMap::new(),
+            compute_encoder: None,
+            current_time: 0.0,
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -1856,8 +1860,9 @@ impl AddonEngine {
                     binding: *binding,
                     resource: buffer.as_entire_binding(),
                 });
-                // Note: we can't easily return uniform_buffers as Vec<wgpu::Buffer> if we want to keep them alive
-                // but CustomMesh expects them.
+                
+                // Keep uniform buffers alive by returning them to the caller (CustomMesh)
+                uniform_buffers.push((**buffer).clone());
             }
             
             // 4. Create samplers and add textures/samplers to entries
@@ -1969,6 +1974,14 @@ impl AddonEngine {
 
     pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64) {
         let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
+
+        // Update current time in context
+        {
+            let mut state = self.runtime.op_state();
+            let mut state = state.borrow_mut();
+            let context = state.borrow_mut::<AddonContext>();
+            context.current_time = current_time;
+        }
 
         // 0. Run onUpdate callbacks
         let callbacks = {
