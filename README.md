@@ -7,7 +7,7 @@
 Lightweight, powerful, sophisticated
 
 - Shift from grunt work to creative leadership
-- Command and coordinate your business through a centralized, agentic chat
+- Command and coordinate your creative work through a centralized, agentic chat
 - Built for the modern LLM-powered era with a semantic-first architecture
 
 What’s included
