@@ -13,7 +13,7 @@ interface ComponentInstance {
     name: string;
     addon: string;
     componentId: string; // The ID from the addon's registry
-    params: any; // params are stored in each addons own file accessed via IO.Load(), only cached here but not saved to the composer state
+    params?: any; // Deprecated: params are stored in each addons own file. We now fetch them dynamically.
     position: [number, number, number];
     scale: [number, number, number];
     visible: boolean;
@@ -65,10 +65,18 @@ function refreshScene() {
     composerState.components.forEach(inst => {
         if (inst.visible) {
             const renderer = Entropy.Composer?.getRenderer(inst.addon);
+            
+            // Fetch the latest params from the source addon
+            const components = Entropy.Composer?.getComponents(inst.addon) || {};
+            const sourceParams = components[inst.componentId]?.params;
+            
+            // Fallback to inst.params if source is missing (legacy support), or {}
+            const paramsToUse = sourceParams || inst.params || {};
+
             if (renderer) {
                 // Pass transform data so the renderer can position the mesh
                 const renderParams = { 
-                    ...inst.params, 
+                    ...paramsToUse, 
                     _transform: { 
                         position: inst.position, 
                         scale: inst.scale 
@@ -138,7 +146,16 @@ addon.onInit(async () => {
              Entropy.UI.Widget.button(tab, {
                  text: "💾 Save Scene",
                  onClick: () => {
-                     addon.IO.save(composerState);
+                     // Clean up params from components before saving
+                     const cleanState = {
+                         ...composerState,
+                         components: composerState.components.map(c => {
+                             // Explicitly destructure to remove params, even if undefined
+                             const { params, ...rest } = c;
+                             return rest;
+                         })
+                     };
+                     addon.IO.save(cleanState);
                      Entropy.println("Composition saved!");
                  }
              });
@@ -170,7 +187,7 @@ addon.onInit(async () => {
                                      name: `${comp.name} Instance`,
                                      addon: addonName,
                                      componentId: compId,
-                                     params: JSON.parse(JSON.stringify(comp.params)), // This will be stored in each addons own file
+                                     // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
                                      position: [0, 0, 0],
                                      scale: [1, 1, 1],
                                      visible: true
