@@ -141,7 +141,15 @@ pub struct BindingConfig {
 
 
 
+
+
+
+
 #[serde(tag = "type", content = "value")]
+
+
+
+
 
 
 
@@ -149,7 +157,15 @@ pub enum ResourceType {
 
 
 
+
+
+
+
     Uniform { data: Vec<f32> },
+
+
+
+
 
 
 
@@ -157,7 +173,15 @@ pub enum ResourceType {
 
 
 
+
+
+
+
     Sampler,
+
+
+
+
 
 
 
@@ -165,7 +189,35 @@ pub enum ResourceType {
 
 
 
+
+
+
+
+    Buffer { id: String },
+
+
+
+
+
+
+
+    Storage { id: String },
+
+
+
+
+
+
+
 }
+
+
+
+
+
+
+
+
 
 
 
@@ -372,6 +424,7 @@ pub struct AddonContext {
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub audio_engine: Arc<AudioEngine>,
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
+    pub compute_pipelines: HashMap<String, Arc<wgpu::ComputePipeline>>,
     pub pipeline_configs: HashMap<String, PipelineConfig>,
     pub lighting_pipelines: HashMap<String, Arc<RenderPipeline>>,
     pub lighting_bind_groups: HashMap<String, Vec<wgpu::BindGroup>>,
@@ -402,6 +455,30 @@ pub struct AddonContext {
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
+    pub buffers: HashMap<String, Arc<wgpu::Buffer>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputePipelineConfig {
+    pub name: String,
+    pub shader_source: String,
+    pub bind_groups: Vec<BindGroupDef>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BufferConfig {
+    pub size: u64,
+    pub usage: String, // "Uniform", "Storage", "Vertex", "Index"
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ComputeDispatchConfig {
+    pub pipeline_id: String,
+    pub groups: [u32; 3],
+    pub bindings: Vec<BindingConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1185,6 +1262,229 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
 }
 
 #[op2]
+#[string]
+fn op_buffer_create(state: &mut OpState, #[serde] config: BufferConfig) -> Result<String, deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        let id = format!("buf_{}", Uuid::new_v4());
+        
+        let mut usage = wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC;
+        match config.usage.as_str() {
+            "Uniform" => usage |= wgpu::BufferUsages::UNIFORM,
+            "Storage" => usage |= wgpu::BufferUsages::STORAGE,
+            "Vertex" => usage |= wgpu::BufferUsages::VERTEX,
+            "Index" => usage |= wgpu::BufferUsages::INDEX,
+            _ => usage |= wgpu::BufferUsages::STORAGE,
+        }
+
+        let buffer = gpu.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some(&format!("Addon Buffer {}", id)),
+            size: config.size,
+            usage,
+            mapped_at_creation: false,
+        });
+
+        ctx.buffers.insert(id.clone(), Arc::new(buffer));
+        Ok(id)
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
+    }
+}
+
+#[op2(fast)]
+fn op_buffer_write(
+    state: &mut OpState,
+    #[string] buffer_id: String,
+    #[bigint] offset: u64,
+    #[buffer] data: &[u8]
+) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        if let Some(buffer) = ctx.buffers.get(&buffer_id) {
+            gpu.queue.write_buffer(buffer, offset, data);
+            Ok(())
+        } else {
+            Err(deno_error::JsErrorBox::generic("Buffer not found"))
+        }
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
+    }
+}
+
+#[op2]
+#[string]
+fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputePipelineConfig) -> Result<String, deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        let device = &gpu.device;
+        let id = format!("cpipeline_{}", Uuid::new_v4());
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some(&format!("{} Compute Shader", config.name)),
+            source: wgpu::ShaderSource::Wgsl(config.shader_source.as_str().into()),
+        });
+
+        let mut bind_group_layouts = Vec::new();
+        for (i, group_def) in config.bind_groups.iter().enumerate() {
+            let mut entries = Vec::new();
+            for entry_def in &group_def.entries {
+                let visibility = wgpu::ShaderStages::COMPUTE;
+                
+                let ty = match entry_def.resource_type.as_str() {
+                    "Uniform" => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    "Storage" => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    "StorageReadOnly" => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    "Texture" => wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    "Sampler" => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    _ => wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                };
+
+                entries.push(wgpu::BindGroupLayoutEntry {
+                    binding: entry_def.binding,
+                    visibility,
+                    ty,
+                    count: None,
+                });
+            }
+
+            let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some(&format!("{} Compute Layout {}", config.name, i)),
+                entries: &entries,
+            });
+            bind_group_layouts.push(layout);
+        }
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some(&format!("{} Compute Pipeline Layout", config.name)),
+            bind_group_layouts: &bind_group_layouts.iter().collect::<Vec<_>>(),
+            push_constant_ranges: &[],
+        });
+
+        let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some(&format!("{} Compute Pipeline", config.name)),
+            layout: Some(&pipeline_layout),
+            module: &shader,
+            entry_point: Some("main"),
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+            cache: None,
+        });
+
+        ctx.compute_pipelines.insert(id.clone(), Arc::new(pipeline));
+        Ok(id)
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
+    }
+}
+
+#[op2]
+fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConfig) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        if let Some(pipeline) = ctx.compute_pipelines.get(&config.pipeline_id) {
+            let mut encoder = gpu.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Compute Dispatch Encoder"),
+            });
+
+            // Store (bind_group_idx, binding_idx, buffer)
+            let mut temp_buffers = Vec::new();
+
+            {
+                let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Compute Pass"),
+                    timestamp_writes: None,
+                });
+                cpass.set_pipeline(pipeline);
+
+                let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
+                for b in &config.bindings {
+                    groups.entry(b.group).or_default().push(b.clone());
+                }
+
+                let mut sorted_groups: Vec<_> = groups.into_iter().collect();
+                sorted_groups.sort_by_key(|(g, _)| *g);
+
+                for (group_idx, group_bindings) in sorted_groups {
+                    let layout = pipeline.get_bind_group_layout(group_idx);
+                    let mut current_group_temp_buffers = Vec::new();
+                    
+                    for b in &group_bindings {
+                        if let ResourceType::Uniform { data } = &b.resource {
+                            let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Temp Compute Uniform"),
+                                contents: bytemuck::cast_slice(data),
+                                usage: wgpu::BufferUsages::UNIFORM,
+                            });
+                            current_group_temp_buffers.push((b.binding, buffer));
+                        }
+                    }
+
+                    let mut wgpu_entries = Vec::new();
+                    for b in &group_bindings {
+                        match &b.resource {
+                            ResourceType::Buffer { id } | ResourceType::Storage { id } => {
+                                if let Some(buffer) = ctx.buffers.get(id) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: buffer.as_entire_binding(),
+                                    });
+                                }
+                            },
+                            ResourceType::Uniform { .. } => {
+                                let buffer = current_group_temp_buffers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, buf)| buf).unwrap();
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: buffer.as_entire_binding(),
+                                });
+                            },
+                            _ => {} 
+                        }
+                    }
+
+                    let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        layout: &layout,
+                        entries: &wgpu_entries,
+                        label: None,
+                    });
+                    cpass.set_bind_group(group_idx, &bg, &[]);
+                    
+                    // Keep them alive
+                    temp_buffers.extend(current_group_temp_buffers);
+                }
+
+                cpass.dispatch_workgroups(config.groups[0], config.groups[1], config.groups[2]);
+            }
+
+            gpu.queue.submit(std::iter::once(encoder.finish()));
+            Ok(())
+        } else {
+            Err(deno_error::JsErrorBox::generic("Compute pipeline not found"))
+        }
+    } else {
+        Err(deno_error::JsErrorBox::generic("GPU resources not available"))
+    }
+}
+
+#[op2]
 fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] config: CubeConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_cubes.push((addon_name, config));
@@ -1245,6 +1545,10 @@ extension!(
         op_addon_on_init,
         op_addon_on_cleanup,
         op_pipeline_create,
+        op_compute_pipeline_create,
+        op_compute_dispatch,
+        op_buffer_create,
+        op_buffer_write,
         op_cube_spawn,
         op_mesh_create,
         op_meshes_clear,
@@ -1308,6 +1612,7 @@ impl AddonEngine {
             gpu_resources: None,
             audio_engine,
             pipelines: HashMap::new(),
+            compute_pipelines: HashMap::new(),
             pipeline_configs: HashMap::new(),
             lighting_pipelines: HashMap::new(),
             lighting_bind_groups: HashMap::new(),
@@ -1338,6 +1643,7 @@ impl AddonEngine {
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
+            buffers: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -1449,6 +1755,15 @@ impl AddonEngine {
                         });
                         time_buffer = Some(buffer.clone());
                         created_buffers.push((b.binding, buffer));
+                    },
+                    ResourceType::Buffer { id } | ResourceType::Storage { id } => {
+                        let op_state = self.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                            if let Some(buffer) = ctx.buffers.get(id) {
+                                created_buffers.push((b.binding, buffer.as_ref().clone()));
+                            }
+                        }
                     },
                     _ => {}
                 }

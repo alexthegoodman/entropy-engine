@@ -157,6 +157,7 @@ globalThis.Entropy = {
                 },
                 IO: {
                     save: (data) => {
+                        ops.op_println(String("Saving Data: " + metadata.name));
                         ops.op_addon_save_data(metadata.name, JSON.stringify(data));
                     },
                     saveImage: (filename, width, height, data) => {
@@ -171,6 +172,35 @@ globalThis.Entropy = {
                             ops.op_println("Error parsing saved data: " + e);
                             return null;
                         }
+                    }
+                },
+                Buffer: {
+                    create: (config) => {
+                        return ops.op_buffer_create({
+                            size: BigInt(config.size),
+                            usage: config.usage || "Storage"
+                        });
+                    },
+                    write: (bufferId, data, offset = 0) => {
+                        // Ensure data is a typed array for the buffer op
+                        const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
+                        ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
+                    }
+                },
+                Compute: {
+                    createPipeline: (config) => {
+                        return ops.op_compute_pipeline_create({
+                            name: config.name || "unnamed_compute",
+                            shaderSource: config.shaderSource,
+                            bindGroups: config.bindGroups || []
+                        });
+                    },
+                    dispatch: (config) => {
+                        ops.op_compute_dispatch({
+                            pipelineId: config.pipelineId,
+                            groups: config.groups || [1, 1, 1],
+                            bindings: config.bindings || []
+                        });
                     }
                 }
             };
@@ -306,6 +336,34 @@ globalThis.Entropy = {
                 ...config,
                 lightingBindings: config.lightingBindings || null
             });
+        },
+        createCompute: (config) => {
+            return ops.op_compute_pipeline_create({
+                name: config.name || "unnamed_compute",
+                shaderSource: config.shaderSource,
+                bindGroups: config.bindGroups || []
+            });
+        }
+    },
+    Compute: {
+        dispatch: (config) => {
+            ops.op_compute_dispatch({
+                pipelineId: config.pipelineId,
+                groups: config.groups || [1, 1, 1],
+                bindings: config.bindings || []
+            });
+        }
+    },
+    Buffer: {
+        create: (config) => {
+            return ops.op_buffer_create({
+                size: BigInt(config.size),
+                usage: config.usage || "Storage"
+            });
+        },
+        write: (bufferId, data, offset = 0) => {
+            const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
+            ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
         }
     },
     Landscape: {

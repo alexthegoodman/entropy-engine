@@ -33,7 +33,9 @@ export type BindingResource =
   | { type: "Uniform"; value: { data: number[] } }
   | { type: "Texture"; value: {id: string} }
   | { type: "Sampler" }
-  | { type: "Time" };
+  | { type: "Time" }
+  | { type: "Buffer"; value: {id: string} }
+  | { type: "Storage"; value: {id: string} };
 
 export interface BindingConfig {
   group: number;
@@ -179,6 +181,30 @@ export interface ScopedAPI {
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
     load: () => any;
   };
+  Buffer: {
+    create: (config: { size: number; usage?: BufferUsage }) => string;
+    write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
+  };
+  Compute: {
+    createPipeline: (config: ComputePipelineConfig) => string;
+    dispatch: (config: ComputeDispatchConfig) => void;
+  };
+}
+
+export type BufferUsage = "Uniform" | "Storage" | "Vertex" | "Index";
+
+export interface ComputePipelineConfig {
+  name?: string;
+  shaderSource: string;
+  bindGroups?: {
+    entries: BindingEntry[];
+  }[];
+}
+
+export interface ComputeDispatchConfig {
+  pipelineId: string;
+  groups?: [number, number, number];
+  bindings?: BindingConfig[];
 }
 
 export type InitCallback = () => void | void;
@@ -238,6 +264,12 @@ export interface ButtonConfig {
   onClick?: () => void;
 }
 
+export interface BindingEntry {
+  binding: number;
+  visibility: ("Compute" | "Vertex" | "Fragment")[];
+  resourceType: "Uniform" | "Time" | "Texture" | "Sampler" | "Storage" | "StorageReadOnly";
+}
+
 export interface PipelineConfig {
   name: string;
   pbr?: boolean;
@@ -245,7 +277,9 @@ export interface PipelineConfig {
   fragmentShader?: string;
   layout?: string;
   lightingShader?: string;
-  extraBindGroups?: any[];
+  extraBindGroups?: {
+    entries: BindingEntry[]
+  }[];
   lightingBindings?: any[];
   [key: string]: unknown;
 }
@@ -287,6 +321,14 @@ export interface EntropyAPI {
   };
   Pipeline: {
     create: (config: PipelineConfig) => string;
+    createCompute: (config: ComputePipelineConfig) => string;
+  };
+  Compute: {
+    dispatch: (config: ComputeDispatchConfig) => void;
+  };
+  Buffer: {
+    create: (config: { size: number; usage?: BufferUsage }) => string;
+    write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
   };
   Landscape: {
     create: (config: LandscapeConfig) => string;
