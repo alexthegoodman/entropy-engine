@@ -1550,6 +1550,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                     let mut current_group_temp_buffers = Vec::new();
                     let mut current_group_temp_samplers = Vec::new();
                     
+                    // First pass: create all temporary resources
                     for b in &group_bindings {
                         match &b.resource {
                             ResourceType::Uniform { data } => {
@@ -1572,50 +1573,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                 });
                                 current_group_temp_samplers.push((b.binding, sampler));
                             },
-                            _ => {}
-                        }
-                    }
-
-                    let mut wgpu_entries = Vec::new();
-                    for b in &group_bindings {
-                        match &b.resource {
-                            ResourceType::Buffer { id } | ResourceType::Storage { id } => {
-                                if let Some(buffer) = ctx.buffers.get(id) {
-                                    wgpu_entries.push(wgpu::BindGroupEntry {
-                                        binding: b.binding,
-                                        resource: buffer.as_entire_binding(),
-                                    });
-                                } else {
-                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Buffer not found: {}", id)));
-                                }
-                            },
-                            ResourceType::StorageTexture { id } | ResourceType::Texture { id: Some(id) } => {
-                                if let Some(view) = ctx.textures.get(id) {
-                                    wgpu_entries.push(wgpu::BindGroupEntry {
-                                        binding: b.binding,
-                                        resource: wgpu::BindingResource::TextureView(view),
-                                    });
-                                } else {
-                                    return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Texture not found: {}", id)));
-                                }
-                            },
-                            ResourceType::Uniform { .. } => {
-                                let buffer = current_group_temp_buffers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, buf)| buf).unwrap();
-                                wgpu_entries.push(wgpu::BindGroupEntry {
-                                    binding: b.binding,
-                                    resource: buffer.as_entire_binding(),
-                                });
-                            },
-                            ResourceType::Sampler => {
-                                let sampler = current_group_temp_samplers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, s)| s).unwrap();
-                                wgpu_entries.push(wgpu::BindGroupEntry {
-                                    binding: b.binding,
-                                    resource: wgpu::BindingResource::Sampler(sampler),
-                                });
-                            },
                             ResourceType::Time => {
-                                // Smart default for time if needed in compute
-                                let time_val = 0.0f32; // Fallback or handle via TimeParams
+                                let time_val = 0.0f32; 
                                 let buffer = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                     label: Some("Temp Compute Time"),
                                     contents: bytemuck::cast_slice(&[time_val]),
@@ -1627,6 +1586,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                         }
                     }
 
+                    // Second pass: collect all bindings into wgpu_entries
                     let mut wgpu_entries = Vec::new();
                     for b in &group_bindings {
                         match &b.resource {
@@ -1651,14 +1611,20 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                 }
                             },
                             ResourceType::Uniform { .. } | ResourceType::Time => {
-                                let buffer = current_group_temp_buffers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, buf)| buf).unwrap();
+                                let buffer = current_group_temp_buffers.iter()
+                                    .find(|(binding, _)| *binding == b.binding)
+                                    .map(|(_, buf)| buf)
+                                    .unwrap();
                                 wgpu_entries.push(wgpu::BindGroupEntry {
                                     binding: b.binding,
                                     resource: buffer.as_entire_binding(),
                                 });
                             },
                             ResourceType::Sampler => {
-                                let sampler = current_group_temp_samplers.iter().find(|(binding, _)| *binding == b.binding).map(|(_, s)| s).unwrap();
+                                let sampler = current_group_temp_samplers.iter()
+                                    .find(|(binding, _)| *binding == b.binding)
+                                    .map(|(_, s)| s)
+                                    .unwrap();
                                 wgpu_entries.push(wgpu::BindGroupEntry {
                                     binding: b.binding,
                                     resource: wgpu::BindingResource::Sampler(sampler),
@@ -1669,6 +1635,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                             }
                         }
                     }
+
 
                     let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
                         layout: &layout,
