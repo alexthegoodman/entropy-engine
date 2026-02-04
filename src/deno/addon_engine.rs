@@ -1520,6 +1520,7 @@ fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputePipel
 
 #[op2]
 fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConfig) -> Result<(), deno_error::JsErrorBox> {
+    println!("op_compute_dispatch {:?}", config);
     let ctx = state.borrow::<AddonContext>();
     if let Some(gpu) = &ctx.gpu_resources {
         if let Some(pipeline) = ctx.compute_pipelines.get(&config.pipeline_id) {
@@ -1537,6 +1538,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                 });
                 cpass.set_pipeline(pipeline);
 
+                println!("op_compute_dispatch BEGUN");
+
                 let mut groups: HashMap<u32, Vec<BindingConfig>> = HashMap::new();
                 for b in &config.bindings {
                     groups.entry(b.group).or_default().push(b.clone());
@@ -1544,6 +1547,8 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
 
                 let mut sorted_groups: Vec<_> = groups.into_iter().collect();
                 sorted_groups.sort_by_key(|(g, _)| *g);
+
+                println!("op_compute_dispatch GROUPS {:?}", sorted_groups.len());
 
                 for (group_idx, group_bindings) in sorted_groups {
                     let layout = pipeline.get_bind_group_layout(group_idx);
@@ -1597,6 +1602,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                         resource: buffer.as_entire_binding(),
                                     });
                                 } else {
+                                    println!("Compute Dispatch: Buffer not found: {}", id);
                                     return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Buffer not found: {}", id)));
                                 }
                             },
@@ -1607,6 +1613,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                         resource: wgpu::BindingResource::TextureView(view),
                                     });
                                 } else {
+                                    println!("Compute Dispatch: Texture not found: {}", id);
                                     return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Texture not found: {}", id)));
                                 }
                             },
@@ -1631,10 +1638,13 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                 });
                             },
                             _ => {
+                                println!("Compute Dispatch: Unsupported resource type for binding {}", b.binding);
                                 return Err(deno_error::JsErrorBox::generic(format!("Compute Dispatch: Unsupported resource type for binding {}", b.binding)));
                             }
                         }
                     }
+
+                    println!("op_compute_dispatch BIND GROUPS");
 
 
                     let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -1648,8 +1658,12 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                     temp_samplers.extend(current_group_temp_samplers.into_iter().map(|(_, s)| s));
                 }
 
+                println!("op_compute_dispatch DISPATCH WORKGROUPS");
+
                 cpass.dispatch_workgroups(config.groups[0], config.groups[1], config.groups[2]);
             }
+
+            println!("op_compute_dispatch SUBMIT");
 
             gpu.queue.submit(std::iter::once(encoder.finish()));
             Ok(())

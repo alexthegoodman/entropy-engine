@@ -756,11 +756,11 @@ addon.onInit(async () => {
     // Initialize textures and buffers
     initializeResources();
     
-    // Generate initial spectrum
+    // // Generate initial spectrum
     generateInitialSpectrum();
     
-    // Create water mesh
-    createWaterMesh();
+    // // Create water mesh
+    // createWaterMesh();
     
     // Setup UI
     setupUI();
