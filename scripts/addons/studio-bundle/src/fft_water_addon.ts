@@ -765,23 +765,24 @@ addon.onInit(async () => {
 function initializeResources() {
     const N = oceanParams.resolution;
 
-    // TODO: address this, as mentioned at end of file, and finish any other details if they are not hooked in
-    // Create textures (placeholder - you'll need to add createStorage to Texture API)
-    // For now, create regular textures with dummy data
-    const dummyData = new Float32Array(N * N * 4).fill(0);
-    
-    textures.h0 = Entropy.Texture.create(N, N, dummyData);
-    textures.ht = Entropy.Texture.create(N, N, dummyData);
-    textures.pingpong[0] = Entropy.Texture.create(N, N, dummyData);
-    textures.pingpong[1] = Entropy.Texture.create(N, N, dummyData);
-    textures.displacement = Entropy.Texture.create(N, N, dummyData);
-    textures.derivatives = Entropy.Texture.create(N, N, dummyData);
+    // Create textures using the new createStorage API
+    textures.h0 = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.ht = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.pingpong[0] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.pingpong[1] = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.displacement = Entropy.Texture.createStorage(N, N, "Rgba32Float");
+    textures.derivatives = Entropy.Texture.createStorage(N, N, "Rgba32Float");
     
     // Create uniform buffers
     buffers.spectrumParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
     buffers.timeParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
     buffers.fftParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
+
+    // Register update loop
+    addon.onUpdate((time) => {
+        updateOcean(time);
+    });
 }
 
 function generateInitialSpectrum() {
@@ -813,18 +814,83 @@ function generateInitialSpectrum() {
             { group: 0, binding: 1, resource: { type: "Uniform", value: { data: Array.from(params) } } },
         ]
     });
-    
-    Entropy.println("Generated initial spectrum");
 }
 
 function updateOcean(time: number) {
-    // This would be called each frame
-    // 1. Update spectrum with time
-    // 2. Perform FFT passes
-    // 3. Generate displacement/normals
-    
-    // For now, just log
-    // Entropy.println(`Updating ocean at t=${time}`);
+    if (!pipelineIds.spectrumUpdate || !textures.h0 || !textures.ht) return;
+
+    const N = oceanParams.resolution;
+    const workgroups = Math.ceil(N / 8);
+    const logN = Math.log2(N);
+
+    // 1. Update Spectrum
+    const timeParams = new Float32Array([
+        time,
+        N,
+        oceanParams.oceanSize,
+        oceanParams.gravity,
+        oceanParams.choppiness,
+        0, 0, 0 // padding
+    ]);
+    // Entropy.Buffer.write(buffers.timeParams!, timeParams); // Or use inline uniform
+
+    Entropy.Compute.dispatch({
+        pipelineId: pipelineIds.spectrumUpdate,
+        groups: [workgroups, workgroups, 1],
+        bindings: [
+            { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.h0 } } },
+            { group: 0, binding: 1, resource: { type: "Storage", value: { id: textures.ht } } },
+            { group: 0, binding: 2, resource: { type: "Uniform", value: { data: Array.from(timeParams) } } },
+        ]
+    });
+
+    // 2. FFT Horizontal
+    let pingpong = 0;
+    for (let i = 0; i < logN; i++) {
+        const input = i === 0 ? textures.ht : textures.pingpong[pingpong];
+        const output = textures.pingpong[1 - pingpong];
+        
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.fftHorizontal!,
+            groups: [workgroups, workgroups, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
+                { group: 0, binding: 1, resource: { type: "Storage", value: { id: output! } } },
+                { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
+            ]
+        });
+        pingpong = 1 - pingpong;
+    }
+
+    // 3. FFT Vertical
+    for (let i = 0; i < logN; i++) {
+        const input = textures.pingpong[pingpong];
+        const output = textures.pingpong[1 - pingpong];
+        
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.fftVertical!,
+            groups: [workgroups, workgroups, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "Texture", value: { id: input! } } },
+                { group: 0, binding: 1, resource: { type: "Storage", value: { id: output! } } },
+                { group: 0, binding: 2, resource: { type: "Uniform", value: { data: [N, i, 0, 0] } } },
+            ]
+        });
+        pingpong = 1 - pingpong;
+    }
+
+    // 4. Final Displacement Pass
+    const outputParams = new Float32Array([N, oceanParams.oceanSize, oceanParams.choppiness, 0]);
+    Entropy.Compute.dispatch({
+        pipelineId: pipelineIds.displacement!,
+        groups: [workgroups, workgroups, 1],
+        bindings: [
+            { group: 0, binding: 0, resource: { type: "Texture", value: { id: textures.pingpong[pingpong]! } } },
+            { group: 0, binding: 1, resource: { type: "Storage", value: { id: textures.displacement! } } },
+            { group: 0, binding: 2, resource: { type: "Storage", value: { id: textures.derivatives! } } },
+            { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(outputParams) } } },
+        ]
+    });
 }
 
 function createWaterMesh() {
