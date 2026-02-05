@@ -736,6 +736,38 @@ fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Resu
 
 #[op2]
 #[string]
+fn op_io_pick_and_import_model(state: &mut OpState) -> Result<String, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.clone();
+    
+    let models_dir = crate::helpers::utilities::get_models_dir(&project_id)
+        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve models directory"))?;
+
+    // Open file dialog
+    let file_path = rfd::FileDialog::new()
+        .add_filter("GLTF/GLB Models", &["gltf", "glb"])
+        .pick_file();
+
+    if let Some(src_path) = file_path {
+        let file_name = src_path.file_name()
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Invalid file name"))?
+            .to_string_lossy()
+            .into_owned();
+        
+        let dest_path = models_dir.join(&file_name);
+        
+        // Copy file
+        std::fs::copy(&src_path, &dest_path)
+            .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to copy model file: {}", e)))?;
+        
+        Ok(file_name)
+    } else {
+        Ok("".to_string())
+    }
+}
+
+#[op2]
+#[string]
 fn op_generate_uuid(state: &mut OpState) -> Result<String, deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         let id = Uuid::new_v4().to_string();
@@ -1706,6 +1738,7 @@ extension!(
         op_ui_widget_dropdown,
         op_addon_save_data,
         op_addon_save_image,
+        op_io_pick_and_import_model,
         op_texture_create,
         op_texture_create_ex,
         op_texture_load,
@@ -2147,6 +2180,7 @@ impl AddonEngine {
             for addon_name in pending_clears {
                 renderer_state.addon_meshes.remove(&addon_name);
                 renderer_state.addon_cubes.remove(&addon_name);
+                renderer_state.addon_models.remove(&addon_name);
                 // Also clear models belonging to this addon
                 renderer_state.models.retain(|m| !m.id.starts_with(&format!("{}_", addon_name)));
             }
@@ -2156,6 +2190,9 @@ impl AddonEngine {
             for (addon_name, mesh_id) in pending_mesh_clears {
                 if let Some(meshes) = renderer_state.addon_meshes.get_mut(&addon_name) {
                     meshes.retain(|m| m.id != mesh_id);
+                }
+                if let Some(models) = renderer_state.addon_models.get_mut(&addon_name) {
+                    models.retain(|m| m.id != mesh_id);
                 }
                 // Also clear models
                 renderer_state.models.retain(|m| m.id != mesh_id);
@@ -2205,7 +2242,7 @@ impl AddonEngine {
         }
 
         if !pending_models.is_empty() {
-            if let gpu = gpu_resources {
+            if let gpu= &gpu_resources {
                 for (addon_name, config) in pending_models {
                     let project_id = self.project_id.clone();
                     let id = config.id.unwrap_or_else(|| format!("{}_{}", addon_name, uuid::Uuid::new_v4()));
@@ -2217,24 +2254,28 @@ impl AddonEngine {
                     let scale_val = config.scale.unwrap_or([1.0, 1.0, 1.0]);
                     let scale = Vector3::new(scale_val[0], scale_val[1], scale_val[2]);
 
-                    // Use block_on for the async handle_add_model
-                    pollster::block_on(crate::handlers::handle_add_model(
-                        renderer_state,
+                    let bytes = crate::art_assets::Model::read_model(project_id, config.path).expect("Couldn't get model bytes");
+
+                    renderer_state.add_addon_model(
+                        &addon_name,
                         &gpu.device,
                         &gpu.queue,
-                        project_id,
-                        "".to_string(), // asset_id not used for file loading
-                        id.clone(),
-                        config.path,
+                        &id,
+                        &bytes,
                         isometry,
                         scale,
                         camera,
+                        false,
                         None
-                    ));
+                    );
+                    
+                    renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
 
-                    if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == id) {
-                        for mesh in &mut model.meshes {
-                            mesh.render_role = config.render_role.clone();
+                    if let Some(models) = renderer_state.addon_models.get_mut(&addon_name) {
+                        if let Some(model) = models.iter_mut().find(|m| m.id == id) {
+                            for mesh in &mut model.meshes {
+                                mesh.render_role = config.render_role.clone();
+                            }
                         }
                     }
                 }

@@ -129,6 +129,7 @@ pub struct RendererState {
     pub pyramids: Vec<Pyramid>,
     pub grids: Vec<Grid>,
     pub models: Vec<Model>, // must add a Model in order to add an NPC
+    pub addon_models: HashMap<String, Vec<Model>>,
     pub procedural_houses: Vec<House>,
     pub scattered_models: Vec<crate::art_assets::ScatteredModel::ScatteredModel>,
     // pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
@@ -318,6 +319,7 @@ impl RendererState {
             pyramids,
             grids,
             models,
+            addon_models: HashMap::new(),
             scattered_models: Vec::new(),
             procedural_houses,
             landscapes,
@@ -1935,6 +1937,69 @@ impl RendererState {
             }
         }
         self.models.push(model);
+    }
+
+    pub fn add_addon_model(
+        &mut self,
+        addon_name: &String,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_component_id: &String,
+        bytes: &Vec<u8>,
+        isometry: Isometry3<f32>,
+        scale: Vector3<f32>,
+        camera: &SimpleCamera,
+        hide_in_world: bool,
+        script_state: Option<HashMap<String, String>>,
+    ) {
+        let mut model = Model::from_glb(
+            model_component_id,
+            bytes,
+            device,
+            queue,
+            &self.model_bind_group_layout,
+            &self.group_bind_group_layout,
+            &self.regular_texture_render_mode_buffer,
+            &self.color_render_mode_buffer,
+            isometry,
+            scale,
+            camera
+        );
+
+        model.hide_from_world = hide_in_world;
+        model.script_state = script_state;
+
+        if !model.skins.is_empty() {
+            const MAX_JOINTS: usize = 256; 
+            if let Some(skinned_pipeline) = &self.skinned_pipeline {
+                let joint_matrices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Joint Matrices Buffer"),
+                    contents: bytemuck::cast_slice(&[[0.0f32; 16]; MAX_JOINTS]),
+                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                });
+
+                let skin_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("Skin Bind Group"),
+                    layout: &skinned_pipeline.skin_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: joint_matrices_buffer.as_entire_binding(),
+                    }],
+                });
+                
+                model.joint_matrices_buffer = Some(joint_matrices_buffer);
+                model.skin_bind_group = Some(skin_bind_group);
+            }
+        }
+
+        let addon_list = self.addon_models.entry(addon_name.clone()).or_insert_with(Vec::new);
+        
+        // If it already exists, replace it, otherwise push
+        if let Some(pos) = addon_list.iter().position(|m| m.id == *model_component_id) {
+            addon_list[pos] = model;
+        } else {
+            addon_list.push(model);
+        }
     }
 
     pub fn add_house(

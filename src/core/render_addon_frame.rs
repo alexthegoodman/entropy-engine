@@ -188,6 +188,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_grasses = Vec::new();
         let mut pbr_meshes = Vec::new();
         let mut non_pbr_meshes = Vec::new();
+        let mut pbr_addon_models = Vec::new();
+        let mut non_pbr_addon_models = Vec::new();
 
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
@@ -275,6 +277,40 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             pbr_meshes.push(mesh);
                         } else {
                             non_pbr_meshes.push(mesh);
+                        }
+                    }
+                }
+
+                for (addon_name, models) in &renderer_state.addon_models {
+                    if ctx.hidden_addons.contains(addon_name) {
+                        continue;
+                    }
+                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
+                    for model in models {
+                        // Models from GLB are generally PBR-targeted in this engine
+                        // unless specifically overridden by a role that uses a non-PBR pipeline
+                        let mut is_pbr = true;
+                        if let Some(mesh) = model.meshes.get(0) {
+                            if let Some(role) = &mesh.render_role {
+                                if let Some(pid) = ctx.render_roles.get(role) {
+                                    if let Some(config) = ctx.pipeline_configs.get(pid) {
+                                        is_pbr = config.pbr.unwrap_or(true);
+                                    }
+                                }
+                            }
+                        }
+
+                        if is_pbr {
+                            pbr_addon_models.push(model);
+                        } else {
+                            non_pbr_addon_models.push(model);
                         }
                     }
                 }
@@ -498,6 +534,47 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
                     }
 
+                    for model in &pbr_addon_models {
+                        for mesh in &model.meshes {
+                            let mut pipeline_set = false;
+                            
+                            // 1. Check Role Override
+                            if let Some(role) = &mesh.render_role {
+                                if let Some(pid) = ctx.render_roles.get(role) {
+                                    if let Some(p) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(p);
+                                        pipeline_set = true;
+                                    }
+                                }
+                            }
+
+                            if !pipeline_set {
+                                if let Some(skin_bind_group) = &model.skin_bind_group {
+                                    if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
+                                        render_pass.set_pipeline(&pipeline_instance.render_pipeline);
+                                        render_pass.set_bind_group(2, skin_bind_group, &[]);
+                                    } else {
+                                        render_pass.set_pipeline(geometry_pipeline);
+                                    }
+                                } else {
+                                    render_pass.set_pipeline(geometry_pipeline);
+                                }
+                            }
+
+                            mesh.transform.update_uniform_buffer(queue);
+                            render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                            render_pass.set_bind_group(1, &mesh.bind_group, &[]);
+                            render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+
+                            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            render_pass.set_index_buffer(
+                                mesh.index_buffer.slice(..),
+                                wgpu::IndexFormat::Uint32,
+                            );
+                            render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                        }
+                    }
+
                     for grass in &mut pbr_grasses {
                         let mut pipeline_set = false;
 
@@ -675,7 +752,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         }
 
         // 3. Pass for non-PBR objects
-        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() {
+        if !non_pbr_cubes.is_empty() || !non_pbr_landscapes.is_empty() || !non_pbr_grasses.is_empty() || !non_pbr_meshes.is_empty() || !non_pbr_addon_models.is_empty() {
             let has_pbr = !pbr_cubes.is_empty() || !pbr_landscapes.is_empty();
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon non-PBR Pass"),
@@ -832,17 +909,97 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
                         }
                         
-                        mesh.transform.update_uniform_buffer(&queue);
+                                                mesh.transform.update_uniform_buffer(&queue);
                         
-                        render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(
-                            mesh.index_buffer.slice(..),
-                            wgpu::IndexFormat::Uint32,
-                        );
-                        render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
-                    }
-
-                    for grass in &mut non_pbr_grasses {
+                                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        
+                                                render_pass.set_index_buffer(
+                        
+                                                    mesh.index_buffer.slice(..),
+                        
+                                                    wgpu::IndexFormat::Uint32,
+                        
+                                                );
+                        
+                                                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+                        
+                                            }
+                        
+                        
+                        
+                                            for model in &non_pbr_addon_models {
+                        
+                                                for mesh in &model.meshes {
+                        
+                                                    let mut pipeline_set = false;
+                        
+                                                    
+                        
+                                                    // 1. Check Role Override
+                        
+                                                    if let Some(role) = &mesh.render_role {
+                        
+                                                        if let Some(pid) = ctx.render_roles.get(role) {
+                        
+                                                            if let Some(p) = ctx.pipelines.get(pid) {
+                        
+                                                                render_pass.set_pipeline(p);
+                        
+                                                                pipeline_set = true;
+                        
+                                                            }
+                        
+                                                        }
+                        
+                                                    }
+                        
+                        
+                        
+                                                    if !pipeline_set {
+                        
+                                                        // For non-PBR pass, we don't have a dedicated skinned non-PBR pipeline in RendererState usually,
+                        
+                                                        // but we should check if one is available or just fallback to geometry_pipeline.
+                        
+                                                        // Actually, geometry_pipeline is often PBR-ish (expects G-buffer).
+                        
+                                                        // This is a bit of a gray area in current renderer state for non-PBR.
+                        
+                                                        render_pass.set_pipeline(geometry_pipeline);
+                        
+                                                    }
+                        
+                        
+                        
+                                                    mesh.transform.update_uniform_buffer(queue);
+                        
+                                                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                        
+                                                    render_pass.set_bind_group(1, &mesh.bind_group, &[]);
+                        
+                                                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+                        
+                        
+                        
+                                                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                        
+                                                    render_pass.set_index_buffer(
+                        
+                                                        mesh.index_buffer.slice(..),
+                        
+                                                        wgpu::IndexFormat::Uint32,
+                        
+                                                    );
+                        
+                                                    render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                        
+                                                }
+                        
+                                            }
+                        
+                        
+                        
+                                            for grass in &mut non_pbr_grasses {
                         let mut pipeline_set = false;
 
                         // 1. Check Role Override

@@ -1,6 +1,6 @@
 const addonInfo = {
     name: "Model Viewer",
-    version: "1.0.0",
+    version: "1.1.0",
     description: "Load and view 3D models with physics support",
     author: ["Entropy Team"],
     capabilities: {
@@ -21,19 +21,15 @@ interface ModelInstance {
 let state: {
     models: ModelInstance[];
     activeModelId: string | null;
-    modelPathInput: string;
 } = {
     models: [],
-    activeModelId: null,
-    modelPathInput: "Player.glb"
+    activeModelId: null
 };
 
 function refreshModels() {
     // Clear previously loaded models by this addon
-    // Entropy.Model.clearMeshes() only clears CustomMeshes. 
-    // For gltf Models, we might need a clear command, but for now 
-    // let's just re-load everything if needed. 
-    // Actually, Model.load currently adds to the global state.
+    // Note: op_meshes_clear now also clears addon_models in Rust
+    addon.Model.clearMeshes();
     
     state.models.forEach(m => {
         addon.Model.load({
@@ -46,39 +42,71 @@ function refreshModels() {
     });
 }
 
+// Register as a renderer for Game Composer
+if (Entropy.Composer) {
+    Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
+        // This allows Game Composer to spawn models managed by this addon
+        if (params._transform) {
+            addon.Model.load({
+                id: id,
+                path: params.path || "Player.glb",
+                position: params._transform.position,
+                rotation: params._transform.rotation || [0, 0, 0],
+                scale: params._transform.scale
+            });
+        }
+    });
+}
+
 addon.onInit(async () => {
     Entropy.println("Model Viewer Addon Initialized");
 
-    const saved = addon.IO.load();
-    if (saved) {
-        state = { ...state, ...saved };
-        refreshModels();
-    }
+    const loadData = () => {
+        const saved = addon.IO.load();
+        if (saved) {
+            state = { ...state, ...saved };
+            refreshModels();
+        }
+    };
+
+    addon.onProjectChanged(() => {
+        loadData();
+    });
+
+    loadData();
 
     const tabId = addon.UI.createTab({
         title: "Model Viewer",
         onRender: () => {
             Entropy.UI.Widget.label(tabId, { text: "📦 Model Viewer", bold: true });
 
-            Entropy.UI.Widget.label(tabId, { text: "Load New Model" });
             Entropy.UI.Widget.button(tabId, {
-                text: "Load: " + state.modelPathInput,
-                onClick: () => {
-                    const id = Entropy.generateUUID();
-                    const newModel: ModelInstance = {
-                        id,
-                        path: state.modelPathInput,
-                        position: [0, 10, 0],
-                        rotation: [0, 0, 0],
-                        scale: [1, 1, 1]
-                    };
-                    state.models.push(newModel);
-                    state.activeModelId = id;
-                    refreshModels();
+                text: "📂 Pick & Import Model",
+                onClick: async () => {
+                    if (addon.IO.pickAndImportModel) {
+                        const fileName = await (addon.IO as any).pickAndImportModel();
+                        if (fileName && fileName !== "") {
+                            const id = Entropy.generateUUID();
+                            const newModel: ModelInstance = {
+                                id,
+                                path: fileName,
+                                position: [0, 10, 0],
+                                rotation: [0, 0, 0],
+                                scale: [1, 1, 1]
+                            };
+                            state.models.push(newModel);
+                            state.activeModelId = id;
+                            refreshModels();
+                        }
+                    }
                 }
             });
 
             Entropy.UI.Widget.label(tabId, { text: "--- Scene Models ---", bold: true });
+            if (state.models.length === 0) {
+                Entropy.UI.Widget.label(tabId, { text: "(No models loaded)" });
+            }
+
             state.models.forEach(m => {
                 const isActive = m.id === state.activeModelId;
                 Entropy.UI.Widget.button(tabId, {
@@ -115,13 +143,25 @@ addon.onInit(async () => {
                     onClick: () => {
                         state.models = state.models.filter(m => m.id !== activeModel.id);
                         state.activeModelId = null;
-                        // For now we don't have Model.unload so it stays in Rust memory
-                        // until project reload, but we stop "refreshing" it.
                         refreshModels();
+                    }
+                });
+
+                // Register this model as a component for other addons (like Game Composer)
+                Entropy.UI.Widget.button(tabId, {
+                    text: "➕ Register as Component",
+                    onClick: () => {
+                        if (Entropy.Composer) {
+                            Entropy.Composer.registerComponent(addonInfo.name, activeModel.path, activeModel.path, {
+                                path: activeModel.path
+                            });
+                            Entropy.println("Registered " + activeModel.path + " as component");
+                        }
                     }
                 });
             }
 
+            Entropy.UI.Widget.label(tabId, { text: "--------------------------------" });
             Entropy.UI.Widget.button(tabId, {
                 text: "💾 Save State",
                 onClick: () => {
