@@ -1299,7 +1299,8 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                     let mut temp_buffers = Vec::new();
                     let mut temp_samplers = Vec::new();
 
-                    for b in group_bindings {
+                    // First pass: Create temporary resources and collect them
+                    for b in &group_bindings {
                         match &b.resource {
                             ResourceType::Uniform { data } => {
                                 let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1307,11 +1308,40 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                                     contents: bytemuck::cast_slice(&data),
                                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                                 });
+                                temp_buffers.push((b.binding, buffer));
+                            },
+                            ResourceType::Sampler => {
+                                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                    mag_filter: wgpu::FilterMode::Linear,
+                                    min_filter: wgpu::FilterMode::Linear,
+                                    mipmap_filter: wgpu::FilterMode::Nearest,
+                                    ..Default::default()
+                                });
+                                temp_samplers.push((b.binding, sampler));
+                            },
+                            _ => {}
+                        }
+                    }
+
+                    // Second pass: Build wgpu_entries
+                    for b in group_bindings {
+                        match &b.resource {
+                            ResourceType::Uniform { .. } => {
+                                let buffer = &temp_buffers.iter().find(|(binding, _)| *binding == b.binding).unwrap().1;
                                 wgpu_entries.push(wgpu::BindGroupEntry {
                                     binding: b.binding,
                                     resource: buffer.as_entire_binding(),
                                 });
-                                temp_buffers.push(buffer);
+                            },
+                            ResourceType::Sampler => {
+                                let sampler = &temp_samplers.iter().find(|(binding, _)| *binding == b.binding).unwrap().1;
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: wgpu::BindingResource::Sampler(sampler),
+                                });
                             },
                             ResourceType::Buffer { id } | ResourceType::Storage { id } => {
                                 if let Some(buffer) = ctx.buffers.get(id.as_str()) {
@@ -1329,23 +1359,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                                     });
                                 }
                             },
-                            ResourceType::Sampler => {
-                                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                                    address_mode_u: wgpu::AddressMode::ClampToEdge,
-                                    address_mode_v: wgpu::AddressMode::ClampToEdge,
-                                    address_mode_w: wgpu::AddressMode::ClampToEdge,
-                                    mag_filter: wgpu::FilterMode::Linear,
-                                    min_filter: wgpu::FilterMode::Linear,
-                                    mipmap_filter: wgpu::FilterMode::Nearest,
-                                    ..Default::default()
-                                });
-                                wgpu_entries.push(wgpu::BindGroupEntry {
-                                    binding: b.binding,
-                                    resource: wgpu::BindingResource::Sampler(&sampler),
-                                });
-                                temp_samplers.push(sampler);
-                            },
-                            _ => {} // Handle others as needed
+                            _ => {}
                         }
                     }
 
