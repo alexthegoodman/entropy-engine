@@ -143,6 +143,13 @@ addon.onInit(async () => {
              // Always show our own managed components
              Entropy.Addon.setVisibility("Game Composer", true);
 
+            if (Entropy.Composer) {
+                const lightUI = Entropy.Composer.getEditor("Light Hive");
+                if (lightUI) {
+                    lightUI(tab); // Renders the light hive controls here!
+                }
+            }
+
              Entropy.UI.Widget.label(tab, { text: "🎬 Game Composer", bold: true });
              
              // === TOOLBAR ===
