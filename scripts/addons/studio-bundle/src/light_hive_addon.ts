@@ -32,6 +32,9 @@ let lightState: {
     savedComponents: []
 };
 
+// Track camera position for "Spawn at Camera"
+let lastCameraTransform = { pos: [0, 0, 0], dir: [0, 0, -1] };
+
 // Renderer implementation
 function renderLight(id: string, params: LightParams & { _transform?: { position: [number, number, number] } }) {
     const position = params._transform?.position || [0, 0, 0];
@@ -44,6 +47,16 @@ function renderLight(id: string, params: LightParams & { _transform?: { position
     });
 }
 
+function refreshPreview() {
+    // Only spawn the preview if we aren't being called through the Game Composer
+    // (We use a fixed ID "preview_light" if the engine supports it, 
+    // but for now we just spawn it once per change).
+    renderLight("preview_light", {
+        ...lightState.currentParams,
+        _transform: { position: [0, 5, 0] }
+    });
+}
+
 const renderLightUI = (tab: string) => {
     Entropy.UI.Widget.label(tab, { text: "💡 Light Properties", bold: true });
     
@@ -52,8 +65,7 @@ const renderLightUI = (tab: string) => {
         color: [...lightState.currentParams.color, 1.0] as [number, number, number, number],
         onChange: (col: number[]) => {
             lightState.currentParams.color = [col[0], col[1], col[2]];
-            // We don't trigger a full refresh here as lights are usually 
-            // updated via the Composer's refresh cycle
+            refreshPreview();
         }
     });
 
@@ -64,6 +76,7 @@ const renderLightUI = (tab: string) => {
         max: 50,
         onChange: (v: string) => {
             lightState.currentParams.intensity = parseFloat(v);
+            refreshPreview();
         }
     });
 
@@ -74,11 +87,34 @@ const renderLightUI = (tab: string) => {
         max: 500,
         onChange: (v: string) => {
             lightState.currentParams.maxDistance = parseFloat(v);
+            refreshPreview();
         }
     });
 
     Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
     
+    Entropy.UI.Widget.button(tab, {
+        text: "✨ Spawn at Camera",
+        onClick: () => {
+            const pos = lastCameraTransform.pos;
+            const dir = lastCameraTransform.dir;
+            
+            // Spawn 2 units in front of the camera
+            const spawnPos: [number, number, number] = [
+                pos[0] + dir[0] * 2,
+                pos[1] + dir[1] * 2,
+                pos[2] + dir[2] * 2
+            ];
+            
+            renderLight(Entropy.generateUUID(), {
+                ...lightState.currentParams,
+                _transform: { position: spawnPos }
+            });
+            
+            Entropy.println(`Spawned light at camera: ${spawnPos}`);
+        }
+    });
+
     Entropy.UI.Widget.button(tab, {
         text: "💾 Save Light Preset",
         onClick: () => {
@@ -114,6 +150,15 @@ addon.onInit(async () => {
         }
     }
 
+    // Camera tracking and stable update loop
+    addon.onUpdate((time: number, pos: [number, number, number], dir: [number, number, number]) => {
+        lastCameraTransform.pos = pos;
+        lastCameraTransform.dir = dir;
+        
+        // We no longer spawn every frame! 
+        // refreshPreview() is now event-driven.
+    });
+
     // Register with Composer
     if (Entropy.Composer) {
         Entropy.Composer.registerEditor(addonInfo.name, renderLightUI);
@@ -134,7 +179,6 @@ addon.onInit(async () => {
     const tab = addon.UI.createTab({
         title: "Light Hive",
         onRender: () => {
-            Entropy.Addon.setVisibility(addonInfo.name, true);
             renderLightUI(tab);
             
             if (lightState.savedComponents.length > 0) {
@@ -144,10 +188,14 @@ addon.onInit(async () => {
                         text: `📂 Load ${comp.name}`,
                         onClick: () => {
                             lightState.currentParams = JSON.parse(JSON.stringify(comp.params));
+                            refreshPreview();
                         }
                     });
                 });
             }
         }
     });
+
+    // Initial preview
+    refreshPreview();
 });

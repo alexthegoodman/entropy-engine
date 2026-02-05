@@ -16,7 +16,9 @@ globalThis.Entropy = {
                     ops.op_addon_on_all_addons_initialized(callback);
                 },
                 onUpdate: (callback) => {
-                    ops.op_addon_on_update(metadata.name, callback);
+                    ops.op_addon_on_update(metadata.name, (time, pos, dir) => {
+                        callback(time, pos, dir);
+                    });
                 },
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
@@ -495,6 +497,11 @@ globalThis.Entropy = {
     },
     generateUUID: () => {
         return ops.op_generate_uuid();
+    },
+    Camera: {
+        getTransform: () => {
+            return ops.op_camera_get_transform();
+        }
     }
 };
 

@@ -227,7 +227,7 @@ export interface ComputeDispatchConfig {
 }
 
 export type InitCallback = () => void | void;
-export type UpdateCallback = (time: number) => void | void;
+export type UpdateCallback = (time: number, pos: [number, number, number], dir: [number, number, number]) => void | void;
 export type CleanupCallback = () => void | void;
 export type ProjectChangedCallback = (newProjectId: string) => void | void;
 

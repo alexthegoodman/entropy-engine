@@ -339,6 +339,8 @@ pub struct AddonContext {
     pub buffers: HashMap<String, Arc<wgpu::Buffer>>,
     pub compute_encoder: Option<wgpu::CommandEncoder>,
     pub current_time: f64,
+    pub camera_position: [f32; 3],
+    pub camera_direction: [f32; 3],
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1618,6 +1620,16 @@ fn op_println(
     Ok(())
 }
 
+#[op2]
+#[serde]
+fn op_camera_get_transform(state: &mut OpState) -> Result<([f32; 3], [f32; 3]), deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        Ok((ctx.camera_position, ctx.camera_direction))
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
 #[op2(fast)]
 fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String, visible: bool) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -1673,6 +1685,7 @@ extension!(
         op_audio_play_test,
         op_addon_on_project_changed,
         op_addon_set_visibility,
+        op_camera_get_transform,
         op_generate_uuid
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
@@ -1744,6 +1757,8 @@ impl AddonEngine {
             buffers: HashMap::new(),
             compute_encoder: None,
             current_time: 0.0,
+            camera_position: [0.0, 0.0, 0.0],
+            camera_direction: [0.0, 0.0, -1.0],
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -2006,6 +2021,8 @@ impl AddonEngine {
             let mut state = state.borrow_mut();
             let context = state.borrow_mut::<AddonContext>();
             context.current_time = current_time;
+            context.camera_position = [camera.position.x, camera.position.y, camera.position.z];
+            context.camera_direction = [camera.direction.x, camera.direction.y, camera.direction.z];
         }
 
         // 0. Run onUpdate callbacks
@@ -2021,7 +2038,9 @@ impl AddonEngine {
             let local_callback = v8::Local::new(scope, callback);
             let this = v8::undefined(scope);
             let time_v8 = v8::Number::new(scope, current_time);
-            let args = &[time_v8.into()];
+            let pos_v8 = serde_v8::to_v8(scope, [camera.position.x, camera.position.y, camera.position.z]).unwrap();
+            let dir_v8 = serde_v8::to_v8(scope, [camera.direction.x, camera.direction.y, camera.direction.z]).unwrap();
+            let args = &[time_v8.into(), pos_v8, dir_v8];
             
             // Use TryCatch to avoid one addon crashing the whole loop
             let tc = &mut v8::TryCatch::new(scope);
