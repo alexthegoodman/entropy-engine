@@ -38,13 +38,17 @@ let lastCameraTransform = { pos: [0, 0, 0], dir: [0, 0, -1] };
 // Renderer implementation
 function renderLight(id: string, params: LightParams & { _transform?: { position: [number, number, number] } }) {
     const position = params._transform?.position || [0, 0, 0];
-    
-    addon.Lighting.createPointLight({
+
+    const config = {
         position: position,
         color: params.color,
         intensity: params.intensity,
         maxDistance: params.maxDistance
-    });
+    };
+
+    Entropy.println("createPointLight: " + JSON.stringify(config));
+    
+    addon.Lighting.createPointLight(config);
 }
 
 function refreshPreview() {
@@ -140,15 +144,29 @@ addon.onInit(async () => {
     Entropy.println("Light Hive Initializing...");
 
     // Load saved state
-    const saved = addon.IO.load();
-    if (saved) {
-        lightState = { ...lightState, ...saved };
-        if (Entropy.Composer) {
-            lightState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
-            });
+    // const saved = addon.IO.load();
+    // if (saved) {
+    //     lightState = { ...lightState, ...saved };
+    //     if (Entropy.Composer) {
+    //         lightState.savedComponents.forEach(comp => {
+    //             Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+    //         });
+    //     }
+    // }
+
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            lightState = { ...lightState, ...data };
+
+            // Register components with the composer
+            if (Entropy.Composer) {
+                lightState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+                });
+            }
         }
-    }
+    });
 
     // Camera tracking and stable update loop
     addon.onUpdate((time: number, pos: [number, number, number], dir: [number, number, number]) => {
@@ -195,7 +213,4 @@ addon.onInit(async () => {
             }
         }
     });
-
-    // Initial preview
-    refreshPreview();
 });
