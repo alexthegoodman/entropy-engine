@@ -6,8 +6,11 @@
 // import "./daw_synth_addon";
 
 // tier 1
-import "./environment_addon";
-import "./volumetric_addon";
+// import "./environment_addon";
+// import "./volumetric_addon";
+
+import "./compute_dust_addon";
+
 import "./light_hive_addon";
 import "./pbr_texture_designer_addon";
 
