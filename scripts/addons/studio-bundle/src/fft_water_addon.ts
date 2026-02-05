@@ -1248,6 +1248,7 @@ function setupUI() {
 }
 
 function renderUI(tab: string) {
+    Entropy.Addon.setVisibility(addonInfo.name, true);
     Entropy.UI.Widget.label(tab, { text: "🌊 FFT Ocean Simulation", bold: true });
 
     Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
