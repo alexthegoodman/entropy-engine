@@ -73,8 +73,6 @@ addon.onInit(async () => {
         loadData();
     });
 
-    loadData();
-
     const tabId = addon.UI.createTab({
         title: "Model Viewer",
         onRender: () => {
@@ -83,8 +81,8 @@ addon.onInit(async () => {
             Entropy.UI.Widget.button(tabId, {
                 text: "📂 Pick & Import Model",
                 onClick: async () => {
-                    if (addon.IO.pickAndImportModel) {
-                        const fileName = await (addon.IO as any).pickAndImportModel();
+                    if (addon.IO.pickAndImportModel!) {
+                        const fileName = await addon.IO.pickAndImportModel();
                         if (fileName && fileName !== "") {
                             const id = Entropy.generateUUID();
                             const newModel: ModelInstance = {
