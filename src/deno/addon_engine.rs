@@ -319,11 +319,11 @@ pub struct AddonContext {
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub noise_generators: HashMap<String, NoiseConfig>,
-    pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub on_all_addons_initialized_callbacks: Vec<v8::Global<v8::Function>>,
-    pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
-    pub on_update_callbacks: HashMap<String, v8::Global<v8::Function>>,
-    pub on_project_changed_callbacks: HashMap<String, v8::Global<v8::Function>>,
+    pub on_cleanup_callbacks: Vec<(String, v8::Global<v8::Function>)>,
+    pub on_update_callbacks: Vec<(String, v8::Global<v8::Function>)>,
+    pub on_project_changed_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
@@ -809,7 +809,7 @@ fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
 #[op2]
 fn op_addon_on_init(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.on_init_callbacks.entry(addon_name).or_default().push(callback);
+        ctx.on_init_callbacks.push((addon_name, callback));
     }
 }
 
@@ -823,14 +823,14 @@ fn op_addon_on_all_addons_initialized(state: &mut OpState, #[global] callback: v
 #[op2]
 fn op_addon_on_update(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.on_update_callbacks.insert(addon_name, callback);
+        ctx.on_update_callbacks.push((addon_name, callback));
     }
 }
 
 #[op2]
 fn op_addon_on_cleanup(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.on_cleanup_callbacks.entry(addon_name).or_default().push(callback);
+        ctx.on_cleanup_callbacks.push((addon_name, callback));
     }
 }
 
@@ -1594,7 +1594,7 @@ fn op_addon_on_project_changed(
     #[global] callback: v8::Global<v8::Function>,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.on_project_changed_callbacks.insert(addon_name, callback);
+        ctx.on_project_changed_callbacks.push((addon_name, callback));
     }
 }
 
@@ -1712,11 +1712,11 @@ impl AddonEngine {
             pending_point_lights: Vec::new(),
             pending_sun_config: None,
             noise_generators: HashMap::new(),
-            on_init_callbacks: HashMap::new(),
+            on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
-            on_cleanup_callbacks: HashMap::new(),
-            on_update_callbacks: HashMap::new(),
-            on_project_changed_callbacks: HashMap::new(),
+            on_cleanup_callbacks: Vec::new(),
+            on_update_callbacks: Vec::new(),
+            on_project_changed_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
             ui_widgets: HashMap::new(),
@@ -2489,18 +2489,16 @@ impl AddonEngine {
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 std::mem::take(&mut ctx.on_init_callbacks)
             } else {
-                HashMap::new()
+                Vec::new()
             }
         };
 
         if !callbacks.is_empty() {
             let scope = &mut self.runtime.handle_scope();
-            for (_name, addon_callbacks) in callbacks {
-                for callback in addon_callbacks {
-                    let func = v8::Local::new(scope, callback);
-                    let receiver = v8::undefined(scope);
-                    let _ = func.call(scope, receiver.into(), &[]);
-                }
+            for (_addon_name, callback) in callbacks {
+                let func = v8::Local::new(scope, callback);
+                let receiver = v8::undefined(scope);
+                let _ = func.call(scope, receiver.into(), &[]);
             }
         }
     }
@@ -2525,6 +2523,27 @@ impl AddonEngine {
             }
         }
     }
+
+    // fn run_on_all_addons_initialized(&mut self) {
+    //     let callbacks = {
+    //         let mut op_state = self.runtime.op_state();
+    //         let mut op_state = op_state.borrow_mut();
+    //         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+    //             std::mem::take(&mut ctx.on_all_addons_initialized_callbacks)
+    //         } else {
+    //             Vec::new()
+    //         }
+    //     };
+
+    //     if !callbacks.is_empty() {
+    //         let scope = &mut self.runtime.handle_scope();
+    //         for callback in callbacks {
+    //             let func = v8::Local::new(scope, callback);
+    //             let receiver = v8::undefined(scope);
+    //             let _ = func.call(scope, receiver.into(), &[]);
+    //         }
+    //     }
+    // }
 
     pub fn get_registered_addons(&mut self) -> Vec<AddonMetadata> {
         let op_state = self.runtime.op_state();
