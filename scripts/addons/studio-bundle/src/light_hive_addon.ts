@@ -134,6 +134,7 @@ addon.onInit(async () => {
     const tab = addon.UI.createTab({
         title: "Light Hive",
         onRender: () => {
+            Entropy.Addon.setVisibility(addonInfo.name, true);
             renderLightUI(tab);
             
             if (lightState.savedComponents.length > 0) {
