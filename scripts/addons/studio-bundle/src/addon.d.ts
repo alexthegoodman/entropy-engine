@@ -312,7 +312,8 @@ export interface PipelineConfig {
     entries: BindingEntry[]
   }[];
   lightingBindings?: any[];
-  [key: string]: unknown;
+  form?: "composite" | "default";
+  // [key: string]: unknown;
 }
 
 export interface DropdownConfig {
@@ -353,6 +354,9 @@ export interface EntropyAPI {
         [key: string]: () => void
       }
   };
+  Composite: {
+    register: (nameId: string, outputTexId: string, compositePipelineId: string) => void;
+  },
   Pipeline: {
     create: (config: PipelineConfig) => string;
     createCompute: (config: ComputePipelineConfig) => string;

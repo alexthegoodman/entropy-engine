@@ -104,9 +104,22 @@ pub fn create_addon_pipeline(
     });
 
     // TODO: Parse blend state from config
+    // let blend_state = Some(wgpu::BlendState {
+    //     color: wgpu::BlendComponent::REPLACE,
+    //     alpha: wgpu::BlendComponent::REPLACE,
+    // });
+
     let blend_state = Some(wgpu::BlendState {
-        color: wgpu::BlendComponent::REPLACE,
-        alpha: wgpu::BlendComponent::REPLACE,
+        color: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::SrcAlpha,
+            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            operation: wgpu::BlendOperation::Add,
+        },
+        alpha: wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+            operation: wgpu::BlendOperation::Add,
+        },
     });
 
     // Create targets for all attachments
@@ -120,15 +133,44 @@ pub fn create_addon_pipeline(
 
     // println!("Creating pipeline completely: {:?} {:?}", config.name, config.pbr);
 
+    // In your pipeline creation code, add blend state:
+// let color_target = wgpu::ColorTargetState {
+//     format: wgpu::TextureFormat::Bgra8UnormSrgb, // or whatever your surface format is
+//     blend: Some(wgpu::BlendState {
+//         color: wgpu::BlendComponent {
+//             src_factor: wgpu::BlendFactor::SrcAlpha,
+//             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+//             operation: wgpu::BlendOperation::Add,
+//         },
+//         alpha: wgpu::BlendComponent {
+//             src_factor: wgpu::BlendFactor::One,
+//             dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+//             operation: wgpu::BlendOperation::Add,
+//         },
+//     }),
+//     write_mask: wgpu::ColorWrites::ALL,
+// };
+
+    let mut vertex_buffers = wgpu::VertexState {
+        module: &vertex_shader,
+        entry_point: Some("vs_main"), // Standard entry point
+        buffers: &[Vertex::desc()], // Standard vertex layout
+        compilation_options: wgpu::PipelineCompilationOptions::default(),
+    };
+
+    if config.form == Some("composite".to_string()) {
+        vertex_buffers = wgpu::VertexState {
+            module: &vertex_shader,
+            entry_point: Some("vs_main"), // Standard entry point
+            buffers: &[], // Standard vertex layout
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        };
+    }
+
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(&config.name),
         layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &vertex_shader,
-            entry_point: Some("vs_main"), // Standard entry point
-            buffers: &[Vertex::desc()], // Standard vertex layout
-            compilation_options: wgpu::PipelineCompilationOptions::default(),
-        },
+        vertex: vertex_buffers,
         fragment: Some(wgpu::FragmentState {
             module: &fragment_shader,
             entry_point: Some("fs_main"),

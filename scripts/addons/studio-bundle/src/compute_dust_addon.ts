@@ -8,6 +8,17 @@ import type { ScopedAPI } from "./addon";
 // which is then composited over the scene - bypassing the need for instancing!
 // ============================================================================
 
+const addonInfo = {
+  name: "ComputeDust",
+  version: "1.0.0",
+  description: "GPU-accelerated dust particles using compute shaders",
+  author: ["Entropy Team"],
+    capabilities: {
+        graphics: true,
+        ui: true
+    }
+};
+
 interface DustConfig {
   particleCount: number;
   particleSize: number;
@@ -187,9 +198,8 @@ class ComputeDustSystem {
       @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
       @group(0) @binding(1) var<uniform> params: Params;
       @group(0) @binding(2) var noiseTex: texture_2d<f32>;
-      @group(0) @binding(3) var noiseSampler: sampler;
       
-      // Sample 3D noise from 2D texture with slices
+      // Sample 3D noise from 2D texture with slices (using textureLoad for compute)
       fn sampleNoise3D(pos: vec3<f32>) -> vec3<f32> {
         let sliceSize = 128.0;
         let numSlices = 16.0;
@@ -200,14 +210,22 @@ class ComputeDustSystem {
         let slice1 = (slice0 + 1.0) % numSlices;
         let blend = fract(zScaled);
         
-        // UV for each slice
+        // UV for each slice (convert to integer coordinates)
         let uv = fract(pos.xy * 0.1);
-        let uv0 = vec2<f32>(uv.x, (slice0 + uv.y) / numSlices);
-        let uv1 = vec2<f32>(uv.x, (slice1 + uv.y) / numSlices);
+        let texSize = vec2<i32>(i32(sliceSize), i32(sliceSize * numSlices));
         
-        // Sample and blend
-        let noise0 = textureSample(noiseTex, noiseSampler, uv0).rgb;
-        let noise1 = textureSample(noiseTex, noiseSampler, uv1).rgb;
+        let coord0 = vec2<i32>(
+          i32(uv.x * sliceSize),
+          i32((slice0 + uv.y) * sliceSize)
+        );
+        let coord1 = vec2<i32>(
+          i32(uv.x * sliceSize),
+          i32((slice1 + uv.y) * sliceSize)
+        );
+        
+        // Use textureLoad instead of textureSample (compute shaders can't sample)
+        let noise0 = textureLoad(noiseTex, coord0, 0).rgb;
+        let noise1 = textureLoad(noiseTex, coord1, 0).rgb;
         
         return mix(noise0, noise1, blend) * 2.0 - 1.0;
       }
@@ -259,8 +277,7 @@ class ComputeDustSystem {
         entries: [
           { binding: 0, visibility: ["Compute"], resourceType: "Storage" },
           { binding: 1, visibility: ["Compute"], resourceType: "Uniform" },
-          { binding: 2, visibility: ["Compute"], resourceType: "Texture" },
-          { binding: 3, visibility: ["Compute"], resourceType: "Sampler" },
+          { binding: 2, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
         ]
       }]
     });
@@ -382,7 +399,7 @@ class ComputeDustSystem {
         entries: [
           { binding: 0, visibility: ["Compute"], resourceType: "StorageReadOnly" },
           { binding: 1, visibility: ["Compute"], resourceType: "Uniform" },
-          { binding: 2, visibility: ["Compute"], resourceType: "StorageTexture" },
+          { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
         ]
       }]
     });
@@ -391,11 +408,19 @@ class ComputeDustSystem {
   createCompositePipeline() {
     // Fullscreen quad that composites particle texture over scene
     const vertexShader = `
+      struct VertexOutput {
+        @builtin(position) position: vec4<f32>,
+        @location(0) uv: vec2<f32>,
+      }
+      
       @vertex
-      fn main(@builtin(vertex_index) vertexIndex: u32) -> @builtin(position) vec4<f32> {
+      fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+        var output: VertexOutput;
         let x = f32((vertexIndex & 1u) << 2u) - 1.0;
         let y = f32((vertexIndex & 2u) << 1u) - 1.0;
-        return vec4<f32>(x, y, 0.0, 1.0);
+        output.position = vec4<f32>(x, y, 0.0, 1.0);
+        output.uv = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+        return output;
       }
     `;
     
@@ -404,12 +429,11 @@ class ComputeDustSystem {
       @group(1) @binding(1) var particleSampler: sampler;
       
       @fragment
-      fn main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
-        let uv = pos.xy / vec2<f32>(1920.0, 1080.0);
+      fn fs_main(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
         let particle = textureSample(particleTex, particleSampler, uv);
         
-        // Additive blend (would be handled by blend mode in future)
-        return vec4<f32>(particle.rgb, particle.a * 0.8);
+        // Alpha blend - blend state handles the rest
+        return vec4<f32>(particle.rgb, particle.a);
       }
     `;
     
@@ -418,6 +442,7 @@ class ComputeDustSystem {
       vertexShader,
       fragmentShader,
       layout: "TriangleList",
+      form: "composite",
       extraBindGroups: [{
         entries: [
           { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
@@ -425,6 +450,21 @@ class ComputeDustSystem {
         ]
       }]
     });
+
+    api.Model.createProcedural({
+        type: "cube",
+        pipelineId: "default",
+        parameters: {
+            position: [-2.0, 5.0, 0.0],
+            scale: [1.0, 1.0, 1.0]
+        }
+    });
+    
+    // Register for composite rendering
+    if (this.outputTexId && this.compositePipelineId) {
+      Entropy.Composite.register("dust_composite", this.outputTexId, this.compositePipelineId);
+      Entropy.println("🔄 Dust Composite Registered");
+    }
   }
   
   update(time: number, cameraPos: [number, number, number], cameraDir: [number, number, number]) {
@@ -460,12 +500,7 @@ class ComputeDustSystem {
         {
           group: 0,
           binding: 2,
-          resource: { type: "Texture", value: { id: this.noiseTexId } }
-        },
-        {
-          group: 0,
-          binding: 3,
-          resource: { type: "Sampler" }
+          resource: { type: "TextureNonFilterable", value: { id: this.noiseTexId } }
         },
       ]
     });
@@ -500,7 +535,7 @@ class ComputeDustSystem {
           {
             group: 0,
             binding: 2,
-            resource: { type: "StorageTexture", value: { id: this.outputTexId } }
+            resource: { type: "StorageTextureRgba16", value: { id: this.outputTexId } }
           },
         ]
       });
@@ -516,16 +551,7 @@ class ComputeDustSystem {
 // ADDON REGISTRATION
 // ============================================================================
 
-const api = Entropy.Addon.register({
-    name: "ComputeDust",
-    version: "1.0.0",
-    description: "GPU-accelerated dust particles using compute shaders",
-    author: ["Entropy Team"],
-    capabilities: {
-        graphics: true,
-        ui: true
-    }
-});
+const api = Entropy.Addon.register(addonInfo);
 
 const dust = new ComputeDustSystem(api);
 

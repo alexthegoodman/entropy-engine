@@ -83,6 +83,8 @@ pub struct PipelineConfig {
 
     pub lighting_bindings: Option<Vec<BindingConfig>>,
 
+    pub form: Option<String>,
+
 }
 
 
@@ -357,6 +359,8 @@ pub struct AddonContext {
     pub current_time: f64,
     pub camera_position: [f32; 3],
     pub camera_direction: [f32; 3],
+    pub composite_textures: HashMap<String, Arc<wgpu::TextureView>>,
+    pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1212,11 +1216,15 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         
          
         let is_pbr = config.pbr.unwrap_or(true); 
-        let formats = if is_pbr {
+        let mut formats = if is_pbr {
             GBUFFER_FORMATS.as_slice()
         } else {
             std::slice::from_ref(ctx.surface_format.as_ref().unwrap_or(&wgpu::TextureFormat::Rgba8Unorm))
         };
+
+        if config.form == Some("composite".to_string()) {
+            formats = &[wgpu::TextureFormat::Rgba8Unorm];
+        }
 
         println!("Working pipeline (3): {:?}", layouts.len());
 
@@ -1228,7 +1236,11 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             Some(wgpu::TextureFormat::Depth24Plus)
         );
         
-        ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
+        if config.form == Some("composite".to_string()) {
+            ctx.composite_pipelines.insert(config.name.clone(), Arc::new(pipeline));
+        } else {
+            ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
+        }
 
         println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);
 
@@ -1775,6 +1787,35 @@ fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String, vi
     }
 }
 
+#[op2]
+#[serde]
+pub fn op_register_composite_texture(
+    state: &mut OpState,
+    #[string] name: String,
+    #[string] texture_id: String,
+    #[string] pipeline_id: String,
+) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow_mut::<AddonContext>();
+
+    println!("Registering composite...");
+
+    if let Some(gpu) = &ctx.gpu_resources {
+        println!("Registering composite 2...");
+        // Get texture from texture registry
+        if let Some(texture_view) = ctx.textures.get(&texture_id) {
+            println!("Registering composite... 3");
+
+            if let Some(pipeline) = ctx.composite_pipelines.get(&name) {
+                // Store reference for rendering
+                ctx.composite_textures.insert(name, texture_view.clone());
+                println!("Registered composite!");
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 extension!(
     entropy_addons,
     ops = [
@@ -1823,7 +1864,8 @@ extension!(
         op_addon_on_project_changed,
         op_addon_set_visibility,
         op_camera_get_transform,
-        op_generate_uuid
+        op_generate_uuid,
+        op_register_composite_texture
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -1897,6 +1939,8 @@ impl AddonEngine {
             current_time: 0.0,
             camera_position: [0.0, 0.0, 0.0],
             camera_direction: [0.0, 0.0, -1.0],
+            composite_textures: HashMap::new(),
+            composite_pipelines: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 

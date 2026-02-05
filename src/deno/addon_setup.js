@@ -530,6 +530,12 @@ globalThis.Entropy.IO = {
     // So we should add IO to the returned object in `register`.
 };
 
+globalThis.Entropy.Composite = {
+  register: (name, textureId, pipelineId) => {
+    ops.op_register_composite_texture(name, textureId, pipelineId);
+  }
+};
+
 // Composer Registry (Global)
 globalThis.Entropy.Composer = {
     editors: {},
