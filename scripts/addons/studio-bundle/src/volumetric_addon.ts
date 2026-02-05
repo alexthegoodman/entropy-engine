@@ -339,9 +339,31 @@ addon.onInit(async () => {
         type: "cube",
         pipelineId: pipelineId,
         parameters: {
-            position: [0.0, -1000.0, 0.0],
-            scale: [0.1, 0.1, 0.1]
+            position: [2.0, 0.0, 2.0],
+            scale: [1.0, 1.0, 1.0]
         }
+    });
+
+    // Atmospheric lighting
+    addon.Lighting.createPointLight({
+        position: [4.0, 4.0, 4.0],
+        color: [1.0, 0.2, 0.2],
+        intensity: 15.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [3.0, 4.0, 10.0],
+        color: [0.2, 0.2, 1.0],
+        intensity: 15.0,
+        maxDistance: 50.0
+    });
+
+    addon.Lighting.createPointLight({
+        position: [0.0, 5.0, -10.0],
+        color: [0.2, 1.0, 0.2],
+        intensity: 25.0,
+        maxDistance: 50.0
     });
 
     const renderUI = (tab: string) => {
