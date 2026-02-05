@@ -177,46 +177,6 @@ addon.onInit(async () => {
 
              Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
-             // === COMPONENT LIBRARY ===
-             Entropy.UI.Widget.label(tab, { text: "📚 Component Library", bold: true });
-             
-             let hasComponents = false;
-             sourceAddons.forEach(addonName => {
-                 const components = Entropy.Composer?.getComponents(addonName) || {};
-                 const ids = Object.keys(components);
-                 if (ids.length > 0) {
-                     hasComponents = true;
-                     Entropy.UI.Widget.label(tab, { text: `▶ ${addonName}` }); // Group Header
-                     ids.forEach(compId => {
-                         const comp = components[compId];
-                         Entropy.UI.Widget.button(tab, {
-                             text: `  ➕ ${comp.name}`,
-                             onClick: () => {
-                                 const newInst: ComponentInstance = {
-                                     id: Entropy.generateUUID(),
-                                     name: `${comp.name} Instance`,
-                                     addon: addonName,
-                                     componentId: compId,
-                                     // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
-                                     position: [0, 0, 0],
-                                     scale: [1, 1, 1],
-                                     visible: true
-                                 };
-                                 composerState.components.push(newInst);
-                                 composerState.activeInstanceId = newInst.id;
-                                 refreshScene();
-                             }
-                         });
-                     });
-                 }
-             });
-             
-             if (!hasComponents) {
-                 Entropy.UI.Widget.label(tab, { text: "No components found. Create them in other addons first!" });
-             }
-
-             Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
-
              // === SCENE GRAPH ===
              Entropy.UI.Widget.label(tab, { text: "📦 Scene Hierarchy", bold: true });
              if (composerState.components.length === 0) {
@@ -299,6 +259,46 @@ addon.onInit(async () => {
                      }
                  });
              });
+
+            Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
+
+             // === COMPONENT LIBRARY ===
+             Entropy.UI.Widget.label(tab, { text: "📚 Component Library", bold: true });
+             
+             let hasComponents = false;
+             sourceAddons.forEach(addonName => {
+                 const components = Entropy.Composer?.getComponents(addonName) || {};
+                 const ids = Object.keys(components);
+                 if (ids.length > 0) {
+                     hasComponents = true;
+                     Entropy.UI.Widget.label(tab, { text: `▶ ${addonName}` }); // Group Header
+                     ids.forEach(compId => {
+                         const comp = components[compId];
+                         Entropy.UI.Widget.button(tab, {
+                             text: `  ➕ ${comp.name}`,
+                             onClick: () => {
+                                 const newInst: ComponentInstance = {
+                                     id: Entropy.generateUUID(),
+                                     name: `${comp.name} Instance`,
+                                     addon: addonName,
+                                     componentId: compId,
+                                     // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
+                                     position: [0, 0, 0],
+                                     scale: [1, 1, 1],
+                                     visible: true
+                                 };
+                                 composerState.components.push(newInst);
+                                 composerState.activeInstanceId = newInst.id;
+                                 refreshScene();
+                             }
+                         });
+                     });
+                 }
+             });
+             
+             if (!hasComponents) {
+                 Entropy.UI.Widget.label(tab, { text: "No components found. Create them in other addons first!" });
+             }
         }
     });
 });
