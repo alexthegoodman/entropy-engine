@@ -315,7 +315,7 @@ addon.onInit(async () => {
         extraBindGroups: [
             {
                 entries: [
-                    { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }
+                    { binding: 0, visibility: ["Fragment", "Vertex"], resourceType: "Uniform" }
                 ]
             }
         ],
