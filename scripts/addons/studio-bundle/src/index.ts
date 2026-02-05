@@ -1,6 +1,5 @@
 // unused addons
 // import "./megaworlds_terrain_addon";
-// import "./lighting_addon";
 // import "./water_plane_addon";
 
 // initialize first (tier 0)
