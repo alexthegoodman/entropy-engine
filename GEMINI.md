@@ -1,12 +1,23 @@
 # Entropy Engine (Open World Studio, Sophia, and Stunts)
 
-This project is a native editor, chat, and engine for videos, games, and writing projects, with plans for a future Rhai-based add-on marketplace for new, high-performance app experiences.
+This project is a native editor, chat, and engine for videos, games and other creative projects, with plans for a future add-on marketplace for new, high-performance app experiences.
 
-Ultimately, this engine is similar to MCP but without the hassle of MCP setup processes. The central advantage is the easily-used agentic system, while each app / add-on may have its own benefits.
+Ultimately, this engine is similar to MCP but without the hassle of MCP setup processes. The central advantage is the easily-used agentic system based on LLMs and add-on interop, while each app / add-on may have its own benefits and its own workspace.
 
 Here's some info on the current architecture:
 
-All the code is in /src/.
+All the code is in /src/ and /scripts/addons/studio-bundle/src/.
+
+With the studio bundle there is
+- DAW Synth
+- Enviornment (Sun and Sky)
+- Beautiful FFT Water
+- JS-generated Terrain (flexnoise)
+- Hair Particles (grass)
+- Light Management
+- Rust-generated Terrain (megaworlds)
+- Procedural PBR Texture Generator (designer)
+- Based Water Plane
 
 Within /src/, there are several directories:
 
@@ -33,4 +44,22 @@ Within /src/, there are several directories:
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)
-/scripts/addons/ contains several example addons
+
+## Focus
+
+We are focused on the addons now, and just leveraging the underlying Rust capabilities to power the addon experience.
+
+Future addons may include:
+
+- Machine Learning Node Graph Editor
+- Color Corrector
+- FK / IK Animation
+- Mesh Sculpting
+- Mesh Modelling
+- Media Player
+- Forum Portal
+- File Browser
+- Dot Particles
+- Behavior Tree Node Graph Editor
+- UI Designer (for in-game UIs)
+- DAW Mastering
