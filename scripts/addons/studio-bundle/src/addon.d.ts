@@ -124,6 +124,15 @@ export interface ScopedAPI {
   setVisibility: (visible: boolean) => void;
   
   Model: {
+      load: (config: {
+          path: string;
+          id?: string;
+          position?: number[];
+          rotation?: number[];
+          scale?: number[];
+          pipelineId?: string;
+          renderRole?: string;
+      }) => void;
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
           id?: string | null;

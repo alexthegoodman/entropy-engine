@@ -13,6 +13,7 @@ use deno_core::{
     FsModuleLoader,
     ModuleId,
 };
+use nalgebra::{Isometry3, UnitQuaternion, Vector3};
 use uuid::Uuid;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -20,8 +21,10 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use crate::art_assets::Model::read_model;
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
+use crate::helpers::saved_data::ComponentKind;
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -297,6 +300,18 @@ pub struct SynthConfig {
     pub gain: f64,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelConfig {
+    pub id: Option<String>,
+    pub path: String,
+    pub position: [f32; 3],
+    pub rotation: Option<[f32; 3]>,
+    pub scale: Option<[f32; 3]>,
+    pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub gpu_resources: Option<Arc<GpuResources>>,
@@ -312,6 +327,7 @@ pub struct AddonContext {
     pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
+    pub pending_models: Vec<(String, ModelConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
     pub pending_clears: Vec<String>, // addon_names to clear meshes for
     pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
@@ -1582,10 +1598,19 @@ fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] co
     }
 }
 
+#[op2]
+fn op_model_load(state: &mut OpState, #[string] addon_name: String, #[serde] config: ModelConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_models.push((addon_name, config));
+    }
+}
+
 #[op2(fast)]
 fn op_meshes_clear(state: &mut OpState, #[string] addon_name: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_meshes.retain(|(name, _)| name != &addon_name);
+        ctx.pending_cubes.retain(|(name, _)| name != &addon_name);
+        ctx.pending_models.retain(|(name, _)| name != &addon_name);
         ctx.pending_clears.push(addon_name);
     }
 }
@@ -1594,6 +1619,9 @@ fn op_meshes_clear(state: &mut OpState, #[string] addon_name: String) {
 fn op_mesh_clear(state: &mut OpState, #[string] addon_name: String, #[string] mesh_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_meshes.retain(|(name, config)| {
+            !(name == &addon_name && config.id.as_deref() == Some(&mesh_id))
+        });
+        ctx.pending_models.retain(|(name, config)| {
             !(name == &addon_name && config.id.as_deref() == Some(&mesh_id))
         });
         ctx.pending_mesh_clears.push((addon_name, mesh_id));
@@ -1655,6 +1683,7 @@ extension!(
         op_buffer_create,
         op_buffer_write,
         op_cube_spawn,
+        op_model_load,
         op_mesh_create,
         op_mesh_clear,
         op_meshes_clear,
@@ -1730,6 +1759,7 @@ impl AddonEngine {
             grass_uniform_layout: None,
             landscape_particle_layout: None,
             pending_cubes: Vec::new(),
+            pending_models: Vec::new(),
             pending_meshes: Vec::new(),
             pending_clears: Vec::new(),
             pending_mesh_clears: Vec::new(),
@@ -2012,7 +2042,7 @@ impl AddonEngine {
         (bind_groups, uniform_buffers, samplers, time_buffer)
     }
 
-    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64) {
+    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>) {
         let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
 
         // Update current time in context
@@ -2093,12 +2123,13 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
+        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
                 (
                     std::mem::take(&mut ctx.pending_cubes),
+                    std::mem::take(&mut ctx.pending_models),
                     std::mem::take(&mut ctx.pending_meshes),
                     std::mem::take(&mut ctx.pending_clears),
                     std::mem::take(&mut ctx.pending_mesh_clears),
@@ -2108,13 +2139,16 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_landscape_texture_updates)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {
                 renderer_state.addon_meshes.remove(&addon_name);
+                renderer_state.addon_cubes.remove(&addon_name);
+                // Also clear models belonging to this addon
+                renderer_state.models.retain(|m| !m.id.starts_with(&format!("{}_", addon_name)));
             }
         }
 
@@ -2123,6 +2157,8 @@ impl AddonEngine {
                 if let Some(meshes) = renderer_state.addon_meshes.get_mut(&addon_name) {
                     meshes.retain(|m| m.id != mesh_id);
                 }
+                // Also clear models
+                renderer_state.models.retain(|m| m.id != mesh_id);
             }
         }
 
@@ -2164,6 +2200,43 @@ impl AddonEngine {
                         .entry(addon_name)
                         .or_insert_with(Vec::new)
                         .push(cube);
+                }
+            }
+        }
+
+        if !pending_models.is_empty() {
+            if let gpu = gpu_resources {
+                for (addon_name, config) in pending_models {
+                    let project_id = self.project_id.clone();
+                    let id = config.id.unwrap_or_else(|| format!("{}_{}", addon_name, uuid::Uuid::new_v4()));
+                    
+                    let pos = Vector3::new(config.position[0], config.position[1], config.position[2]);
+                    let rot = config.rotation.unwrap_or([0.0, 0.0, 0.0]);
+                    let rot_quat = UnitQuaternion::from_euler_angles(rot[0], rot[1], rot[2]);
+                    let isometry = Isometry3::from_parts(pos.into(), rot_quat);
+                    let scale_val = config.scale.unwrap_or([1.0, 1.0, 1.0]);
+                    let scale = Vector3::new(scale_val[0], scale_val[1], scale_val[2]);
+
+                    // Use block_on for the async handle_add_model
+                    pollster::block_on(crate::handlers::handle_add_model(
+                        renderer_state,
+                        &gpu.device,
+                        &gpu.queue,
+                        project_id,
+                        "".to_string(), // asset_id not used for file loading
+                        id.clone(),
+                        config.path,
+                        isometry,
+                        scale,
+                        camera,
+                        None
+                    ));
+
+                    if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == id) {
+                        for mesh in &mut model.meshes {
+                            mesh.render_role = config.render_role.clone();
+                        }
+                    }
                 }
             }
         }

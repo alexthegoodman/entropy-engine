@@ -83,6 +83,7 @@ pub struct Mesh {
     pub collider_handle: Option<ColliderHandle>,
     pub rapier_rigidbody: RigidBody,
     pub rigid_body_handle: Option<RigidBodyHandle>,
+    pub render_role: Option<String>,
 }
 
 #[derive(Clone)]
@@ -733,6 +734,7 @@ impl Model {
                     rapier_rigidbody: dynamic_body,
                     collider_handle: None,
                     rigid_body_handle: None,
+                    render_role: None
                 });
             }
         }

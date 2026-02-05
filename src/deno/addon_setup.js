@@ -36,6 +36,17 @@ globalThis.Entropy = {
                     },
                 },
                 Model: {
+                    load: (config) => {
+                        ops.op_model_load(getAddonName(), {
+                            id: config.id || null,
+                            path: config.path,
+                            position: config.position || [0, 0, 0],
+                            rotation: config.rotation || [0, 0, 0],
+                            scale: config.scale || [1, 1, 1],
+                            pipeline_id: config.pipelineId || null,
+                            render_role: config.renderRole || null
+                        });
+                    },
                     createProcedural: (config) => {
                         if (config.type === "cube") {
                             ops.op_cube_spawn(getAddonName(), {
