@@ -7,6 +7,7 @@
 
 // tier 1
 import "./environment_addon";
+import "./volumetric_addon";
 import "./light_hive_addon";
 import "./pbr_texture_designer_addon";
 
