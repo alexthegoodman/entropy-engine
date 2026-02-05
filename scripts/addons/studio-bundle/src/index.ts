@@ -8,13 +8,13 @@
 
 // tier 1
 import "./environment_addon";
-// import "./pbr_texture_designer_addon";
+import "./pbr_texture_designer_addon";
+
+// // tier 2
+import "./flexnoise_terrain_addon";
+import "./hair_particle_addon";
+import "./fft_water_addon";
 
 // initialize last (tier 3)
 import "./game_composer_addon";
-
-// // tier 2
-// import "./flexnoise_terrain_addon";
-// import "./hair_particle_addon";
-import "./fft_water_addon";
 

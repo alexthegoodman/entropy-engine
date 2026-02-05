@@ -58,6 +58,9 @@ globalThis.Entropy = {
                             bindings: config.bindings || []
                         });
                     },
+                    clearMesh: (meshId) => {
+                        ops.op_mesh_clear(getAddonName(), meshId);
+                    },
                     clearMeshes: () => {
                         ops.op_meshes_clear(getAddonName());
                     }

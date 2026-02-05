@@ -314,6 +314,7 @@ pub struct AddonContext {
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
     pub pending_clears: Vec<String>, // addon_names to clear meshes for
+    pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -1587,6 +1588,16 @@ fn op_meshes_clear(state: &mut OpState, #[string] addon_name: String) {
     }
 }
 
+#[op2(fast)]
+fn op_mesh_clear(state: &mut OpState, #[string] addon_name: String, #[string] mesh_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_meshes.retain(|(name, config)| {
+            !(name == &addon_name && config.id.as_deref() == Some(&mesh_id))
+        });
+        ctx.pending_mesh_clears.push((addon_name, mesh_id));
+    }
+}
+
 #[op2]
 fn op_addon_on_project_changed(
     state: &mut OpState,
@@ -1633,6 +1644,7 @@ extension!(
         op_buffer_write,
         op_cube_spawn,
         op_mesh_create,
+        op_mesh_clear,
         op_meshes_clear,
         op_landscape_create,
         op_landscape_update_texture,
@@ -1707,6 +1719,7 @@ impl AddonEngine {
             pending_cubes: Vec::new(),
             pending_meshes: Vec::new(),
             pending_clears: Vec::new(),
+            pending_mesh_clears: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
@@ -2061,7 +2074,7 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_meshes, pending_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
+        let (pending_cubes, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -2069,19 +2082,28 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_cubes),
                     std::mem::take(&mut ctx.pending_meshes),
                     std::mem::take(&mut ctx.pending_clears),
+                    std::mem::take(&mut ctx.pending_mesh_clears),
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights),
                     std::mem::take(&mut ctx.pending_landscape_texture_updates)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {
                 renderer_state.addon_meshes.remove(&addon_name);
+            }
+        }
+
+        if !pending_mesh_clears.is_empty() {
+            for (addon_name, mesh_id) in pending_mesh_clears {
+                if let Some(meshes) = renderer_state.addon_meshes.get_mut(&addon_name) {
+                    meshes.retain(|m| m.id != mesh_id);
+                }
             }
         }
 

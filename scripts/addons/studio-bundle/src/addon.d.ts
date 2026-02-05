@@ -122,6 +122,7 @@ export interface ScopedAPI {
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   setVisibility: (visible: boolean) => void;
+  
   Model: {
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
@@ -137,6 +138,7 @@ export interface ScopedAPI {
           bindings?: BindingConfig[] 
       }) => void;
       clearMeshes: () => void;
+      clearMesh: (meshId: string) => void;
   };
   Landscape: {
     create: (config: LandscapeConfig) => void;

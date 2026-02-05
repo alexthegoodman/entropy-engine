@@ -1218,6 +1218,7 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
     const pos = params._transform?.position || [0, 0, 0];
     const scale = params._transform?.scale || [1, 1, 1];
     
+    addon.Model.clearMesh(id);
     addon.Model.createMesh({
         id: id,
         position: pos,
