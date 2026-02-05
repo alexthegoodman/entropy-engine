@@ -13,8 +13,8 @@ interface VolumetricParams {
 
 const addonInfo = {
     name: "Volumetric",
-    version: "1.0.0",
-    description: "Advanced volumetric effects including clouds and fog",
+    version: "1.1.0",
+    description: "Advanced volumetric effects including clouds and fog (Optimized)",
     author: ["Entropy Team"],
     capabilities: {
         graphics: true,
@@ -188,7 +188,7 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let actual_dist = min(ray_dist, max_dist);
     
     let steps = i32(vol.steps);
-    let step_size = actual_dist / f32(steps);
+    let step_size = actual_dist / f32(max(steps, 1));
     var transmittance = 1.0;
     var scattered_light = vec3<f32>(0.0);
     
@@ -294,130 +294,20 @@ const presets: Record<string, VolumetricParams> = {
 };
 
 let pipelineId: string | null = null;
+let uniformBufferId: string | null = null;
 let startTime = Date.now();
-let lastUpdateTime = 0;
 
 addon.onInit(async () => {
     Entropy.println("Volumetric Addon starting...");
 
-    updatePipeline();
-
-    const renderUI = (tab: string) => {
-        Entropy.UI.Widget.label(tab, { text: "Volumetric Presets", bold: true });
-        
-        Entropy.UI.Widget.dropdown(tab, {
-            label: "Select Preset",
-            options: Object.keys(presets),
-            selectedIndex: Object.keys(presets).indexOf("Light Mist"),
-            onChange: (idx: string) => {
-                const presetName = Object.keys(presets)[parseInt(idx)];
-                currentParams = { ...presets[presetName] };
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.label(tab, { text: "Manual Controls", bold: true });
-        
-        Entropy.UI.Widget.slider(tab, {
-            label: "Density",
-            value: currentParams.density,
-            min: 0,
-            max: 1.0,
-            onChange: (val: any) => {
-                currentParams.density = parseFloat(val);
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.slider(tab, {
-            label: "Scattering",
-            value: currentParams.scattering,
-            min: 0,
-            max: 5.0,
-            onChange: (val: any) => {
-                currentParams.scattering = parseFloat(val);
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.slider(tab, {
-            label: "Absorption",
-            value: currentParams.absorption,
-            min: 0,
-            max: 2.0,
-            onChange: (val: any) => {
-                currentParams.absorption = parseFloat(val);
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.slider(tab, {
-            label: "Noise Scale",
-            value: currentParams.noiseScale,
-            min: 0.001,
-            max: 0.5,
-            onChange: (val: any) => {
-                currentParams.noiseScale = parseFloat(val);
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.slider(tab, {
-            label: "Noise Speed",
-            value: currentParams.noiseSpeed,
-            min: 0,
-            max: 2.0,
-            onChange: (val: any) => {
-                currentParams.noiseSpeed = parseFloat(val);
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.colorInput(tab, {
-            label: "Volume Color",
-            color: currentParams.color.slice(0, 3),
-            onChange: (col: any) => {
-                currentParams.color = [col[0], col[1], col[2], 1.0];
-                updatePipeline();
-            }
-        });
-
-        Entropy.UI.Widget.numericInput(tab, {
-            label: "Ray Steps",
-            value: currentParams.steps,
-            onChange: (val: any) => {
-                currentParams.steps = parseInt(val);
-                updatePipeline();
-            }
-        });
-    };
-
-    const tab = addon.UI.createTab({
-        title: "Volumetrics",
-        onRender: () => renderUI(tab)
+    // Create uniform buffer for volumetric parameters
+    // VolumetricUniform size: 4*4 (color) + 4*7 (floats) + 4 (padding) = 16 + 28 + 4 = 48 bytes
+    uniformBufferId = addon.Buffer.create({
+        size: 48,
+        usage: "Uniform"
     });
 
-    if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("Volumetric", renderUI);
-    }
-});
-
-function getUniformData() {
-    const time = (Date.now() - startTime) / 1000.0;
-    return [
-        ...currentParams.color,
-        currentParams.density,
-        currentParams.absorption,
-        currentParams.scattering,
-        currentParams.noiseScale,
-        currentParams.noiseSpeed,
-        time,
-        currentParams.steps,
-        0.0 // padding
-    ];
-}
-
-function updatePipeline() {
+    // Create pipeline using the buffer ID
     pipelineId = Entropy.Pipeline.create({
         name: "volumetric_lighting",
         pbr: true,
@@ -434,31 +324,148 @@ function updatePipeline() {
                 group: 4,
                 binding: 0,
                 resource: {
-                    type: "Uniform",
-                    value: { data: getUniformData() }
+                    type: "Buffer",
+                    value: { id: uniformBufferId }
                 }
             }
         ]
     });
 
-    // Ensure at least one object uses this pipeline so it's active in the lighting pass
-    addon.Model.clearMeshes();
+    // Initial buffer write
+    updateUniformBuffer();
+
+    // Dummy cube to activate pipeline
     addon.Model.createProcedural({
         type: "cube",
         pipelineId: pipelineId,
         parameters: {
-            position: [0.0, -1000.0, 0.0], // Hidden but active
+            position: [0.0, -1000.0, 0.0],
             scale: [0.1, 0.1, 0.1]
         }
     });
+
+    const renderUI = (tab: string) => {
+        Entropy.UI.Widget.label(tab, { text: "Volumetric Presets", bold: true });
+        
+        Entropy.UI.Widget.dropdown(tab, {
+            label: "Select Preset",
+            options: Object.keys(presets),
+            selectedIndex: Object.keys(presets).indexOf("Light Mist"),
+            onChange: (idx: string) => {
+                const presetName = Object.keys(presets)[parseInt(idx)];
+                currentParams = { ...presets[presetName] };
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.label(tab, { text: "Manual Controls", bold: true });
+        
+        Entropy.UI.Widget.slider(tab, {
+            label: "Density",
+            value: currentParams.density,
+            min: 0,
+            max: 1.0,
+            onChange: (val: any) => {
+                currentParams.density = parseFloat(val);
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Scattering",
+            value: currentParams.scattering,
+            min: 0,
+            max: 5.0,
+            onChange: (val: any) => {
+                currentParams.scattering = parseFloat(val);
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Absorption",
+            value: currentParams.absorption,
+            min: 0,
+            max: 2.0,
+            onChange: (val: any) => {
+                currentParams.absorption = parseFloat(val);
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Noise Scale",
+            value: currentParams.noiseScale,
+            min: 0.001,
+            max: 0.5,
+            onChange: (val: any) => {
+                currentParams.noiseScale = parseFloat(val);
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.slider(tab, {
+            label: "Noise Speed",
+            value: currentParams.noiseSpeed,
+            min: 0,
+            max: 2.0,
+            onChange: (val: any) => {
+                currentParams.noiseSpeed = parseFloat(val);
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.colorInput(tab, {
+            label: "Volume Color",
+            color: currentParams.color.slice(0, 3),
+            onChange: (col: any) => {
+                currentParams.color = [col[0], col[1], col[2], 1.0];
+                updateUniformBuffer();
+            }
+        });
+
+        Entropy.UI.Widget.numericInput(tab, {
+            label: "Ray Steps",
+            value: currentParams.steps,
+            onChange: (val: any) => {
+                currentParams.steps = parseInt(val);
+                updateUniformBuffer();
+            }
+        });
+    };
+
+    const tab = addon.UI.createTab({
+        title: "Volumetrics",
+        onRender: () => renderUI(tab)
+    });
+
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor("Volumetric", renderUI);
+    }
+});
+
+function updateUniformBuffer() {
+    if (!uniformBufferId) return;
+    
+    const time = (Date.now() - startTime) / 1000.0;
+    const data = new Float32Array([
+        ...currentParams.color,
+        currentParams.density,
+        currentParams.absorption,
+        currentParams.scattering,
+        currentParams.noiseScale,
+        currentParams.noiseSpeed,
+        time,
+        currentParams.steps,
+        0.0 // padding
+    ]);
+    
+    addon.Buffer.write(uniformBufferId, data);
 }
 
-// Update time for animation
+// Update time for animation efficiently
 addon.onUpdate((time) => {
-    // Recreate pipeline every 500ms to update time uniform without too much overhead
-    const now = Date.now();
-    if (now - lastUpdateTime > 500 && currentParams.noiseSpeed > 0) {
-        updatePipeline();
-        lastUpdateTime = now;
+    if (currentParams.noiseSpeed > 0) {
+        updateUniformBuffer();
     }
 });

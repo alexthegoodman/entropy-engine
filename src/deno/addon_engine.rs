@@ -1296,27 +1296,57 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 for (group_idx, group_bindings) in sorted_groups {
                     let layout = &lighting_layouts[group_idx as usize];
                     let mut wgpu_entries = Vec::new();
-                    let mut created_buffers = Vec::new();
+                    let mut temp_buffers = Vec::new();
+                    let mut temp_samplers = Vec::new();
 
                     for b in group_bindings {
                         match &b.resource {
                             ResourceType::Uniform { data } => {
                                 let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                                     label: Some(&format!("Lighting Uniform {}:{}", group_idx, b.binding)),
-                                    contents: bytemuck::cast_slice(data),
+                                    contents: bytemuck::cast_slice(&data),
                                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                                 });
-                                created_buffers.push(buffer);
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: buffer.as_entire_binding(),
+                                });
+                                temp_buffers.push(buffer);
+                            },
+                            ResourceType::Buffer { id } | ResourceType::Storage { id } => {
+                                if let Some(buffer) = ctx.buffers.get(id.as_str()) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: buffer.as_entire_binding(),
+                                    });
+                                }
+                            },
+                            ResourceType::Texture { id: Some(id) } | ResourceType::TextureNonFilterable { id } => {
+                                if let Some(view) = ctx.textures.get(id.as_str()) {
+                                    wgpu_entries.push(wgpu::BindGroupEntry {
+                                        binding: b.binding,
+                                        resource: wgpu::BindingResource::TextureView(view),
+                                    });
+                                }
+                            },
+                            ResourceType::Sampler => {
+                                let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+                                    address_mode_u: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_v: wgpu::AddressMode::ClampToEdge,
+                                    address_mode_w: wgpu::AddressMode::ClampToEdge,
+                                    mag_filter: wgpu::FilterMode::Linear,
+                                    min_filter: wgpu::FilterMode::Linear,
+                                    mipmap_filter: wgpu::FilterMode::Nearest,
+                                    ..Default::default()
+                                });
+                                wgpu_entries.push(wgpu::BindGroupEntry {
+                                    binding: b.binding,
+                                    resource: wgpu::BindingResource::Sampler(&sampler),
+                                });
+                                temp_samplers.push(sampler);
                             },
                             _ => {} // Handle others as needed
                         }
-                    }
-
-                    for (i, buffer) in created_buffers.iter().enumerate() {
-                        wgpu_entries.push(wgpu::BindGroupEntry {
-                            binding: i as u32, // Simplified for now
-                            resource: buffer.as_entire_binding(),
-                        });
                     }
 
                     let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
