@@ -308,6 +308,13 @@ addon.onInit(async () => {
         //     }
         // });
 
+        if (Entropy.Composer) {
+            const lightUI = Entropy.Composer.getEditor("Light Hive");
+            if (lightUI) {
+                lightUI(tab); // Renders the light hive controls here!
+            }
+        }
+
         Entropy.UI.Widget.button(tab, {
             text: "💾 Save All to Project",
             onClick: () => {
