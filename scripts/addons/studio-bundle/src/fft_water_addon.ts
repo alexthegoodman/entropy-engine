@@ -812,7 +812,7 @@ const addon = Entropy.Addon.register(addonInfo);
 let oceanParams: OceanParams = {
     resolution: 512,
     oceanSize: 1000.0,
-    windSpeed: 2.2,
+    windSpeed: 2.0,
     windDirection: [1.0, 0.7],
     amplitude: 0.02,
     choppiness: 0.15,
@@ -828,8 +828,8 @@ let oceanParams: OceanParams = {
     specularPower: 200.0,
     specularIntensity: 0.5,
     
-    foamThreshold: 0.5,
-    foamIntensity: 0.7,
+    foamThreshold: 0.85,
+    foamIntensity: 0.6,
 };
 
 let addonState: {
