@@ -1,3 +1,5 @@
+NOTE: This is for the approach before addons. We will like replace this with a Behavior Tree Node Graph Editor.
+
 To use the new squad and swarm features, you assign a squad_id to your NPCs. Here is a breakdown of how they behave and how to set it up:
 
 1. How to Specify a Squad

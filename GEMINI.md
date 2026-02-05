@@ -63,3 +63,5 @@ Future addons may include:
 - Behavior Tree Node Graph Editor
 - UI Designer (for in-game UIs)
 - DAW Mastering
+- Storyboarding, Concepts
+- Knowledge Graph
