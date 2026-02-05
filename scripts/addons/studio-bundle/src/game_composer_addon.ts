@@ -53,6 +53,7 @@ const sourceAddons = [
     "FlexNoise Terrain",
     "Hair Particles with Ornaments",
     "PBR Texture Designer Pro",
+    "Light Hive",
     "Advanced Water Plane" // Legacy
 ];
 

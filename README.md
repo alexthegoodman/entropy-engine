@@ -98,3 +98,11 @@ I have been developing a comprehensive addon engine which enables the creation o
 become addons actually. The whole goal is to have an addon for everything, and the Rust is just the engine for that.
 The addons have replicated and enhanced several existing features from water planes to hair particles.
 Next, I will need to make sure addons work for everything, so they are powerful can be quickly iterated on.
+
+### How to approach addons
+
+This addon will act as the "Source of Truth". It should:
+
+* Register a Component: Use Entropy.Composer.registerComponent so point lights show up in the Game Composer's library.
+* Register a Renderer: Provide a function that calls addon.Lighting.createPointLight, Model.createMesh, or similar (using the _transform passed by the Composer).
+* Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties, possibly setting uniforms or clearing and recreating meshes.
