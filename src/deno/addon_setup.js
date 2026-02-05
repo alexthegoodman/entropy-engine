@@ -204,6 +204,9 @@ globalThis.Entropy = {
                     saveImage: (filename, width, height, data) => {
                         ops.op_addon_save_image(metadata.name, filename, width, height, data);
                     },
+                    listModels: () => {
+                        return ops.op_io_list_models();
+                    },
                     pickAndImportModel: () => {
                         return ops.op_io_pick_and_import_model();
                     },

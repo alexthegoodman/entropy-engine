@@ -200,6 +200,7 @@ export interface ScopedAPI {
   IO: {
     save: (data: any) => void;
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
+    listModels: () => Promise<string[]>;
     pickAndImportModel: () => Promise<string>;
     load: () => any;
   };

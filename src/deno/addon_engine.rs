@@ -735,6 +735,36 @@ fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Resu
 }
 
 #[op2]
+#[serde]
+fn op_io_list_models(state: &mut OpState) -> Result<Vec<String>, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.clone();
+    
+    let models_dir = crate::helpers::utilities::get_models_dir(&project_id)
+        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve models directory"))?;
+
+    let mut model_files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(models_dir) {
+        for entry in entries {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext == "glb" || ext == "gltf" {
+                            if let Some(name) = path.file_name() {
+                                model_files.push(name.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(model_files)
+}
+
+#[op2]
 #[string]
 fn op_io_pick_and_import_model(state: &mut OpState) -> Result<String, deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
@@ -1738,6 +1768,7 @@ extension!(
         op_ui_widget_dropdown,
         op_addon_save_data,
         op_addon_save_image,
+        op_io_list_models,
         op_io_pick_and_import_model,
         op_texture_create,
         op_texture_create_ex,

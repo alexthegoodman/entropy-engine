@@ -1,6 +1,6 @@
 const addonInfo = {
     name: "Model Viewer",
-    version: "1.2.0",
+    version: "1.3.0",
     description: "Load and view 3D models with physics support",
     author: ["Entropy Team"],
     capabilities: {
@@ -25,6 +25,14 @@ let state: {
     models: [],
     activeModelId: null
 };
+
+let availableModels: string[] = [];
+
+async function updateAvailableModels() {
+    if (addon.IO.listModels) {
+        availableModels = await addon.IO.listModels();
+    }
+}
 
 function refreshModels() {
     // Clear previously loaded models by this addon
@@ -68,23 +76,24 @@ if (Entropy.Composer) {
 addon.onInit(async () => {
     Entropy.println("Model Viewer Addon Initialized");
 
-    const loadData = () => {
+    const loadData = async () => {
         const saved = addon.IO.load();
         if (saved) {
             state = { ...state, ...saved };
             refreshModels();
         }
+        await updateAvailableModels();
     };
 
-    addon.onProjectChanged(() => {
-        loadData();
+    addon.onProjectChanged(async () => {
+        await loadData();
         
         if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
             Entropy.Composer.initCallbacks[addonInfo.name]();
         }
     });
 
-    loadData();
+    await loadData();
 
     const tabId = addon.UI.createTab({
         title: "Model Viewer",
@@ -92,11 +101,13 @@ addon.onInit(async () => {
             Entropy.UI.Widget.label(tabId, { text: "📦 Model Viewer", bold: true });
 
             Entropy.UI.Widget.button(tabId, {
-                text: "📂 Pick & Import Model",
+                text: "📂 Import Model from Disk",
                 onClick: async () => {
                     if (addon.IO.pickAndImportModel) {
                         const fileName = await addon.IO.pickAndImportModel();
                         if (fileName && fileName !== "") {
+                            await updateAvailableModels();
+                            // Automatically load it
                             const id = Entropy.generateUUID();
                             const newModel: ModelInstance = {
                                 id,
@@ -113,9 +124,40 @@ addon.onInit(async () => {
                 }
             });
 
-            Entropy.UI.Widget.label(tabId, { text: "--- Scene Models ---", bold: true });
+            Entropy.UI.Widget.label(tabId, { text: "--- Available in Project ---", bold: true });
+            if (availableModels.length === 0) {
+                Entropy.UI.Widget.label(tabId, { text: "(No models in project folder)" });
+            }
+
+            availableModels.forEach(modelFile => {
+                Entropy.UI.Widget.button(tabId, {
+                    text: "➕ " + modelFile,
+                    onClick: () => {
+                        const id = Entropy.generateUUID();
+                        const newModel: ModelInstance = {
+                            id,
+                            path: modelFile,
+                            position: [0, 10, 0],
+                            rotation: [0, 0, 0],
+                            scale: [1, 1, 1]
+                        };
+                        state.models.push(newModel);
+                        state.activeModelId = id;
+                        refreshModels();
+                    }
+                });
+            });
+
+            Entropy.UI.Widget.button(tabId, {
+                text: "🔄 Refresh File List",
+                onClick: async () => {
+                    await updateAvailableModels();
+                }
+            });
+
+            Entropy.UI.Widget.label(tabId, { text: "--- Active Scene Models ---", bold: true });
             if (state.models.length === 0) {
-                Entropy.UI.Widget.label(tabId, { text: "(No models loaded)" });
+                Entropy.UI.Widget.label(tabId, { text: "(No models active)" });
             }
 
             state.models.forEach(m => {
@@ -150,7 +192,7 @@ addon.onInit(async () => {
                 }});
 
                 Entropy.UI.Widget.button(tabId, {
-                    text: "🗑️ Delete Model",
+                    text: "🗑️ Delete Instance",
                     onClick: () => {
                         state.models = state.models.filter(m => m.id !== activeModel.id);
                         state.activeModelId = null;

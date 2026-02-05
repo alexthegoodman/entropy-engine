@@ -846,7 +846,7 @@ impl RendererState {
                                     // We use -self.camera_yaw to align the model with the camera's horizontal rotation.
                                     mesh.transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
                                 } else {
-                                    // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // TODO: update rotation based on direction of travel instead
+                                    // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // update rotation based on direction of travel instead
                                 }
                             });
                         }
@@ -1388,8 +1388,6 @@ impl RendererState {
                 camera.position.y - 0.9 + translation.y,
                 camera.position.z + translation.z,
             );
-
-            // TODO: update rigidbody with handle?
         }
     }
 
@@ -1715,9 +1713,6 @@ impl RendererState {
             // ) {
             //     collider.set_position(isometry);
             // }
-
-            // TODO: try this:
-            // landscape.terrain_position = isometry
         });
     }
 
@@ -1747,10 +1742,7 @@ impl RendererState {
                 landscape.collider_handle = Some(collider_handle);
             }
             ComponentKind::Model => {
-                let renderer_model = self
-                    .models
-                    .iter_mut()
-                    .find(|l| l.id == component_id.clone())
+                let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
                     .expect("Couldn't get Renderer Model");
 
                 renderer_model.meshes.iter_mut().for_each(|mesh| {
@@ -1768,10 +1760,7 @@ impl RendererState {
                 });
             },
             ComponentKind::Collectable => {
-                 let renderer_model = self
-                    .models
-                    .iter_mut()
-                    .find(|l| l.id == component_id.clone())
+                 let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
                     .expect("Couldn't get Renderer Model");
 
                 renderer_model.meshes.iter_mut().for_each(|mesh| {
@@ -1819,10 +1808,7 @@ impl RendererState {
                 });
             },
             ComponentKind::NPC => {
-                let renderer_model = self
-                    .models
-                    .iter_mut()
-                    .find(|l| l.id == component_id.clone())
+                let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
                     .expect("Couldn't get Renderer Model");
 
                 renderer_model.meshes.iter_mut().for_each(|mesh| {
@@ -2284,32 +2270,14 @@ pub fn is_rendering_paused() -> bool {
     RENDERING_PAUSED.load(Ordering::SeqCst)
 }
 
-// mutex approach
-
-// // Global mutable static variable for RendererState protected by a Mutex
-// pub static mut RENDERER_STATE: Option<Mutex<RendererState>> = None;
-
-// thread_local! {
-//     pub static RENDERER_STATE_INIT: std::cell::Cell<bool> = std::cell::Cell::new(false);
-// }
-
-// // Function to initialize the RendererState
-// pub fn initialize_renderer_state(state: RendererState) {
-//     unsafe {
-//         RENDERER_STATE = Some(Mutex::new(state));
-//     }
-//     RENDERER_STATE_INIT.with(|init| {
-//         init.set(true);
-//     });
-// }
-
-// // Function to get a mutable reference to the RendererState
-// pub fn get_renderer_state() -> Arc<&'static Mutex<RendererState>> {
-//     RENDERER_STATE_INIT.with(|init| {
-//         if !init.get() {
-//             panic!("RendererState not initialized");
-//         }
-//     });
-
-//     unsafe { Arc::new(RENDERER_STATE.as_ref().unwrap()) }
-// }
+pub fn find_model_mut<'a>(models: &'a mut Vec<Model>, addon_models: &'a mut HashMap<String, Vec<Model>>, id: &str) -> Option<&'a mut Model> {
+    if let Some(model) = models.iter_mut().find(|m| m.id == id) {
+        return Some(model);
+    }
+    for models in addon_models.values_mut() {
+        if let Some(model) = models.iter_mut().find(|m| m.id == id) {
+            return Some(model);
+        }
+    }
+    None
+}
