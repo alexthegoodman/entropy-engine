@@ -320,6 +320,7 @@ pub struct AddonContext {
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
+    pub on_all_addons_initialized_callbacks: Vec<v8::Global<v8::Function>>,
     pub on_cleanup_callbacks: HashMap<String, Vec<v8::Global<v8::Function>>>,
     pub on_update_callbacks: HashMap<String, v8::Global<v8::Function>>,
     pub on_project_changed_callbacks: HashMap<String, v8::Global<v8::Function>>,
@@ -376,6 +377,7 @@ fn op_landscape_update_texture(
     #[string] texture_id: String,
     #[serde] kind: crate::helpers::saved_data::LandscapeTextureKinds,
 ) {
+    println!("op_landscape_update_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Regular { texture_id, kind }));
     }
@@ -389,6 +391,7 @@ fn op_landscape_update_pbr_texture(
     #[serde] kind: crate::heightfield_landscapes::Landscape::PBRTextureKind,
     #[serde] material_type: crate::heightfield_landscapes::Landscape::PBRMaterialType,
 ) {
+    println!("op_landscape_update_pbr_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
     }
@@ -807,6 +810,13 @@ fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
 fn op_addon_on_init(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.on_init_callbacks.entry(addon_name).or_default().push(callback);
+    }
+}
+
+#[op2]
+fn op_addon_on_all_addons_initialized(state: &mut OpState, #[global] callback: v8::Global<v8::Function>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.on_all_addons_initialized_callbacks.push(callback);
     }
 }
 
@@ -1613,6 +1623,7 @@ extension!(
     ops = [
         op_addon_register,
         op_addon_on_init,
+        op_addon_on_all_addons_initialized,
         op_addon_on_update,
         op_addon_on_cleanup,
         op_pipeline_create,
@@ -1702,6 +1713,7 @@ impl AddonEngine {
             pending_sun_config: None,
             noise_generators: HashMap::new(),
             on_init_callbacks: HashMap::new(),
+            on_all_addons_initialized_callbacks: Vec::new(),
             on_cleanup_callbacks: HashMap::new(),
             on_update_callbacks: HashMap::new(),
             on_project_changed_callbacks: HashMap::new(),
@@ -2067,61 +2079,6 @@ impl AddonEngine {
             }
         };
 
-        if !pending_landscape_texture_updates.is_empty() {
-            
-
-            if let Some(gpu) = &renderer_state.gpu_resources {
-                println!("renderer_state landscapes... {:?}", renderer_state.addon_landscapes.keys());
-
-                for (addon_name, update) in pending_landscape_texture_updates {
-                    if let Some(landscapes) = renderer_state.addon_landscapes.get_mut(&addon_name) {
-                        for landscape in landscapes {
-                            // Find texture data
-                            let texture_data = {
-                                let op_state = self.runtime.op_state();
-                                let op_state = op_state.borrow();
-                                let ctx = op_state.borrow::<AddonContext>();
-                                match update {
-                                    LandscapeTextureUpdate::Regular { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
-                                    LandscapeTextureUpdate::Pbr { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
-                                }
-                            };
-
-                            println!("renderer_state.addon_landscapes {:?}", addon_name);
-
-                            if let Some(texture) = texture_data {
-                                match update {
-                                    LandscapeTextureUpdate::Regular { kind, .. } => {
-                                        landscape.update_texture(
-                                            &gpu.device,
-                                            &gpu.queue,
-                                            &renderer_state.model_bind_group_layout, // Wait, is this the right layout? Landscape.rs says texture_bind_group_layout
-                                            &renderer_state.texture_render_mode_buffer,
-                                            &renderer_state.color_render_mode_buffer,
-                                            kind,
-                                            &texture
-                                        );
-                                    },
-                                    LandscapeTextureUpdate::Pbr { kind, material_type, .. } => {
-                                        landscape.update_pbr_texture(
-                                            &gpu.device,
-                                            &gpu.queue,
-                                            &renderer_state.model_bind_group_layout,
-                                            &renderer_state.texture_render_mode_buffer,
-                                            &renderer_state.color_render_mode_buffer,
-                                            kind,
-                                            material_type,
-                                            &texture
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {
                 renderer_state.addon_meshes.remove(&addon_name);
@@ -2312,6 +2269,61 @@ impl AddonEngine {
             }
         }
 
+        if !pending_landscape_texture_updates.is_empty() {
+            
+
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                println!("renderer_state landscapes... {:?}", renderer_state.addon_landscapes.keys());
+
+                for (addon_name, update) in pending_landscape_texture_updates {
+                    if let Some(landscapes) = renderer_state.addon_landscapes.get_mut(&addon_name) {
+                        for landscape in landscapes {
+                            // Find texture data
+                            let texture_data = {
+                                let op_state = self.runtime.op_state();
+                                let op_state = op_state.borrow();
+                                let ctx = op_state.borrow::<AddonContext>();
+                                match update {
+                                    LandscapeTextureUpdate::Regular { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
+                                    LandscapeTextureUpdate::Pbr { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
+                                }
+                            };
+
+                            println!("renderer_state.addon_landscapes {:?}", addon_name);
+
+                            if let Some(texture) = texture_data {
+                                match update {
+                                    LandscapeTextureUpdate::Regular { kind, .. } => {
+                                        landscape.update_texture(
+                                            &gpu.device,
+                                            &gpu.queue,
+                                            &renderer_state.model_bind_group_layout, // Wait, is this the right layout? Landscape.rs says texture_bind_group_layout
+                                            &renderer_state.texture_render_mode_buffer,
+                                            &renderer_state.color_render_mode_buffer,
+                                            kind,
+                                            &texture
+                                        );
+                                    },
+                                    LandscapeTextureUpdate::Pbr { kind, material_type, .. } => {
+                                        landscape.update_pbr_texture(
+                                            &gpu.device,
+                                            &gpu.queue,
+                                            &renderer_state.model_bind_group_layout,
+                                            &renderer_state.texture_render_mode_buffer,
+                                            &renderer_state.color_render_mode_buffer,
+                                            kind,
+                                            material_type,
+                                            &texture
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if !pending_grasses.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
                 for (addon_name, config) in pending_grasses {
@@ -2450,6 +2462,7 @@ impl AddonEngine {
         let _ = self.runtime.mod_evaluate(module_id).await?;
 
         self.run_on_init();
+        self.run_on_all_addons_initialized();
 
         Ok(module_id)
     }
@@ -2463,6 +2476,8 @@ impl AddonEngine {
     pub fn load_bundle_sync(&mut self, name: &'static str, source: &str) -> Result<(), AnyError> {
         self.runtime.execute_script(name, source.to_string())?;
         self.run_on_init();
+        println!("ALL ADDONS INITIALIZED - RUN CALLBACKS");
+        self.run_on_all_addons_initialized();
         Ok(())
     }
 
@@ -2486,6 +2501,27 @@ impl AddonEngine {
                     let receiver = v8::undefined(scope);
                     let _ = func.call(scope, receiver.into(), &[]);
                 }
+            }
+        }
+    }
+
+    fn run_on_all_addons_initialized(&mut self) {
+        let callbacks = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                std::mem::take(&mut ctx.on_all_addons_initialized_callbacks)
+            } else {
+                Vec::new()
+            }
+        };
+
+        if !callbacks.is_empty() {
+            let scope = &mut self.runtime.handle_scope();
+            for callback in callbacks {
+                let func = v8::Local::new(scope, callback);
+                let receiver = v8::undefined(scope);
+                let _ = func.call(scope, receiver.into(), &[]);
             }
         }
     }

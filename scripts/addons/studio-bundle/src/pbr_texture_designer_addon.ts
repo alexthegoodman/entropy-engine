@@ -477,6 +477,8 @@ function updatePreview(params: typeof texParams, id: string = "default") {
 
     const { vertices, indices } = generateCubeData();
 
+    Entropy.println("PBR updatePreview");
+
     addon.Model.clearMeshes();
     addon.Model.createMesh({
         id: id,

@@ -12,6 +12,9 @@ globalThis.Entropy = {
                 onInit: (callback) => {
                     ops.op_addon_on_init(metadata.name, callback);
                 },
+                onAllAddonsInitialized: (callback) => {
+                    ops.op_addon_on_all_addons_initialized(callback);
+                },
                 onUpdate: (callback) => {
                     ops.op_addon_on_update(metadata.name, callback);
                 },
@@ -79,9 +82,11 @@ globalThis.Entropy = {
                         ops.op_landscape_update_pbr_texture(getAddonName(), textureId, kind, materialType);
                     },
                     updateTexturePlus: (addonName, textureId, kind) => {
+                        ops.op_println(String("updateTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind));
                         ops.op_landscape_update_texture(addonName, textureId, kind);
                     },
                     updatePbrTexturePlus: (addonName, textureId, kind, materialType) => {
+                        ops.op_println(String("updatePbrTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind + " " + materialType));
                         ops.op_landscape_update_pbr_texture(addonName, textureId, kind, materialType);
                     }
                 },

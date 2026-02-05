@@ -98,13 +98,6 @@ function refreshScene() {
 addon.onInit(async () => {
     Entropy.println("Game Composer 2.0 Initializing...");
 
-    // Load saved state
-    const savedData = addon.IO.load();
-    if (savedData) {
-        composerState = { ...composerState, ...savedData };
-        // refreshScene();
-    }
-
     // Atmospheric lighting
     addon.Lighting.createPointLight({
         position: [-3.0, 4.0, 65.0],
@@ -131,7 +124,7 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             composerState = { ...composerState, ...data };
-            refreshScene();
+            refreshScene(); // until we clear, lets avoid this?
 
             if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
                 Entropy.Composer.initCallbacks[addonInfo.name]();

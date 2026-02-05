@@ -117,6 +117,7 @@ export interface ProceduralSkyConfig {
 
 export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
+  onAllAddonsInitialized: (callback: InitCallback) => void;
   onUpdate: (callback: UpdateCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;

@@ -141,7 +141,7 @@ function applyPBRToSlot(addonName: string, pbrid: string, slot: PBRMaterialType)
     }
 }
 
-function restoreLayerTextures(addonName: string) {
+function restoreLayerTextures(addonName: string, params: typeof terrainParams) {
     if (!Entropy.Composer) return;
     
     const layers = ["Primary", "Rockmap", "Soil"];
@@ -149,10 +149,10 @@ function restoreLayerTextures(addonName: string) {
     const components = Entropy.Composer.getComponents(texAddonName) || {};
     
     layers.forEach(slot => {
-        const layersMap = addonState.currentParams.textureLayers || {};
+        const layersMap = params.textureLayers || {};
         const compId = layersMap[slot as "Primary" | "Rockmap" | "Soil"];
 
-        Entropy.println("---PBR Texture Designer Pro restoreLayerTextures... " + JSON.stringify(layersMap) + " " + slot + " comp by id " + (compId ? JSON.stringify(components[compId]) : "null compId"));
+        Entropy.println(`---PBR Texture Designer Pro restoreLayerTextures for ${addonName}... ` + JSON.stringify(layersMap) + " " + slot + " comp by id " + (compId ? JSON.stringify(components[compId]) : "null compId"));
         
         if (compId && components[compId]) {
             const renderer = Entropy.Composer?.getRenderer(texAddonName);
@@ -248,10 +248,13 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
             renderRole: "Terrain"
         } as any);
 
-        // restoreLayerTextures();
+        // const addonName = (globalThis as any).__entropy_current_addon_context_override || addonInfo.name;
+        // if (params.usePBR) {
+        //     restoreLayerTextures(addonName, params);
+        // }
 
-        // restoreLayerTextures("PBR Texture Designer Pro");
-        // restoreLayerTextures("Game Composer");
+        restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+        restoreLayerTextures("Game Composer", addonState.currentParams);
     }
     
     
@@ -260,34 +263,39 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
 addon.onInit(async () => {
     Entropy.println("FlexNoise Terrain Addon (Alea-seeded) Initializing...");
 
-    if (Entropy.Composer) {
-        Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
-            restoreLayerTextures("FlexNoise Terrain");
-        };
-        Entropy.Composer.initCallbacks["Game Composer"] = () => {
-            restoreLayerTextures("Game Composer");
-        };
-    }
+    // if (Entropy.Composer) {
+    //     Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
+    //         restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+    //     };
+    //     Entropy.Composer.initCallbacks["Game Composer"] = () => {
+    //         // This might need to iterate over composer components, but usually generateTerrain handles it now
+    //     };
+    // }
 
-    const savedData = addon.IO.load();
-    if (savedData) {
-        addonState = { ...addonState, ...savedData };
-        // Ensure textureLayers exists if loading old save
-        if (!addonState.currentParams.textureLayers) {
-            addonState.currentParams.textureLayers = {
-                "Primary": null,
-                "Rockmap": null,
-                "Soil": null
-            };
-        }
+    // addon.onAllAddonsInitialized(() => {
+    //     Entropy.println("All addons initialized! Restoring FlexNoise textures...");
+    //     restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+    //     // Game Composer handled by its own onAllAddonsInitialized -> refreshScene -> generateTerrain -> restoreLayerTextures
+    // });
 
-        // Register components with the composer
-        if (Entropy.Composer) {
-            addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
-            });
-        }
-    }
+    // if (savedData) {
+    //     addonState = { ...addonState, ...savedData };
+    //     // Ensure textureLayers exists if loading old save
+    //     if (!addonState.currentParams.textureLayers) {
+    //         addonState.currentParams.textureLayers = {
+    //             "Primary": null,
+    //             "Rockmap": null,
+    //             "Soil": null
+    //         };
+    //     }
+
+    //     // Register components with the composer
+    //     if (Entropy.Composer) {
+    //         addonState.savedComponents.forEach(comp => {
+    //             Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+    //         });
+    //     }
+    // }
 
     const renderTerrainUI = (tab: string) => {
         Entropy.Addon.setVisibility(addonInfo.name, true);
@@ -621,6 +629,9 @@ addon.onInit(async () => {
             }
 
             // generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+
+            // restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+            // restoreLayerTextures("Game Composer", addonState.currentParams);
         }
     });
 
@@ -645,8 +656,6 @@ addon.onInit(async () => {
         intensity: 8.0,
         maxDistance: 150.0
     });
-
-    generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
     const tab = addon.UI.createTab({
         title: "FlexNoise",
