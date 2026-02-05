@@ -106,7 +106,7 @@ function applyRockmapMask() {
     addon.Landscape.updateTexture(maskId, "RockmapMask");
 }
 
-function applyPBRToSlot(pbrid: string, slot: PBRMaterialType) {
+function applyPBRToSlot(addonName: string, pbrid: string, slot: PBRMaterialType) {
     if (globalThis.lastPBRDesignerTextures) {
         const designerTextures = globalThis.lastPBRDesignerTextures[pbrid];
         if (designerTextures) {
@@ -119,33 +119,29 @@ function applyPBRToSlot(pbrid: string, slot: PBRMaterialType) {
                 const res = addonState.currentParams.width;
                 const maskData = new Uint8Array(res * res * 4).fill(255);
                 const maskId = addon.Texture.create(res, res, maskData);
-                addon.Landscape.updateTexture(maskId, "PrimaryMask");
+                addon.Landscape.updateTexturePlus(addonName, maskId, "PrimaryMask");
             } else if (slot === "Soil") {
                 const res = addonState.currentParams.width;
                 const maskData = new Uint8Array(res * res * 4).fill(255);
                 const maskId = addon.Texture.create(res, res, maskData);
-                addon.Landscape.updateTexture(maskId, "SoilMask");
+                addon.Landscape.updateTexturePlus(addonName, maskId, "SoilMask");
             }
 
             // 2. Apply Albedo
-            addon.Landscape.updateTexture(designerTextures.diffId, slot);
+            addon.Landscape.updateTexturePlus(addonName, designerTextures.diffId, slot);
             
             // 3. Apply Normal
-            addon.Landscape.updatePbrTexture(designerTextures.norId, "Normal", slot);
+            addon.Landscape.updatePbrTexturePlus(addonName, designerTextures.norId, "Normal", slot);
             
             // 4. Apply PBR Params
-            addon.Landscape.updatePbrTexture(designerTextures.armId, "AORoughnessMetallic", slot);
+            addon.Landscape.updatePbrTexturePlus(addonName, designerTextures.armId, "AORoughnessMetallic", slot);
             
             Entropy.println(`✓ ${slot} updated!`);
         }
     }
 }
 
-// function applyPBRFromDesigner() {
-//     applyPBRToSlot("Rockmap");
-// }
-
-function restoreLayerTextures() {
+function restoreLayerTextures(addonName: string) {
     if (!Entropy.Composer) return;
     
     const layers = ["Primary", "Rockmap", "Soil"];
@@ -153,118 +149,123 @@ function restoreLayerTextures() {
     const components = Entropy.Composer.getComponents(texAddonName) || {};
     
     layers.forEach(slot => {
-        // Safe access in case textureLayers is undefined in old saves
         const layersMap = addonState.currentParams.textureLayers || {};
         const compId = layersMap[slot as "Primary" | "Rockmap" | "Soil"];
 
         Entropy.println("---PBR Texture Designer Pro restoreLayerTextures... " + JSON.stringify(layersMap) + " " + slot + " comp by id " + (compId ? JSON.stringify(components[compId]) : "null compId"));
         
         if (compId && components[compId]) {
-             const renderer = Entropy.Composer?.getRenderer(texAddonName);
-             if (renderer) {
-                 renderer(compId, components[compId].params);
-                 
-                 // Apply to landscape
-                 applyPBRToSlot(compId, slot as "Primary" | "Rockmap" | "Soil");
-
-                 Entropy.println("---PBR Texture Designer Pro restoreLayerTextures!!! " + JSON.stringify(components[compId].params));
-             }
+            const renderer = Entropy.Composer?.getRenderer(texAddonName);
+            if (renderer) {
+                renderer(compId, components[compId].params);
+                
+                // Add a check to see if textures were actually created
+                if (globalThis.lastPBRDesignerTextures && globalThis.lastPBRDesignerTextures[compId]) {
+                    applyPBRToSlot(addonName, compId, slot as "Primary" | "Rockmap" | "Soil");
+                    Entropy.println("✓ Restoration successful for " + slot);
+                } else {
+                    Entropy.println("⚠️ Textures not ready for " + slot + " - available keys: " + 
+                        Object.keys(globalThis.lastPBRDesignerTextures || {}).join(", "));
+                }
+            }
         }
     });
 }
 
-// Global listener for designer updates
-// globalThis.onPBRDesignerUpdate = () => {
-//     if (addonState.currentParams.usePBR && addonState.currentParams.autoSyncPBR) {
-//         applyPBRFromDesigner();
-//     }
-// };
-
 async function generateTerrain(params: typeof terrainParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = "default") {
-    Entropy.println(`Regenerating FlexNoise Terrain (${id}): ${params.width}x${params.height}...`);
     
-    // Use Alea for robust seeded random generation
-    const prng = Alea(params.seed);
-    const noise2D = createNoise2D(prng);
-    const noise3D = createNoise3D(prng);
-    
-    const heights = [];
-    
-    for (let y = 0; y < params.height; y++) {
-        for (let x = 0; x < params.width; x++) {
-            let noiseValue;
-            if (params.use3D) {
-                noiseValue = 0;
-                let amplitude = 1;
-                let freq = params.frequency;
-                let maxValue = 0;
-                for (let i = 0; i < params.octaves; i++) {
-                    noiseValue += noise3D(x * freq, y * freq, params.time) * amplitude;
-                    maxValue += amplitude;
-                    amplitude *= params.persistence;
-                    freq *= params.lacunarity;
+
+    if (params.width && params.height) {
+        Entropy.println(`Regenerating FlexNoise Terrain (${id}): ${params.width}x${params.height}...`);
+
+        // Use Alea for robust seeded random generation
+        const prng = Alea(params.seed);
+        const noise2D = createNoise2D(prng);
+        const noise3D = createNoise3D(prng);
+        
+        const heights = [];
+        
+        for (let y = 0; y < params.height; y++) {
+            for (let x = 0; x < params.width; x++) {
+                let noiseValue;
+                if (params.use3D) {
+                    noiseValue = 0;
+                    let amplitude = 1;
+                    let freq = params.frequency;
+                    let maxValue = 0;
+                    for (let i = 0; i < params.octaves; i++) {
+                        noiseValue += noise3D(x * freq, y * freq, params.time) * amplitude;
+                        maxValue += amplitude;
+                        amplitude *= params.persistence;
+                        freq *= params.lacunarity;
+                    }
+                    noiseValue /= maxValue;
+                } else {
+                    noiseValue = fbm(
+                        noise2D,
+                        x, y,
+                        params.octaves,
+                        params.frequency,
+                        params.persistence,
+                        params.lacunarity
+                    );
                 }
-                noiseValue /= maxValue;
-            } else {
-                noiseValue = fbm(
-                    noise2D,
-                    x, y,
-                    params.octaves,
-                    params.frequency,
-                    params.persistence,
-                    params.lacunarity
-                );
+                
+                const height = noiseValue * params.heightScale;
+                heights.push(height);
             }
-            
-            const height = noiseValue * params.heightScale;
-            heights.push(height);
         }
+        
+        let pipelineId = "default";
+        if (!params.usePBR) {
+            pipelineId = Entropy.Pipeline.create({
+                name: "terrain_custom_color",
+                pbr: false,
+                fragmentShader: `
+                    struct VertexOutput {
+                        @location(0) color: vec4<f32>,
+                    }
+                    @fragment
+                    fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+                        return vec4<f32>(${params.terrainColor[0]}, ${params.terrainColor[1]}, ${params.terrainColor[2]}, 1.0);
+                    }
+                `
+            });
+        }
+
+        const posX = params._transform?.position?.[0] || 0;
+        const posY = (params._transform?.position?.[1] || 0) + params.positionY;
+        const posZ = params._transform?.position?.[2] || 0;
+
+        addon.Landscape.create({
+            id: id,
+            width: params.width,
+            height: params.height,
+            heights: heights,
+            noiseId: null,
+            position: [posX, posY, posZ],
+            pipelineId: pipelineId,
+            renderRole: "Terrain"
+        } as any);
+
+        // restoreLayerTextures();
+
+        // restoreLayerTextures("PBR Texture Designer Pro");
+        // restoreLayerTextures("Game Composer");
     }
     
-    let pipelineId = "default";
-    if (!params.usePBR) {
-        pipelineId = Entropy.Pipeline.create({
-            name: "terrain_custom_color",
-            pbr: false,
-            fragmentShader: `
-                struct VertexOutput {
-                    @location(0) color: vec4<f32>,
-                }
-                @fragment
-                fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-                    return vec4<f32>(${params.terrainColor[0]}, ${params.terrainColor[1]}, ${params.terrainColor[2]}, 1.0);
-                }
-            `
-        });
-    }
-
-    const posX = params._transform?.position?.[0] || 0;
-    const posY = (params._transform?.position?.[1] || 0) + params.positionY;
-    const posZ = params._transform?.position?.[2] || 0;
-
-    addon.Landscape.create({
-        id: id,
-        width: params.width,
-        height: params.height,
-        heights: heights,
-        noiseId: null,
-        position: [posX, posY, posZ],
-        pipelineId: pipelineId,
-        renderRole: "Terrain"
-    } as any);
-
-    // restoreLayerTextures();
+    
 }
 
 addon.onInit(async () => {
     Entropy.println("FlexNoise Terrain Addon (Alea-seeded) Initializing...");
 
     if (Entropy.Composer) {
-        // Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
-        //     restoreLayerTextures();
-        // };
+        Entropy.Composer.initCallbacks["PBR Texture Designer Pro"] = () => {
+            restoreLayerTextures("FlexNoise Terrain");
+        };
         Entropy.Composer.initCallbacks["Game Composer"] = () => {
-            restoreLayerTextures();
+            restoreLayerTextures("Game Composer");
         };
     }
 
@@ -292,6 +293,13 @@ addon.onInit(async () => {
         Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
+        // Entropy.UI.Widget.button(tab, {
+        //     text: "Restore Textures",
+        //     onClick: () => {
+        //         restoreLayerTextures();
+        //     }
+        // });
+
         Entropy.UI.Widget.button(tab, {
             text: "💾 Save All to Project",
             onClick: () => {
@@ -537,7 +545,9 @@ addon.onInit(async () => {
                             if (renderer) {
                                 // This updates globalThis.lastPBRDesignerTextures
                                 renderer("temp_interop_gen", comp.params);
-                                applyPBRToSlot("temp_interop_gen", interopState.selectedSlot);
+
+                                applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", interopState.selectedSlot);
+                                applyPBRToSlot("Game Composer", "temp_interop_gen", interopState.selectedSlot);
 
                                 Entropy.println("---PBR Texture Designer Pro applyPBRToSlot!!! " + JSON.stringify(comp.params) + " and.. " + JSON.stringify(addonState.currentParams));
 
@@ -610,7 +620,7 @@ addon.onInit(async () => {
                 });
             }
 
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            // generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
         }
     });
 

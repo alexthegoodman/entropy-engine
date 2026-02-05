@@ -141,6 +141,8 @@ export interface ScopedAPI {
     create: (config: LandscapeConfig) => void;
     updateTexture: (textureId: string, kind: LandscapeTextureKind) => void;
     updatePbrTexture: (textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
+    updateTexturePlus: (addonName:string, textureId: string, kind: LandscapeTextureKind) => void;
+    updatePbrTexturePlus: (addonName: string, textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
   };
   Noise: {
     create: (config: NoiseConfig) => string;

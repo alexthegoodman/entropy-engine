@@ -2068,7 +2068,11 @@ impl AddonEngine {
         };
 
         if !pending_landscape_texture_updates.is_empty() {
+            
+
             if let Some(gpu) = &renderer_state.gpu_resources {
+                println!("renderer_state landscapes... {:?}", renderer_state.addon_landscapes.keys());
+
                 for (addon_name, update) in pending_landscape_texture_updates {
                     if let Some(landscapes) = renderer_state.addon_landscapes.get_mut(&addon_name) {
                         for landscape in landscapes {
@@ -2082,6 +2086,8 @@ impl AddonEngine {
                                     LandscapeTextureUpdate::Pbr { ref texture_id, .. } => ctx.addon_textures.get(texture_id).cloned(),
                                 }
                             };
+
+                            println!("renderer_state.addon_landscapes {:?}", addon_name);
 
                             if let Some(texture) = texture_data {
                                 match update {

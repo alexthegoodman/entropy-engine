@@ -77,6 +77,12 @@ globalThis.Entropy = {
                     },
                     updatePbrTexture: (textureId, kind, materialType) => {
                         ops.op_landscape_update_pbr_texture(getAddonName(), textureId, kind, materialType);
+                    },
+                    updateTexturePlus: (addonName, textureId, kind) => {
+                        ops.op_landscape_update_texture(addonName, textureId, kind);
+                    },
+                    updatePbrTexturePlus: (addonName, textureId, kind, materialType) => {
+                        ops.op_landscape_update_pbr_texture(addonName, textureId, kind, materialType);
                     }
                 },
                 Particles: {
