@@ -1,6 +1,6 @@
 const addonInfo = {
     name: "Model Viewer",
-    version: "1.1.0",
+    version: "1.2.0",
     description: "Load and view 3D models with physics support",
     author: ["Entropy Team"],
     capabilities: {
@@ -39,6 +39,13 @@ function refreshModels() {
             rotation: m.rotation,
             scale: m.scale
         });
+
+        // Auto-register as component
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, m.path, m.path, {
+                path: m.path
+            });
+        }
     });
 }
 
@@ -71,7 +78,13 @@ addon.onInit(async () => {
 
     addon.onProjectChanged(() => {
         loadData();
+        
+        if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
+            Entropy.Composer.initCallbacks[addonInfo.name]();
+        }
     });
+
+    loadData();
 
     const tabId = addon.UI.createTab({
         title: "Model Viewer",
@@ -81,7 +94,7 @@ addon.onInit(async () => {
             Entropy.UI.Widget.button(tabId, {
                 text: "📂 Pick & Import Model",
                 onClick: async () => {
-                    if (addon.IO.pickAndImportModel!) {
+                    if (addon.IO.pickAndImportModel) {
                         const fileName = await addon.IO.pickAndImportModel();
                         if (fileName && fileName !== "") {
                             const id = Entropy.generateUUID();
@@ -142,19 +155,6 @@ addon.onInit(async () => {
                         state.models = state.models.filter(m => m.id !== activeModel.id);
                         state.activeModelId = null;
                         refreshModels();
-                    }
-                });
-
-                // Register this model as a component for other addons (like Game Composer)
-                Entropy.UI.Widget.button(tabId, {
-                    text: "➕ Register as Component",
-                    onClick: () => {
-                        if (Entropy.Composer) {
-                            Entropy.Composer.registerComponent(addonInfo.name, activeModel.path, activeModel.path, {
-                                path: activeModel.path
-                            });
-                            Entropy.println("Registered " + activeModel.path + " as component");
-                        }
                     }
                 });
             }
