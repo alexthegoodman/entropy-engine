@@ -55,18 +55,21 @@ class VolumetricFX {
   // Animation
   private time: number = 0;
   private dustParticles: DustParticle[] = [];
+
+  particleBufferId: string = "";
+  storageBufferId: string = "";
   
   constructor(api: ScopedAPI) {
     this.api = api;
     
     // Default configuration - AAA quality settings
     this.config = {
-      fogDensity: 0.415,
+      fogDensity: 0.015,
       fogColor: [0.7, 0.75, 0.8],
-      fogStart: 10.0,
-      fogEnd: 200.0,
+      fogStart: 50.0,
+      fogEnd: 150.0,
       
-      dustEnabled: true,
+      dustEnabled: false, // later
       dustDensity: 2000,
       dustSize: 0.08,
       dustBrightness: 1.5,
@@ -181,6 +184,12 @@ class VolumetricFX {
     
     const fragmentShader = `
       struct Uniforms {
+        fogColor: vec4<f32>,
+        sunDirection: vec4<f32>,
+        cameraPos: vec4<f32>,  // New: Camera position
+        cubeMin: vec4<f32>,    // New: Cube min bounds
+        cubeMax: vec4<f32>,    // New: Cube max bounds
+
         fogDensity: f32,
         fogStart: f32,
         fogEnd: f32,
@@ -189,16 +198,11 @@ class VolumetricFX {
         rayleighScattering: f32,
         raymarchSteps: f32,
         time: f32,
-        fogColor: vec3<f32>,
-        sunDirection: vec3<f32>,
-        cameraPos: vec3<f32>,  // New: Camera position
-        cubeMin: vec3<f32>,    // New: Cube min bounds
-        cubeMax: vec3<f32>,    // New: Cube max bounds
       }
       
-      @group(1) @binding(0) var<uniform> uniforms: Uniforms;
-      @group(1) @binding(1) var noiseTex: texture_2d<f32>;
-      @group(1) @binding(2) var noiseSampler: sampler;
+      @group(1) @binding(0) var noiseTex: texture_2d<f32>;
+      @group(1) @binding(1) var noiseSampler: sampler;
+      @group(2) @binding(0) var<storage, read> uniforms: Uniforms;
       
       // Sample 3D noise from 2D texture
       fn sampleNoise3D(pos: vec3<f32>) -> f32 {
@@ -233,6 +237,10 @@ class VolumetricFX {
         
         return uniforms.fogDensity * noise * heightFalloff;
       }
+
+      fn isInsideAABB(pos: vec3<f32>, boxMin: vec3<f32>, boxMax: vec3<f32>) -> bool {
+        return all(pos >= boxMin) && all(pos <= boxMax);
+      }
       
       // Ray-AABB intersection
       fn rayAABBIntersect(origin: vec3<f32>, dir: vec3<f32>, boxMin: vec3<f32>, boxMax: vec3<f32>) -> vec2<f32> {
@@ -249,7 +257,7 @@ class VolumetricFX {
       // Raymarch through volume, confined to cube
       fn raymarchFog(rayOrigin: vec3<f32>, rayDir: vec3<f32>, maxDist: f32) -> vec4<f32> {
         // Compute ray-cube intersection
-        let intersect = rayAABBIntersect(rayOrigin, rayDir, uniforms.cubeMin, uniforms.cubeMax);
+        let intersect = rayAABBIntersect(rayOrigin, rayDir, uniforms.cubeMin.xyz, uniforms.cubeMax.xyz);
         var tStart = max(intersect.x, 0.0);
         var tEnd = intersect.y;
         
@@ -271,7 +279,7 @@ class VolumetricFX {
         var transmittance = 1.0;
         var scatteredLight = vec3<f32>(0.0);
         
-        let sunDir = normalize(uniforms.sunDirection);
+        let sunDir = normalize(uniforms.sunDirection.xyz);
         let cosTheta = dot(rayDir, sunDir);
         
         // Phase functions
@@ -296,7 +304,7 @@ class VolumetricFX {
             );
             
             // Accumulate light
-            scatteredLight += uniforms.fogColor * scattering * transmittance * stepSize;
+            scatteredLight += uniforms.fogColor.xyz * scattering * transmittance * stepSize;
             
             // Update transmittance
             transmittance *= sampleTransmittance;
@@ -322,8 +330,20 @@ class VolumetricFX {
         // NOTE: Would benefit from depth buffer to get proper max distance
         let maxDist = uniforms.fogEnd;
         
-        let fog = raymarchFog(rayOrigin, rayDir, maxDist);
-        
+        let fog = raymarchFog(rayOrigin.xyz, rayDir, maxDist);
+
+        // return vec4<f32>(1.0, 0.0, 0.0, 0.5);  // Semi-transparent red overlay
+
+        // return vec4<f32>(uniforms.fogColor.xyz, 0.5);  // Should show fogColor tint if buffer bound correctly
+
+        // if (isInsideAABB(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(-250.0, -250.0, -250.0), vec3<f32>(250.0, 250.0, 250.0))) {
+        //   return vec4<f32>(0.0, 0.0, 1.0, 1.0);  // Blue: Camera inside cube (should be full-screen if true)
+        // }
+
+        // if (isInsideAABB(rayOrigin.xyz, uniforms.cubeMin.xyz, uniforms.cubeMax.xyz)) {
+        //   return vec4<f32>(0.0, 0.0, 1.0, 1.0);  // Blue: Camera inside cube (should be full-screen if true)
+        // }
+
         return fog;
       }
     `;
@@ -334,8 +354,13 @@ class VolumetricFX {
       fragmentShader,
       form: "composite",
       extraBindGroups: [{
+          entries: [
+            { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
+            { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
+          ]
+        },{
         entries: [
-          { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" },
+          { binding: 0, visibility: ["Fragment"], resourceType: "Storage" },
         ]
       }]
     });
@@ -343,14 +368,50 @@ class VolumetricFX {
     // activate rendering (a bit of a bug)
     api.Model.createProcedural({
         type: "cube",
-        pipelineId: this.fogPipelineId,
+        pipelineId: "default",
         parameters: {
             position: [-2.0, 5.0, 0.0],
             scale: [1.0, 1.0, 1.0]
         }
     });
 
-    Entropy.Composite.register("volumetric_fog", this.noiseTextureId!, this.fogPipelineId);
+    // sets it up as `composite_pass.draw(0..3, 0..1);`
+    const size = this.config.cubeSize[0];
+    const halfSize = size / 2;
+    const params = new Float32Array([
+      ...this.config.fogColor, 0.0,
+       ...[1.0, -0.2, 0.5, 0.0],
+       ...[0.0,0.0,0.0, 0.0],
+        -halfSize, -halfSize, -halfSize, 0.0,  // cubeMin (vec3)
+        halfSize, halfSize, halfSize, 0.0,     // cubeMax (vec3)
+
+        this.config.fogDensity,
+        this.config.fogStart,
+        this.config.fogEnd,
+        this.config.sunScatterStrength,
+        this.config.mieScattering,
+        this.config.rayleighScattering,
+        this.config.raymarchSteps,
+       0.0, // time
+    ]);
+
+    const bufferSize = params.length * 4; // 8 floats * 4 bytes
+    
+    this.storageBufferId = this.api.Buffer.create({
+      size: bufferSize,
+      usage: "Storage"
+    });
+
+    this.api.Buffer.write(this.storageBufferId, params);
+
+    Entropy.Composite.register(
+      "volumetric_fog", 
+      this.noiseTextureId!, 
+      this.fogPipelineId,
+      [
+          { group: 2, binding: 0, resource: { type: "Storage", value: { id: this.storageBufferId } } },
+      ]
+    );
   }
   
   createDustSystem() {
@@ -372,8 +433,8 @@ class VolumetricFX {
         brightness: f32,
       }
       
-      @group(1) @binding(0) var<uniform> uniforms: Uniforms;
-      @group(1) @binding(1) var<storage, read> particles: array<ParticleData>;
+      @group(2) @binding(0) var<uniform> uniforms: Uniforms;
+      @group(2) @binding(1) var<storage, read> particles: array<ParticleData>;
       
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
@@ -430,7 +491,7 @@ class VolumetricFX {
         dustBrightness: f32,
       }
       
-      @group(1) @binding(0) var<uniform> uniforms: Uniforms;
+      @group(2) @binding(0) var<uniform> uniforms: Uniforms;
       
       @fragment
       fn fs_main(
@@ -457,13 +518,30 @@ class VolumetricFX {
       vertexShader,
       fragmentShader,
       form: "composite",
-      extraBindGroups: [{
+      extraBindGroups: [
+        {
+          entries: [
+            { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
+            { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
+          ]
+        },
+        {
         entries: [
           { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
           { binding: 1, visibility: ["Vertex"], resourceType: "StorageReadOnly" },
         ]
       }]
     });
+
+    Entropy.Composite.register(
+      "dust_particles", 
+      this.noiseTextureId!, 
+      this.dustPipelineId,
+      [
+          { group: 2, binding: 0, resource: { type: "Uniform", value: { data: Array.from([]) } } },
+          { group: 2, binding: 1, resource: { type: "Storage", value: { id: this.particleBufferId } } },
+      ]
+    );
   }
   
   initializeDustParticles() {
@@ -503,19 +581,39 @@ class VolumetricFX {
         phase: Math.random() * Math.PI * 2,
       });
     }
+
+    const particleSize = 8 * 4; // 8 floats * 4 bytes
+    const bufferSize = this.config.particleCount * particleSize;
+    
+    this.particleBufferId = this.api.Buffer.create({
+      size: bufferSize,
+      usage: "Storage"
+    });
   }
   
   update(time: number, cameraPos: [number, number, number]) {
     this.time = time;
-    
-    // NOTE: Would set uniforms here for fog pipeline, e.g.:
-    // api.Pipeline.setUniform(this.fogPipelineId, {
-    //   ...this.config (mapped appropriately),
-    //   time: this.time,
-    //   cameraPos,
-    //   cubeMin: [cubePos[0] - halfSize[0], ...],
-    //   cubeMax: [cubePos[0] + halfSize[0], ...],
-    // });
+
+    const size = this.config.cubeSize[0];
+    const halfSize = size / 2;
+    const params = new Float32Array([
+      ...this.config.fogColor, 0.0,
+       ...[1.0, -0.2, 0.5, 0.0],
+       ...[0.0,0.0,0.0, 0.0],
+        -halfSize, -halfSize, -halfSize, 0.0,  // cubeMin (vec3)
+        halfSize, halfSize, halfSize, 0.0,     // cubeMax (vec3)
+
+        this.config.fogDensity,
+        this.config.fogStart,
+        this.config.fogEnd,
+        this.config.sunScatterStrength,
+        this.config.mieScattering,
+        this.config.rayleighScattering,
+        this.config.raymarchSteps,
+       time,
+    ]);
+
+    this.api.Buffer.write(this.storageBufferId, params);
     
     // Update dust particles
     if (this.config.dustEnabled && this.dustParticles.length > 0) {

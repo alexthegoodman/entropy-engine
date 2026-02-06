@@ -1095,18 +1095,13 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             }
 
             // NEW: Composite Texture Pass (for compute-rendered particles, etc.)
-            // TODO: we need to be able to render multiple Composites, each with their own extra bind groups, similar to addon meshes. 
-            // NOTE: we can create the Composite when we register the composite in the addon_engine
-{
-            let mut op_state = editor.addon_engine.runtime.op_state();
-            let op_state = op_state.borrow();
-            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
-                for (name, texture_view) in &ctx.composite_textures {
-                    if let Some(composite_pipeline) = ctx.composite_pipelines.get(name) {
-                        // println!("Render composite");
-
+            {
+                let mut op_state = editor.addon_engine.runtime.op_state();
+                let op_state = op_state.borrow();
+                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                    for composite in &ctx.composites {
                         let mut composite_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some(&format!("Composite Pass: {}", name)),
+                            label: Some(&format!("Composite Pass: {}", composite.name)),
                             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                                 view: &view,
                                 resolve_target: None,
@@ -1132,10 +1127,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             composite_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
                         }
 
-                        composite_pass.set_pipeline(composite_pipeline);
+                        composite_pass.set_pipeline(&composite.pipeline);
                         
                         // Create bind group on-the-fly for the texture
-                        // (You could cache these too, but this is simpler for now)
                         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
                             address_mode_u: wgpu::AddressMode::ClampToEdge,
                             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -1146,14 +1140,13 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             ..Default::default()
                         });
 
-                        let bind_group_layout = composite_pipeline.get_bind_group_layout(1);
-                        // LATER: this should be dynamicly determined by config and updated as needed
+                        let bind_group_layout = composite.pipeline.get_bind_group_layout(1);
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             layout: &bind_group_layout,
                             entries: &[
                                 wgpu::BindGroupEntry {
                                     binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(texture_view),
+                                    resource: wgpu::BindingResource::TextureView(&composite.texture_view),
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 1,
@@ -1165,11 +1158,21 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                         composite_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                         composite_pass.set_bind_group(1, &bind_group, &[]);
+                        
+                        for (i, extra_bg) in composite.bind_groups.iter().enumerate() {
+                            composite_pass.set_bind_group((i + 2) as u32, extra_bg, &[]);
+                        }
+
+                        if let Some(time_buffer) = &composite.time_buffer {
+                            queue.write_buffer(time_buffer, 0, bytemuck::cast_slice(&[time as f32]));
+                        }
+
+                        // println!("Render Composite");
+
                         composite_pass.draw(0..3, 0..1);
                     }
                 }
             }
-        }
 
         if pipeline.frame_buffer.is_some() {
             let frame_buffer = pipeline

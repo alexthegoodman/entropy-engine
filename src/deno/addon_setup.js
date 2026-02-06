@@ -531,8 +531,9 @@ globalThis.Entropy.IO = {
 };
 
 globalThis.Entropy.Composite = {
-  register: (name, textureId, pipelineId) => {
-    ops.op_register_composite_texture(name, textureId, pipelineId);
+  register: (name, textureId, pipelineId, bindings = []) => {
+    const target = globalThis.__entropy_current_addon_context_override || "Global";
+    ops.op_register_composite_texture(target, { name, textureId, pipelineId, bindings });
   }
 };
 

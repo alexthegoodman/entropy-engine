@@ -355,7 +355,7 @@ export interface EntropyAPI {
       }
   };
   Composite: {
-    register: (nameId: string, outputTexId: string, compositePipelineId: string) => void;
+    register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;
   },
   Pipeline: {
     create: (config: PipelineConfig) => string;

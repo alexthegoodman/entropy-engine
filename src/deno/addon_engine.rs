@@ -336,6 +336,7 @@ pub struct AddonContext {
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
+    pub pending_composites: Vec<(String, CompositeConfig)>,
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
@@ -359,8 +360,27 @@ pub struct AddonContext {
     pub current_time: f64,
     pub camera_position: [f32; 3],
     pub camera_direction: [f32; 3],
-    pub composite_textures: HashMap<String, Arc<wgpu::TextureView>>,
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
+    pub composites: Vec<CompositeInstance>,
+}
+
+pub struct CompositeInstance {
+    pub name: String,
+    pub texture_view: Arc<wgpu::TextureView>,
+    pub pipeline: Arc<wgpu::RenderPipeline>,
+    pub bind_groups: Vec<wgpu::BindGroup>,
+    pub uniform_buffers: Vec<wgpu::Buffer>,
+    pub samplers: Vec<wgpu::Sampler>,
+    pub time_buffer: Option<wgpu::Buffer>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CompositeConfig {
+    pub name: String,
+    pub texture_id: String,
+    pub pipeline_id: String,
+    pub bindings: Option<Vec<BindingConfig>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1252,7 +1272,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
         );
         
         if config.form == Some("composite".to_string()) {
-            ctx.composite_pipelines.insert(config.name.clone(), Arc::new(pipeline));
+            ctx.composite_pipelines.insert(id.clone(), Arc::new(pipeline));
         } else {
             ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
         }
@@ -1803,32 +1823,14 @@ fn op_addon_set_visibility(state: &mut OpState, #[string] addon_name: String, vi
 }
 
 #[op2]
-#[serde]
 pub fn op_register_composite_texture(
     state: &mut OpState,
-    #[string] name: String,
-    #[string] texture_id: String,
-    #[string] pipeline_id: String,
-) -> Result<(), deno_error::JsErrorBox> {
-    let ctx = state.borrow_mut::<AddonContext>();
-
-    println!("Registering composite...");
-
-    if let Some(gpu) = &ctx.gpu_resources {
-        println!("Registering composite 2...");
-        // Get texture from texture registry
-        if let Some(texture_view) = ctx.textures.get(&texture_id) {
-            println!("Registering composite... 3");
-
-            if let Some(pipeline) = ctx.composite_pipelines.get(&name) {
-                // Store reference for rendering
-                ctx.composite_textures.insert(name, texture_view.clone());
-                println!("Registered composite!");
-            }
-        }
+    #[string] addon_name: String,
+    #[serde] config: CompositeConfig,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_composites.push((addon_name, config));
     }
-    
-    Ok(())
 }
 
 extension!(
@@ -1930,8 +1932,10 @@ impl AddonEngine {
             pending_mesh_clears: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
-            pending_point_lights: Vec::new(),
-            pending_sun_config: None,
+                            pending_point_lights: Vec::new(),
+                            pending_composites: Vec::new(),
+                            pending_sun_config: None,
+            
             noise_generators: HashMap::new(),
             on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
@@ -1954,8 +1958,8 @@ impl AddonEngine {
             current_time: 0.0,
             camera_position: [0.0, 0.0, 0.0],
             camera_direction: [0.0, 0.0, -1.0],
-            composite_textures: HashMap::new(),
             composite_pipelines: HashMap::new(),
+            composites: Vec::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -2290,7 +2294,7 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_landscape_texture_updates) = {
+        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -2303,10 +2307,11 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights),
+                    std::mem::take(&mut ctx.pending_composites),
                     std::mem::take(&mut ctx.pending_landscape_texture_updates)
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
@@ -2348,6 +2353,49 @@ impl AddonEngine {
                     .entry(addon_name)
                     .or_insert_with(Vec::new)
                     .push(pl);
+            }
+        }
+
+        if !pending_composites.is_empty() {
+            if let Some(gpu) = &renderer_state.gpu_resources {
+                for (_addon_name, config) in pending_composites {
+                    let (pipeline, texture_view) = {
+                        let op_state = self.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                            let p = ctx.composite_pipelines.get(&config.pipeline_id).or_else(|| ctx.pipelines.get(&config.pipeline_id)).cloned();
+                            let t = ctx.textures.get(&config.texture_id).cloned();
+                            (p, t)
+                        } else {
+                            (None, None)
+                        }
+                    };
+
+                    println!("Pending Composites... {:?} {:?} {:?}", pipeline.is_some(), texture_view.is_some(), config);
+
+                    if let (Some(pipeline), Some(texture_view)) = (pipeline, texture_view) {
+                         let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
+                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings)
+                         } else {
+                             (Vec::new(), Vec::new(), Vec::new(), None)
+                         };
+                         
+
+                         let mut op_state = self.runtime.op_state();
+                         let mut op_state = op_state.borrow_mut();
+                         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                             ctx.composites.push(CompositeInstance {
+                                 name: config.name,
+                                 texture_view,
+                                 pipeline,
+                                 bind_groups,
+                                 uniform_buffers,
+                                 samplers,
+                                 time_buffer,
+                             });
+                         }
+                    }
+                }
             }
         }
 
