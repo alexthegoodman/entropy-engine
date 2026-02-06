@@ -45,6 +45,7 @@ class ComputeDustSystem {
   private outputTexId: string | null = null;
   
   // Compute pipelines
+  private clearPipelineId: string | null = null;
   private updatePipelineId: string | null = null;
   private renderPipelineId: string | null = null;
   
@@ -83,6 +84,7 @@ class ComputeDustSystem {
     this.createOutputTexture();
     
     // Create compute pipelines
+    this.createClearPipeline();
     this.createUpdatePipeline();
     this.createRenderPipeline();
     
@@ -90,6 +92,31 @@ class ComputeDustSystem {
     this.createCompositePipeline();
     
     println("✨ Compute dust system ready!");
+  }
+
+  createClearPipeline() {
+    const shader = `
+      @group(0) @binding(0) var outputTex: texture_storage_2d<rgba16float, write>;
+      
+      @compute @workgroup_size(16, 16)
+      fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+        let size = textureDimensions(outputTex);
+        if (id.x >= size.x || id.y >= size.y) {
+          return;
+        }
+        textureStore(outputTex, vec2<i32>(id.xy), vec4<f32>(0.0, 0.0, 0.0, 0.0));
+      }
+    `;
+    
+    this.clearPipelineId = this.api.Compute.createPipeline({
+      name: "dust_clear",
+      shaderSource: shader,
+      bindGroups: [{
+        entries: [
+          { binding: 0, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+        ]
+      }]
+    });
   }
   
   createNoiseTexture() {
@@ -586,8 +613,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     this.time = time;
     const dt = 0.016;
     
-    if (!this.updatePipelineId || !this.particleBufferId || !this.noiseTexId) return;
+    if (!this.updatePipelineId || !this.particleBufferId || !this.noiseTexId || !this.clearPipelineId || !this.outputTexId) return;
     
+    this.api.Compute.dispatch({
+      pipelineId: this.clearPipelineId,
+      groups: [Math.ceil(this.config.renderWidth / 16), Math.ceil(this.config.renderHeight / 16), 1],
+      bindings: [
+        {
+          group: 0,
+          binding: 0,
+          resource: { type: "StorageTextureRgba16", value: { id: this.outputTexId } }
+        },
+      ]
+    });
+
     // Update particles with compute shader
     const updateParams = new Float32Array([
       dt,
