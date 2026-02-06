@@ -212,21 +212,21 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                     .show(ctx, |ui| {
                         ui.vertical_centered(|ui| {
                             ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
-                                pipeline.current_workspace = Workspace::GameEngine;
-                            }
-                            ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
-                                pipeline.current_workspace = Workspace::Sophia;
-                            }
-                            ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
-                                pipeline.current_workspace = Workspace::Stunts;
-                            }
-                            ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
-                                pipeline.current_workspace = Workspace::CentralChat;
-                            }
+                            // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
+                            //     pipeline.current_workspace = Workspace::GameEngine;
+                            // }
+                            // ui.add_space(6.0);
+                            // if ui.selectable_label(pipeline.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
+                            //     pipeline.current_workspace = Workspace::Sophia;
+                            // }
+                            // ui.add_space(6.0);
+                            // if ui.selectable_label(pipeline.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
+                            //     pipeline.current_workspace = Workspace::Stunts;
+                            // }
+                            // ui.add_space(6.0);
+                            // if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
+                            //     pipeline.current_workspace = Workspace::CentralChat;
+                            // }
 
                             // Render Addon Workspaces
                             if let Some(editor) = &mut viewer.context.export_editor {
@@ -256,6 +256,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                     });
 
                 if pipeline.show_addon_manager {
+                    // TODO: make a tab so it doesnt float
                     egui::Window::new("Entropy Addons")
                         .default_size([400.0, 500.0])
                         .open(&mut pipeline.show_addon_manager)
@@ -300,34 +301,34 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                         });
                 }
 
-                if pipeline.show_central_chat_overlay {
-                    egui::Window::new("Central Chat")
-                        .default_size([400.0, 600.0])
-                        .open(&mut pipeline.show_central_chat_overlay)
-                        .show(ctx, |ui| {
-                            DockArea::new(&mut pipeline.central_chat_dock_state)
-                                .style(Style::from_egui(ctx.style().as_ref()))
-                                .show_inside(ui, &mut viewer);
-                        });
-                }
+                // if pipeline.show_central_chat_overlay {
+                //     egui::Window::new("Central Chat")
+                //         .default_size([400.0, 600.0])
+                //         .open(&mut pipeline.show_central_chat_overlay)
+                //         .show(ctx, |ui| {
+                //             DockArea::new(&mut pipeline.central_chat_dock_state)
+                //                 .style(Style::from_egui(ctx.style().as_ref()))
+                //                 .show_inside(ui, &mut viewer);
+                //         });
+                // }
 
-                if pipeline.current_workspace == Workspace::Sophia {
-                    if let Some(editor) = &mut viewer.context.export_editor {
-                        let quiet_mode = editor.sophia_app_state.quiet_mode;
+                // if pipeline.current_workspace == Workspace::Sophia {
+                //     if let Some(editor) = &mut viewer.context.export_editor {
+                //         let quiet_mode = editor.sophia_app_state.quiet_mode;
 
-                        if quiet_mode {
-                            egui::CentralPanel::default().show(ctx, |ui| {
-                                viewer.ui(ui, &mut Tab::Writing);
-                            });
-                        } else {
-                            egui::CentralPanel::default().show(ctx, |ui| {
-                                DockArea::new(&mut pipeline.sophia_dock_state)
-                                    .style(Style::from_egui(ctx.style().as_ref()))
-                                    .show_inside(ui, &mut viewer);
-                            });
-                        }
-                    }
-                } else {
+                //         if quiet_mode {
+                //             egui::CentralPanel::default().show(ctx, |ui| {
+                //                 viewer.ui(ui, &mut Tab::Writing);
+                //             });
+                //         } else {
+                //             egui::CentralPanel::default().show(ctx, |ui| {
+                //                 DockArea::new(&mut pipeline.sophia_dock_state)
+                //                     .style(Style::from_egui(ctx.style().as_ref()))
+                //                     .show_inside(ui, &mut viewer);
+                //             });
+                //         }
+                //     }
+                // } else {
                     egui::CentralPanel::default()
                         .show(ctx, |ui| {
                         
@@ -339,23 +340,19 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                     ds
                                 });
                                 let surface = dock_state.main_surface_mut();
-                                surface.split_right(NodeIndex::root(), 0.7, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                                surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                                surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
                             }
                         }
 
                         let active_dock_state = match &pipeline.current_workspace {
-                            Workspace::GameEngine => &mut pipeline.game_dock_state,
-                            Workspace::Sophia => &mut pipeline.sophia_dock_state,
-                            Workspace::Stunts => &mut pipeline.stunts_dock_state,
-                            Workspace::CentralChat => &mut pipeline.central_chat_dock_state,
                             Workspace::Addon(name) => {
                                 pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
-                                    let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-                                    let surface = ds.main_surface_mut();
-                                    surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+                                    let mut ds = DockState::new(vec![Tab::Projects]);
                                     ds
                                 })
                             },
+                            _ => return
                         };
 
                         DockArea::new(active_dock_state)
@@ -367,67 +364,67 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                         }
 
                         // Draw selection highlight for Stunts objects
-                        if let Some(editor) = &viewer.context.export_editor {
-                            if let Some(selected) = &editor.selected_object {
-                                let mut rect_pos = None;
-                                let mut rect_size = None;
+                        // if let Some(editor) = &viewer.context.export_editor {
+                        //     if let Some(selected) = &editor.selected_object {
+                        //         let mut rect_pos = None;
+                        //         let mut rect_size = None;
 
-                                match selected.object_type {
-                                    ObjectType::Polygon => {
-                                        if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
-                                            rect_pos = Some(poly.transform.position);
-                                            rect_size = Some(poly.dimensions);
-                                        }
-                                    }
-                                    ObjectType::TextItem => {
-                                        if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
-                                            rect_pos = Some(text.transform.position);
-                                            rect_size = Some(text.dimensions);
-                                        }
-                                    }
-                                    ObjectType::ImageItem => {
-                                        if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
-                                            rect_pos = Some(img.transform.position);
-                                            rect_size = Some((img.transform.scale.x, img.transform.scale.y));
-                                        }
-                                    }
-                                    ObjectType::VideoItem => {
-                                        if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
-                                            rect_pos = Some(vid.transform.position);
-                                            rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
-                                        }
-                                    }
-                                }
+                        //         match selected.object_type {
+                        //             ObjectType::Polygon => {
+                        //                 if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+                        //                     rect_pos = Some(poly.transform.position);
+                        //                     rect_size = Some(poly.dimensions);
+                        //                 }
+                        //             }
+                        //             ObjectType::TextItem => {
+                        //                 if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+                        //                     rect_pos = Some(text.transform.position);
+                        //                     rect_size = Some(text.dimensions);
+                        //                 }
+                        //             }
+                        //             ObjectType::ImageItem => {
+                        //                 if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+                        //                     rect_pos = Some(img.transform.position);
+                        //                     rect_size = Some((img.transform.scale.x, img.transform.scale.y));
+                        //                 }
+                        //             }
+                        //             ObjectType::VideoItem => {
+                        //                 if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+                        //                     rect_pos = Some(vid.transform.position);
+                        //                     rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
+                        //                 }
+                        //             }
+                        //         }
 
-                                if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
-                                    let screen_rect = egui::Rect::from_center_size(
-                                        egui::pos2(pos.x, pos.y),
-                                        egui::vec2(size.0, size.1)
-                                    );
+                        //         if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
+                        //             let screen_rect = egui::Rect::from_center_size(
+                        //                 egui::pos2(pos.x, pos.y),
+                        //                 egui::vec2(size.0, size.1)
+                        //             );
                                     
-                                    let painter = ui.painter();
-                                    painter.rect_stroke(
-                                        screen_rect.expand(2.0),
-                                        2.0,
-                                        egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
-                                        StrokeKind::Middle
-                                    );
+                        //             let painter = ui.painter();
+                        //             painter.rect_stroke(
+                        //                 screen_rect.expand(2.0),
+                        //                 2.0,
+                        //                 egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
+                        //                 StrokeKind::Middle
+                        //             );
 
-                                    // Draw tiny handles at corners
-                                    let handle_color = egui::Color32::WHITE;
-                                    let handle_size = 6.0;
-                                    for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
-                                        painter.rect_filled(
-                                            egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
-                                            1.0,
-                                            handle_color
-                                        );
-                                    }
-                                }
-                            }
-                        }
+                        //             // Draw tiny handles at corners
+                        //             let handle_color = egui::Color32::WHITE;
+                        //             let handle_size = 6.0;
+                        //             for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
+                        //                 painter.rect_filled(
+                        //                     egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
+                        //                     1.0,
+                        //                     handle_color
+                        //                 );
+                        //             }
+                        //         }
+                        //     }
+                        // }
                     });
-                }
+                // }
             }
         } // context and viewer dropped here
 

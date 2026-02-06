@@ -5,6 +5,7 @@ Some of these need to be completed as addons, others as engine-side features.
 ### TBD Features:
 
 - Volumetric Fog
+- True Global Illumination
 - Dynamic clouds
 - Parallax Mapping
 - Tessellation

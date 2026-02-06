@@ -57,7 +57,8 @@ pub enum Tab {
     Projects,
     Components,
     Properties,
-    Chat,
+    WryChat, // full
+    Chat, //  egui
     AssetLibrary,
     Controls,
     Writing,
@@ -177,14 +178,16 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 let rect = ui.available_rect_before_wrap();
                 editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
                 editor.is_viewport_visible = true;
-
-                // println!("editor.viewport_tab_rect {:?}", editor.viewport_tab_rect);
-                
-                // Keep the UI busy so it redraws
-                ui.ctx().request_repaint();
+            }
+            Tab::WryChat => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                let rect = ui.available_rect_before_wrap();
+                editor.wry_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
             }
             Tab::Projects => {
                 let editor = self.context.export_editor.as_mut().unwrap();
+
+                ui.heading("Your Projects");
 
                 // Games
                 if self.context.current_app == AppExperience::OpenWorldStudio && editor.world_state.is_none() {
@@ -1149,256 +1152,259 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 }
             }
             Tab::Chat => {
-                let mut received_msg = None;
-                if let Some(rx) = &self.context.chat.rx {
-                    match rx.try_recv() {
-                        Ok(msg) => received_msg = Some(msg),
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            self.context.chat.is_loading = false;
-                            self.context.chat.rx = None;
-                        },
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
-                    }
-                }
+                // // TODO: this egui chat will be replaced with the wry-based chat (which will live in its own left-hand sidebar)
+                // let mut received_msg = None;
+                // if let Some(rx) = &self.context.chat.rx {
+                //     match rx.try_recv() {
+                //         Ok(msg) => received_msg = Some(msg),
+                //         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                //             self.context.chat.is_loading = false;
+                //             self.context.chat.rx = None;
+                //         },
+                //         Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                //     }
+                // }
 
-                if let Some(msg) = received_msg {
-                    self.context.chat.is_loading = false;
-                    self.context.chat.rx = None;
-                    self.context.chat.messages.push(msg.clone());
+                // if let Some(msg) = received_msg {
+                //     self.context.chat.is_loading = false;
+                //     self.context.chat.rx = None;
+                //     self.context.chat.messages.push(msg.clone());
 
-                    if let Some(tool_calls) = msg.tool_calls {
-                        for tool_call in tool_calls {
-                            self.execute_tool_call(tool_call);
-                        }
-                    }
+                //     if let Some(tool_calls) = msg.tool_calls {
+                //         for tool_call in tool_calls {
+                //             self.execute_tool_call(tool_call);
+                //         }
+                //     }
 
-                    if let Some(editor) = self.context.export_editor.as_ref() {
-                        if let Some(world_state) = &editor.world_state {
-                             let project_id = world_state.id.as_ref().expect("Couldn't get id").clone();
-                             let _ = update_project_state(&project_id, world_state);
-                        }
-                    }
-                }
+                //     if let Some(editor) = self.context.export_editor.as_ref() {
+                //         if let Some(world_state) = &editor.world_state {
+                //              let project_id = world_state.id.as_ref().expect("Couldn't get id").clone();
+                //              let _ = update_project_state(&project_id, world_state);
+                //         }
+                //     }
+                // }
 
-                // Check for sessions list
-                if let Some(rx) = &self.context.chat.sessions_rx {
-                    match rx.try_recv() {
-                        Ok(sessions) => {
-                            self.context.chat.available_sessions = sessions;
-                            self.context.chat.sessions_rx = None;
-                            self.context.chat.is_loading = false;
-                        },
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            self.context.chat.sessions_rx = None;
-                            self.context.chat.is_loading = false;
-                        },
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
-                    }
-                }
+                // // Check for sessions list
+                // if let Some(rx) = &self.context.chat.sessions_rx {
+                //     match rx.try_recv() {
+                //         Ok(sessions) => {
+                //             self.context.chat.available_sessions = sessions;
+                //             self.context.chat.sessions_rx = None;
+                //             self.context.chat.is_loading = false;
+                //         },
+                //         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                //             self.context.chat.sessions_rx = None;
+                //             self.context.chat.is_loading = false;
+                //         },
+                //         Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                //     }
+                // }
 
-                // Check for session history
-                if let Some(rx) = &self.context.chat.messages_rx {
-                    match rx.try_recv() {
-                        Ok(messages) => {
-                            self.context.chat.messages = messages;
-                            self.context.chat.messages_rx = None;
-                            self.context.chat.is_loading = false;
-                        },
-                        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                            self.context.chat.messages_rx = None;
-                            self.context.chat.is_loading = false;
-                        },
-                        Err(std::sync::mpsc::TryRecvError::Empty) => {},
-                    }
-                }
+                // // Check for session history
+                // if let Some(rx) = &self.context.chat.messages_rx {
+                //     match rx.try_recv() {
+                //         Ok(messages) => {
+                //             self.context.chat.messages = messages;
+                //             self.context.chat.messages_rx = None;
+                //             self.context.chat.is_loading = false;
+                //         },
+                //         Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                //             self.context.chat.messages_rx = None;
+                //             self.context.chat.is_loading = false;
+                //         },
+                //         Err(std::sync::mpsc::TryRecvError::Empty) => {},
+                //     }
+                // }
 
-                 if self.context.chat.current_session.is_none() {
-                    if ui.button("Start New Session").clicked() {
-                         let editor = self.context.export_editor.as_ref().unwrap();
-                         if let Some(saved_data) = &editor.world_state {
-                             let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
-                             let client = self.context.chat.client.clone();
-                             let api_url = self.context.chat.api_url.clone();
+                //  if self.context.chat.current_session.is_none() {
+                //     if ui.button("Start New Session").clicked() {
+                //          let editor = self.context.export_editor.as_ref().unwrap();
+                //          if let Some(saved_data) = &editor.world_state {
+                //              let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
+                //              let client = self.context.chat.client.clone();
+                //              let api_url = self.context.chat.api_url.clone();
                              
-                             let (tx, rx) = std::sync::mpsc::channel();
-                             std::thread::spawn(move || {
-                                let rt = tokio::runtime::Runtime::new().unwrap();
-                                rt.block_on(async {
-                                    let url = format!("{}/api/sessions", api_url);
-                                    let body = serde_json::json!({ "projectId": project_id });
-                                    let res = client.post(&url).json(&body).send().await;
-                                    if let Ok(resp) = res {
-                                        if let Ok(session) = resp.json::<ChatSession>().await {
-                                            let _ = tx.send(session);
-                                        }
-                                    }
-                                });
-                             });
-                             if let Ok(session) = rx.recv() {
-                                 self.context.chat.current_session = Some(session);
-                                 self.context.chat.messages.clear();
-                            }
-                         }
-                    }
+                //              let (tx, rx) = std::sync::mpsc::channel();
+                //              std::thread::spawn(move || {
+                //                 let rt = tokio::runtime::Runtime::new().unwrap();
+                //                 rt.block_on(async {
+                //                     let url = format!("{}/api/sessions", api_url);
+                //                     let body = serde_json::json!({ "projectId": project_id });
+                //                     let res = client.post(&url).json(&body).send().await;
+                //                     if let Ok(resp) = res {
+                //                         if let Ok(session) = resp.json::<ChatSession>().await {
+                //                             let _ = tx.send(session);
+                //                         }
+                //                     }
+                //                 });
+                //              });
+                //              if let Ok(session) = rx.recv() {
+                //                  self.context.chat.current_session = Some(session);
+                //                  self.context.chat.messages.clear();
+                //             }
+                //          }
+                //     }
 
-                    ui.separator();
-                    ui.horizontal(|ui| {
-                        ui.label("Previous Sessions");
-                        if ui.button("Refresh").clicked() {
-                            if let Some(editor) = self.context.export_editor.as_ref() {
-                                if let Some(saved_data) = &editor.world_state {
-                                    let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
-                                    let client = self.context.chat.client.clone();
-                                    let api_url = self.context.chat.api_url.clone();
+                //     ui.separator();
+                //     ui.horizontal(|ui| {
+                //         ui.label("Previous Sessions");
+                //         if ui.button("Refresh").clicked() {
+                //             if let Some(editor) = self.context.export_editor.as_ref() {
+                //                 if let Some(saved_data) = &editor.world_state {
+                //                     let project_id = saved_data.id.as_ref().expect("Couldn't get id").clone();
+                //                     let client = self.context.chat.client.clone();
+                //                     let api_url = self.context.chat.api_url.clone();
                                     
-                                    let (tx, rx) = std::sync::mpsc::channel();
-                                    self.context.chat.sessions_rx = Some(rx);
-                                    self.context.chat.is_loading = true;
+                //                     let (tx, rx) = std::sync::mpsc::channel();
+                //                     self.context.chat.sessions_rx = Some(rx);
+                //                     self.context.chat.is_loading = true;
 
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
-                                            let url = format!("{}/api/projects/{}/sessions", api_url, project_id);
-                                            if let Ok(res) = client.get(&url).send().await {
-                                                if let Ok(sessions) = res.json::<Vec<ChatSession>>().await {
-                                                    let _ = tx.send(sessions);
-                                                }
-                                            }
-                                        });
-                                    });
-                                }
-                            }
-                        }
-                    });
+                //                     std::thread::spawn(move || {
+                //                         let rt = tokio::runtime::Runtime::new().unwrap();
+                //                         rt.block_on(async {
+                //                             let url = format!("{}/api/projects/{}/sessions", api_url, project_id);
+                //                             if let Ok(res) = client.get(&url).send().await {
+                //                                 if let Ok(sessions) = res.json::<Vec<ChatSession>>().await {
+                //                                     let _ = tx.send(sessions);
+                //                                 }
+                //                             }
+                //                         });
+                //                     });
+                //                 }
+                //             }
+                //         }
+                //     });
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        for session in &self.context.chat.available_sessions {
-                            ui.horizontal(|ui| {
-                                ui.label(format!("Session {}", &session.id[0..8]));
-                                if ui.button("Resume").clicked() {
-                                    self.context.chat.current_session = Some(session.clone());
+                //     egui::ScrollArea::vertical().show(ui, |ui| {
+                //         for session in &self.context.chat.available_sessions {
+                //             ui.horizontal(|ui| {
+                //                 ui.label(format!("Session {}", &session.id[0..8]));
+                //                 if ui.button("Resume").clicked() {
+                //                     self.context.chat.current_session = Some(session.clone());
                                     
-                                    // Fetch messages
-                                    let session_id = session.id.clone();
-                                    let client = self.context.chat.client.clone();
-                                    let api_url = self.context.chat.api_url.clone();
+                //                     // Fetch messages
+                //                     let session_id = session.id.clone();
+                //                     let client = self.context.chat.client.clone();
+                //                     let api_url = self.context.chat.api_url.clone();
                                     
-                                    let (tx, rx) = std::sync::mpsc::channel();
-                                    self.context.chat.messages_rx = Some(rx);
-                                    self.context.chat.is_loading = true;
+                //                     let (tx, rx) = std::sync::mpsc::channel();
+                //                     self.context.chat.messages_rx = Some(rx);
+                //                     self.context.chat.is_loading = true;
 
-                                    std::thread::spawn(move || {
-                                        let rt = tokio::runtime::Runtime::new().unwrap();
-                                        rt.block_on(async {
-                                            let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
-                                            if let Ok(res) = client.get(&url).send().await {
-                                                if let Ok(messages) = res.json::<Vec<ChatMessage>>().await {
-                                                    let _ = tx.send(messages);
-                                                }
-                                            }
-                                        });
-                                    });
-                                }
-                            });
-                        }
-                    });
+                //                     std::thread::spawn(move || {
+                //                         let rt = tokio::runtime::Runtime::new().unwrap();
+                //                         rt.block_on(async {
+                //                             let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
+                //                             if let Ok(res) = client.get(&url).send().await {
+                //                                 if let Ok(messages) = res.json::<Vec<ChatMessage>>().await {
+                //                                     let _ = tx.send(messages);
+                //                                 }
+                //                             }
+                //                         });
+                //                     });
+                //                 }
+                //             });
+                //         }
+                //     });
 
-                 } else {
-                     ui.horizontal(|ui| {
-                        if ui.button("Back to Sessions").clicked() {
-                            self.context.chat.current_session = None;
-                            self.context.chat.messages.clear();
-                        }
-                        if let Some(session) = &self.context.chat.current_session {
-                             ui.label(format!("Session: {}", session.id));
-                        }
-                     });
+                //  } else {
+                //      ui.horizontal(|ui| {
+                //         if ui.button("Back to Sessions").clicked() {
+                //             self.context.chat.current_session = None;
+                //             self.context.chat.messages.clear();
+                //         }
+                //         if let Some(session) = &self.context.chat.current_session {
+                //              ui.label(format!("Session: {}", session.id));
+                //         }
+                //      });
                      
-                     egui::ScrollArea::vertical().show(ui, |ui| {
-                         for msg in &self.context.chat.messages {
-                             ui.label(format!("{}: {}", msg.role, msg.content.as_deref().unwrap_or("...")));
-                             if let Some(tool_calls) = &msg.tool_calls {
-                                for tool_call in tool_calls {
-                                    ui.label(format!("Tool | {}: {}", tool_call.function.name, tool_call.function.arguments));
-                                }
-                             }
-                         }
-                     });
-                     ui.separator();
-                     ui.horizontal(|ui| {
-                         ui.text_edit_multiline(&mut self.context.chat.current_input);
+                //      egui::ScrollArea::vertical().show(ui, |ui| {
+                //          for msg in &self.context.chat.messages {
+                //              ui.label(format!("{}: {}", msg.role, msg.content.as_deref().unwrap_or("...")));
+                //              if let Some(tool_calls) = &msg.tool_calls {
+                //                 for tool_call in tool_calls {
+                //                     ui.label(format!("Tool | {}: {}", tool_call.function.name, tool_call.function.arguments));
+                //                 }
+                //              }
+                //          }
+                //      });
+                //      ui.separator();
+                //      ui.horizontal(|ui| {
+                //          ui.text_edit_multiline(&mut self.context.chat.current_input);
                          
-                         let btn_text = if self.context.chat.is_loading { "Loading..." } else { "Send" };
-                         if ui.add_enabled(!self.context.chat.is_loading, egui::Button::new(btn_text)).clicked() {
-                                let content = self.context.chat.current_input.clone();
-                                self.context.chat.current_input.clear();
-                                self.context.chat.is_loading = true;
+                //          let btn_text = if self.context.chat.is_loading { "Loading..." } else { "Send" };
+                //          if ui.add_enabled(!self.context.chat.is_loading, egui::Button::new(btn_text)).clicked() {
+                //                 let content = self.context.chat.current_input.clone();
+                //                 self.context.chat.current_input.clear();
+                //                 self.context.chat.is_loading = true;
 
-                                let session_id = self.context.chat.current_session.as_ref().unwrap().id.clone();
-                                let client = self.context.chat.client.clone();
-                                let api_url = self.context.chat.api_url.clone();
+                //                 let session_id = self.context.chat.current_session.as_ref().unwrap().id.clone();
+                //                 let client = self.context.chat.client.clone();
+                //                 let api_url = self.context.chat.api_url.clone();
 
-                                let mut world_state_cl = None;
+                //                 let mut world_state_cl = None;
                                 
-                                {
-                                    // Get saved state for context
-                                    let editor = self.context.export_editor.as_ref().unwrap();
-                                    let world_state = editor.world_state.as_ref().expect("Couldn't get saved state").clone();
+                //                 {
+                //                     // Get saved state for context
+                //                     let editor = self.context.export_editor.as_ref().unwrap();
+                //                     let world_state = editor.world_state.as_ref().expect("Couldn't get saved state").clone();
                                     
-                                    self.context.chat.messages.push(ChatMessage {
-                                        id: Uuid::new_v4().to_string(),
-                                        role: "user".to_string(),
-                                        content: Some(content.clone()),
-                                        tool_call_id: None,
-                                        tool_calls: None,
-                                    });
+                //                     self.context.chat.messages.push(ChatMessage {
+                //                         id: Uuid::new_v4().to_string(),
+                //                         role: "user".to_string(),
+                //                         content: Some(content.clone()),
+                //                         tool_call_id: None,
+                //                         tool_calls: None,
+                //                     });
                                     
-                                    // Clone for thread
-                                    world_state_cl = Some(world_state.clone());
-                                }
+                //                     // Clone for thread
+                //                     world_state_cl = Some(world_state.clone());
+                //                 }
 
-                                let (tx, rx) = std::sync::mpsc::channel();
-                                self.context.chat.rx = Some(rx);
+                //                 let (tx, rx) = std::sync::mpsc::channel();
+                //                 self.context.chat.rx = Some(rx);
 
-                                std::thread::spawn(move || {
-                                    let rt = tokio::runtime::Runtime::new().unwrap();
-                                    rt.block_on(async {
-                                        let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
-                                        let body = serde_json::json!({
-                                            "role": "user",
-                                            "content": content,
-                                            "world_state": world_state_cl
-                                        });
-                                        let res = client.post(&url).json(&body).send().await;
-                                        if let Ok(resp) = res {
-                                            if let Ok(msg) = resp.json::<ChatMessage>().await {
-                                                let _ = tx.send(msg);
-                                            }
-                                        }
-                                    });
-                                });
-                         }
-                     });
-                 }
+                //                 std::thread::spawn(move || {
+                //                     let rt = tokio::runtime::Runtime::new().unwrap();
+                //                     rt.block_on(async {
+                //                         let url = format!("{}/api/sessions/{}/messages", api_url, session_id);
+                //                         let body = serde_json::json!({
+                //                             "role": "user",
+                //                             "content": content,
+                //                             "world_state": world_state_cl
+                //                         });
+                //                         let res = client.post(&url).json(&body).send().await;
+                //                         if let Ok(resp) = res {
+                //                             if let Ok(msg) = resp.json::<ChatMessage>().await {
+                //                                 let _ = tx.send(msg);
+                //                             }
+                //                         }
+                //                     });
+                //                 });
+                //          }
+                //      });
+                //  }
+            
             }
             Tab::Writing => {
-                let editor = self.context.export_editor.as_mut().unwrap();
-                let sophia = &mut editor.sophia_app_state;
+                // // TODO: this writing app, which controls wry currently, will be removed. then wry will become used for chat. but we still want wry in a tab
+                // let editor = self.context.export_editor.as_mut().unwrap();
+                // let sophia = &mut editor.sophia_app_state;
 
-                ui.horizontal(|ui| {
-                    ui.heading("Sophia Writing App");
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.checkbox(&mut sophia.quiet_mode, "Quiet Mode").changed() {
-                            println!("Quiet Mode: {}", sophia.quiet_mode);
-                        }
-                    });
-                });
+                // ui.horizontal(|ui| {
+                //     ui.heading("Sophia Writing App");
+                //     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                //         if ui.checkbox(&mut sophia.quiet_mode, "Quiet Mode").changed() {
+                //             println!("Quiet Mode: {}", sophia.quiet_mode);
+                //         }
+                //     });
+                // });
                 
-                ui.separator();
-                ui.label("Draft:");
+                // ui.separator();
+                // ui.label("Draft:");
 
-                let rect = ui.available_rect_before_wrap();
-                editor.writing_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                // let rect = ui.available_rect_before_wrap();
+                // editor.wry_webview_bounds = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
             }
             Tab::Addons => {
                 let editor = self.context.export_editor.as_mut().unwrap();

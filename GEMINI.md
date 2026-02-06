@@ -49,19 +49,41 @@ handlers.rs has a number of event handlers (like click and key handlers)
 
 We are focused on the addons now, and just leveraging the underlying Rust capabilities to power the addon experience.
 
-Future addons may include:
+### Future addons may include:
 
-- Machine Learning Node Graph Editor
-- Color Corrector
+Games (mainly)
 - FK / IK Animation
 - Mesh Sculpting
 - Mesh Modelling
-- Media Player
-- Forum Portal
-- File Browser
 - Dot Particles
 - Behavior Tree Node Graph Editor
 - UI Designer (for in-game UIs)
-- DAW Mastering
+
+ML
+- Machine Learning Node Graph Editor (should ultimately integrate with video and games)
+- Dataset Browser/Labeler - View training data, quick annotations (Browse and download HF datasets)
+- Model Performance Monitor - Loss curves, metrics dashboard (minimal UI)
+- Inference Tester - Quick A/B comparison of model outputs
+- Export/Import Hub - ONNX, safetensors, etc. for external model integration
+
+Video (mainly)
+- Color Corrector
+
+Video or Games
 - Storyboarding, Concepts
+
+Audio, Video, or Games
+- DAW Mastering
+
+Industrial
+- CAD, ECAD
+
+Other
+- Media Player
+- Forum Portal
+- File Browser
 - Knowledge Graph
+
+Over time, the goal is to bring balance by working on addons that are actually not related to games. 
+This will help us diversify and establish a true high-performance platform.
+But for now, it IS all about games. Because that's simply the largest audience of them all. It's natural.

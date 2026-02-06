@@ -424,7 +424,7 @@ pub struct Editor {
     pub navigation_speed: f32,
 
     pub ui_model_bind_group_layout: Option<Arc<BindGroupLayout>>,
-    pub writing_webview_bounds: Option<[f32; 4]>,
+    pub wry_webview_bounds: Option<[f32; 4]>,
     pub viewport_tab_rect: Option<[f32; 4]>,
     pub is_viewport_visible: bool,
     pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
@@ -801,7 +801,7 @@ impl Editor {
             },
             navigation_speed: 5.0,
             ui_model_bind_group_layout: None,
-            writing_webview_bounds: None,
+            wry_webview_bounds: None,
             viewport_tab_rect: None,
             webview_ipc_rx: None,
             webview_visible: false,

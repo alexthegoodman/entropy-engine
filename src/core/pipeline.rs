@@ -131,11 +131,11 @@ pub struct EntropyPipeline {
     pub texture: Option<Arc<wgpu::Texture>>,
     pub view: Option<Arc<wgpu::TextureView>>,
     pub depth_view: Option<wgpu::TextureView>,
-    pub game_dock_state: DockState<Tab>,
-    pub sophia_dock_state: DockState<Tab>,
-    pub stunts_dock_state: DockState<Tab>,
-    // pub video_timeline_dock_state: DockState<Tab>,
-    pub central_chat_dock_state: DockState<Tab>,
+    // pub game_dock_state: DockState<Tab>,
+    // pub sophia_dock_state: DockState<Tab>,
+    // pub stunts_dock_state: DockState<Tab>,
+    // // pub video_timeline_dock_state: DockState<Tab>,
+    // pub central_chat_dock_state: DockState<Tab>,
     pub addon_dock_state: DockState<Tab>,
     pub addon_dock_states: HashMap<String, DockState<Tab>>,
     pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline,
@@ -183,26 +183,26 @@ pub struct EntropyPipeline {
 
 impl EntropyPipeline {
     pub fn new() -> Self {
-        let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-        let surface = dock_state.main_surface_mut();
-        let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Components, Tab::AssetLibrary]);
-        let [_, _] = surface.split_below(NodeIndex::root(), 0.7, vec![Tab::Properties, Tab::Chat]);
+        // let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+        // let surface = dock_state.main_surface_mut();
+        // let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Components, Tab::AssetLibrary]);
+        // let [_, _] = surface.split_below(NodeIndex::root(), 0.7, vec![Tab::Properties, Tab::Chat]);
 
-        let game_dock_state = dock_state.clone();
+        // let game_dock_state = dock_state.clone();
         
-        let mut sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Projects]);
-        let sophia_surface = sophia_dock_state.main_surface_mut();
-        sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
+        // let mut sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Projects]);
+        // let sophia_surface = sophia_dock_state.main_surface_mut();
+        // sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
 
-        // let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
-        // let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
+        // // let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
+        // // let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
 
-        let mut stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-        let surface2 = stunts_dock_state.main_surface_mut();
-        let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Animations, Tab::Properties, Tab::Chat]);
-        let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
+        // let mut stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+        // let surface2 = stunts_dock_state.main_surface_mut();
+        // let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Animations, Tab::Properties, Tab::Chat]);
+        // let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
 
-        let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
+        // let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
 
         // let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
 
@@ -221,11 +221,11 @@ impl EntropyPipeline {
             texture: None,
             view: None,
             depth_view: None,
-            game_dock_state,
-            sophia_dock_state,
-            stunts_dock_state,
-            // video_timeline_dock_state,
-            central_chat_dock_state,
+            // game_dock_state,
+            // sophia_dock_state,
+            // stunts_dock_state,
+            // // video_timeline_dock_state,
+            // central_chat_dock_state,
             addon_dock_state,
             addon_dock_states: HashMap::new(),
             video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline::new(),
@@ -1832,7 +1832,7 @@ impl EntropyPipeline {
             });
             
             if let Some(editor) = &mut self.export_editor {
-                editor.writing_webview_bounds = None;
+                editor.wry_webview_bounds = None;
                 editor.viewport_tab_rect = None;
                 editor.is_viewport_visible = false;
             }

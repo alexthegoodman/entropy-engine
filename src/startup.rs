@@ -1305,7 +1305,7 @@ impl WindowState {
         #[cfg(target_os = "windows")]
         if let Some(webview) = &self.webview {
             if let Some(editor) = &mut self.pipeline.export_editor {
-                if let Some(bounds) = editor.writing_webview_bounds {
+                if let Some(bounds) = editor.wry_webview_bounds {
                     let scale_factor = self.window.scale_factor();
                     
                     let x = (bounds[0] * scale_factor as f32) as i32;
