@@ -58,13 +58,13 @@ class ComputeDustSystem {
     this.api = api;
     
     this.config = {
-      particleCount: 8192, // Good for compute (power of 2)
-      particleSize: 3.75,
-      particleBrightness: 0.5,
-      turbulenceStrength: 1.5,
+      particleCount: 256, // Good for compute (power of 2)
+      particleSize: 150.0,
+      particleBrightness: 0.6,
+      turbulenceStrength: 0.35,
       windSpeed: [0.5, -0.2, 0.3],
-      gravity: -0.3,
-      bounds: 80,
+      gravity: -0.1,
+      bounds: 4096,
       
       renderWidth: 1920,
       renderHeight: 1080,
