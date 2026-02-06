@@ -57,7 +57,7 @@ class VolumetricFX {
     
     // Default configuration - AAA quality settings
     this.config = {
-      fogDensity: 0.015,
+      fogDensity: 0.415,
       fogColor: [0.7, 0.75, 0.8],
       fogStart: 10.0,
       fogEnd: 200.0,
@@ -81,10 +81,10 @@ class VolumetricFX {
     println("🌫️ Initializing Volumetric FX...");
     
     // Load saved configuration
-    const saved = this.api.IO.load();
-    if (saved) {
-      this.config = { ...this.config, ...saved };
-    }
+    // const saved = this.api.IO.load();
+    // if (saved) {
+    //   this.config = { ...this.config, ...saved };
+    // }
     
     // Create 3D noise texture for volumetric density
     // NOTE: Would benefit from op_texture_create_3d for true 3D lookup
@@ -147,7 +147,7 @@ class VolumetricFX {
       }
       
       @vertex
-      fn main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
+      fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
         var output: VertexOutput;
         
         // Fullscreen triangle
@@ -275,7 +275,7 @@ class VolumetricFX {
       }
       
       @fragment
-      fn main(
+      fn fs_main(
         @location(0) uv: vec2<f32>,
         @location(1) viewRay: vec3<f32>
       ) -> @location(0) vec4<f32> {
@@ -296,7 +296,6 @@ class VolumetricFX {
       name: "volumetric_fog",
       vertexShader,
       fragmentShader,
-      layout: "TriangleList",
       extraBindGroups: [{
         entries: [
           { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" },
@@ -304,6 +303,16 @@ class VolumetricFX {
           { binding: 2, visibility: ["Fragment"], resourceType: "Sampler" },
         ]
       }]
+    });
+
+    // activate rendering (a bit of a bug)
+    api.Model.createProcedural({
+        type: "cube",
+        pipelineId: "default",
+        parameters: {
+            position: [-2.0, 5.0, 0.0],
+            scale: [1.0, 1.0, 1.0]
+        }
     });
   }
   
@@ -336,7 +345,7 @@ class VolumetricFX {
       }
       
       @vertex
-      fn main(
+      fn vs_main(
         @builtin(vertex_index) vertexIndex: u32,
         @builtin(instance_index) instanceIndex: u32
       ) -> VertexOutput {
@@ -387,7 +396,7 @@ class VolumetricFX {
       @group(1) @binding(0) var<uniform> uniforms: Uniforms;
       
       @fragment
-      fn main(
+      fn fs_main(
         @location(0) uv: vec2<f32>,
         @location(1) brightness: f32
       ) -> @location(0) vec4<f32> {
@@ -410,7 +419,6 @@ class VolumetricFX {
       name: "dust_particles",
       vertexShader,
       fragmentShader,
-      layout: "TriangleList",
       extraBindGroups: [{
         entries: [
           { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
