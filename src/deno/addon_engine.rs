@@ -1307,6 +1307,12 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             std::slice::from_ref(ctx.surface_format.as_ref().unwrap_or(&wgpu::TextureFormat::Rgba8Unorm))
         };
 
+        let depth_format = if config.form.as_deref() == Some("composite") {
+            None
+        } else {
+            Some(wgpu::TextureFormat::Depth24Plus)
+        };
+
         if config.form == Some("composite".to_string()) {
             formats = &[wgpu::TextureFormat::Rgba8Unorm];
         }
@@ -1318,7 +1324,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             &config,
             &layouts,
             formats,
-            Some(wgpu::TextureFormat::Depth24Plus)
+            depth_format
         );
         
         if config.form == Some("composite".to_string()) {
