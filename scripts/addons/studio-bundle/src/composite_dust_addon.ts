@@ -456,12 +456,13 @@ class ComputeDustSystem {
       vertexShader,
       fragmentShader,
       form: "composite",
-      extraBindGroups: [{
-        entries: [
-          { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
-          { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
-        ]
-      }]
+      // not needed?
+      // extraBindGroups: [{
+      //   entries: [
+      //     { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
+      //     { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
+      //   ]
+      // }]
     });
 
     api.Model.createProcedural({

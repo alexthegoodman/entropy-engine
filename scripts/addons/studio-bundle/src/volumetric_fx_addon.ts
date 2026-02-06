@@ -27,6 +27,10 @@ interface VolumetricConfig {
   // Quality settings
   raymarchSteps: number;
   particleCount: number;
+
+  // New: Cube bounds for confined rendering
+  cubePosition: [number, number, number];
+  cubeSize: [number, number, number];
 }
 
 class VolumetricFX {
@@ -74,6 +78,10 @@ class VolumetricFX {
       
       raymarchSteps: 64,
       particleCount: 5000,
+
+      // Default cube (matches original approximate bounds)
+      cubePosition: [0, 25, 0],
+      cubeSize: [500, 500, 500],
     };
   }
   
@@ -138,7 +146,7 @@ class VolumetricFX {
   }
   
   createFogPipeline() {
-    // Volumetric fog with raymarching and light scattering
+    // Volumetric fog with raymarching and light scattering, confined to a cube
     const vertexShader = `
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
@@ -158,7 +166,7 @@ class VolumetricFX {
         output.uv = vec2<f32>(x, -y) * 0.5 + 0.5;
         
         // Compute view ray for raymarching
-        // NOTE: Would benefit from view matrix uniform
+        // NOTE: Would benefit from inverse view/projection matrices for accurate ray direction
         let aspectRatio = 1.778; // 16:9
         let fov = 1.2;
         output.viewRay = normalize(vec3<f32>(
@@ -183,6 +191,9 @@ class VolumetricFX {
         time: f32,
         fogColor: vec3<f32>,
         sunDirection: vec3<f32>,
+        cameraPos: vec3<f32>,  // New: Camera position
+        cubeMin: vec3<f32>,    // New: Cube min bounds
+        cubeMax: vec3<f32>,    // New: Cube max bounds
       }
       
       @group(1) @binding(0) var<uniform> uniforms: Uniforms;
@@ -217,15 +228,46 @@ class VolumetricFX {
       fn getFogDensity(worldPos: vec3<f32>) -> f32 {
         let noise = sampleNoise3D(worldPos + vec3<f32>(uniforms.time * 0.5, 0.0, 0.0));
         
-        // Height-based density falloff
+        // Height-based density falloff (relative to world Y, adjust if needed)
         let heightFalloff = exp(-worldPos.y * 0.05);
         
         return uniforms.fogDensity * noise * heightFalloff;
       }
       
-      // Raymarch through volume
+      // Ray-AABB intersection
+      fn rayAABBIntersect(origin: vec3<f32>, dir: vec3<f32>, boxMin: vec3<f32>, boxMax: vec3<f32>) -> vec2<f32> {
+        let invDir = 1.0 / dir;
+        let t1 = (boxMin - origin) * invDir;
+        let t2 = (boxMax - origin) * invDir;
+        let tMin = min(t1, t2);
+        let tMax = max(t1, t2);
+        let tNear = max(max(tMin.x, tMin.y), tMin.z);
+        let tFar = min(min(tMax.x, tMax.y), tMax.z);
+        return vec2<f32>(tNear, tFar);
+      }
+      
+      // Raymarch through volume, confined to cube
       fn raymarchFog(rayOrigin: vec3<f32>, rayDir: vec3<f32>, maxDist: f32) -> vec4<f32> {
-        let stepSize = maxDist / uniforms.raymarchSteps;
+        // Compute ray-cube intersection
+        let intersect = rayAABBIntersect(rayOrigin, rayDir, uniforms.cubeMin, uniforms.cubeMax);
+        var tStart = max(intersect.x, 0.0);
+        var tEnd = intersect.y;
+        
+        if (tStart >= tEnd || tEnd < 0.0) {
+          return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        }
+        
+        // Clamp with fog start/end distances
+        tStart = max(tStart, uniforms.fogStart);
+        tEnd = min(tEnd, uniforms.fogEnd);
+        
+        if (tStart >= tEnd) {
+          return vec4<f32>(0.0, 0.0, 0.0, 0.0);
+        }
+        
+        let marchDist = tEnd - tStart;
+        let stepSize = marchDist / uniforms.raymarchSteps;
+        
         var transmittance = 1.0;
         var scatteredLight = vec3<f32>(0.0);
         
@@ -237,13 +279,8 @@ class VolumetricFX {
         let rayleighPhaseValue = rayleighPhase(cosTheta);
         
         for (var i = 0.0; i < uniforms.raymarchSteps; i += 1.0) {
-          let t = i * stepSize;
+          let t = tStart + i * stepSize;
           let samplePos = rayOrigin + rayDir * t;
-          
-          // Distance-based early exit
-          if (t > uniforms.fogEnd) {
-            break;
-          }
           
           // Get density at this point
           let density = getFogDensity(samplePos);
@@ -279,8 +316,7 @@ class VolumetricFX {
         @location(0) uv: vec2<f32>,
         @location(1) viewRay: vec3<f32>
       ) -> @location(0) vec4<f32> {
-        // NOTE: Would benefit from camera position uniform
-        let rayOrigin = vec3<f32>(0.0, 2.0, 0.0);
+        let rayOrigin = uniforms.cameraPos;
         let rayDir = normalize(viewRay);
         
         // NOTE: Would benefit from depth buffer to get proper max distance
@@ -296,11 +332,10 @@ class VolumetricFX {
       name: "volumetric_fog",
       vertexShader,
       fragmentShader,
+      form: "composite",
       extraBindGroups: [{
         entries: [
           { binding: 0, visibility: ["Fragment"], resourceType: "Uniform" },
-          { binding: 1, visibility: ["Fragment"], resourceType: "Texture" },
-          { binding: 2, visibility: ["Fragment"], resourceType: "Sampler" },
         ]
       }]
     });
@@ -308,12 +343,14 @@ class VolumetricFX {
     // activate rendering (a bit of a bug)
     api.Model.createProcedural({
         type: "cube",
-        pipelineId: "default",
+        pipelineId: this.fogPipelineId,
         parameters: {
             position: [-2.0, 5.0, 0.0],
             scale: [1.0, 1.0, 1.0]
         }
     });
+
+    Entropy.Composite.register("volumetric_fog", this.noiseTextureId!, this.fogPipelineId);
   }
   
   createDustSystem() {
@@ -419,6 +456,7 @@ class VolumetricFX {
       name: "dust_particles",
       vertexShader,
       fragmentShader,
+      form: "composite",
       extraBindGroups: [{
         entries: [
           { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
@@ -430,16 +468,31 @@ class VolumetricFX {
   
   initializeDustParticles() {
     const count = this.config.particleCount;
-    const bounds = 100; // Particle spawn bounds
+    
+    const halfSize = [
+      this.config.cubeSize[0] / 2,
+      this.config.cubeSize[1] / 2,
+      this.config.cubeSize[2] / 2,
+    ];
+    const min = [
+      this.config.cubePosition[0] - halfSize[0],
+      this.config.cubePosition[1] - halfSize[1],
+      this.config.cubePosition[2] - halfSize[2],
+    ];
+    const max = [
+      this.config.cubePosition[0] + halfSize[0],
+      this.config.cubePosition[1] + halfSize[1],
+      this.config.cubePosition[2] + halfSize[2],
+    ];
     
     this.dustParticles = [];
     
     for (let i = 0; i < count; i++) {
       this.dustParticles.push({
         position: [
-          (Math.random() - 0.5) * bounds,
-          Math.random() * 50,
-          (Math.random() - 0.5) * bounds,
+          min[0] + Math.random() * (max[0] - min[0]),
+          min[1] + Math.random() * (max[1] - min[1]),
+          min[2] + Math.random() * (max[2] - min[2]),
         ],
         velocity: [
           (Math.random() - 0.5) * 0.2,
@@ -455,9 +508,34 @@ class VolumetricFX {
   update(time: number, cameraPos: [number, number, number]) {
     this.time = time;
     
+    // NOTE: Would set uniforms here for fog pipeline, e.g.:
+    // api.Pipeline.setUniform(this.fogPipelineId, {
+    //   ...this.config (mapped appropriately),
+    //   time: this.time,
+    //   cameraPos,
+    //   cubeMin: [cubePos[0] - halfSize[0], ...],
+    //   cubeMax: [cubePos[0] + halfSize[0], ...],
+    // });
+    
     // Update dust particles
     if (this.config.dustEnabled && this.dustParticles.length > 0) {
       const dt = 0.016; // ~60fps
+      
+      const halfSize = [
+        this.config.cubeSize[0] / 2,
+        this.config.cubeSize[1] / 2,
+        this.config.cubeSize[2] / 2,
+      ];
+      const min = [
+        this.config.cubePosition[0] - halfSize[0],
+        this.config.cubePosition[1] - halfSize[1],
+        this.config.cubePosition[2] - halfSize[2],
+      ];
+      const max = [
+        this.config.cubePosition[0] + halfSize[0],
+        this.config.cubePosition[1] + halfSize[1],
+        this.config.cubePosition[2] + halfSize[2],
+      ];
       
       for (let i = 0; i < this.dustParticles.length; i++) {
         const p = this.dustParticles[i];
@@ -498,14 +576,13 @@ class VolumetricFX {
         p.position[1] += p.velocity[1];
         p.position[2] += p.velocity[2];
         
-        // Wrap particles
-        const bounds = 100;
-        if (p.position[0] < -bounds) p.position[0] = bounds;
-        if (p.position[0] > bounds) p.position[0] = -bounds;
-        if (p.position[2] < -bounds) p.position[2] = bounds;
-        if (p.position[2] > bounds) p.position[2] = -bounds;
-        if (p.position[1] < 0) p.position[1] = 50;
-        if (p.position[1] > 50) p.position[1] = 0;
+        // Wrap particles within cube
+        if (p.position[0] < min[0]) p.position[0] = max[0];
+        if (p.position[0] > max[0]) p.position[0] = min[0];
+        if (p.position[1] < min[1]) p.position[1] = max[1];
+        if (p.position[1] > max[1]) p.position[1] = min[1];
+        if (p.position[2] < min[2]) p.position[2] = max[2];
+        if (p.position[2] > max[2]) p.position[2] = min[2];
         
         // Flicker brightness
         p.brightness = 0.5 + 0.5 * Math.sin(time * 2 + p.phase);
@@ -566,6 +643,83 @@ class VolumetricFX {
       color: [...this.config.fogColor, 1.0],
       onChange: (color) => {
         this.config.fogColor = [color[0], color[1], color[2]];
+        this.saveConfig();
+      }
+    });
+    
+    Entropy.UI.Widget.label(this.tabId, { text: "" });
+    Entropy.UI.Widget.label(this.tabId, { text: "CUBE SETTINGS", bold: true });
+    
+    // Cube Position
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Pos X",
+      value: this.config.cubePosition[0],
+      min: -200,
+      max: 200,
+      onChange: (val) => {
+        this.config.cubePosition[0] = parseFloat(val);
+        this.initializeDustParticles(); // Re-init particles if changed
+        this.saveConfig();
+      }
+    });
+    
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Pos Y",
+      value: this.config.cubePosition[1],
+      min: -200,
+      max: 200,
+      onChange: (val) => {
+        this.config.cubePosition[1] = parseFloat(val);
+        this.initializeDustParticles();
+        this.saveConfig();
+      }
+    });
+    
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Pos Z",
+      value: this.config.cubePosition[2],
+      min: -200,
+      max: 200,
+      onChange: (val) => {
+        this.config.cubePosition[2] = parseFloat(val);
+        this.initializeDustParticles();
+        this.saveConfig();
+      }
+    });
+    
+    // Cube Size
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Size X",
+      value: this.config.cubeSize[0],
+      min: 10,
+      max: 500,
+      onChange: (val) => {
+        this.config.cubeSize[0] = parseFloat(val);
+        this.initializeDustParticles();
+        this.saveConfig();
+      }
+    });
+    
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Size Y",
+      value: this.config.cubeSize[1],
+      min: 10,
+      max: 500,
+      onChange: (val) => {
+        this.config.cubeSize[1] = parseFloat(val);
+        this.initializeDustParticles();
+        this.saveConfig();
+      }
+    });
+    
+    Entropy.UI.Widget.slider(this.tabId, {
+      label: "Cube Size Z",
+      value: this.config.cubeSize[2],
+      min: 10,
+      max: 500,
+      onChange: (val) => {
+        this.config.cubeSize[2] = parseFloat(val);
+        this.initializeDustParticles();
         this.saveConfig();
       }
     });
@@ -669,7 +823,8 @@ class VolumetricFX {
   }
   
   saveConfig() {
-    this.api.IO.save(this.config);
+    // NOTE: should not autosave, only update buffers
+    // this.api.IO.save(this.config);
   }
   
   cleanup() {

@@ -1095,6 +1095,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             }
 
             // NEW: Composite Texture Pass (for compute-rendered particles, etc.)
+            // TODO: we need to be able to render multiple Composites, each with their own extra bind groups, similar to addon meshes. 
+            // NOTE: we can create the Composite when we register the composite in the addon_engine
 {
             let mut op_state = editor.addon_engine.runtime.op_state();
             let op_state = op_state.borrow();
@@ -1145,7 +1147,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         });
 
                         let bind_group_layout = composite_pipeline.get_bind_group_layout(1);
-                        // TODO: this should be dynamicly determined by config and updated as needed
+                        // LATER: this should be dynamicly determined by config and updated as needed
                         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             layout: &bind_group_layout,
                             entries: &[
