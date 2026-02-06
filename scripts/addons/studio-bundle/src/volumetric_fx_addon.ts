@@ -58,6 +58,9 @@ class VolumetricFX {
 
   particleBufferId: string = "";
   storageBufferId: string = "";
+
+  particleStride: number = 0;
+  particleData: Float32Array | null = null;
   
   constructor(api: ScopedAPI) {
     this.api = api;
@@ -69,7 +72,7 @@ class VolumetricFX {
       fogStart: 50.0,
       fogEnd: 150.0,
       
-      dustEnabled: false, // later
+      dustEnabled: true, // later
       dustDensity: 2000,
       dustSize: 0.08,
       dustBrightness: 1.5,
@@ -431,22 +434,25 @@ class VolumetricFX {
     
     // Create dust rendering pipeline with billboarding
     const vertexShader = `
-    // TODO: use camera uniform at group 0
-      struct Uniforms {
-        viewProjection: mat4x4<f32>,
-        cameraRight: vec3<f32>,
-        cameraUp: vec3<f32>,
-        dustSize: f32,
-        time: f32,
-      }
-      
+    struct CameraUniform {
+          view_proj: mat4x4<f32>,
+          view_pos: vec4<f32>,
+          window_size: vec4<f32>,
+          inverse_view: mat4x4<f32>,
+          inverse_projection: mat4x4<f32>,
+      };
+      @group(0) @binding(0)
+      var<uniform> camera: CameraUniform;
+
       struct ParticleData {
-        position: vec3<f32>,
+        position: vec3<f32>,   // xyz
         brightness: f32,
+
+        velocity: vec3<f32>,   // xyz
+        dustSize: f32,       // alignment (or phase, size, etc.)
       }
       
-      @group(2) @binding(0) var<uniform> uniforms: Uniforms;
-      @group(2) @binding(1) var<storage, read> particles: array<ParticleData>;
+      @group(2) @binding(0) var<storage, read> particles: array<ParticleData>;
       
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
@@ -484,11 +490,14 @@ class VolumetricFX {
         
         let corner = vertices[vertexIndex];
         output.uv = uvs[vertexIndex];
+
+        let cameraRight = normalize(camera.inverse_view[0].xyz);
+        let cameraUp    = normalize(camera.inverse_view[1].xyz);
         
         // Billboard - face camera
         let worldPos = particle.position + 
-          uniforms.cameraRight * corner.x * uniforms.dustSize +
-          uniforms.cameraUp * corner.y * uniforms.dustSize;
+          cameraRight * corner.x * particle.dustSize +
+          cameraUp * corner.y * particle.dustSize;
         
         // NOTE: Would benefit from proper view/projection matrix uniforms
         output.position = vec4<f32>(worldPos, 1.0);
@@ -499,12 +508,6 @@ class VolumetricFX {
     `;
     
     const fragmentShader = `
-      struct Uniforms {
-        dustBrightness: f32,
-      }
-      
-      @group(2) @binding(0) var<uniform> uniforms: Uniforms;
-      
       @fragment
       fn fs_main(
         @location(0) uv: vec2<f32>,
@@ -519,8 +522,10 @@ class VolumetricFX {
         
         // Subtle color variation
         let color = vec3<f32>(1.0, 0.98, 0.95);
+
+        let dustBrightness = 0.7;
         
-        return vec4<f32>(color * brightness * uniforms.dustBrightness, alpha);
+        return vec4<f32>(color * brightness * dustBrightness, alpha);
       }
     `;
     
@@ -530,17 +535,9 @@ class VolumetricFX {
       vertexShader,
       fragmentShader,
       form: "composite",
-      extraBindGroups: [
-        {
-          entries: [
-            { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
-            { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
-          ]
-        },
-        {
+      extraBindGroups: [{
         entries: [
-          { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
-          { binding: 1, visibility: ["Vertex"], resourceType: "StorageReadOnly" },
+          { binding: 0, visibility: ["Vertex"], resourceType: "StorageReadOnly" },
         ]
       }]
     });
@@ -550,8 +547,7 @@ class VolumetricFX {
       this.noiseTextureId!, 
       this.dustPipelineId,
       [
-          { group: 2, binding: 0, resource: { type: "Uniform", value: { data: Array.from([]) } } },
-          { group: 2, binding: 1, resource: { type: "Storage", value: { id: this.particleBufferId } } },
+          { group: 2, binding: 0, resource: { type: "Storage", value: { id: this.particleBufferId } } },
       ]
     );
   }
@@ -601,6 +597,11 @@ class VolumetricFX {
       size: bufferSize,
       usage: "Storage"
     });
+
+    this.particleStride = 8;
+    this.particleData = new Float32Array(
+      this.dustParticles.length * this.particleStride
+    );
   }
   
   update(time: number, cameraPos: [number, number, number]) {
@@ -628,7 +629,7 @@ class VolumetricFX {
     this.api.Buffer.write(this.storageBufferId, params);
     
     // Update dust particles
-    if (this.config.dustEnabled && this.dustParticles.length > 0) {
+    if (this.config.dustEnabled && this.particleData && this.dustParticles.length > 0) {
       const dt = 0.016; // ~60fps
       
       const halfSize = [
@@ -697,6 +698,29 @@ class VolumetricFX {
         // Flicker brightness
         p.brightness = 0.5 + 0.5 * Math.sin(time * 2 + p.phase);
       }
+
+      let offset = 0;
+
+      for (let i = 0; i < this.dustParticles.length; i++) {
+        const p = this.dustParticles[i];
+
+        // position
+        this.particleData[offset++] = p.position[0];
+        this.particleData[offset++] = p.position[1];
+        this.particleData[offset++] = p.position[2];
+        this.particleData[offset++] = p.brightness;
+
+        // velocity
+        this.particleData[offset++] = p.velocity[0];
+        this.particleData[offset++] = p.velocity[1];
+        this.particleData[offset++] = p.velocity[2];
+        this.particleData[offset++] = this.config.dustSize; // or 0.0
+      }
+
+      this.api.Buffer.write(
+        this.particleBufferId,
+        this.particleData
+      )
     }
     
     // NOTE: Would update GPU buffers here with particle data
