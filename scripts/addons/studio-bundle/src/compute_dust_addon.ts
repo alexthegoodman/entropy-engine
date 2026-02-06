@@ -59,8 +59,8 @@ class ComputeDustSystem {
     
     this.config = {
       particleCount: 8192, // Good for compute (power of 2)
-      particleSize: 0.75,
-      particleBrightness: 1.2,
+      particleSize: 3.75,
+      particleBrightness: 0.5,
       turbulenceStrength: 1.5,
       windSpeed: [0.5, -0.2, 0.3],
       gravity: -0.3,
@@ -296,62 +296,6 @@ class ComputeDustSystem {
         particles[idx] = particle;
       }
     `;
-
-//     const shader = `
-//     struct Particle {
-//   position: vec3<f32>,
-//   velocity: vec3<f32>,
-//   brightness: f32,
-//   phase: f32,
-// }
-
-// struct Params {
-//   deltaTime: f32,
-//   time: f32,
-//   turbulenceStrength: f32,
-//   gravity: f32,
-//   windSpeed: vec3<f32>,
-//   bounds: f32,
-// }
-
-// @group(0) @binding(0) var<storage, read_write> particles: array<Particle>;
-// @group(0) @binding(1) var<uniform> params: Params;
-// @group(0) @binding(2) var noiseTex: texture_2d<f32>;  // Unused in basic version
-
-// @compute @workgroup_size(256)
-// fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-//   let idx = id.x;
-//   if (idx >= arrayLength(&particles)) {
-//     return;
-//   }
-  
-//   var particle = particles[idx];
-  
-//   // // Apply basic forces (no turbulence)
-//   // particle.velocity += params.windSpeed * params.deltaTime;
-//   // particle.velocity.y += params.gravity * params.deltaTime;
-  
-//   // // Simple drag
-//   // particle.velocity *= 0.98;
-  
-//   // // Update position
-//   // particle.position += particle.velocity * params.deltaTime;
-  
-//   // Basic boundary wrapping
-//   // let bounds = params.bounds;
-//   // if (particle.position.x < -bounds) { particle.position.x += bounds * 2.0; }
-//   // if (particle.position.x > bounds) { particle.position.x -= bounds * 2.0; }
-//   // if (particle.position.z < -bounds) { particle.position.z += bounds * 2.0; }
-//   // if (particle.position.z > bounds) { particle.position.z -= bounds * 2.0; }
-//   // if (particle.position.y < 0.0) { particle.position.y += 30.0; }
-//   // if (particle.position.y > 30.0) { particle.position.y -= 30.0; }
-  
-//   // Simple constant brightness (no flicker)
-//   particle.brightness = 1.0;
-  
-//   particles[idx] = particle;
-// }
-//     `;
     
     this.updatePipelineId = this.api.Compute.createPipeline({
       name: "dust_update",
@@ -368,170 +312,98 @@ class ComputeDustSystem {
   
   createRenderPipeline() {
     // This compute shader renders particles directly to a texture!
-    // const shader = `
-    //   struct Particle {
-    //     position: vec3<f32>,
-    //     velocity: vec3<f32>,
-    //     brightness: f32,
-    //     phase: f32,
-    //   }
-      
-    //   struct Params {
-    //     cameraPos: vec3<f32>,
-    //     cameraDir: vec3<f32>,
-    //     particleSize: f32,
-    //     particleBrightness: f32,
-    //     viewWidth: f32,
-    //     viewHeight: f32,
-    //   }
-      
-    //   @group(0) @binding(0) var<storage, read> particles: array<Particle>;
-    //   @group(0) @binding(1) var<uniform> params: Params;
-    //   @group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
-      
-    //   // Project 3D point to screen space
-    //   fn projectToScreen(worldPos: vec3<f32>) -> vec2<f32> {
-    //     let viewPos = worldPos - params.cameraPos;
-        
-    //     // Simple perspective projection
-    //     let forward = normalize(params.cameraDir);
-    //     let right = normalize(cross(forward, vec3<f32>(0.0, 1.0, 0.0)));
-    //     let up = cross(right, forward);
-        
-    //     let x = dot(viewPos, right);
-    //     let y = dot(viewPos, up);
-    //     let z = dot(viewPos, forward);
-        
-    //     // if (z <= 0.1) {
-    //     //   return vec2<f32>(-9999.0, -9999.0); // Behind camera
-    //     // }
-        
-    //     let fov = 1.2;
-    //     let aspect = params.viewWidth / params.viewHeight;
-        
-    //     let screenX = (x / z) / (fov * aspect) * 0.5 + 0.5;
-    //     let screenY = (y / z) / fov * 0.5 + 0.5;
-        
-    //     return vec2<f32>(screenX * params.viewWidth, (1.0 - screenY) * params.viewHeight);
-    //   }
-      
-    //   // Soft circle falloff
-    //   fn particleIntensity(dist: f32, size: f32) -> f32 {
-    //     return exp(-dist * dist / (size * size));
-    //   }
-      
-    //   @compute @workgroup_size(256)
-    //   fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    //     let idx = id.x;
-    //     if (idx >= arrayLength(&particles)) {
-    //       return;
-    //     }
-        
-    //     let particle = particles[idx];
-        
-    //     // Project to screen
-    //     let screenPos = projectToScreen(particle.position);
-        
-    //     // Check if on screen
-    //     // if (screenPos.x < 0.0 || screenPos.x >= params.viewWidth ||
-    //     //     screenPos.y < 0.0 || screenPos.y >= params.viewHeight) {
-    //     //   return;
-    //     // }
-        
-    //     // Distance from camera (for size variation)
-    //     let dist = length(particle.position - params.cameraPos);
-    //     let sizeScale = 1.0 / max(dist * 0.1, 1.0);
-    //     let particleRadius = params.particleSize * sizeScale * 100.0; // Pixels
-        
-    //     // Rasterize particle as soft circle
-    //     let centerX = i32(screenPos.x);
-    //     let centerY = i32(screenPos.y);
-    //     let radius = i32(ceil(particleRadius * 2.0));
-        
-    //     for (var dy = -radius; dy <= radius; dy++) {
-    //       for (var dx = -radius; dx <= radius; dx++) {
-    //         let px = centerX + dx;
-    //         let py = centerY + dy;
-            
-    //         if (px < 0 || px >= i32(params.viewWidth) ||
-    //             py < 0 || py >= i32(params.viewHeight)) {
-    //           continue;
-    //         }
-            
-    //         let pixelDist = sqrt(f32(dx * dx + dy * dy));
-    //         let intensity = particleIntensity(pixelDist, particleRadius);
-            
-    //         if (intensity > 0.01) {
-    //           // Dust color (warm white)
-    //           let color = vec3<f32>(1.0, 0.98, 0.95);
-    //           let finalColor = color * particle.brightness * params.particleBrightness * intensity;
-              
-    //           // Atomic add would be ideal, but we'll use simple write
-    //           // In practice, with many particles, this creates a nice accumulated glow
-    //           textureStore(outputTex, vec2<i32>(px, py), vec4<f32>(finalColor, intensity));
-    //         }
-    //       }
-    //     }
-    //   }
-    // `;
-
     const shader = `
-    struct Particle {
-  position: vec3<f32>,
-  velocity: vec3<f32>,
-  brightness: f32,
-  phase: f32,
-}
+      struct Particle {
+        position: vec3<f32>,
+        velocity: vec3<f32>,
+        brightness: f32,
+        phase: f32,
+      }
+      
+      struct Params {
+        cameraPos: vec3<f32>,
+        cameraDir: vec3<f32>,
+        particleSize: f32,
+        particleBrightness: f32,
+        viewWidth: f32,
+        viewHeight: f32,
+      }
+      
+      @group(0) @binding(0) var<storage, read> particles: array<Particle>;
+      @group(0) @binding(1) var<uniform> params: Params;
+      @group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
+      
+      // Project 3D point to screen space
+      fn projectToScreen(worldPos: vec3<f32>) -> vec2<f32> {
+        let viewPos = worldPos - params.cameraPos;
+        
+        // Simple perspective projection
+        let forward = normalize(params.cameraDir);
+        let right = normalize(cross(forward, vec3<f32>(0.0, 1.0, 0.0)));
+        let up = cross(right, forward);
+        
+        let x = dot(viewPos, right);
+        let y = dot(viewPos, up);
+        let z = dot(viewPos, forward);
+        
+        // if (z <= 0.1) {
+        //   return vec2<f32>(-9999.0, -9999.0); // Behind camera
+        // }
+        
+        let fov = 1.2;
+        let aspect = params.viewWidth / params.viewHeight;
+        
+        let screenX = (x / z) / (fov * aspect) * 0.5 + 0.5;
+        let screenY = (y / z) / fov * 0.5 + 0.5;
+        
+        return vec2<f32>(screenX * params.viewWidth, (1.0 - screenY) * params.viewHeight);
+      }
+      
+      // Soft circle falloff
+      fn particleIntensity(dist: f32, size: f32) -> f32 {
+        return exp(-dist * dist / (size * size));
+      }
+      
+      @compute @workgroup_size(256)
+      fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+        let idx = id.x;
+        if (idx >= arrayLength(&particles)) {
+          return;
+        }
+        
+        let particle = particles[idx];
+        
+        // Project to screen
+        let screenPos = projectToScreen(particle.position);
+        
+        // Check if on screen
+        // if (screenPos.x < 0.0 || screenPos.x >= params.viewWidth ||
+        //     screenPos.y < 0.0 || screenPos.y >= params.viewHeight) {
+        //   return;
+        // }
+        
+        // In your render shader, replace the single pixel write with:
+        let px = i32(screenPos.x);
+        let py = i32(screenPos.y);
 
-struct Params {
-  cameraPos: vec3<f32>,
-  cameraDir: vec3<f32>,
-  particleSize: f32,
-  particleBrightness: f32,
-  viewWidth: f32,
-  viewHeight: f32,
-}
+        let dist = length(particle.position - params.cameraPos);
+        let sizeScale = 1.0 / max(dist * 0.05, 1.0);
+        let intensity = particle.brightness * params.particleBrightness * sizeScale;
 
-@group(0) @binding(0) var<storage, read> particles: array<Particle>;
-@group(0) @binding(1) var<uniform> params: Params;
-@group(0) @binding(2) var outputTex: texture_storage_2d<rgba16float, write>;
+        let color = vec3<f32>(1.0, 0.98, 0.95);
 
-fn projectToScreen(worldPos: vec3<f32>) -> vec2<f32> {
-  let viewPos = worldPos - params.cameraPos;
-  let forward = normalize(params.cameraDir);
-  let right = normalize(cross(forward, vec3<f32>(0.0, 1.0, 0.0)));
-  let up = cross(right, forward);
-  let x = dot(viewPos, right);
-  let y = dot(viewPos, up);
-  let z = dot(viewPos, forward);
-  // if (z <= 0.1) {
-  //   return vec2<f32>(-9999.0, -9999.0);
-  // }
-  let fov = 1.2;
-  let aspect = params.viewWidth / params.viewHeight;
-  let screenX = (x / z) / (fov * aspect) * 0.5 + 0.5;
-  let screenY = (y / z) / fov * 0.5 + 0.5;
-  return vec2<f32>(screenX * params.viewWidth, (1.0 - screenY) * params.viewHeight);
-}
-
-@compute @workgroup_size(256)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-  let idx = id.x;
-  if (idx >= arrayLength(&particles)) {
-    return;
-  }
-  let particle = particles[idx];
-  let screenPos = projectToScreen(particle.position);
-  // if (screenPos.x < 0.0 || screenPos.x >= params.viewWidth ||
-  //     screenPos.y < 0.0 || screenPos.y >= params.viewHeight) {
-  //   return;
-  // }
-  let px = i32(screenPos.x);
-  let py = i32(screenPos.y);
-  let color = vec3<f32>(1.0, 0.98, 0.95);
-  let finalColor = color * particle.brightness * params.particleBrightness;
-  textureStore(outputTex, vec2<i32>(px, py), vec4<f32>(finalColor, 1.0));
-}
+        // 3x3 splat with falloff (unrolled, no loops!)
+        textureStore(outputTex, vec2<i32>(px, py), vec4<f32>(color * intensity, intensity));
+        textureStore(outputTex, vec2<i32>(px+1, py), vec4<f32>(color * intensity * 0.6, intensity * 0.6));
+        textureStore(outputTex, vec2<i32>(px-1, py), vec4<f32>(color * intensity * 0.6, intensity * 0.6));
+        textureStore(outputTex, vec2<i32>(px, py+1), vec4<f32>(color * intensity * 0.6, intensity * 0.6));
+        textureStore(outputTex, vec2<i32>(px, py-1), vec4<f32>(color * intensity * 0.6, intensity * 0.6));
+        // Diagonals at 0.3
+        textureStore(outputTex, vec2<i32>(px+1, py+1), vec4<f32>(color * intensity * 0.3, intensity * 0.3));
+        textureStore(outputTex, vec2<i32>(px-1, py-1), vec4<f32>(color * intensity * 0.3, intensity * 0.3));
+        textureStore(outputTex, vec2<i32>(px+1, py-1), vec4<f32>(color * intensity * 0.3, intensity * 0.3));
+        textureStore(outputTex, vec2<i32>(px-1, py+1), vec4<f32>(color * intensity * 0.3, intensity * 0.3));
+      }
     `;
     
     this.renderPipelineId = this.api.Compute.createPipeline({
