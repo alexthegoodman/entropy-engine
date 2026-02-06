@@ -125,6 +125,7 @@ pub enum ResourceType {
     StorageTexture { id: String },
     StorageTextureRgba16 { id: String },
     TextureNonFilterable { id: String },
+    DepthTexture,
 }
 
 
@@ -328,6 +329,7 @@ pub struct AddonContext {
     pub surface_format: Option<wgpu::TextureFormat>,
     pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    pub composite_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_models: Vec<(String, ModelConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
@@ -1146,6 +1148,44 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.bind_group_layouts[1].as_ref(), // Model/Mesh Transform
             ];
+        } else if config.form.as_deref() == Some("composite") {
+            if ctx.composite_layout.is_none() {
+                ctx.composite_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Depth,
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                    ],
+                    label: Some("composite_bind_group_layout"),
+                })));
+            }
+            layouts = vec![
+                ctx.bind_group_layouts[0].as_ref(), // Camera
+                ctx.composite_layout.as_ref().unwrap().as_ref(),
+            ];
         } 
         
          if let Some(extras) = &config.extra_bind_groups {
@@ -1160,6 +1200,11 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 layouts = vec![
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.bind_group_layouts[1].as_ref(), // Model
+                ];
+            } else if config.form.as_deref() == Some("composite") {
+                layouts = vec![
+                    ctx.bind_group_layouts[0].as_ref(), // Camera
+                    ctx.composite_layout.as_ref().unwrap().as_ref(),
                 ];
             } else {
                 layouts = vec![ctx.bind_group_layouts[0].as_ref()]; // Start with Camera (Group 0)
@@ -1196,6 +1241,11 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                          },
                          "TextureNonFilterable" => wgpu::BindingType::Texture {
                              sample_type: wgpu::TextureSampleType::Float { filterable: false },
+                             view_dimension: wgpu::TextureViewDimension::D2,
+                             multisampled: false,
+                         },
+                         "DepthTexture" => wgpu::BindingType::Texture {
+                             sample_type: wgpu::TextureSampleType::Depth,
                              view_dimension: wgpu::TextureViewDimension::D2,
                              multisampled: false,
                          },
@@ -1925,6 +1975,7 @@ impl AddonEngine {
             surface_format: None,
             grass_uniform_layout: None,
             landscape_particle_layout: None,
+            composite_layout: None,
             pending_cubes: Vec::new(),
             pending_models: Vec::new(),
             pending_meshes: Vec::new(),

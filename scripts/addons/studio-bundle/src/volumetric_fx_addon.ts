@@ -148,9 +148,20 @@ class VolumetricFX {
     this.noiseTextureId = this.api.Texture.create(size, size, data);
   }
   
+  // TODO: need depth texture to properly integrate fog into scene, appearing in front or behind objects?
   createFogPipeline() {
     // Volumetric fog with raymarching and light scattering, confined to a cube
     const vertexShader = `
+      struct CameraUniform {
+          view_proj: mat4x4<f32>,
+          view_pos: vec4<f32>,
+          window_size: vec4<f32>,
+          inverse_view: mat4x4<f32>,
+          inverse_projection: mat4x4<f32>,
+      };
+      @group(0) @binding(0)
+      var<uniform> camera: CameraUniform;
+
       struct VertexOutput {
         @builtin(position) position: vec4<f32>,
         @location(0) uv: vec2<f32>,
@@ -169,7 +180,7 @@ class VolumetricFX {
         output.uv = vec2<f32>(x, -y) * 0.5 + 0.5;
         
         // Compute view ray for raymarching
-        // NOTE: Would benefit from inverse view/projection matrices for accurate ray direction
+        // TODO: Would benefit from inverse view/projection matrices for accurate ray direction
         let aspectRatio = 1.778; // 16:9
         let fov = 1.2;
         output.viewRay = normalize(vec3<f32>(
@@ -183,6 +194,16 @@ class VolumetricFX {
     `;
     
     const fragmentShader = `
+      struct CameraUniform {
+          view_proj: mat4x4<f32>,
+          view_pos: vec4<f32>,
+          window_size: vec4<f32>,
+          inverse_view: mat4x4<f32>,
+          inverse_projection: mat4x4<f32>,
+      };
+      @group(0) @binding(0)
+      var<uniform> camera: CameraUniform;
+
       struct Uniforms {
         fogColor: vec4<f32>,
         sunDirection: vec4<f32>,
@@ -202,6 +223,7 @@ class VolumetricFX {
       
       @group(1) @binding(0) var noiseTex: texture_2d<f32>;
       @group(1) @binding(1) var noiseSampler: sampler;
+      @group(1) @binding(2) var depthTex: texture_depth_2d;
       @group(2) @binding(0) var<storage, read> uniforms: Uniforms;
       
       // Sample 3D noise from 2D texture
@@ -213,6 +235,12 @@ class VolumetricFX {
         
         // Blend based on z
         return mix(sample1, sample2, fract(pos.z * 0.1));
+      }
+
+      fn getLinearDepth(uv: vec2<f32>, depth: f32) -> f32 {
+        let ndc = vec4<f32>(uv.x * 2.0 - 1.0, (1.0 - uv.y) * 2.0 - 1.0, depth, 1.0);
+        let viewPos = camera.inverse_projection * ndc;
+        return -(viewPos.z / viewPos.w);
       }
       
       // Mie scattering phase function
@@ -255,11 +283,11 @@ class VolumetricFX {
       }
       
       // Raymarch through volume, confined to cube
-      fn raymarchFog(rayOrigin: vec3<f32>, rayDir: vec3<f32>, maxDist: f32) -> vec4<f32> {
+      fn raymarchFog(rayOrigin: vec3<f32>, rayDir: vec3<f32>, sceneDepth: f32) -> vec4<f32> {
         // Compute ray-cube intersection
         let intersect = rayAABBIntersect(rayOrigin, rayDir, uniforms.cubeMin.xyz, uniforms.cubeMax.xyz);
         var tStart = max(intersect.x, 0.0);
-        var tEnd = intersect.y;
+        var tEnd = min(intersect.y, sceneDepth);
         
         if (tStart >= tEnd || tEnd < 0.0) {
           return vec4<f32>(0.0, 0.0, 0.0, 0.0);
@@ -327,22 +355,10 @@ class VolumetricFX {
         let rayOrigin = uniforms.cameraPos;
         let rayDir = normalize(viewRay);
         
-        // NOTE: Would benefit from depth buffer to get proper max distance
-        let maxDist = uniforms.fogEnd;
+        let depth = textureSample(depthTex, noiseSampler, uv);
+        let sceneDepth = getLinearDepth(uv, depth);
         
-        let fog = raymarchFog(rayOrigin.xyz, rayDir, maxDist);
-
-        // return vec4<f32>(1.0, 0.0, 0.0, 0.5);  // Semi-transparent red overlay
-
-        // return vec4<f32>(uniforms.fogColor.xyz, 0.5);  // Should show fogColor tint if buffer bound correctly
-
-        // if (isInsideAABB(vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(-250.0, -250.0, -250.0), vec3<f32>(250.0, 250.0, 250.0))) {
-        //   return vec4<f32>(0.0, 0.0, 1.0, 1.0);  // Blue: Camera inside cube (should be full-screen if true)
-        // }
-
-        // if (isInsideAABB(rayOrigin.xyz, uniforms.cubeMin.xyz, uniforms.cubeMax.xyz)) {
-        //   return vec4<f32>(0.0, 0.0, 1.0, 1.0);  // Blue: Camera inside cube (should be full-screen if true)
-        // }
+        let fog = raymarchFog(rayOrigin.xyz, rayDir, sceneDepth);
 
         return fog;
       }
@@ -354,11 +370,6 @@ class VolumetricFX {
       fragmentShader,
       form: "composite",
       extraBindGroups: [{
-          entries: [
-            { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
-            { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
-          ]
-        },{
         entries: [
           { binding: 0, visibility: ["Fragment"], resourceType: "Storage" },
         ]
@@ -420,6 +431,7 @@ class VolumetricFX {
     
     // Create dust rendering pipeline with billboarding
     const vertexShader = `
+    // TODO: use camera uniform at group 0
       struct Uniforms {
         viewProjection: mat4x4<f32>,
         cameraRight: vec3<f32>,

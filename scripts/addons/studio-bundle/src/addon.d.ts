@@ -298,7 +298,7 @@ export interface ButtonConfig {
 export interface BindingEntry {
   binding: number;
   visibility: ("Compute" | "Vertex" | "Fragment")[];
-  resourceType: "Uniform" | "Time" | "Texture" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16";
+  resourceType: "Uniform" | "Time" | "Texture" | "TextureNonFilterable" | "Sampler" | "Storage" | "StorageReadOnly" | "StorageTexture" | "StorageTextureRgba16" | "DepthTexture";
 }
 
 export interface PipelineConfig {

@@ -1152,6 +1152,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                                     binding: 1,
                                     resource: wgpu::BindingResource::Sampler(&sampler),
                                 },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: wgpu::BindingResource::TextureView(&depth_view),
+                                },
                             ],
                             label: Some("Composite Bind Group"),
                         });
