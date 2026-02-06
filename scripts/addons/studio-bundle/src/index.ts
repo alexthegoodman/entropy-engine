@@ -9,7 +9,8 @@
 // import "./environment_addon";
 // import "./volumetric_addon";
 
-import "./compute_dust_addon";
+// import "./volume_dust_addon";
+import "./composite_dust_addon";
 
 import "./light_hive_addon";
 import "./pbr_texture_designer_addon";

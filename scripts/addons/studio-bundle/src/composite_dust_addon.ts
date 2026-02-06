@@ -61,7 +61,7 @@ class ComputeDustSystem {
       particleCount: 256, // Good for compute (power of 2)
       particleSize: 150.0,
       particleBrightness: 0.6,
-      turbulenceStrength: 0.35,
+      turbulenceStrength: 2.35,
       windSpeed: [0.5, -0.2, 0.3],
       gravity: -0.1,
       bounds: 4096,
@@ -455,7 +455,6 @@ class ComputeDustSystem {
       name: "dust_composite",
       vertexShader,
       fragmentShader,
-      layout: "TriangleList",
       form: "composite",
       extraBindGroups: [{
         entries: [

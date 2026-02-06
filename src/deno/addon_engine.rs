@@ -1180,6 +1180,16 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                              multisampled: false,
                          },
                          "Sampler" => wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                         "Storage" => wgpu::BindingType::Buffer { // Default to uniform
+                             ty: wgpu::BufferBindingType::Storage { read_only: true },
+                             has_dynamic_offset: false,
+                             min_binding_size: None,
+                         },
+                         "Uniform" => wgpu::BindingType::Buffer { // Default to uniform
+                             ty: wgpu::BufferBindingType::Uniform,
+                             has_dynamic_offset: false,
+                             min_binding_size: None,
+                         },
                          _ => wgpu::BindingType::Buffer { // Default to uniform
                              ty: wgpu::BufferBindingType::Uniform,
                              has_dynamic_offset: false,

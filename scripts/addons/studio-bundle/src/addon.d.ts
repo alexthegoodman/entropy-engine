@@ -306,7 +306,7 @@ export interface PipelineConfig {
   pbr?: boolean;
   vertexShader?: string;
   fragmentShader?: string;
-  layout?: string;
+  layout?: "hair" | "mesh";
   lightingShader?: string;
   extraBindGroups?: {
     entries: BindingEntry[]
