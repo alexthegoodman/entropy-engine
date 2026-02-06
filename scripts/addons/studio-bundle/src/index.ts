@@ -10,8 +10,8 @@
 // import "./volumetric_addon";
 
 // import "./volume_dust_addon"; // non-working
-// import "./composite_dust_addon";
-import "./volumetric_fx_addon";
+import "./composite_dust_addon"; // dust works
+import "./volumetric_fx_addon"; // fog works, dust doesnt
 
 import "./light_hive_addon";
 import "./pbr_texture_designer_addon";

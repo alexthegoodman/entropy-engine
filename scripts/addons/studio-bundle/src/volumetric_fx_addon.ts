@@ -67,12 +67,12 @@ class VolumetricFX {
     
     // Default configuration - AAA quality settings
     this.config = {
-      fogDensity: 0.015,
+      fogDensity: 0.006,
       fogColor: [0.7, 0.75, 0.8],
       fogStart: 50.0,
       fogEnd: 150.0,
       
-      dustEnabled: true, // later
+      dustEnabled: false, // later
       dustDensity: 2000,
       dustSize: 0.08,
       dustBrightness: 1.5,
