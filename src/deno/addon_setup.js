@@ -30,6 +30,11 @@ globalThis.Entropy = {
                 },
                 onProjectChanged: (callback) => {
                     ops.op_addon_on_project_changed(metadata.name, callback);
+                    
+                    // automatically call on init hooks
+                    if (globalThis.Entropy.Composer && typeof globalThis.Entropy.Composer.initCallbacks[metadata.name] === "function") {
+                        globalThis.Entropy.Composer.initCallbacks[metadata.name]();
+                    }
                 },
                 registerTool: (definition, callback) => {
                     ops.op_addon_register_tool(definition, callback);
@@ -107,11 +112,11 @@ globalThis.Entropy = {
                         ops.op_landscape_update_pbr_texture(getAddonName(), textureId, kind, materialType);
                     },
                     updateTexturePlus: (addonName, textureId, kind) => {
-                        ops.op_println(String("updateTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind));
+                        // ops.op_println(String("updateTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind));
                         ops.op_landscape_update_texture(addonName, textureId, kind);
                     },
                     updatePbrTexturePlus: (addonName, textureId, kind, materialType) => {
-                        ops.op_println(String("updatePbrTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind + " " + materialType));
+                        // ops.op_println(String("updatePbrTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind + " " + materialType));
                         ops.op_landscape_update_pbr_texture(addonName, textureId, kind, materialType);
                     }
                 },

@@ -36,6 +36,7 @@ pub enum PBRMaterialType {
 }
 
 pub struct Landscape {
+    pub heightmap_filename: String,
     pub id: String,
     pub transform: Transform,
     pub vertex_buffer: wgpu::Buffer,
@@ -62,6 +63,7 @@ pub struct Landscape {
     pub terrain_height: f32,
     pub pipeline_id: Option<String>,
     pub render_role: Option<String>,
+    pub heightmap_texture: Option<Texture>,
 }
 
 impl Landscape {
@@ -79,6 +81,12 @@ impl Landscape {
         camera: &SimpleCamera,
         pipeline_id: Option<String>
     ) -> Self {
+        let heightmap_texture = Texture::new(
+            data.to_texture_bytes(), 
+            data.width as u32, 
+            data.height as u32
+        );
+
         // load actual vertices and indices (most important for now)
         let scale = 1.0;
         let (vertices, indices) = Self::generate_terrain(data, scale);
@@ -336,6 +344,7 @@ impl Landscape {
             });
 
         Self {
+            heightmap_filename: data.filename.clone(),
             id: landscapeComponentId.to_owned(),
             index_count: indices.len() as u32,
             vertex_buffer,
@@ -371,6 +380,7 @@ impl Landscape {
             pbr_params_texture_array_view: None,
             pipeline_id,
             render_role: None,
+            heightmap_texture: Some(heightmap_texture)
         }
     }
 
@@ -543,7 +553,7 @@ impl Landscape {
                         count: None,
                     },
                 ],
-                label: Some("Landscape Particle Bind Group Layout"),
+                label: Some("Landscape Particle Bind Group Layout (original)"),
             });
 
         self.particle_bind_group_layout = Some(landscape_bind_group_layout);

@@ -622,10 +622,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                         render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                        render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+                        // render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]); // now set in JS explicitly
 
                         for (i, bind_group) in grass.bind_groups.iter().enumerate() {
-                            render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+                            render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
                         }
 
                         render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));

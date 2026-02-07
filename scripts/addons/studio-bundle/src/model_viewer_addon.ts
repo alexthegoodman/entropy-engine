@@ -87,10 +87,6 @@ addon.onInit(async () => {
 
     addon.onProjectChanged(async () => {
         await loadData();
-        
-        if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
-            Entropy.Composer.initCallbacks[addonInfo.name]();
-        }
     });
 
     await loadData();

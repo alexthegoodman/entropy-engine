@@ -68,6 +68,7 @@ ML
 - Model Performance Monitor - Loss curves, metrics dashboard (minimal UI)
 - Inference Tester - Quick A/B comparison of model outputs
 - Export/Import Hub - ONNX, safetensors, etc. for external model integration
+- Synethetic Data Workshop - provide a seed of real data
 
 Video (mainly)
 - Color Corrector

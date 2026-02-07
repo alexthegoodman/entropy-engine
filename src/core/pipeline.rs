@@ -1289,14 +1289,14 @@ impl EntropyPipeline {
 
         let skinned_pipeline = SkinnedPipeline::new(&device, &camera_binding.bind_group_layout, &model_bind_group_layout, swapchain_format, wgpu::TextureFormat::Depth24Plus);
 
-        let scattered_model_pipeline = crate::core::scattered_model_pipeline::ScatteredModelPipeline::new(
-            &device,
-            &camera_binding.bind_group_layout,
-            &model_bind_group_layout,
-            &window_size_bind_group_layout,
-            &group_bind_group_layout,
-            wgpu::TextureFormat::Depth24Plus,
-        );
+        // let scattered_model_pipeline = crate::core::scattered_model_pipeline::ScatteredModelPipeline::new(
+        //     &device,
+        //     &camera_binding.bind_group_layout,
+        //     &model_bind_group_layout,
+        //     &window_size_bind_group_layout,
+        //     &group_bind_group_layout,
+        //     wgpu::TextureFormat::Depth24Plus,
+        // );
 
         println!("Grid Restored!");
 
@@ -1311,7 +1311,7 @@ impl EntropyPipeline {
             regular_texture_render_mode_buffer,
             game_mode,
             skinned_pipeline,
-            scattered_model_pipeline,
+            // scattered_model_pipeline,
         );
 
         if game_mode {

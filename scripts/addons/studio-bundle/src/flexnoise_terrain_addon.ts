@@ -22,7 +22,7 @@ let terrainParams = {
     persistence: 0.5,
     lacunarity: 2.0,
     usePBR: true,
-    width: 128,
+    width: 128, // not very accurate for height sampling and vegetation or scattering
     height: 128,
     heightScale: 1.5,
     positionY: 0.0,
@@ -670,8 +670,4 @@ addon.onInit(async () => {
             renderTerrainUI(tab);
         }
     });
-
-    if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
-        Entropy.Composer.initCallbacks[addonInfo.name]();
-    }
 });

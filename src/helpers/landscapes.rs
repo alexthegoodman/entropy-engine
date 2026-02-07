@@ -13,6 +13,7 @@ use crate::helpers::wasm_loaders::read_texture_bytes_wasm;
 use super::utilities::get_common_os_dir;
 
 pub struct LandscapePixelData {
+    pub filename: String,
     pub width: usize,
     pub height: usize,
     // data: Vec<u8>,
@@ -20,6 +21,88 @@ pub struct LandscapePixelData {
     pub rapier_heights: na::DMatrix<f32>,
     pub raw_heights: Vec<f32>,
     pub max_height: f32,
+}
+
+impl LandscapePixelData {
+    // pub fn to_texture_bytes(&self) -> Vec<u8> {
+    //     let mut bytes = Vec::with_capacity(self.width * self.height * 4);
+        
+    //     for row in &self.pixel_data {
+    //         for pixel in row {
+    //             // Assuming PixelData has r, g, b, a fields as u8
+    //             bytes.push(pixel.r);
+    //             bytes.push(pixel.g);
+    //             bytes.push(pixel.b);
+    //             bytes.push(pixel.a);
+    //         }
+    //     }
+        
+    //     bytes
+    // }
+
+    // pub fn to_texture_bytes(&self) -> Vec<u8> {
+    //     let mut bytes = Vec::with_capacity(self.width * self.height * 4);
+        
+    //     for row in &self.pixel_data {
+    //         for pixel in row {
+    //             // Normalize height to 0-255 range
+    //             let normalized = (pixel.height_value / self.max_height * 255.0) as u8;
+                
+    //             // Store as grayscale RGBA
+    //             bytes.push(normalized); // R
+    //             bytes.push(normalized); // G
+    //             bytes.push(normalized); // B
+    //             bytes.push(255);        // A (full opacity)
+    //         }
+    //     }
+        
+    //     bytes
+    // }
+
+    pub fn to_texture_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.width * self.height * 4);
+        
+        // Find actual min/max for proper normalization
+        let mut min_height = f32::MAX;
+        let mut max_height = f32::MIN;
+        
+        for row in &self.pixel_data {
+            for pixel in row {
+                min_height = min_height.min(pixel.height_value);
+                max_height = max_height.max(pixel.height_value);
+            }
+        }
+        
+        let height_range = max_height - min_height;
+        
+        println!("=== Heightmap Normalization ===");
+        println!("Min height: {:.2}", min_height);
+        println!("Max height: {:.2}", max_height);
+        println!("Range: {:.2}", height_range);
+        
+        for row in &self.pixel_data {
+            for pixel in row {
+                // Normalize to 0-1 range, then scale to 0-255
+                let normalized = if height_range > 0.0 {
+                    ((pixel.height_value - min_height) / height_range * 255.0) as u8
+                } else {
+                    128 // Flat terrain
+                };
+                
+                bytes.push(normalized); // R
+                bytes.push(normalized); // G
+                bytes.push(normalized); // B
+                bytes.push(255);        // A
+            }
+        }
+        
+        // Sample check
+        let center_idx = (self.height / 2 * self.width + self.width / 2) * 4;
+        println!("Center pixel byte value: {}", bytes[center_idx]);
+        println!("================================\n");
+        
+        bytes
+    }
 }
 
 #[derive(Serialize)]
@@ -278,7 +361,7 @@ pub fn get_landscape_pixels(
         "midpoint/projects/{}/landscapes/{}/heightmaps",
         projectId, landscapeAssetId
     ));
-    let landscape_path = landscapes_dir.join(landscapeFilename);
+    let landscape_path = landscapes_dir.join(landscapeFilename.clone());
     // let landscape_path = landscapes_dir
     //     .join("upscaled")
     //     .join("upscaled_heightmap.tiff");
@@ -304,6 +387,7 @@ pub fn get_landscape_pixels(
     );
 
     LandscapePixelData {
+        filename: landscapeFilename.clone(),
         width,
         height,
         // data: heightmap.to_vec(),
@@ -615,6 +699,7 @@ pub fn generate_landscape_data(
     }
 
     LandscapePixelData {
+        filename: String::new(),
         width,
         height,
         pixel_data,

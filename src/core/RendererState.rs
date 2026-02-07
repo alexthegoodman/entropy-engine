@@ -241,7 +241,7 @@ impl RendererState {
         // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         game_mode: bool,
         skinned_pipeline: SkinnedPipeline,
-        scattered_model_pipeline: crate::core::scattered_model_pipeline::ScatteredModelPipeline,
+        // scattered_model_pipeline: crate::core::scattered_model_pipeline::ScatteredModelPipeline,
     ) -> Self {
         // create the utility grid(s)
         let mut grids = Vec::new();
@@ -350,7 +350,8 @@ impl RendererState {
             color_render_mode_buffer,
             gpu_resources: None,
             skinned_pipeline: Some(skinned_pipeline),
-            scattered_model_pipeline: Some(scattered_model_pipeline),
+            // scattered_model_pipeline: Some(scattered_model_pipeline),
+            scattered_model_pipeline: None,
             // camera_uniform_buffer,
             // camera_bind_group,
             // light_bind_group_layout,

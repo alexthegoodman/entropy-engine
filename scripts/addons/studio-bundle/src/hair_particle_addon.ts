@@ -24,7 +24,7 @@ let hairParams: any = {
     bladeDensity: 15.0,
     landscapeSize: 100.0,
     landscapeHeight: 0.0,
-    landscapeYOffset: 0.0,
+    landscapeYOffset: -450.0,
     baseColor: [0.1, 0.3, 0.35, 1.0],
     tipColor: [0.2, 0.7, 0.8, 1.0],
     pipelineId: null,
@@ -78,6 +78,69 @@ let newComponentName = "New Hair Component";
 
 // Enhanced vertex shader with ornament support
 const hairVertexShader = `
+// ===== LANDSCAPE SAMPLING =====
+
+// Sample height from landscape texture array
+fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
+    // default terrain sizing
+    // square_size = 1024.0 * 4.0 = 4096.0
+    // square_height = 150.0 * 4.0 = 600.0
+    let landscape_size = 4096.0;
+    let max_height = 600.0;
+    let landscape_y_offset = -450.0;
+
+    // dynamic terrain sizing
+    // let landscape_size = uniforms.landscape_size;
+    // let max_height = uniforms.landscape_height;
+    // let landscape_y_offset = uniforms.landscape_y_offset;
+    
+    // World coordinates are centered, so normalize to 0-1 UV space
+    let uv = (world_pos + landscape_size * 0.5) / landscape_size;
+    
+    // Clamp UV to valid range to avoid sampling outside texture
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    
+    // Use textureSampleLevel for vertex shader (explicit LOD = 0)
+    // let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, HEIGHTMAP_LAYER, 0.0);
+    let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
+    
+    // Heightmap is normalized (0-1), so scale to actual height
+    // The R channel contains the normalized height value
+    return (height_sample.r * max_height) + landscape_y_offset; // hardcoded landscape offset from generic properties!
+}
+
+// fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
+//     let max_height = 600.0;  // This should be your HEIGHT RANGE, not just max
+//     let min_height = -691.66; // Add this
+//     let landscape_size = uniforms.landscape_size;
+//     let landscape_y_offset = uniforms.landscape_y_offset;
+    
+//     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
+//     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    
+//     let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
+    
+//     // Denormalize from 0-1 back to actual height range
+//     let height_range = max_height - min_height;
+//     return (height_sample.r * height_range + min_height) + landscape_y_offset;
+// }
+
+// Calculate terrain normal by sampling nearby heights
+fn sample_landscape_normal(world_pos: vec2<f32>) -> vec3<f32> {
+    let offset = 2.0; // Sample distance - adjust based on terrain detail
+    
+    let h_center = sample_landscape_height(world_pos);
+    let h_right = sample_landscape_height(world_pos + vec2<f32>(offset, 0.0));
+    let h_up = sample_landscape_height(world_pos + vec2<f32>(0.0, offset));
+    
+    // Calculate tangent vectors
+    let tangent_x = vec3<f32>(offset, h_right - h_center, 0.0);
+    let tangent_z = vec3<f32>(0.0, h_up - h_center, offset);
+    
+    // Cross product gives us the normal
+    return normalize(cross(tangent_z, tangent_x));
+}
+
     struct Camera {
         view_proj: mat4x4<f32>,
     };
@@ -199,8 +262,11 @@ const hairVertexShader = `
         let blade_x = world_cell_x * uniforms.grid_size + final_offset.x * uniforms.grid_size;
         let blade_z = world_cell_z * uniforms.grid_size + final_offset.y * uniforms.grid_size;
         
-        let blade_y = uniforms.landscape_y_offset;
-        let terrain_normal = vec3<f32>(0.0, 1.0, 0.0);
+        // Sample landscape height at this position
+        let blade_y = sample_landscape_height(vec2<f32>(blade_x, blade_z));
+        
+        // Get terrain normal for grass orientation
+        let terrain_normal = sample_landscape_normal(vec2<f32>(blade_x, blade_z));
         
         let blade_pos = vec3<f32>(blade_x, blade_y, blade_z);
         
@@ -725,12 +791,24 @@ function updateHair(params: typeof hairParams & { _transform?: { position: [numb
     
     addon.Particles.createHair({
         ...params,
+        // landscapeHeight: 2.0,
         id: id,
         position: pos, // Pass position to the underlying system
         renderRole: "Vegetation",
         base_color: params.baseColor,
         tip_color: params.tipColor,
         bindings: [
+            {
+                group: 2,
+                binding: 0,
+                resource: {
+                    type: "Texture",
+                    value: {
+                        id: "Landscape"
+                    }
+                }
+            },
+            { group: 2, binding: 1, resource: { type: "Sampler" } },
             {
                 group: 3,
                 binding: 0,
@@ -922,13 +1000,19 @@ addon.onInit(async () => {
         extraBindGroups: [
             {
                 entries: [
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
+                    { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" }
+                ]
+            },
+            {
+                entries: [
                     { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }
                 ]
             }
         ]
     });
 
-    // Create ornament pipeline
+    // // Create ornament pipeline
     ornamentPipelineId = Entropy.Pipeline.create({
         name: "ornament_shader",
         layout: "mesh",
@@ -955,19 +1039,6 @@ addon.onInit(async () => {
     });
 
     addonState.currentParams.pipelineId = customPipelineId;
-
-    const savedData = addon.IO.load();
-    if (savedData) {
-        addonState = { ...addonState, ...savedData };
-        if (Entropy.Composer) {
-            addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent("Hair Particles with Ornaments", comp.id, comp.name, comp.params);
-            });
-        }
-    }
-
-    updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-    updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
     // Atmospheric lighting
     addon.Lighting.createPointLight({
@@ -1730,8 +1801,14 @@ addon.onInit(async () => {
         Entropy.Composer.registerEditor("Hair Particles with Ornaments", renderHairUI);
         if (Entropy.Composer.registerRenderer) {
             Entropy.Composer.registerRenderer("Hair Particles with Ornaments", (id: string, params: any) => {
-                updateHair(params, id);
-                updateOrnaments(params, id);
+                // updateHair(params, id);
+                // updateOrnaments(params, id);
+                Entropy.println("register grass " + id + " " + JSON.stringify(params));
+                // updateHair({ ...params, pipelineId: customPipelineId }, id);
+                // updateOrnaments({ ...params, pipelineId: ornamentPipelineId }, id);
+                
+                updateHair({ ...addonState.currentParams, pipelineId: customPipelineId }, id);
+                updateOrnaments({ ...addonState.currentParams, pipelineId: ornamentPipelineId }, id);
             });
         }
     }
@@ -1741,9 +1818,16 @@ addon.onInit(async () => {
         if (data) {
             addonState = { ...addonState, ...data };
         }
-        updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-        updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+        // updateHair({ ...addonState.currentParams, pipelineId: customPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
+        // updateOrnaments({ ...addonState.currentParams, pipelineId: ornamentPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
     });
+
+    // if (Entropy.Composer) {
+    //     Entropy.Composer.initCallbacks["FlexNoise Terrain"] = () => {
+    //         updateHair({ ...addonState.currentParams, pipelineId: customPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
+    //         updateOrnaments({ ...addonState.currentParams, pipelineId: ornamentPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
+    //     };
+    // }
 
     const tab = addon.UI.createTab({
         title: "Hair + Ornaments",

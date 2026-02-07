@@ -126,10 +126,6 @@ addon.onInit(async () => {
         if (data) {
             composerState = { ...composerState, ...data };
             refreshScene(); // until we clear, lets avoid this?
-
-            if (Entropy.Composer && typeof Entropy.Composer.initCallbacks[addonInfo.name] === "function") {
-                Entropy.Composer.initCallbacks[addonInfo.name]();
-            }
         }
     });
 

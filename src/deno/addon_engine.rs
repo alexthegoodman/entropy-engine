@@ -22,9 +22,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::art_assets::Model::read_model;
+use crate::core::Texture::Texture;
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
-use crate::helpers::saved_data::{ComponentKind, PhysicsConfig};
+use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, PhysicsConfig};
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -212,7 +213,7 @@ pub enum UiWidget {
 
 use crate::heightfield_landscapes::Landscape::Landscape;
 
-use crate::helpers::landscapes::{LandscapePixelData};
+use crate::helpers::landscapes::{self, LandscapePixelData, read_landscape_heightmap_as_texture};
 
 
 
@@ -902,6 +903,7 @@ fn op_lighting_update_sun(state: &mut OpState, #[serde] config: ProceduralSkyCon
 #[op2]
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        println!("Create grass xyz");
         ctx.pending_grasses.push((addon_name, config));
     }
 }
@@ -1119,36 +1121,36 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 })));
             }
 
-            if ctx.landscape_particle_layout.is_none() {
-                ctx.landscape_particle_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    entries: &[
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 0,
-                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                            ty: wgpu::BindingType::Texture {
-                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                                view_dimension: wgpu::TextureViewDimension::D2,
-                                multisampled: false,
-                            },
-                            count: None,
-                        },
-                        wgpu::BindGroupLayoutEntry {
-                            binding: 1,
-                            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                            count: None,
-                        },
-                    ],
-                    label: Some("Landscape Particle Bind Group Layout"),
-                })));
-            }
+            // if ctx.landscape_particle_layout.is_none() {
+            //     ctx.landscape_particle_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            //         entries: &[
+            //             wgpu::BindGroupLayoutEntry {
+            //                 binding: 0,
+            //                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            //                 ty: wgpu::BindingType::Texture {
+            //                     sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            //                     view_dimension: wgpu::TextureViewDimension::D2,
+            //                     multisampled: false,
+            //                 },
+            //                 count: None,
+            //             },
+            //             wgpu::BindGroupLayoutEntry {
+            //                 binding: 1,
+            //                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+            //                 ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            //                 count: None,
+            //             },
+            //         ],
+            //         label: Some("Landscape Particle Bind Group Layout (from addons)"),
+            //     })));
+            // }
 
             println!("Working pipeline (1): {:?} {:?}", config.name, config.pbr);
 
             layouts = vec![
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
-                ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
+                // ctx.landscape_particle_layout.as_ref().unwrap().as_ref(), // must provide due in JS via Landscape id on Texture resource cause of architecture
             ];
         } else if config.layout.as_deref() == Some("mesh") {
             // Group 0: Camera
@@ -1203,7 +1205,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 layouts = vec![
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.grass_uniform_layout.as_ref().unwrap().as_ref(),
-                    ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
+                    // ctx.landscape_particle_layout.as_ref().unwrap().as_ref(),
                 ];
             } else if config.layout.as_deref() == Some("mesh") {
                 layouts = vec![
@@ -2088,7 +2090,9 @@ impl AddonEngine {
         gpu: &GpuResources,
         landscape_view: Option<wgpu::TextureView>,
         pipeline: &wgpu::RenderPipeline,
-        bindings: Vec<BindingConfig>
+        bindings: Vec<BindingConfig>,
+        id: Option<String>,
+        current_addon_name: String,
     ) -> (Vec<wgpu::BindGroup>, Vec<wgpu::Buffer>, Vec<wgpu::Sampler>, Option<wgpu::Buffer>) {
         let mut bind_groups = Vec::new();
         let mut uniform_buffers = Vec::new();
@@ -2108,7 +2112,9 @@ impl AddonEngine {
         }
 
         for (group_idx, binding_configs) in sorted_groups {
+            // println!("get_bind_group_layout {:?} {:?} {:?}", id, group_idx, binding_configs);
             let layout = pipeline.get_bind_group_layout(group_idx);
+            // println!("got it! {:?}", id);
             
             let mut created_buffers: Vec<(u32, Arc<wgpu::Buffer>)> = Vec::new();
             let mut created_samplers = Vec::new();
@@ -2195,14 +2201,16 @@ impl AddonEngine {
                     _ => None,
                 };
 
-                if let Some(id) = id_str {
-                    if id == "Landscape" {
+                if let Some(id_s) = id_str {
+                    if id_s == "Landscape" {
                         if let Some(texture_view) = &landscape_view {
+                            println!("----------BIND.... the good view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
                             wgpu_entries.push(wgpu::BindGroupEntry {
                                 binding: b.binding,
                                 resource: wgpu::BindingResource::TextureView(texture_view),
                             });
                         } else {
+                            println!("----------BIND.... the dummy view {:?}", id.clone());
                             // Fallback to dummy
                             let dummy_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
                                 label: Some("Dummy Landscape Texture"),
@@ -2234,7 +2242,8 @@ impl AddonEngine {
                             // We'll add this entry in a separate loop
                         }
                     } else {
-                        if let Some(view) = addon_texture_views.get(&id) {
+                        println!("----------BIND.... the bad view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
+                        if let Some(view) = addon_texture_views.get(&id_s) {
                             wgpu_entries.push(wgpu::BindGroupEntry {
                                 binding: b.binding,
                                 resource: wgpu::BindingResource::TextureView(view.as_ref()),
@@ -2293,7 +2302,10 @@ impl AddonEngine {
     }
 
     pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>, current_addon_name: String) {
-        let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
+        // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
+        let mut landscape_view = renderer_state.addon_landscapes
+                                                                .get(&current_addon_name)
+                                                                .and_then(|al| al.first().and_then(|l| l.particle_texture_view.clone()));
 
         // Update current time in context
         {
@@ -2467,7 +2479,7 @@ impl AddonEngine {
 
                     if let (Some(pipeline), Some(texture_view)) = (pipeline, texture_view) {
                          let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
-                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings)
+                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings, Some(config.name.clone()), current_addon_name.clone())
                          } else {
                              (Vec::new(), Vec::new(), Vec::new(), None)
                          };
@@ -2572,7 +2584,7 @@ impl AddonEngine {
                      
                      if let Some(pipeline) = pipeline {
                          let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
-                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings)
+                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings, config.id.clone(), current_addon_name.clone())
                          } else {
                              (Vec::new(), Vec::new(), Vec::new(), None)
                          };
@@ -2759,6 +2771,44 @@ impl AddonEngine {
                 for (addon_name, config) in pending_grasses {
                     let mut updated = false;
 
+                    let landscape = renderer_state.addon_landscapes
+                                                                .get_mut(&current_addon_name);
+
+
+                    // let mut landscape_bind_group = None;
+                    if let Some(terrain) = landscape {
+                        println!("LANDSCAPPPPE COOOUNNNTTT {:?}", terrain.len());
+
+                       if let Some(land)  = terrain.first_mut() {
+                        println!("read heightmap {:?} {:?} {:?}", self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
+                        // not good for dynamic texture
+                            // let heightmap_texture = read_landscape_heightmap_as_texture(self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
+                                
+                            if let Some(texture) = land.heightmap_texture.clone() { // possibly an expensive clone, although infrequent
+                                // let texture = Texture::new(texture_data.bytes, texture_data.width, texture_data.height);
+                                println!("LANDSCAPPPPE update_particle_texture");
+
+                                land.update_particle_texture(
+                                    &gpu.device,
+                                    &gpu.queue,
+                                    &renderer_state.model_bind_group_layout,
+                                    &renderer_state.texture_render_mode_buffer,
+                                    &renderer_state.color_render_mode_buffer,
+                                    LandscapeTextureKinds::Primary,
+                                    &texture,
+                                );
+
+                                // land.create_layout_for_particles(&gpu.device);
+                                // landscape_bind_group = Some(land.create_particle_bind_group(&gpu.device));
+
+                            } else {
+                                println!("error Loading heightmap");
+                            }
+                        }
+                    }
+
+                    println!("LANDSCAPPPPE landscape_view {:?}", landscape_view.is_some());                
+                    
                     // 1. Try to find and update existing instance
                     if let Some(id) = &config.id {
                         if let Some(grasses) = renderer_state.addon_grasses.get_mut(&addon_name) {
@@ -2781,7 +2831,7 @@ impl AddonEngine {
 
                                 // Update bindings if provided
                                 if let Some(bindings) = config.bindings.clone() {
-                                    let (new_bind_groups, new_uniform_buffers, new_samplers, time_buffer) = self.create_bindings_from_config(gpu, landscape_view.clone(), &grass.render_pipeline, bindings);
+                                    let (new_bind_groups, new_uniform_buffers, new_samplers, time_buffer) = self.create_bindings_from_config(gpu, landscape_view.clone(), &grass.render_pipeline, bindings, Some(id.clone()), current_addon_name.clone());
                                     grass.bind_groups = new_bind_groups;
                                     grass.uniform_buffers = new_uniform_buffers;
                                     grass.samplers = new_samplers;
@@ -2827,8 +2877,28 @@ impl AddonEngine {
                         &gpu.device,
                         &gpu.queue,
                         &camera_layout,
-                        custom_pipeline
-                    );
+                        custom_pipeline.clone()
+                    );  
+
+                    // if let Some(bg) = landscape_bind_group {
+                    //     println!("binding grass to landscape");
+                    //     grass.landscape_bind_group = bg;
+                    // }
+
+                    // since its a dynamic texture, we dont want it to autoload from file here
+                    if let Some(landscape) = renderer_state.addon_landscapes
+                                                                .get_mut(&current_addon_name) {
+                        if let Some(landscape) = landscape.first_mut() {
+                            println!("binding grass to landscape landscape_view!!! {:?}", current_addon_name.clone());
+
+                            grass = Grass::new(&gpu.device, &camera_layout, landscape, custom_pipeline);
+                        }
+                    }
+
+                    landscape_view = renderer_state.addon_landscapes
+                                        .get(&current_addon_name)
+                                        .and_then(|al| al.first().and_then(|l| l.particle_texture_view.clone()));
+
 
                     grass.id = config.id.clone();
                     grass.addon_name = Some(addon_name.clone());
@@ -2851,7 +2921,7 @@ impl AddonEngine {
                     if let Some(tip_color) = config.tip_color { grass.config.tip_color = tip_color; }
 
                     if let Some(bindings) = config.bindings {
-                        let (new_bind_groups, new_uniform_buffers, new_samplers, time_buffer) = self.create_bindings_from_config(gpu, landscape_view.clone(), &grass.render_pipeline, bindings);
+                        let (new_bind_groups, new_uniform_buffers, new_samplers, time_buffer) = self.create_bindings_from_config(gpu, landscape_view.clone(), &grass.render_pipeline, bindings, config.id, current_addon_name.clone());
                         grass.bind_groups = new_bind_groups;
                         grass.uniform_buffers = new_uniform_buffers;
                         grass.samplers = new_samplers;
