@@ -376,8 +376,6 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
             }
         }
 
-        editor.addon_engine.update(renderer_state, camera, current_time, gpu_resources);
-
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
             // Update procedural sky uniform buffer if config is present

@@ -118,7 +118,12 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
         let time = pipeline.start_time.elapsed().as_secs_f32();
 
-        editor.addon_engine.update(renderer_state, camera, current_time, gpu_resources);
+        let mut addon_name = "Global";
+        if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+            addon_name = active_name;
+        }
+
+        editor.addon_engine.update(renderer_state, camera, current_time, gpu_resources, addon_name.to_string());
 
         // Update procedural sky and directional light from addon or world state
         let mut current_procedural_sky_config = editor

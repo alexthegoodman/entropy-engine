@@ -1030,6 +1030,12 @@ addon.onInit(async () => {
     addon.onUpdate((time) => {
         updateOcean(time);
     });
+
+    addon.onUpdatePlus("Game Composer", (time) => {
+        (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+        updateOcean(time);
+        (globalThis as any).__entropy_current_addon_context_override = null;
+    });
     
     Entropy.println("✅ FFT Ocean initialized!");
 });

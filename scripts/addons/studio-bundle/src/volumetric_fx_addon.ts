@@ -69,8 +69,8 @@ class VolumetricFX {
     this.config = {
       fogDensity: 0.006,
       fogColor: [0.7, 0.75, 0.8],
-      fogStart: 50.0,
-      fogEnd: 150.0,
+      fogStart: 100.0,
+      fogEnd: 250.0,
       
       dustEnabled: false, // later
       dustDensity: 2000,

@@ -125,6 +125,7 @@ export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
   onAllAddonsInitialized: (callback: InitCallback) => void;
   onUpdate: (callback: UpdateCallback) => void;
+  onUpdatePlus: (addonName: string, callback: UpdateCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   setVisibility: (visible: boolean) => void;

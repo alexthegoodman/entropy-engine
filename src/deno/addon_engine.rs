@@ -2291,7 +2291,7 @@ impl AddonEngine {
         (bind_groups, uniform_buffers, samplers, time_buffer)
     }
 
-    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>) {
+    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>, current_addon_name: String) {
         let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
 
         // Update current time in context
@@ -2305,11 +2305,24 @@ impl AddonEngine {
         }
 
         // 0. Run onUpdate callbacks
+        // let callbacks = {
+        //     let state = self.runtime.op_state();
+        //     let state = state.borrow();
+        //     let context = state.borrow::<AddonContext>();
+        //     context.on_update_callbacks.clone()
+        // };
+
+        // make sure to only update the current addon
         let callbacks = {
             let state = self.runtime.op_state();
             let state = state.borrow();
             let context = state.borrow::<AddonContext>();
-            context.on_update_callbacks.clone()
+            context
+                .on_update_callbacks
+                .iter()
+                .filter(|(name, _)| name == &current_addon_name)
+                .cloned()
+                .collect::<Vec<_>>()
         };
 
         for (addon_name, callback) in callbacks {

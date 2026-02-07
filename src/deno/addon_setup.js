@@ -20,6 +20,11 @@ globalThis.Entropy = {
                         callback(time, pos, dir);
                     });
                 },
+                onUpdatePlus: (addonName, callback) => {
+                    ops.op_addon_on_update(addonName, (time, pos, dir) => {
+                        callback(time, pos, dir);
+                    });
+                },
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
                 },
