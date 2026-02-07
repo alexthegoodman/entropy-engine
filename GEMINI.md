@@ -1,4 +1,4 @@
-# Entropy Engine (Open World Studio, Sophia, and Stunts)
+# Entropy Engine
 
 This project is a native editor, chat, and engine for videos, games and other creative projects, with plans for a future add-on marketplace for new, high-performance app experiences.
 
@@ -6,9 +6,12 @@ Ultimately, this engine is similar to MCP but without the hassle of MCP setup pr
 
 Here's some info on the current architecture:
 
-All the code is in /src/ and /scripts/addons/studio-bundle/src/.
+All the code is in /src/ and /scripts/addons/studio-bundle/src/ and /public/wry-chat/src/.
 
-With the studio bundle there is
+Within the Wry Chat, we have our React-based AI SDK chat implementation. `entropy-site` repo is the API used by the Wry Chat. Tools provided to entropy-site are dynamically registed by addons.
+
+With the addon studio bundle there is:
+
 - DAW Synth
 - Enviornment (Sun and Sky)
 - Beautiful FFT Water
