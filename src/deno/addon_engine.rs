@@ -46,6 +46,13 @@ pub struct AddonMetadata {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BindGroupLayoutEntryDef {
     pub binding: u32,
@@ -364,6 +371,7 @@ pub struct AddonContext {
     pub camera_direction: [f32; 3],
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
+    pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
 }
 
 pub struct CompositeInstance {
@@ -1889,6 +1897,17 @@ pub fn op_register_composite_texture(
     }
 }
 
+#[op2]
+pub fn op_addon_register_tool(
+    state: &mut OpState,
+    #[serde] definition: ToolDefinition,
+    #[global] callback: v8::Global<v8::Function>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.registered_tools.insert(definition.name.clone(), (definition, callback));
+    }
+}
+
 extension!(
     entropy_addons,
     ops = [
@@ -1938,7 +1957,8 @@ extension!(
         op_addon_set_visibility,
         op_camera_get_transform,
         op_generate_uuid,
-        op_register_composite_texture
+        op_register_composite_texture,
+        op_addon_register_tool
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2017,6 +2037,7 @@ impl AddonEngine {
             camera_direction: [0.0, 0.0, -1.0],
             composite_pipelines: HashMap::new(),
             composites: Vec::new(),
+            registered_tools: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -2947,6 +2968,66 @@ impl AddonEngine {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn get_registered_tools(&mut self) -> Vec<ToolDefinition> {
+        let op_state = self.runtime.op_state();
+        let op_state = op_state.borrow();
+        if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+            ctx.registered_tools.values().map(|(def, _)| def.clone()).collect()
+        } else {
+            Vec::new()
+        }
+    }
+
+    pub fn call_tool(&mut self, name: &str, arguments: &str) -> Option<String> {
+        let callback = {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                ctx.registered_tools.get(name).map(|(_, cb)| cb.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(callback) = callback {
+            let scope = &mut self.runtime.handle_scope();
+            let tc = &mut v8::TryCatch::new(scope);
+            let func = v8::Local::new(tc, callback);
+            let receiver = v8::undefined(tc);
+            
+            let args_json: serde_json::Value = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
+            let args_v8 = serde_v8::to_v8(tc, args_json).unwrap();
+            
+            let result = func.call(tc, receiver.into(), &[args_v8]);
+            
+            if tc.has_caught() {
+                if let Some(exception) = tc.exception() {
+                    let msg = exception.to_rust_string_lossy(tc);
+                    println!("[TOOL ERROR: {}] {}", name, msg);
+                    return Some(format!("Error: {}", msg));
+                }
+            }
+
+            if let Some(res) = result {
+                if res.is_string() {
+                    return Some(res.to_rust_string_lossy(tc));
+                } else if res.is_object() || res.is_array() {
+                    // Try to stringify
+                    let json_key = v8::String::new(tc, "JSON").unwrap();
+                    let json_obj = tc.get_current_context().global(tc).get(tc, json_key.into()).unwrap().to_object(tc).unwrap();
+                    let stringify_key = v8::String::new(tc, "stringify").unwrap();
+                    let stringify_func = v8::Local::<v8::Function>::try_from(json_obj.get(tc, stringify_key.into()).unwrap()).unwrap();
+                    let json_str = stringify_func.call(tc, json_obj.into(), &[res]).unwrap();
+                    return Some(json_str.to_rust_string_lossy(tc));
+                } else {
+                    return Some(res.to_rust_string_lossy(tc));
+                }
+            }
+        }
+        
+        None
     }
 
     pub fn consume_new_tabs(&mut self) -> Vec<(String, String, String)> {

@@ -337,6 +337,28 @@ addon.onInit(async () => {
 
     updateEnvironment();
 
+    addon.registerTool({
+        name: "set_time_of_day",
+        description: "Set the time of day in the environment. 0.0 is sunrise, 0.5 is noon, 1.0 is sunset.",
+        parameters: {
+            type: "object",
+            properties: {
+                time: {
+                    type: "number",
+                    description: "The time of day from 0.0 to 1.0"
+                }
+            },
+            required: ["time"]
+        }
+    }, (args: any) => {
+        if (typeof args.time === "number") {
+            timeOfDay = args.time;
+            updateEnvironment();
+            return { success: true, currentTime: timeOfDay };
+        }
+        return { success: false, error: "Invalid time parameter" };
+    });
+
     // // Spawn some test cubes to see the fog and environment lighting
     // for (let i = 0; i < 10; i++) {
     //     addon.Model.createProcedural({

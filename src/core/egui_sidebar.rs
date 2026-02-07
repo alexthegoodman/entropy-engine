@@ -167,6 +167,21 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                 }
                             }).collect();
                         }
+                    } else if json["type"] == "fetch_tools" {
+                        let tools = editor.addon_engine.get_registered_tools();
+                        if let Ok(tools_json) = serde_json::to_string(&tools) {
+                            let script = format!("window.onToolsFetched({})", tools_json);
+                            editor.pending_webview_scripts.push(script);
+                        }
+                    } else if json["type"] == "call_tool" {
+                        let tool_name = json["name"].as_str().unwrap_or_default();
+                        let call_id = json["callId"].as_str().unwrap_or_default();
+                        let arguments = json["arguments"].as_str().unwrap_or("{}");
+                        
+                        if let Some(result) = editor.addon_engine.call_tool(tool_name, arguments) {
+                            let script = format!("window.onToolResult('{}', '{}', {})", tool_name, call_id, result);
+                            editor.pending_webview_scripts.push(script);
+                        }
                     }
                 }
             }

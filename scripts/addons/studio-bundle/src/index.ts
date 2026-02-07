@@ -6,7 +6,7 @@
 // import "./daw_synth_addon";
 
 // tier 1
-// import "./environment_addon";
+import "./environment_addon";
 // import "./volumetric_addon";
 
 // import "./volume_dust_addon"; // non-working

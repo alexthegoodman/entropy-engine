@@ -115,6 +115,12 @@ export interface ProceduralSkyConfig {
   sunIntensity?: number;
 }
 
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  parameters: any;
+}
+
 export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
   onAllAddonsInitialized: (callback: InitCallback) => void;
@@ -122,7 +128,7 @@ export interface ScopedAPI {
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   setVisibility: (visible: boolean) => void;
-  
+  registerTool: (definition: ToolDefinition, callback: any) => void;
   Model: {
       load: (config: {
           path: string;

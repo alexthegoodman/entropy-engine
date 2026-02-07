@@ -26,6 +26,9 @@ globalThis.Entropy = {
                 onProjectChanged: (callback) => {
                     ops.op_addon_on_project_changed(metadata.name, callback);
                 },
+                registerTool: (definition, callback) => {
+                    ops.op_addon_register_tool(definition, callback);
+                },
                 setVisibility: (visible) => {
                     ops.op_addon_set_visibility(metadata.name, visible);
                 },

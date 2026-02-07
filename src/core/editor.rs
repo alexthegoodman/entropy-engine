@@ -428,6 +428,7 @@ pub struct Editor {
     pub viewport_tab_rect: Option<[f32; 4]>,
     pub is_viewport_visible: bool,
     pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub pending_webview_scripts: Vec<String>,
 
     pub webview_visible: bool,
 
@@ -804,6 +805,7 @@ impl Editor {
             wry_webview_bounds: None,
             viewport_tab_rect: None,
             webview_ipc_rx: None,
+            pending_webview_scripts: Vec::new(),
             webview_visible: false,
             anim_preset_circle_radius: 100.0,
             anim_preset_circle_duration: 2000.0,

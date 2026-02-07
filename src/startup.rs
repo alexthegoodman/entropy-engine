@@ -1327,6 +1327,14 @@ impl WindowState {
                     webview.set_visible(false);
                     editor.webview_visible = false;
                 }
+
+                // Process pending scripts
+                let scripts: Vec<String> = std::mem::take(&mut editor.pending_webview_scripts);
+                for script in scripts {
+                    if let Err(e) = webview.evaluate_script(&script) {
+                        error!("Failed to evaluate script in webview: {}", e);
+                    }
+                }
             }
         }
 
