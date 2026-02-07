@@ -2996,6 +2996,9 @@ impl AddonEngine {
             let tc = &mut v8::TryCatch::new(scope);
             let func = v8::Local::new(tc, callback);
             let receiver = v8::undefined(tc);
+
+            // Log raw arguments for debugging
+            println!("[TOOL CALL: {}] Raw arguments: {}", name, arguments);
             
             let args_json: serde_json::Value = serde_json::from_str(arguments).unwrap_or(serde_json::Value::Null);
             let args_v8 = serde_v8::to_v8(tc, args_json).unwrap();

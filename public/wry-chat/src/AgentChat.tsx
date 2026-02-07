@@ -120,7 +120,7 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
             type: "call_tool",
             name: toolCall.toolName,
             callId: toolCall.toolCallId,
-            arguments: toolCall.input,
+            arguments: JSON.stringify(toolCall.input),
           }),
         );
       }
@@ -189,7 +189,7 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
   return (
     <div className="max-w-4xl mx-auto p-6 relative size-full rounded-lg border h-[95vh]">
       <div className="flex flex-col h-full">
-        <p className="text-xs">{JSON.stringify(availableTools)}</p>
+        {/* <p className="text-xs">{JSON.stringify(availableTools)}</p> */}
         <Conversation>
           <ConversationContent>
             {messages.map((message) => (

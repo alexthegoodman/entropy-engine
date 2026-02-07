@@ -351,9 +351,9 @@ addon.onInit(async () => {
             required: ["time"]
         }
     }, (args: any) => {
-        Entropy.println("Setting time of day from tool call...");
-        if (typeof args.time === "number") {
-            timeOfDay = args.time;
+        Entropy.println("Setting time of day from tool call... " + JSON.stringify(args));
+        if (typeof args.time !== "undefined") {
+            timeOfDay = parseInt(args.time);
             updateEnvironment();
             return { success: true, currentTime: timeOfDay };
         }
