@@ -1,21 +1,5 @@
 # Entropy Addons
 
-#### Model Management
-
-Load and manage 3D models on the Rust side:
-
-```javascript
-// Load from file
-const modelId = await Entropy.Model.load({
-  path: "models/character.gltf",
-  format: "gltf",
-  options: {
-    scale: [1, 1, 1],
-    rotation: [0, 0, 0]
-    // add option to specify vertex layout used?
-  }
-});
-```
 ### UX Requirements
 
 All addons must:
@@ -57,24 +41,14 @@ All addons must:
 - **Networking**: Multi-user synchronization
 - **Asset streaming**: Progressive loading APIs
 
-## Essential Libraries to Expose for App-Like Addons
+## Additional API capabilities on top of existing api
 
 Physics & Simulation
-NOTE: for Physics, we want to hold off on giving complete control of rigidbodies. We want to provide a physics config to the landscape or
-to the model when created, but let the rest be automatic for now. Later we will add deep control.
-javascript// Rapier3D (Rust physics engine)
-```
-const rigidBodyId = await addon.Physics.createRigidBody({
-    type: "dynamic",
-    position: [0, 10, 0],
-    collider: { type: "cuboid", halfExtents: [1, 1, 1] }
-});
+We have physics configs on the models when loading them. We could do more physics integration, especially with forces and impulses.
 
-await addon.Physics.applyImpulse(rigidBodyId, [0, 100, 0]);
-await addon.Physics.onCollision(rigidBodyId, (otherBodyId) => { /* ... */ });
 ```
 Animation
-javascript// Skeletal animation (via ozz-animation or similar)
+javascript// Skeletal animation (we have skeletal animations in Model.rs but no way to play them from addon yet)
 ```
 const animId = await addon.Animation.load("assets/character_walk.gltf");
 const instanceId = await addon.Animation.createInstance(animId);
@@ -91,7 +65,7 @@ const curveId = await addon.Animation.createCurve({
     interpolation: "cubic"
 });
 ```
-Dot Particle Systems
+Dot Particle Systems (requires specialized shader compared to hair particles)
 javascript
 ```
 const particleSystemId = await addon.DotParticles.create({
@@ -119,7 +93,7 @@ const adjustedId = await addon.Image.adjustLevels(imageId, {
 
 await addon.Image.extractNormals(imageId); // Your video lighting idea!
 ```
-Text Rendering & Typography
+Text Rendering & Typography (plus other UI stuff like renering polygons and actually rendering images or textures)
 javascript
 ```
 // cosmic-text or rusttype
@@ -140,7 +114,7 @@ const layoutId = await addon.Text.createLayout({
 });
 
 ```
-Navigation & Pathfinding
+Navigation & Pathfinding (perhaps this can be done rudimentary in game scripts, or perhaps we supply firstclass solutions?)
 javascript
 ```
 // recast-rs or similar
@@ -155,37 +129,7 @@ const pathId = await addon.Navigation.findPath(
 const waypoints = await addon.Navigation.getWaypoints(pathId);
 Asset Management
 ```
-javascript
-```
-// Asset hot-reloading, bundles
-const bundleId = await addon.Assets.createBundle("level_1");
 
-await addon.Assets.preload(bundleId, [
-    "models/tree.gltf",
-    "textures/bark.png",
-    "sounds/wind.wav"
-]);
-
-addon.Assets.onReload("textures/bark.png", (newAssetId) => {
-    // Hot-reload in editor
-});
-```
-Compute Shaders (for ML, data science)
-javascript
-```
-// WGPU compute
-const computeId = await addon.Compute.create({
-    shader: `
-        @compute @workgroup_size(64)
-        fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-            // Matrix multiply, fluid sim, etc.
-        }
-    `,
-    bufferSize: 1024 * 1024
-});
-
-const resultBuffer = await addon.Compute.dispatch(computeId, [16, 16, 1]);
-```
 Video Processing
 javascript
 ```

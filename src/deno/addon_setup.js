@@ -52,7 +52,8 @@ globalThis.Entropy = {
                             rotation: config.rotation || [0, 0, 0],
                             scale: config.scale || [1, 1, 1],
                             pipeline_id: config.pipelineId || null,
-                            render_role: config.renderRole || null
+                            render_role: config.renderRole || null,
+                            physics: config.physics || null
                         });
                     },
                     createProcedural: (config) => {

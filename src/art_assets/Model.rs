@@ -23,6 +23,7 @@ use crate::core::transform::create_empty_group_transform;
 use crate::core::vertex::{ModelVertex, Vertex};
 use crate::helpers::utilities::get_common_os_dir;
 use crate::core::editor::WindowSize;
+use crate::helpers::saved_data::PhysicsConfig;
 
 #[derive(Debug, Clone)]
 pub enum AnimationValues {
@@ -211,7 +212,8 @@ impl Model {
         color_render_mode_buffer: &wgpu::Buffer,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
-        camera: &SimpleCamera
+        camera: &SimpleCamera,
+        physics_config: Option<PhysicsConfig>
     ) -> Self {
         let glb = Glb::from_slice(&bytes).expect("Couldn't create glb from slice");
 
@@ -668,25 +670,38 @@ impl Model {
 
                 let model_final_iso = Isometry3::from_parts(model_position, new_rotation);
 
-                // rapier physics and collision detection!
-                // let rapier_collider = ColliderBuilder::convex_hull(&rapier_points)
-                //     .expect("Couldn't create convex hull")
-                //     .friction(0.7)
-                //     .restitution(0.0)
-                //     .density(1.0)
-                //     .user_data(
-                //         Uuid::from_str(&model_component_id)
-                //             .expect("Couldn't extract uuid")
-                //             .as_u128(),
-                //     )
-                //     .build();
+                let (mass, friction, restitution, body_type, collider_shape) = if let Some(config) = &physics_config {
+                    (
+                        config.mass.unwrap_or(1.0),
+                        config.friction.unwrap_or(0.7),
+                        config.restitution.unwrap_or(0.0),
+                        config.body_type.as_str(),
+                        config.collider_shape.as_str()
+                    )
+                } else {
+                    (70.0, 0.7, 0.0, "fixed", "trimesh")
+                };
 
-                // to support interiors, although may need to use a hollow box collider? not sure. assemble houses in engine? well obviously just do fixed rigidbody for a house
-                // would like to see a PhysicsSettings attached to models in the saved state
-                let rapier_collider = ColliderBuilder::trimesh(rapier_points, rapier_indices)
-                    // .expect("Couldn't create trimesh")
-                    .friction(0.7)
-                    .restitution(0.0)
+                let rapier_collider = if collider_shape == "hull" {
+                     match ColliderBuilder::convex_hull(&rapier_points) {
+                         Some(builder) => builder,
+                         None => ColliderBuilder::trimesh(rapier_points, rapier_indices)
+                     }
+                } else if collider_shape == "trimesh" {
+                     ColliderBuilder::trimesh(rapier_points, rapier_indices)
+                } else if collider_shape == "cuboid" {
+                    ColliderBuilder::cuboid(1.0, 1.0, 1.0)
+                } else if collider_shape == "capsule" {
+                    ColliderBuilder::capsule_y(1.0, 0.5)
+                } else if collider_shape == "ball" {
+                    ColliderBuilder::ball(0.5)
+                } else {
+                    ColliderBuilder::trimesh(rapier_points, rapier_indices)
+                };
+
+                let rapier_collider = rapier_collider
+                    .friction(friction)
+                    .restitution(restitution)
                     .density(1.0)
                     .user_data(
                         Uuid::from_str(&model_component_id)
@@ -695,8 +710,14 @@ impl Model {
                     )
                     .build();
 
-                let dynamic_body = RigidBodyBuilder::fixed()
-                    .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
+                let mut rb_builder = match body_type {
+                     "dynamic" => RigidBodyBuilder::dynamic(),
+                     "kinematic" => RigidBodyBuilder::kinematic_position_based(),
+                     _ => RigidBodyBuilder::fixed(),
+                };
+
+                let dynamic_body = rb_builder
+                    .additional_mass(mass) 
                     .linear_damping(0.1)
                     .position(model_final_iso)
                     .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)

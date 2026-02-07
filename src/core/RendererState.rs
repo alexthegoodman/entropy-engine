@@ -16,7 +16,7 @@ use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::handlers::EntropyPosition;
-use crate::helpers::saved_data::{GameSettings, ScatterSettings};
+use crate::helpers::saved_data::{GameSettings, ScatterSettings, PhysicsConfig};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::model_components::Collectable::Collectable;
@@ -1874,6 +1874,7 @@ impl RendererState {
         camera: &SimpleCamera,
         hide_in_world: bool,
         script_state: Option<HashMap<String, String>>,
+        physics_config: Option<PhysicsConfig>
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1886,7 +1887,8 @@ impl RendererState {
             &self.color_render_mode_buffer,
             isometry,
             scale,
-            camera
+            camera,
+            physics_config
         );
 
         model.hide_from_world = hide_in_world;
@@ -1937,6 +1939,7 @@ impl RendererState {
         camera: &SimpleCamera,
         hide_in_world: bool,
         script_state: Option<HashMap<String, String>>,
+        physics_config: Option<PhysicsConfig>
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1949,7 +1952,8 @@ impl RendererState {
             &self.color_render_mode_buffer,
             isometry,
             scale,
-            camera
+            camera,
+            physics_config
         );
 
         model.hide_from_world = hide_in_world;

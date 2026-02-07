@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex};
 use crate::art_assets::Model::read_model;
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
-use crate::helpers::saved_data::ComponentKind;
+use crate::helpers::saved_data::{ComponentKind, PhysicsConfig};
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -320,6 +320,7 @@ pub struct ModelConfig {
     pub scale: Option<[f32; 3]>,
     pub pipeline_id: Option<String>,
     pub render_role: Option<String>,
+    pub physics: Option<PhysicsConfig>,
 }
 
 pub struct AddonContext {
@@ -2539,7 +2540,8 @@ impl AddonEngine {
                         scale,
                         camera,
                         false,
-                        None
+                        None,
+                        config.physics
                     );
                     
                     renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);

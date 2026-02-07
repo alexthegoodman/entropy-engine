@@ -72,6 +72,15 @@ pub enum LandscapeTextureKinds {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+pub struct PhysicsConfig {
+    pub body_type: String, // "dynamic", "fixed", "kinematic"
+    pub collider_shape: String, // "trimesh", "hull", "cuboid", "capsule", "ball"
+    pub mass: Option<f32>,
+    pub friction: Option<f32>,
+    pub restitution: Option<f32>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 pub struct GenericProperties {
     pub name: String,
     pub position: [f32; 3],

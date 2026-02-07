@@ -155,7 +155,7 @@ pub async fn handle_add_player(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter);
 
@@ -911,7 +911,7 @@ pub async fn handle_add_model(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None);
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
@@ -946,7 +946,8 @@ pub async fn handle_add_scattered_model(
         &state.color_render_mode_buffer,
         isometry,
         scale,
-        camera
+        camera,
+        None
     );
 
     state.add_scattered_model(device, model, scatter_options);
@@ -973,7 +974,7 @@ pub async fn handle_add_npc(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state);
+    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None);
 
     state.add_collider(npcComponentId.clone(), ComponentKind::NPC);
 
@@ -1013,7 +1014,7 @@ pub async fn handle_add_collectable(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state);
+    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None);
 
     state.add_collider(modelAssetId.clone(), ComponentKind::Collectable);
 

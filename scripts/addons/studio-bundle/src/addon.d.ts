@@ -121,6 +121,14 @@ export interface ToolDefinition {
   parameters: any;
 }
 
+export interface PhysicsConfig {
+  bodyType: "dynamic" | "fixed" | "kinematic";
+  colliderShape: "trimesh" | "hull" | "cuboid" | "capsule" | "ball";
+  mass?: number;
+  friction?: number;
+  restitution?: number;
+}
+
 export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
   onAllAddonsInitialized: (callback: InitCallback) => void;
@@ -139,6 +147,7 @@ export interface ScopedAPI {
           scale?: number[];
           pipelineId?: string;
           renderRole?: string;
+          physics?: PhysicsConfig;
       }) => void;
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
