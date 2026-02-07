@@ -539,6 +539,26 @@ impl ApplicationHandler<UserEvent> for Application {
                 // if window.game_mode {
                     let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
 
+                    #[cfg(target_os = "windows")]
+                    if element_state.is_pressed() {
+                        if let Some(webview) = &window.webview {
+                            if editor.webview_visible {
+                                if let Some(bounds) = editor.wry_webview_bounds {
+                                    if let Some(cursor_pos) = window.cursor_position {
+                                        let scale_factor = window.window.scale_factor();
+                                        let logical_x = cursor_pos.x / scale_factor;
+                                        let logical_y = cursor_pos.y / scale_factor;
+
+                                        if logical_x < bounds[0] as f64 || logical_x > (bounds[0] + bounds[2]) as f64 ||
+                                           logical_y < bounds[1] as f64 || logical_y > (bounds[1] + bounds[3]) as f64 {
+                                            webview.focus_parent();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     let new_button = match button {
                         MouseButton::Left => {
                             EntropyMouseButton::Left
