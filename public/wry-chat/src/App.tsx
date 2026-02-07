@@ -1,10 +1,10 @@
 import './App.css'
-import AgentChat from './AgentChat'
+import ChatContainer from './ChatContainer'
 
 function App() {
   return (
     <>
-      <AgentChat />
+      <ChatContainer />
     </>
   )
 }

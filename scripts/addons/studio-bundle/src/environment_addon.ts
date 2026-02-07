@@ -351,6 +351,7 @@ addon.onInit(async () => {
             required: ["time"]
         }
     }, (args: any) => {
+        Entropy.println("Setting time of day from tool call...");
         if (typeof args.time === "number") {
             timeOfDay = args.time;
             updateEnvironment();

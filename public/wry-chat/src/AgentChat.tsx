@@ -80,17 +80,17 @@ const models = [
   { id: "claude-opus-4-20250514", name: "Claude 4 Opus" },
 ];
 
-const InputDemo = () => {
+const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
   const [text, setText] = useState<string>("");
   const [model, setModel] = useState<string>(models[0].id);
   const [useWebSearch, setUseWebSearch] = useState<boolean>(false);
-  const [availableTools, setAvailableTools] = useState<any[]>([]);
+  // const [availableTools, setAvailableTools] = useState<any[]>([]);
   const [initialMessages, setInitialMessages] = useState<any[]>([]); // Use any[] or UIMessage[] based on types
 
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
-        api: "/api/chat",
+        api: "http://localhost:3000/api/sessions/123/messages",
         body: {
           model,
           webSearch: useWebSearch,
@@ -132,20 +132,6 @@ const InputDemo = () => {
   }, [messages]);
 
   useEffect(() => {
-    // Register global callbacks
-    window.onToolsFetched = (tools) => {
-      console.log("Tools fetched:", tools);
-      // Map Rust ToolDefinition to what API expects
-      // Rust: { name, description, parameters }
-      // API Route expects: { name, description, inputSchema: parameters }
-      const mappedTools = tools.map((t) => ({
-        name: t.name,
-        description: t.description,
-        inputSchema: t.parameters,
-      }));
-      setAvailableTools(mappedTools);
-    };
-
     window.onToolResult = (toolName, callId, result) => {
       console.log("Tool result received:", callId, result);
       addToolOutput({
@@ -154,11 +140,6 @@ const InputDemo = () => {
         output: result,
       });
     };
-
-    // Fetch tools from Rust
-    if (window.ipc) {
-      window.ipc.postMessage(JSON.stringify({ type: "fetch_tools" }));
-    }
 
     return () => {
       // Cleanup if needed
@@ -208,6 +189,7 @@ const InputDemo = () => {
   return (
     <div className="max-w-4xl mx-auto p-6 relative size-full rounded-lg border h-[95vh]">
       <div className="flex flex-col h-full">
+        <p className="text-xs">{JSON.stringify(availableTools)}</p>
         <Conversation>
           <ConversationContent>
             {messages.map((message) => (
@@ -283,4 +265,4 @@ const InputDemo = () => {
   );
 };
 
-export default InputDemo;
+export default AgentChat;
