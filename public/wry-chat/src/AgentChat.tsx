@@ -28,8 +28,9 @@ import {
   usePromptInputAttachments,
 } from "@/components/ai-elements/prompt-input";
 import { GlobeIcon } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import {
   Conversation,
   ConversationContent,
@@ -84,24 +85,51 @@ const InputDemo = () => {
   const [model, setModel] = useState<string>(models[0].id);
   const [useWebSearch, setUseWebSearch] = useState<boolean>(false);
   const [availableTools, setAvailableTools] = useState<any[]>([]);
+  const [initialMessages, setInitialMessages] = useState<any[]>([]); // Use any[] or UIMessage[] based on types
+
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/chat",
+        body: {
+          model,
+          webSearch: useWebSearch,
+          tools: availableTools,
+          // systemPrompt: `You are a helpful file analysis assistant. 
+          
+          // When working with files:
+          // - Use listFiles to see what's available
+          // - Use readFile to access file content
+          // - Use analyzeData to provide insights
+          // - Use askForConfirmation before sensitive operations
+          
+          // Be concise and helpful.`,
+        },
+      }),
+    [model, useWebSearch, availableTools],
+  );
 
   const { messages, status, sendMessage, addToolOutput } = useChat({
-    // maxSteps: 5,
-//     api: '/api/chat',
-//       body: {
-//         tools,
-//         context,
-//         systemPrompt: `You are a helpful file analysis assistant. 
-        
-// When working with files:
-// - Use listFiles to see what's available
-// - Use readFile to access file content
-// - Use analyzeData to provide insights
-// - Use askForConfirmation before sensitive operations
-
-// Be concise and helpful.`,
-//       },
+    transport,
+    // initialMessages,
+    onToolCall: ({ toolCall }) => {
+      console.log("Calling tool:", toolCall.toolName);
+      if (window.ipc) {
+        window.ipc.postMessage(
+          JSON.stringify({
+            type: "call_tool",
+            name: toolCall.toolName,
+            callId: toolCall.toolCallId,
+            arguments: toolCall.input,
+          }),
+        );
+      }
+    },
   });
+
+  useEffect(() => {
+    setInitialMessages(messages);
+  }, [messages]);
 
   useEffect(() => {
     // Register global callbacks
@@ -110,10 +138,10 @@ const InputDemo = () => {
       // Map Rust ToolDefinition to what API expects
       // Rust: { name, description, parameters }
       // API Route expects: { name, description, inputSchema: parameters }
-      const mappedTools = tools.map(t => ({
+      const mappedTools = tools.map((t) => ({
         name: t.name,
         description: t.description,
-        inputSchema: t.parameters
+        inputSchema: t.parameters,
       }));
       setAvailableTools(mappedTools);
     };
@@ -122,7 +150,6 @@ const InputDemo = () => {
       console.log("Tool result received:", callId, result);
       addToolOutput({
         tool: toolName,
-        // toolName: toolCall.toolName,
         toolCallId: callId,
         output: result,
       });
@@ -140,37 +167,7 @@ const InputDemo = () => {
     };
   }, [addToolOutput]);
 
-  // Handle tool calls by monitoring messages
-  // Ideally useChat would provide an onToolCall callback, but checking messages is also common pattern
-  // actually useChat from @ai-sdk/react handles execution if we provide onToolCall? 
-  // No, we want to manually handle it. 
-  // The 'maxSteps' option in useChat allows automatic server-side roundtrips.
-  // BUT we need to execute the tool on the CLIENT (Rust).
-  // So we watch for the tool-call message, execute it, and then call addToolResult.
-  
-  useEffect(() => {
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'assistant') return;
-    
-    // Check for tool invocations that don't have results yet
-    if (lastMessage.toolInvocations) {
-      for (const toolInvocation of lastMessage.toolInvocations) {
-        if (toolInvocation.state === 'call') {
-          console.log("Calling tool:", toolInvocation.toolName);
-          if (window.ipc) {
-            window.ipc.postMessage(JSON.stringify({
-              type: "call_tool",
-              name: toolInvocation.toolName,
-              callId: toolInvocation.toolCallId,
-              arguments: toolInvocation.args
-            }));
-          }
-        }
-      }
-    }
-  }, [messages]);
-
-  const handleSubmit = (message: PromptInputMessage) => {
+  const handleSubmit = async (message: PromptInputMessage) => {
     const hasText = Boolean(message.text);
     const hasAttachments = Boolean(message.files?.length);
 
@@ -178,19 +175,33 @@ const InputDemo = () => {
       return;
     }
 
-    sendMessage(
-      {
-        text: message.text || "Sent with attachments",
-        files: message.files,
-      },
-      {
-        body: {
-          model: model,
-          webSearch: useWebSearch,
-          tools: availableTools, // Pass tools to API
-        },
-      }
+    const textContent = message.text || "Sent with attachments";
+    const files = message.files ?? [];
+
+    const fileParts = await Promise.all(
+      files.map(
+        (file) =>
+          new Promise<{ type: "file"; mediaType: string; url: string }>(
+            (resolve, reject) => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                resolve({
+                  type: "file",
+                  mediaType: file.type,
+                  url: reader.result as string,
+                });
+              };
+              reader.onerror = reject;
+              reader.readAsDataURL(file as any);
+            },
+          ),
+      ),
     );
+
+    sendMessage({
+      role: "user",
+      parts: [{ type: "text", text: textContent }, ...fileParts],
+    });
     setText("");
   };
 
@@ -210,14 +221,21 @@ const InputDemo = () => {
                             {part.text}
                           </MessageResponse>
                         );
-                      case "tool-invocation":
-                        const toolInvocation = part.toolInvocation;
+                      case "tool-call":
+                        const toolCall = part;
                         return (
-                          <div key={`${message.id}-${i}`} className="text-xs text-muted-foreground p-2 border rounded mt-2">
-                            <div className="font-semibold">Tool Call: {toolInvocation.toolName}</div>
-                            <div>Args: {JSON.stringify(toolInvocation.args)}</div>
-                            {'result' in toolInvocation && (
-                              <div className="mt-1 text-green-600">Result: {JSON.stringify(toolInvocation.result)}</div>
+                          <div
+                            key={`${message.id}-${i}`}
+                            className="text-xs text-muted-foreground p-2 border rounded mt-2"
+                          >
+                            <div className="font-semibold">
+                              Tool Call: {toolCall.title}
+                            </div>
+                            <div>Args: {JSON.stringify(toolCall.input)}</div>
+                            {"output" in toolCall && (
+                              <div className="mt-1 text-green-600">
+                                Result: {JSON.stringify(toolCall.output)}
+                              </div>
                             )}
                           </div>
                         );
