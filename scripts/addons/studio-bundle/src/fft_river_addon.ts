@@ -1199,6 +1199,29 @@ addon.onInit(async () => {
         createWaterMesh("river_water_preview", addonState.currentParams);
         return { success: true, preset: args.preset };
     });
+
+    addon.registerTool({
+        name: "save_river_component",
+        description: "Save the current river settings as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for this river configuration (e.g., 'Winding Brook')." }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const params = JSON.parse(JSON.stringify(addonState.currentParams));
+        
+        addonState.savedComponents.push({ id, name: args.name, params });
+        
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
+        }
+        
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
+    });
 });
 
 function initializeResources() {

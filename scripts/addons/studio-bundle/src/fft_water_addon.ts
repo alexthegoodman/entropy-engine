@@ -1067,6 +1067,29 @@ addon.onInit(async () => {
         }
         return { success: false, error: "No parameters provided." };
     });
+
+    addon.registerTool({
+        name: "save_ocean_component",
+        description: "Save the current FFT ocean settings as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for this ocean configuration (e.g., 'Calm Caribbean')." }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const params = JSON.parse(JSON.stringify(addonState.currentParams));
+        
+        addonState.savedComponents.push({ id, name: args.name, params });
+        
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
+        }
+        
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
+    });
 });
 
 function initializeResources() {
