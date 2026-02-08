@@ -207,4 +207,43 @@ addon.onInit(async () => {
             });
         }
     });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "list_available_models",
+        description: "List all 3D model files (.glb) available in the project to be spawned.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        return { success: true, models: availableModels };
+    });
+
+    addon.registerTool({
+        name: "spawn_model",
+        description: "Spawn a 3D model instance into the scene.",
+        parameters: {
+            type: "object",
+            properties: {
+                path: { type: "string", description: "The filename of the model (e.g., 'Player.glb'). Use list_available_models to see options." },
+                position: { type: "array", items: { type: "number" }, description: "[x, y, z] coordinates." },
+                rotation: { type: "array", items: { type: "number" }, description: "[x, y, z] rotation in radians." },
+                scale: { type: "array", items: { type: "number" }, description: "[x, y, z] scale. Usually [1, 1, 1]." }
+            },
+            required: ["path"]
+        }
+    }, (args: any) => {
+        Entropy.println("Spawning model via tool: " + args.path);
+        const id = Entropy.generateUUID();
+        const newModel: ModelInstance = {
+            id,
+            path: args.path,
+            position: args.position || [0, 0, 0],
+            rotation: args.rotation || [0, 0, 0],
+            scale: args.scale || [1, 1, 1]
+        };
+        state.models.push(newModel);
+        state.activeModelId = id;
+        refreshModels();
+        return { success: true, id, path: args.path };
+    });
 });

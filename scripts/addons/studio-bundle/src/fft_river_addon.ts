@@ -1121,6 +1121,84 @@ addon.onInit(async () => {
     // }
     
     Entropy.println("✅ FFT River Water initialized!");
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "update_river_parameters",
+        description: "Update the terrain-aware river simulation parameters.",
+        parameters: {
+            type: "object",
+            properties: {
+                minFlowThreshold: { type: "number", description: "Minimum flow to form a river (1 to 50). Lower = more tributaries." },
+                waterDepth: { type: "number", description: "Thickness of the water layer (0.5 to 10)." },
+                windSpeed: { type: "number", description: "Speed of wind over the river." },
+                choppiness: { type: "number", description: "How rough the river surface is." },
+                riverWidthScale: { type: "number", description: "Scaling factor for river width." }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating River parameters via tool: " + JSON.stringify(args));
+        let changed = false;
+        let flowChanged = false;
+        let spectrumChanged = false;
+
+        if (typeof args.minFlowThreshold !== "undefined") { addonState.currentParams.minFlowThreshold = args.minFlowThreshold; changed = true; flowChanged = true; }
+        if (typeof args.waterDepth !== "undefined") { addonState.currentParams.waterDepth = args.waterDepth; changed = true; }
+        if (typeof args.windSpeed !== "undefined") { addonState.currentParams.windSpeed = args.windSpeed; changed = true; spectrumChanged = true; }
+        if (typeof args.choppiness !== "undefined") { addonState.currentParams.choppiness = args.choppiness; changed = true; }
+        if (typeof args.riverWidthScale !== "undefined") { addonState.currentParams.riverWidthScale = args.riverWidthScale; changed = true; }
+
+        if (changed) {
+            if (flowChanged) computeFlowAccumulation();
+            if (spectrumChanged) generateInitialSpectrum();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided." };
+    });
+
+    addon.registerTool({
+        name: "set_river_preset",
+        description: "Apply a predefined river style (e.g., Mountain Streams, Major Rivers).",
+        parameters: {
+            type: "object",
+            properties: {
+                preset: { 
+                    type: "string", 
+                    enum: ["mountain", "major", "gentle", "rapids"],
+                    description: "The name of the preset."
+                }
+            },
+            required: ["preset"]
+        }
+    }, (args: any) => {
+        Entropy.println("Setting river preset via tool: " + args.preset);
+        if (args.preset === "mountain") {
+            addonState.currentParams.minFlowThreshold = 3.0;
+            addonState.currentParams.waterDepth = 1.2;
+            addonState.currentParams.riverWidthScale = 0.3;
+        } else if (args.preset === "major") {
+            addonState.currentParams.minFlowThreshold = 8.0;
+            addonState.currentParams.waterDepth = 3.0;
+            addonState.currentParams.riverWidthScale = 0.8;
+        } else if (args.preset === "gentle") {
+            addonState.currentParams.minFlowThreshold = 2.0;
+            addonState.currentParams.waterDepth = 0.8;
+            addonState.currentParams.riverWidthScale = 0.4;
+        } else if (args.preset === "rapids") {
+            addonState.currentParams.minFlowThreshold = 5.0;
+            addonState.currentParams.windSpeed = 3.0;
+            addonState.currentParams.choppiness = 0.25;
+        } else {
+            return { success: false, error: "Unknown preset." };
+        }
+        
+        computeFlowAccumulation();
+        generateInitialSpectrum();
+        createWaterMesh("river_water_preview", addonState.currentParams);
+        return { success: true, preset: args.preset };
+    });
 });
 
 function initializeResources() {

@@ -578,4 +578,74 @@ addon.onInit(async () => {
     });
 
     const tab = addon.UI.createTab({ title: "Water", onRender: () => renderWaterUI(tab) });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "update_water_parameters",
+        description: "Update the water plane visual and physical parameters.",
+        parameters: {
+            type: "object",
+            properties: {
+                shallowColor: { type: "array", items: { type: "number" }, description: "RGB(A) color for shallow water." },
+                mediumColor: { type: "array", items: { type: "number" }, description: "RGB(A) color for medium depth." },
+                deepColor: { type: "array", items: { type: "number" }, description: "RGB(A) color for deep water." },
+                waterY: { type: "number", description: "Vertical position of the water plane." },
+                waveAmp: { type: "number", description: "Amplitude of the main waves." },
+                waveFreq: { type: "number", description: "Frequency of the main waves." },
+                sparkleIntensity: { type: "number", description: "Intensity of the sun sparkles on the water." }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating water parameters via tool: " + JSON.stringify(args));
+        let changed = false;
+
+        if (args.shallowColor) { addonState.currentParams.shallowColor = args.shallowColor.length === 3 ? [...args.shallowColor, 1.0] : args.shallowColor; changed = true; }
+        if (args.mediumColor) { addonState.currentParams.mediumColor = args.mediumColor.length === 3 ? [...args.mediumColor, 1.0] : args.mediumColor; changed = true; }
+        if (args.deepColor) { addonState.currentParams.deepColor = args.deepColor.length === 3 ? [...args.deepColor, 1.0] : args.deepColor; changed = true; }
+        if (typeof args.waterY !== "undefined") { addonState.currentParams.waterY = args.waterY; changed = true; }
+        if (typeof args.waveAmp !== "undefined") { addonState.currentParams.wave1.amp = args.waveAmp; changed = true; }
+        if (typeof args.waveFreq !== "undefined") { addonState.currentParams.wave1.freq = args.waveFreq; changed = true; }
+        if (typeof args.sparkleIntensity !== "undefined") { addonState.currentParams.sparkleIntensity = args.sparkleIntensity; changed = true; }
+
+        if (changed) {
+            updateWater(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided to update." };
+    });
+
+    addon.registerTool({
+        name: "set_water_preset",
+        description: "Apply a pre-defined water style.",
+        parameters: {
+            type: "object",
+            properties: {
+                preset: { 
+                    type: "string", 
+                    enum: ["tropical", "stormy"],
+                    description: "The name of the preset to apply."
+                }
+            },
+            required: ["preset"]
+        }
+    }, (args: any) => {
+        Entropy.println("Setting water preset via tool: " + JSON.stringify(args));
+        if (args.preset === "tropical") {
+            addonState.currentParams.shallowColor = [0.1, 0.9, 0.8, 1.0];
+            addonState.currentParams.mediumColor = [0.0, 0.4, 0.6, 1.0];
+            addonState.currentParams.wave1.amp = 0.5;
+            addonState.currentParams.sparkleIntensity = 2.0;
+        } else if (args.preset === "stormy") {
+            addonState.currentParams.shallowColor = [0.2, 0.25, 0.3, 1.0];
+            addonState.currentParams.mediumColor = [0.1, 0.15, 0.2, 1.0];
+            addonState.currentParams.wave1.amp = 4.0;
+            addonState.currentParams.wave1.speed = 2.0;
+        } else {
+            return { success: false, error: "Unknown preset." };
+        }
+        
+        updateWater(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+        return { success: true, preset: args.preset };
+    });
 });

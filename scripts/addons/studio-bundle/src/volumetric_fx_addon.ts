@@ -1002,3 +1002,63 @@ api.onUpdate((time, pos, dir) => {
 api.onCleanup(() => {
   fx.cleanup();
 });
+
+// --- Tools Registration ---
+
+api.registerTool({
+    name: "update_volumetric_fog",
+    description: "Update the volumetric fog parameters.",
+    parameters: {
+        type: "object",
+        properties: {
+            density: { type: "number", description: "Fog thickness (0 to 0.05)." },
+            color: { type: "array", items: { type: "number" }, description: "RGB color of the fog." },
+            start: { type: "number", description: "Fog start distance." },
+            end: { type: "number", description: "Fog end distance." }
+        }
+    }
+}, (args: any) => {
+    Entropy.println("Updating Volumetric Fog via tool: " + JSON.stringify(args));
+    let changed = false;
+    const config = fx["config"];
+
+    if (typeof args.density !== "undefined") { config.fogDensity = args.density; changed = true; }
+    if (args.color) { config.fogColor = [args.color[0], args.color[1], args.color[2]]; changed = true; }
+    if (typeof args.start !== "undefined") { config.fogStart = args.start; changed = true; }
+    if (typeof args.end !== "undefined") { config.fogEnd = args.end; changed = true; }
+
+    if (changed) {
+        fx["saveConfig"]();
+        return { success: true, config };
+    }
+    return { success: false, error: "No parameters provided." };
+});
+
+api.registerTool({
+    name: "update_volumetric_dust",
+    description: "Update the volumetric dust particle parameters.",
+    parameters: {
+        type: "object",
+        properties: {
+            density: { type: "number", description: "Number of dust particles (0 to 5000)." },
+            size: { type: "number", description: "Size of individual dust motes." },
+            brightness: { type: "number", description: "Brightness of particles." },
+            speed: { type: "number", description: "Movement speed of dust." }
+        }
+    }
+}, (args: any) => {
+    Entropy.println("Updating Volumetric Dust via tool: " + JSON.stringify(args));
+    let changed = false;
+    const config = fx["config"];
+
+    if (typeof args.density !== "undefined") { config.dustDensity = args.density; changed = true; }
+    if (typeof args.size !== "undefined") { config.dustSize = args.size; changed = true; }
+    if (typeof args.brightness !== "undefined") { config.dustBrightness = args.brightness; changed = true; }
+    if (typeof args.speed !== "undefined") { config.dustSpeed = args.speed; changed = true; }
+
+    if (changed) {
+        fx["saveConfig"]();
+        return { success: true, config };
+    }
+    return { success: false, error: "No parameters provided." };
+});

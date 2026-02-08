@@ -213,4 +213,46 @@ addon.onInit(async () => {
             }
         }
     });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "spawn_point_light",
+        description: "Place a new point light in the scene at a specific position.",
+        parameters: {
+            type: "object",
+            properties: {
+                position: { 
+                    type: "array", 
+                    items: { type: "number" }, 
+                    minItems: 3, 
+                    maxItems: 3,
+                    description: "The [x, y, z] position of the light." 
+                },
+                color: { 
+                    type: "array", 
+                    items: { type: "number" }, 
+                    minItems: 3, 
+                    maxItems: 3,
+                    description: "The RGB color of the light." 
+                },
+                intensity: { type: "number", description: "Brightness of the light (e.g., 5.0 to 50.0)." },
+                maxDistance: { type: "number", description: "Radius of the light's influence." }
+            },
+            required: ["position"]
+        }
+    }, (args: any) => {
+        Entropy.println("Spawning point light via tool: " + JSON.stringify(args));
+        
+        const params: LightParams & { _transform: { position: [number, number, number] } } = {
+            color: args.color || [1.0, 1.0, 1.0],
+            intensity: args.intensity || 10.0,
+            maxDistance: args.maxDistance || 50.0,
+            _transform: { position: args.position }
+        };
+
+        renderLight(Entropy.generateUUID(), params);
+        
+        return { success: true, position: args.position, color: params.color };
+    });
 });

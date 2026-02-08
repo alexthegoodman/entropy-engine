@@ -310,4 +310,85 @@ addon.onInit(async () => {
              }
         }
     });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "list_scene_objects",
+        description: "List all object instances currently in the scene managed by the Game Composer.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        return { success: true, objects: composerState.components };
+    });
+
+    addon.registerTool({
+        name: "add_to_scene",
+        description: "Add a specific component (e.g., a specific Terrain or Texture) to the scene.",
+        parameters: {
+            type: "object",
+            properties: {
+                addonName: { type: "string", description: "The addon the component belongs to (e.g., 'FlexNoise Terrain')." },
+                componentId: { type: "string", description: "The ID of the saved component from that addon." },
+                name: { type: "string", description: "A friendly name for this instance." },
+                position: { type: "array", items: { type: "number" } },
+                scale: { type: "array", items: { type: "number" } }
+            },
+            required: ["addonName", "componentId"]
+        }
+    }, (args: any) => {
+        Entropy.println("Adding component to scene via tool: " + args.componentId);
+        const newInst: ComponentInstance = {
+            id: Entropy.generateUUID(),
+            name: args.name || `${args.componentId} Instance`,
+            addon: args.addonName,
+            componentId: args.componentId,
+            position: args.position || [0, 0, 0],
+            scale: args.scale || [1, 1, 1],
+            visible: true
+        };
+        composerState.components.push(newInst);
+        composerState.activeInstanceId = newInst.id;
+        refreshScene();
+        return { success: true, id: newInst.id };
+    });
+
+    addon.registerTool({
+        name: "update_scene_object",
+        description: "Update the transform or visibility of an object in the scene.",
+        parameters: {
+            type: "object",
+            properties: {
+                id: { type: "string", description: "The instance ID of the object." },
+                position: { type: "array", items: { type: "number" } },
+                scale: { type: "array", items: { type: "number" } },
+                visible: { type: "boolean" }
+            },
+            required: ["id"]
+        }
+    }, (args: any) => {
+        const inst = composerState.components.find(c => c.id === args.id);
+        if (!inst) return { success: false, error: "Object not found." };
+
+        if (args.position) inst.position = args.position;
+        if (args.scale) inst.scale = args.scale;
+        if (typeof args.visible !== "undefined") inst.visible = args.visible;
+
+        refreshScene();
+        return { success: true };
+    });
+
+    addon.registerTool({
+        name: "remove_from_scene",
+        description: "Remove an object instance from the scene.",
+        parameters: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"]
+        }
+    }, (args: any) => {
+        composerState.components = composerState.components.filter(c => c.id !== args.id);
+        if (composerState.activeInstanceId === args.id) composerState.activeInstanceId = null;
+        refreshScene();
+        return { success: true };
+    });
 });

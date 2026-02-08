@@ -1033,6 +1033,40 @@ addon.onInit(async () => {
     });
     
     Entropy.println("✅ FFT Ocean initialized!");
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "update_ocean_parameters",
+        description: "Update the high-fidelity FFT ocean simulation parameters.",
+        parameters: {
+            type: "object",
+            properties: {
+                windSpeed: { type: "number", description: "Speed of the wind (0 to 40). Affects wave height." },
+                choppiness: { type: "number", description: "How 'peaky' the waves are (0 to 5)." },
+                shallowColor: { type: "array", items: { type: "number" }, description: "RGB(A) color for shallow areas." },
+                deepColor: { type: "array", items: { type: "number" }, description: "RGB(A) color for deep water." },
+                foamThreshold: { type: "number", description: "Threshold for foam generation (0 to 1)." }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating FFT Ocean via tool: " + JSON.stringify(args));
+        let changed = false;
+        let spectrumChanged = false;
+
+        if (typeof args.windSpeed !== "undefined") { addonState.currentParams.windSpeed = args.windSpeed; changed = true; spectrumChanged = true; }
+        if (typeof args.choppiness !== "undefined") { addonState.currentParams.choppiness = args.choppiness; changed = true; }
+        if (args.shallowColor) { addonState.currentParams.shallowColor = args.shallowColor.length === 3 ? [...args.shallowColor, 1.0] : args.shallowColor; changed = true; }
+        if (args.deepColor) { addonState.currentParams.deepColor = args.deepColor.length === 3 ? [...args.deepColor, 1.0] : args.deepColor; changed = true; }
+        if (typeof args.foamThreshold !== "undefined") { addonState.currentParams.foamThreshold = args.foamThreshold; changed = true; }
+
+        if (changed) {
+            if (spectrumChanged) generateInitialSpectrum();
+            createWaterMesh("fft_ocean_preview", addonState.currentParams);
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided." };
+    });
 });
 
 function initializeResources() {

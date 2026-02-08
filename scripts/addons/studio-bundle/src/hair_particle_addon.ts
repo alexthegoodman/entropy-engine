@@ -1841,4 +1841,163 @@ addon.onInit(async () => {
             renderHairUI(tab);
         }
     });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "update_hair_parameters",
+        description: "Update the hair/grass particle parameters.",
+        parameters: {
+            type: "object",
+            properties: {
+                baseColor: { type: "array", items: { type: "number" }, description: "RGB(A) color at the root." },
+                tipColor: { type: "array", items: { type: "number" }, description: "RGB(A) color at the tip." },
+                bladeDensity: { type: "number", description: "Density of blades per grid cell (1 to 100)." },
+                bladeHeight: { type: "number", description: "Base height of the blades." },
+                windStrength: { type: "number", description: "How much the wind affects the hair." },
+                windSpeed: { type: "number", description: "How fast the wind oscillates." }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating hair parameters via tool: " + JSON.stringify(args));
+        let changed = false;
+
+        if (args.baseColor) { addonState.currentParams.baseColor = args.baseColor.length === 3 ? [...args.baseColor, 1.0] : args.baseColor; changed = true; }
+        if (args.tipColor) { addonState.currentParams.tipColor = args.tipColor.length === 3 ? [...args.tipColor, 1.0] : args.tipColor; changed = true; }
+        if (typeof args.bladeDensity !== "undefined") { addonState.currentParams.bladeDensity = args.bladeDensity; changed = true; }
+        if (typeof args.bladeHeight !== "undefined") { addonState.currentParams.bladeHeight = args.bladeHeight; changed = true; }
+        if (typeof args.windStrength !== "undefined") { addonState.currentParams.windStrength = args.windStrength; changed = true; }
+        if (typeof args.windSpeed !== "undefined") { addonState.currentParams.windSpeed = args.windSpeed; changed = true; }
+
+        if (changed) {
+            const id = addonState.activeComponentId || Entropy.generateUUID();
+            updateHair(addonState.currentParams, id);
+            updateOrnaments(addonState.currentParams, id);
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided to update." };
+    });
+
+    addon.registerTool({
+        name: "configure_ornaments",
+        description: "Configure the decorative ornaments (flowers, berries, lights) attached to the hair.",
+        parameters: {
+            type: "object",
+            properties: {
+                enabled: { type: "boolean", description: "Enable or disable ornaments." },
+                type: { 
+                    type: "string", 
+                    enum: ["flowers", "droplets", "fairy_lights", "wheat", "stardust", "berries"],
+                    description: "Quickly set the ornament style."
+                },
+                color: { type: "array", items: { type: "number" }, description: "Color of the ornaments." },
+                glow: { type: "number", description: "Intensity of the ornament glow." },
+                probability: { type: "number", description: "Probability of a blade having an ornament (0 to 1)." }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Configuring ornaments via tool: " + JSON.stringify(args));
+        let changed = false;
+
+        if (typeof args.enabled !== "undefined") { addonState.currentParams.ornamentsEnabled = args.enabled; changed = true; }
+
+        if (args.type) {
+            changed = true;
+            if (args.type === "flowers") {
+                addonState.currentParams.ornamentClusterShape = 2; // Ring
+                addonState.currentParams.ornamentCount = 6;
+                addonState.currentParams.ornamentSize = 0.12;
+                addonState.currentParams.ornamentColor = [1.0, 0.85, 0.3, 1.0];
+                addonState.currentParams.ornamentProbability = 0.15;
+            } else if (args.type === "droplets") {
+                addonState.currentParams.ornamentClusterShape = 0; // Sphere
+                addonState.currentParams.ornamentCount = 1;
+                addonState.currentParams.ornamentSize = 0.05;
+                addonState.currentParams.ornamentColor = [0.7, 0.9, 1.0, 0.8];
+                addonState.currentParams.ornamentProbability = 0.2;
+            } else if (args.type === "fairy_lights") {
+                addonState.currentParams.ornamentClusterShape = 0;
+                addonState.currentParams.ornamentCount = 3;
+                addonState.currentParams.ornamentColor = [0.9, 0.7, 1.0, 1.0];
+                addonState.currentParams.ornamentGlow = 1.5;
+                addonState.currentParams.ornamentProbability = 0.25;
+            } else if (args.type === "wheat") {
+                addonState.currentParams.ornamentClusterShape = 3; // Spiral
+                addonState.currentParams.ornamentCount = 8;
+                addonState.currentParams.ornamentColor = [0.9, 0.75, 0.4, 1.0];
+                addonState.currentParams.ornamentProbability = 0.5;
+            } else if (args.type === "stardust") {
+                addonState.currentParams.ornamentClusterShape = 4; // Starburst
+                addonState.currentParams.ornamentCount = 12;
+                addonState.currentParams.ornamentColor = [1.0, 1.0, 0.8, 1.0];
+                addonState.currentParams.ornamentGlow = 2.0;
+                addonState.currentParams.ornamentProbability = 0.1;
+            } else if (args.type === "berries") {
+                addonState.currentParams.ornamentClusterShape = 0;
+                addonState.currentParams.ornamentCount = 3;
+                addonState.currentParams.ornamentColor = [0.8, 0.1, 0.15, 1.0];
+                addonState.currentParams.ornamentProbability = 0.12;
+            }
+        }
+
+        if (args.color) { addonState.currentParams.ornamentColor = args.color.length === 3 ? [...args.color, 1.0] : args.color; changed = true; }
+        if (typeof args.glow !== "undefined") { addonState.currentParams.ornamentGlow = args.glow; changed = true; }
+        if (typeof args.probability !== "undefined") { addonState.currentParams.ornamentProbability = args.probability; changed = true; }
+
+        if (changed) {
+            updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, ornamentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No ornament parameters provided." };
+    });
+
+    addon.registerTool({
+        name: "set_hair_preset",
+        description: "Apply a pre-defined hair/grass style.",
+        parameters: {
+            type: "object",
+            properties: {
+                preset: { 
+                    type: "string", 
+                    enum: ["realistic", "long", "kelp", "magical", "fire"],
+                    description: "The name of the preset to apply."
+                }
+            },
+            required: ["preset"]
+        }
+    }, (args: any) => {
+        Entropy.println("Setting hair preset via tool: " + JSON.stringify(args));
+        if (args.preset === "realistic") {
+            addonState.currentParams.bladeCurvature = 0.3;
+            addonState.currentParams.bladeTwist = 0.1;
+            addonState.currentParams.bladeTaper = 0.8;
+            addonState.currentParams.colorVariation = 0.2;
+            addonState.currentParams.clumpingStrength = 0.15;
+            addonState.currentParams.subsurfaceScattering = 0.6;
+        } else if (args.preset === "long") {
+            addonState.currentParams.bladeHeight = 5.0;
+            addonState.currentParams.bladeCurvature = 1.2;
+            addonState.currentParams.specularStrength = 0.6;
+        } else if (args.preset === "kelp") {
+            addonState.currentParams.bladeHeight = 6.0;
+            addonState.currentParams.baseColor = [0.1, 0.2, 0.15, 1.0];
+            addonState.currentParams.tipColor = [0.2, 0.5, 0.3, 1.0];
+        } else if (args.preset === "magical") {
+            addonState.currentParams.rimLightStrength = 1.5;
+            addonState.currentParams.baseColor = [0.2, 0.1, 0.4, 1.0];
+            addonState.currentParams.tipColor = [0.6, 0.3, 0.9, 1.0];
+        } else if (args.preset === "fire") {
+            addonState.currentParams.windStrength = 4.0;
+            addonState.currentParams.windSpeed = 2.0;
+            addonState.currentParams.baseColor = [0.8, 0.2, 0.0, 1.0];
+            addonState.currentParams.tipColor = [1.0, 0.9, 0.0, 1.0];
+        } else {
+            return { success: false, error: "Unknown preset." };
+        }
+
+        const id = addonState.activeComponentId || Entropy.generateUUID();
+        updateHair(addonState.currentParams, id);
+        updateOrnaments(addonState.currentParams, id);
+        return { success: true, preset: args.preset };
+    });
 });
