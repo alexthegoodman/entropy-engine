@@ -94,11 +94,7 @@ class VolumetricFX {
   init() {
     println("🌫️ Initializing Volumetric FX...");
     
-    // Load saved configuration
-    // const saved = this.api.IO.load();
-    // if (saved) {
-    //   this.config = { ...this.config, ...saved };
-    // }
+    // TODO: load data on project changed and add component UI, json structure, and tools
     
     // Create 3D noise texture for volumetric density
     // NOTE: Would benefit from op_texture_create_3d for true 3D lookup
@@ -151,7 +147,6 @@ class VolumetricFX {
     this.noiseTextureId = this.api.Texture.create(size, size, data);
   }
   
-  // TODO: need depth texture to properly integrate fog into scene, appearing in front or behind objects?
   createFogPipeline() {
     // Volumetric fog with raymarching and light scattering, confined to a cube
     const vertexShader = `
@@ -183,7 +178,6 @@ class VolumetricFX {
         output.uv = vec2<f32>(x, -y) * 0.5 + 0.5;
         
         // Compute view ray for raymarching
-        // TODO: Would benefit from inverse view/projection matrices for accurate ray direction
         let aspectRatio = 1.778; // 16:9
         let fov = 1.2;
         output.viewRay = normalize(vec3<f32>(
