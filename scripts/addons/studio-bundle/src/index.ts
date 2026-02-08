@@ -19,8 +19,8 @@ import "./pbr_texture_designer_addon";
 // // tier 2
 import "./flexnoise_terrain_addon";
 import "./hair_particle_addon";
-// import "./fft_water_addon";
-import "./fft_river_addon";
+import "./fft_water_addon";
+// import "./fft_river_addon";
 import "./model_viewer_addon";
 
 // initialize last (tier 3)

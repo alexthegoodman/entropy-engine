@@ -962,22 +962,17 @@ addon.onInit(async () => {
     // }
 
     // Register with Composer
-    // if (Entropy.Composer) {
-    //     Entropy.Composer.registerEditor(addonInfo.name, renderUI);
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor(addonInfo.name, renderUI);
         
-    //     if (Entropy.Composer.registerRenderer) {
-    //         Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: OceanParams) => {
-    //             // For the composer, we might want to respect the instance position
-    //             // The current shader assumes y=oceanHeight, but we should probably add world pos
-    //             createWaterMesh(id, params);
-    //         });
-    //     }
-
-    //     // Register saved components
-    //     addonState.savedComponents.forEach(comp => {
-    //         Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
-    //     });
-    // }
+        if (Entropy.Composer.registerRenderer) {
+            Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: OceanParams) => {
+                // For the composer, we might want to respect the instance position
+                // The current shader assumes y=oceanHeight, but we should probably add world pos
+                createWaterMesh(id, params);
+            });
+        }
+    }
 
     // // Generate initial spectrum
     generateInitialSpectrum();
