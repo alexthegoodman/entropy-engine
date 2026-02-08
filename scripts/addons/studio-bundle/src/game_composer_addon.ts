@@ -98,6 +98,17 @@ function refreshScene() {
     (globalThis as any).__entropy_current_addon_context_override = null;
 }
 
+// runs after all projects are loaded in non-composer addons
+addon.onAllProjectsLoaded(() => {
+    Entropy.println("[Game Composer] All projects loaded...");
+
+    const data = addon.IO.load();
+    if (data) {
+        composerState = { ...composerState, ...data };
+        refreshScene(); // until we clear, lets avoid this?
+    }
+});
+
 addon.onInit(async () => {
     Entropy.println("Game Composer 2.0 Initializing...");
 
@@ -123,13 +134,13 @@ addon.onInit(async () => {
         maxDistance: 350.0
     });
 
-    addon.onProjectChanged((id) => {
-        const data = addon.IO.load();
-        if (data) {
-            composerState = { ...composerState, ...data };
-            refreshScene(); // until we clear, lets avoid this?
-        }
-    });
+    // addon.onProjectChanged((id) => {
+    //     const data = addon.IO.load();
+    //     if (data) {
+    //         composerState = { ...composerState, ...data };
+    //         refreshScene(); // until we clear, lets avoid this?
+    //     }
+    // });
 
     const tab = addon.UI.createTab({
         title: "Game Composer",

@@ -33,7 +33,9 @@ pub async fn load_game_project(editor: &mut Editor, project_id: &str) {
 pub async fn place_game_project(editor: &mut Editor, project_id: &str, loaded_state: SavedState) {
             editor.deno_engine.project_id = project_id.clone().to_string();
 
-            editor.addon_engine.set_project_id(project_id.clone().to_string());
+            let renderer_state = editor.renderer_state.as_ref().expect("Couldn't get renderer_state");
+
+            editor.addon_engine.set_project_id(renderer_state, project_id.clone().to_string());
 
             editor.world_state = Some(loaded_state);
             

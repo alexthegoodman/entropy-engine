@@ -670,16 +670,16 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     water_surface_y += scaled_displacement.y * 0.5;
     
     // Apply horizontal displacement (choppy waves)
-    // var world_pos = vec3<f32>(
-    //     in.position.x + scaled_displacement.x,
-    //     water_surface_y,
-    //     in.position.z + scaled_displacement.z
-    // );
+    var world_pos = vec3<f32>(
+        in.position.x + scaled_displacement.x,
+        water_surface_y,
+        in.position.z + scaled_displacement.z
+    );
 
-    var world_pos = in.position;
+    // var world_pos = in.position;
     
     // Hide water if not in river path
-    // world_pos.y = mix(-10000.0, world_pos.y, is_river);
+    world_pos.y = mix(-10000.0, world_pos.y, is_river);
     
     // Compute water normal from FFT derivatives + terrain slope
     let deriv_data = textureSampleLevel(derivatives_texture, ocean_sampler, uv, 0.0);
@@ -702,6 +702,25 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
+fn get_rainbow_color(height: f32) -> vec3<f32> {
+    // 1. Define your height range (adjust these to your world scale!)
+    let min_h = 0.0;
+    let max_h = 600.0; 
+    let h = clamp((height - min_h) / (max_h - min_h), 0.0, 1.0);
+
+    // 2. Explicit color buckets
+    // Blue -> Cyan -> Green -> Yellow -> Red
+    if (h < 0.25) {
+        return mix(vec3<f32>(0.0, 0.0, 1.0), vec3<f32>(0.0, 1.0, 1.0), h / 0.25);
+    } else if (h < 0.5) {
+        return mix(vec3<f32>(0.0, 1.0, 1.0), vec3<f32>(0.0, 1.0, 0.0), (h - 0.25) / 0.25);
+    } else if (h < 0.75) {
+        return mix(vec3<f32>(0.0, 1.0, 0.0), vec3<f32>(1.0, 1.0, 0.0), (h - 0.5) / 0.25);
+    } else {
+        return mix(vec3<f32>(1.0, 1.0, 0.0), vec3<f32>(1.0, 0.0, 0.0), (h - 0.75) / 0.25);
+    }
+}
+
 @fragment
 fn fs_main(in: VertexOutput) -> GbufferOutput {
     var output: GbufferOutput;
@@ -710,9 +729,9 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let edge_softness = water_config.river_params.z;
     let edge_alpha = smoothstep(1.0, 0.5, in.river_distance);
     
-    // if (edge_alpha < 0.01) {
-    //     discard;
-    // }
+    if (edge_alpha < 0.01) {
+        discard;
+    }
     
     let view_dir = normalize(camera.view_pos.xyz - in.world_position);
     let normal = normalize(in.normal);
@@ -763,8 +782,14 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     
     output.position = vec4<f32>(in.world_position, 1.0);
     output.normal = vec4<f32>(normal, 1.0);
-    // output.albedo = vec4<f32>(final_color, 0.85 * edge_alpha);
-    output.albedo = vec4<f32>(1.0, 0.0, 0.0, 0.85);
+    output.albedo = vec4<f32>(final_color, 0.85 * edge_alpha);
+    // output.albedo = vec4<f32>(0.0, clamp(in.terrain_height / 500.0, 0.0, 1.0), 0.0, 1.0);
+
+    // // Test: Let's bypass other lighting/shadows to see pure color
+    // let heatmap = get_rainbow_color(in.terrain_height);
+
+    // output.albedo = vec4<f32>(heatmap, 1.0);
+
     output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
     
     return output;
@@ -854,7 +879,8 @@ let addonState: {
     activeComponentId: Entropy.generateUUID()
 };
 
-let initialized = false;
+let initializer: any = [];
+let projectInitialized = false;
 
 let pipelineIds = {
     flowAccumulation: null as string | null,
@@ -1026,9 +1052,14 @@ addon.onInit(async () => {
         
         if (Entropy.Composer.registerRenderer) {
             Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: RiverWaterParams) => {
-                // For the composer, we might want to respect the instance position
-                // The current shader assumes y=oceanHeight, but we should probably add world pos
-                createWaterMesh(id, params);
+                // if (projectInitialized) {
+                    
+
+                // NOTE: major hack, need better timing for when binding to landscapes!
+                    initializer = [true, id, params];
+                // } else {
+                //     Entropy.println("🌊 Waiting to compute flow...");
+                // }
             });
         }
     }
@@ -1043,31 +1074,51 @@ addon.onInit(async () => {
                 });
             }
 
+            // Entropy.println("🌊 Computing river flow paths (first frame)...");
+            // computeFlowAccumulation();
+
+            // Entropy.println("🌊 Generating spectrum noise pattern...");
+            // generateInitialSpectrum();
+
+            // createWaterMesh("river_water_preview", addonState.currentParams);
+
+            // initialized = true;
+        }
+    });
+
+    addon.onUpdatePlus("Game Composer", (time) => {
+        if (initializer[0]) {
             Entropy.println("🌊 Computing river flow paths (first frame)...");
             computeFlowAccumulation();
 
             Entropy.println("🌊 Generating spectrum noise pattern...");
             generateInitialSpectrum();
 
-            createWaterMesh("river_water_preview", addonState.currentParams);
+            // For the composer, we might want to respect the instance position
+            // The current shader assumes y=oceanHeight, but we should probably add world pos
+            createWaterMesh(initializer[1], initializer[2]);
 
-            initialized = true;
+            initializer = [false, false, false];
+            projectInitialized = true;
         }
-    });
-
-    addon.onUpdatePlus("Game Composer", (time) => {
-        if (initialized) {
+        if (projectInitialized) {
             (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
             updateWater(time);
             (globalThis as any).__entropy_current_addon_context_override = null;
         }
     });
     
-    addon.onUpdate((time) => {
-        if (initialized) {
-            updateWater(time);
-        }
-    });
+    // addon.onUpdate((time) => {
+    //     if (initialized) {
+    //         updateWater(time);
+    //     }
+    // });
+
+    // if (Entropy.Composer) {
+    //     Entropy.Composer.initCallbacks["FlexNoise Terrain"] = () => {
+    //         projectInitialized = true;
+    //     };
+    // }
     
     Entropy.println("✅ FFT River Water initialized!");
 });
@@ -1297,7 +1348,7 @@ function createWaterMesh(id: string, params: RiverWaterParams & { _transform?: {
         renderRole: "Water",
         bindings: [
             { group: 2, binding: 0, resource: { type: "Time" } },
-            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.ht! } } },
+            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.displacement! } } },
             { group: 3, binding: 1, resource: { type: "Texture", value: { id: textures.derivatives! } } },
             { group: 3, binding: 2, resource: { type: "Sampler" } },
             { group: 4, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },

@@ -136,6 +136,7 @@ export interface ScopedAPI {
   onUpdatePlus: (addonName: string, callback: UpdateCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
+  onAllProjectsLoaded: (callback: ProjectChangedCallback) => void;
   setVisibility: (visible: boolean) => void;
   registerTool: (definition: ToolDefinition, callback: any) => void;
   Model: {

@@ -355,6 +355,7 @@ pub struct AddonContext {
     pub on_cleanup_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub on_update_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub on_project_changed_callbacks: Vec<(String, v8::Global<v8::Function>)>,
+    pub op_addon_on_all_projects_loaded_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
@@ -1869,6 +1870,17 @@ fn op_addon_on_project_changed(
     }
 }
 
+#[op2]
+fn op_addon_on_all_projects_loaded(
+    state: &mut OpState,
+    #[string] addon_name: String,
+    #[global] callback: v8::Global<v8::Function>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.op_addon_on_all_projects_loaded_callbacks.push((addon_name, callback));
+    }
+}
+
 #[op2(fast)]
 fn op_println(
     state: &mut OpState,
@@ -1971,7 +1983,8 @@ extension!(
         op_camera_get_transform,
         op_generate_uuid,
         op_register_composite_texture,
-        op_addon_register_tool
+        op_addon_register_tool,
+        op_addon_on_all_projects_loaded
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2052,6 +2065,7 @@ impl AddonEngine {
             composite_pipelines: HashMap::new(),
             composites: Vec::new(),
             registered_tools: HashMap::new(),
+            op_addon_on_all_projects_loaded_callbacks: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -2062,7 +2076,7 @@ impl AddonEngine {
         }
     }
 
-    pub fn set_project_id(&mut self, project_id: String) {
+    pub fn set_project_id(&mut self, renderer_state: &RendererState, project_id: String) {
         self.project_id = project_id.clone();
         
         // Update context
@@ -2074,15 +2088,55 @@ impl AddonEngine {
         }
         
         // Notify all registered callbacks
-        self.notify_project_changed(&project_id);
+        self.notify_project_changed(renderer_state, &project_id);
     }
     
-    fn notify_project_changed(&mut self, new_project_id: &str) {
+    fn notify_project_changed(&mut self, renderer_state: &RendererState,  new_project_id: &str) {
         let callbacks = {
             let state = self.runtime.op_state();
             let state = state.borrow();
             let context = state.borrow::<AddonContext>();
             context.on_project_changed_callbacks.clone()
+        };
+        
+        for (_addon_name, callback) in callbacks {
+            let scope = &mut self.runtime.handle_scope();
+            let local_callback = v8::Local::new(scope, callback);
+            let this = v8::undefined(scope);
+            let project_id_str = v8::String::new(scope, new_project_id).unwrap();
+            let args = &[project_id_str.into()];
+            
+            local_callback.call(scope, this.into(), args);
+        }
+
+        // Update context
+        {
+            let mut state = self.runtime.op_state();
+            let mut state = state.borrow_mut();
+            let context = state.borrow_mut::<AddonContext>();
+
+            let mut landscape_view = renderer_state.addon_landscapes
+                                                                .get("Game Composer")
+                                                                .and_then(|al| al.first().and_then(|l| l.particle_texture_view.clone()));
+
+            // maybe later
+            // context.current_time = current_time;
+            // context.camera_position = [camera.position.x, camera.position.y, camera.position.z];
+            // context.camera_direction = [camera.direction.x, camera.direction.y, camera.direction.z];
+            context.landscape_texture_view = landscape_view.clone();
+
+            println!("---- [landscape] landscape_view {:?} {:?}", renderer_state.addon_landscapes.len(), landscape_view.is_some());
+        }
+
+        self.notify_all_projects_loaded(&new_project_id);
+    }
+
+    fn notify_all_projects_loaded(&mut self, new_project_id: &str) {
+        let callbacks = {
+            let state = self.runtime.op_state();
+            let state = state.borrow();
+            let context = state.borrow::<AddonContext>();
+            context.op_addon_on_all_projects_loaded_callbacks.clone()
         };
         
         for (_addon_name, callback) in callbacks {
@@ -2740,6 +2794,34 @@ impl AddonEngine {
                         // } else {
                         //     landscapes.push(landscape);
                         // }
+
+                        // let mut landscape_bind_group = None;
+                        
+                            // println!("read heightmap {:?} {:?} {:?}", self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
+                            // not good for dynamic texture
+                                // let heightmap_texture = read_landscape_heightmap_as_texture(self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
+                                    
+                                if let Some(texture) = landscape.heightmap_texture.clone() { // possibly an expensive clone, although infrequent
+                                    // let texture = Texture::new(texture_data.bytes, texture_data.width, texture_data.height);
+                                    // println!("LANDSCAPPPPE update_particle_texture");
+
+                                    landscape.update_particle_texture(
+                                        &gpu.device,
+                                        &gpu.queue,
+                                        &renderer_state.model_bind_group_layout,
+                                        &renderer_state.texture_render_mode_buffer,
+                                        &renderer_state.color_render_mode_buffer,
+                                        LandscapeTextureKinds::Primary,
+                                        &texture,
+                                    );
+
+                                    // landscape.create_layout_for_particles(&gpu.device);
+                                    // landscape_bind_group = Some(land.create_particle_bind_group(&gpu.device));
+
+                                } else {
+                                    println!("error Loading heightmap");
+                                }
+                            
 
                         // we only want 1 landscape to render at any given time
                         renderer_state.addon_landscapes

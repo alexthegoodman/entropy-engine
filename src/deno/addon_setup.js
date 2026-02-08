@@ -36,6 +36,9 @@ globalThis.Entropy = {
                         globalThis.Entropy.Composer.initCallbacks[metadata.name]();
                     }
                 },
+                onAllProjectsLoaded: (callback) => {
+                    ops.op_addon_on_all_projects_loaded(metadata.name, callback);
+                },
                 registerTool: (definition, callback) => {
                     ops.op_addon_register_tool(definition, callback);
                 },
