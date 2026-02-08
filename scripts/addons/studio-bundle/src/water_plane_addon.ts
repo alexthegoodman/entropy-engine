@@ -471,15 +471,15 @@ addon.onInit(async () => {
 
     addonState.currentParams.pipelineId = pipelineId;
 
-    const savedData = addon.IO.load();
-    if (savedData) {
-        addonState = { ...addonState, ...savedData };
-        if (Entropy.Composer) {
-            addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent("Advanced Water Plane", comp.id, comp.name, comp.params);
-            });
-        }
-    }
+    // const savedData = addon.IO.load();
+    // if (savedData) {
+    //     addonState = { ...addonState, ...savedData };
+    //     if (Entropy.Composer) {
+    //         addonState.savedComponents.forEach(comp => {
+    //             Entropy.Composer!.registerComponent("Advanced Water Plane", comp.id, comp.name, comp.params);
+    //         });
+    //     }
+    // }
 
     updateWater(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 

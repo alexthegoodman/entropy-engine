@@ -139,15 +139,15 @@ const renderTerrainUI = (windowId: string) => {
 addon.onInit(async () => {
     Entropy.println("Procedural Terrain Initializing...");
 
-    const saved = addon.IO.load();
-    if (saved) {
-        addonState = { ...addonState, ...saved };
-        if (Entropy.Composer) {
-            addonState.savedComponents.forEach(comp => {
-                Entropy.Composer!.registerComponent("Simple Procedural Terrain", comp.id, comp.name, comp.params);
-            });
-        }
-    }
+    // const saved = addon.IO.load();
+    // if (saved) {
+    //     addonState = { ...addonState, ...saved };
+    //     if (Entropy.Composer) {
+    //         addonState.savedComponents.forEach(comp => {
+    //             Entropy.Composer!.registerComponent("Simple Procedural Terrain", comp.id, comp.name, comp.params);
+    //         });
+    //     }
+    // }
 
     generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
