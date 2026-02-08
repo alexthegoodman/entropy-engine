@@ -250,24 +250,6 @@ addon.onInit(async () => {
              } else {
                  Entropy.UI.Widget.label(tab, { text: "Select an object to inspect." });
              }
-             
-             Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
-             
-             // === RENDER ROLES ===
-             Entropy.UI.Widget.label(tab, { text: "🎭 Render Roles (Global)", bold: true });
-             Object.keys(composerState.roles).forEach(role => {
-                 const current = composerState.roles[role];
-                 Entropy.UI.Widget.dropdown(tab, {
-                     label: role,
-                     options: availablePipelines,
-                     selectedIndex: availablePipelines.indexOf(current) || 0,
-                     onChange: (indexStr: string) => {
-                         const next = availablePipelines[parseInt(indexStr)];
-                         composerState.roles[role] = next;
-                         Entropy.Composer?.setRolePipeline(role, next);
-                     }
-                 });
-             });
 
             Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
