@@ -134,17 +134,34 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
           model,
           webSearch: useWebSearch,
           tools: allTools,
+          context:
+            plan.length > 0
+              ? `Current Plan:\n${plan
+                  .map(
+                    (s) =>
+                      `- [${
+                        s.status === "completed"
+                          ? "x"
+                          : s.status === "in_progress"
+                          ? "doing"
+                          : " "
+                      }] ${s.description}`,
+                  )
+                  .join("\n")}`
+              : "",
           systemPrompt: `You are a helpful AI assistant for the Entropy Engine.
           
           For complex requests:
-          1. create a plan using the 'manage_plan' tool.
+          1. Create a plan using the 'manage_plan' tool.
           2. Execute one step at a time.
           3. After each step, update the plan status using 'manage_plan' and decide if you need to revise the plan based on the results.
+          
+          The current state of your plan is provided in the 'Context' block. Always ensure the plan accurately reflects your progress.
           
           Always keep the user informed.`,
         },
       }),
-    [model, useWebSearch, allTools],
+    [model, useWebSearch, allTools, plan],
   );
 
   const { messages, status, sendMessage, addToolOutput } = useChat({
