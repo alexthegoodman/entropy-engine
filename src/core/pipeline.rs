@@ -1298,7 +1298,7 @@ impl EntropyPipeline {
         //     wgpu::TextureFormat::Depth24Plus,
         // );
 
-        println!("Grid Restored!");
+        // println!("Grid Restored!");
 
         let mut renderer_state = RendererState::new(
             &device, 
@@ -1440,7 +1440,7 @@ impl EntropyPipeline {
         //     .as_ref()
         //     .expect("Couldn't get gpu resources");
 
-        println!("Pipeline initialized!");
+        println!("EntropyPipeline initialized!");
         
         // begin playback
         export_editor.camera = Some(camera);

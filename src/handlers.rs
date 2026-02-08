@@ -449,7 +449,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
         match button {
             EntropyMouseButton::Left => {
                 if let Some(mouse_pos) = renderer_state.current_mouse_position {
-                    println!("Check for Stunts objects");
+                    // println!("Check for Stunts objects");
 
                     let camera = state.camera.as_ref().unwrap();
                     let window_size_struct = WindowSize { width: window_size.width, height: window_size.height };
@@ -516,11 +516,11 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                         state.selected_object = Some(obj);
                         renderer_state.selected_entity_id = None;
                         renderer_state.selected_component_id = None;
-                        println!("Selected Stunts object: {:?}", state.selected_object);
+                        // println!("Selected Stunts object: {:?}", state.selected_object);
                         return;
                     }
 
-                    println!("Check ray");
+                    // println!("Check ray");
 
                     // Perform raycast
                     renderer_state.update_rays((mouse_pos.x, mouse_pos.y), &camera, window_size.width, window_size.height);
@@ -530,7 +530,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                             let mut found_selectable = false;
                             let hit_uuid = ray_component_id.to_string();
 
-                            println!("hit {:?}", hit_uuid);
+                            // println!("hit {:?}", hit_uuid);
 
                             // Check if a selectable model was hit
                             for model in &renderer_state.models {
@@ -551,7 +551,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                                                     // Find component where asset_id matches the model id
                                                     if let Some(component) = components.iter().find(|c| c.id == model.id) {
                                                         renderer_state.selected_component_id = Some(component.id.clone());
-                                                        println!("Selected model: {:?}, component: {:?}", model.id, component.id);
+                                                        // println!("Selected model: {:?}, component: {:?}", model.id, component.id);
                                                     }
                                                 }
                                             }
@@ -584,7 +584,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     player_character.is_firing = true;
-                    println!("Left mouse button pressed - Player Firing Start");
+                    // println!("Left mouse button pressed - Player Firing Start");
                 }
             }
             EntropyMouseButton::Right => {
@@ -603,7 +603,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             EntropyMouseButton::Left => {
                 if let Some(player_character) = &mut renderer_state.player_character {
                     player_character.is_firing = false;
-                    println!("Left mouse button released - Player Firing Stop");
+                    // println!("Left mouse button released - Player Firing Stop");
                 }
             }
             EntropyMouseButton::Right => {
@@ -838,7 +838,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
                     if let Some(house) = renderer_state.procedural_houses.iter_mut().find(|h| h.id == selected_id) {
                         // Similar logic for houses, assuming they have a transform
                         // For now, let's just log it
-                        println!("Gizmo trying to move a house... (not implemented yet)");
+                        // println!("Gizmo trying to move a house... (not implemented yet)");
                     }
                 }
 
@@ -1091,10 +1091,10 @@ pub async fn handle_add_landscape_texture(
     texture_kind: LandscapeTextureKinds,
     mask_filename: String,
 ) {
-    println!(
-        "Adding texture and mask {:?} {:?}",
-        texture_filename, mask_filename
-    );
+    // println!(
+    //     "Adding texture and mask {:?} {:?}",
+    //     texture_filename, mask_filename
+    // );
 
     // Clone the values that need to be moved into the closure
     let landscape_component_id_clone = landscape_component_id.clone();
@@ -1179,7 +1179,7 @@ pub fn handle_add_grass(
     grass_properties: Option<ProceduralGrassProperties>
 ) {
     if let Some(landscape) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
-        println!("Adding grass to landscape: {}", landscape.id);
+        // println!("Adding grass to landscape: {}", landscape.id);
 
         let texture = Texture::new(texture_data.bytes, texture_data.width, texture_data.height);
 
@@ -1204,7 +1204,7 @@ pub fn handle_add_grass(
         }
 
         state.grasses.push(grass);
-        println!("Added grass");
+        // println!("Added grass");
     } else {
         println!("Could not find landscape with id: {}", landscape_id);
     }
@@ -1387,7 +1387,7 @@ fn handle_npc_interaction(state: &mut Editor) {
                 let items_to_transfer: Vec<_> = npc.inventory.items.drain(..).collect();
                 if !items_to_transfer.is_empty() {
                     for item in items_to_transfer {
-                        println!("Looted item: {:?}", item.generic_properties.name);
+                        // println!("Looted item: {:?}", item.generic_properties.name);
                         player.inventory.add_item(&item);
                     }
                     loot_collected = true;
@@ -1397,18 +1397,18 @@ fn handle_npc_interaction(state: &mut Editor) {
 
                 // Also transfer equipped items if any
                 if let Some(weapon) = npc.inventory.equipped_weapon.take() {
-                    println!("Looted equipped weapon: {:?}", weapon.generic_properties.name);
+                    // println!("Looted equipped weapon: {:?}", weapon.generic_properties.name);
                     player.inventory.add_item(&weapon);
                     loot_collected = true;
                 }
                 if let Some(armor) = npc.inventory.equipped_armor.take() {
-                    println!("Looted equipped armor: {:?}", armor.generic_properties.name);
+                    // println!("Looted equipped armor: {:?}", armor.generic_properties.name);
                     player.inventory.add_item(&armor);
                     loot_collected = true;
                 }
             }
             if loot_collected {
-                println!("Looted NPC {:?}.", target_id);
+                // println!("Looted NPC {:?}.", target_id);
             }
             return; // Don't start dialogue with dead NPC
         }
@@ -1442,7 +1442,7 @@ fn handle_npc_interaction(state: &mut Editor) {
         }
     }
 
-    println!("target_npc_name... {:?} {:?} {:?}", target_id, target_npc_name, target_script_path);
+    // println!("target_npc_name... {:?} {:?} {:?}", target_id, target_npc_name, target_script_path);
     
     if let Some(script) = target_script_path {
         state.dialogue_state.npc_name = target_npc_name;
@@ -1490,7 +1490,7 @@ fn handle_collectable_interaction(state: &mut Editor) {
     }
 
     if let (Some(id), Some(index)) = (pickup_id, collectable_index) {
-        println!("Picking up collectable: {:?}", id);
+        // println!("Picking up collectable: {:?}", id);
         
         // Find ComponentData in world_state
         let mut component_data = None;
@@ -1509,7 +1509,7 @@ fn handle_collectable_interaction(state: &mut Editor) {
         if let Some(comp) = component_data {
             if let Some(player) = &mut renderer_state.player_character {
                 player.inventory.add_item(&comp);
-                println!("Added {:?} to inventory.", comp.generic_properties.name);
+                // println!("Added {:?} to inventory.", comp.generic_properties.name);
                 
                 // Remove from world
                 let col = renderer_state.collectables.remove(index);

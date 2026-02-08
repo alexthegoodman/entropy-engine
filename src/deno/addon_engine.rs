@@ -432,7 +432,7 @@ fn op_landscape_update_texture(
     #[string] texture_id: String,
     #[serde] kind: crate::helpers::saved_data::LandscapeTextureKinds,
 ) {
-    println!("op_landscape_update_texture");
+    // println!("op_landscape_update_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Regular { texture_id, kind }));
     }
@@ -446,7 +446,7 @@ fn op_landscape_update_pbr_texture(
     #[serde] kind: crate::heightfield_landscapes::Landscape::PBRTextureKind,
     #[serde] material_type: crate::heightfield_landscapes::Landscape::PBRMaterialType,
 ) {
-    println!("op_landscape_update_pbr_texture");
+    // println!("op_landscape_update_pbr_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
     }
@@ -903,7 +903,7 @@ fn op_lighting_update_sun(state: &mut OpState, #[serde] config: ProceduralSkyCon
 #[op2]
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        println!("Create grass xyz");
+        // println!("Create grass xyz");
         ctx.pending_grasses.push((addon_name, config));
     }
 }
@@ -918,7 +918,7 @@ fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serd
 #[op2]
 #[serde]
 fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
-    println!("Registering addon: {:?}", metadata);
+    // println!("Registering addon: {:?}", metadata);
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.registered_addons.insert(metadata.name.clone(), metadata);
     }
@@ -1145,7 +1145,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             //     })));
             // }
 
-            println!("Working pipeline (1): {:?} {:?}", config.name, config.pbr);
+            // println!("Working pipeline (1): {:?} {:?}", config.name, config.pbr);
 
             layouts = vec![
                 ctx.bind_group_layouts[0].as_ref(), // Camera
@@ -1328,7 +1328,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             formats = &[wgpu::TextureFormat::Rgba8Unorm];
         }
 
-        println!("Working pipeline (3): {:?}", layouts.len());
+        // println!("Working pipeline (3): {:?}", layouts.len());
 
         let pipeline = create_addon_pipeline(
             device,
@@ -1344,7 +1344,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             ctx.pipelines.insert(id.clone(), Arc::new(pipeline));
         }
 
-        println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);
+        // println!("Prep for lighting shader: {:?} {:?}", config.name, config.layout);
 
         // If a lighting shader is provided, create a lighting pipeline
         if let Some(lighting_shader_source) = &config.lighting_shader {
@@ -1394,7 +1394,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
 
             ctx.lighting_pipelines.insert(id.clone(), Arc::new(lighting_pipeline));
 
-            println!("More for lighting shader: {:?} {:?}", config.name, config.layout);
+            // println!("More for lighting shader: {:?} {:?}", config.name, config.layout);
 
             // Create lighting bind groups if provided
             if let Some(bindings) = &config.lighting_bindings {
@@ -1488,7 +1488,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             }
         }
 
-        println!("Done with lighting shader: {:?}", config.name);
+        // println!("Done with lighting shader: {:?}", config.name);
         
         ctx.pipeline_configs.insert(id.clone(), config);
         
@@ -1812,7 +1812,7 @@ fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] con
 
 #[op2]
 fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: MeshConfig) {
-    println!("Adding mesh?");
+    // println!("Adding mesh?");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_meshes.push((addon_name, config));
     }
@@ -2204,13 +2204,13 @@ impl AddonEngine {
                 if let Some(id_s) = id_str {
                     if id_s == "Landscape" {
                         if let Some(texture_view) = &landscape_view {
-                            println!("----------BIND.... the good view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
+                            // println!("----------BIND.... the good view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
                             wgpu_entries.push(wgpu::BindGroupEntry {
                                 binding: b.binding,
                                 resource: wgpu::BindingResource::TextureView(texture_view),
                             });
                         } else {
-                            println!("----------BIND.... the dummy view {:?}", id.clone());
+                            // println!("----------BIND.... the dummy view {:?}", id.clone());
                             // Fallback to dummy
                             let dummy_texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
                                 label: Some("Dummy Landscape Texture"),
@@ -2242,7 +2242,7 @@ impl AddonEngine {
                             // We'll add this entry in a separate loop
                         }
                     } else {
-                        println!("----------BIND.... the bad view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
+                        // println!("----------BIND.... the bad view {:?} {:?} {:?}", current_addon_name, id.clone(), id_s.clone());
                         if let Some(view) = addon_texture_views.get(&id_s) {
                             wgpu_entries.push(wgpu::BindGroupEntry {
                                 binding: b.binding,
@@ -2475,7 +2475,7 @@ impl AddonEngine {
                         }
                     };
 
-                    println!("Pending Composites... {:?} {:?} {:?}", pipeline.is_some(), texture_view.is_some(), config);
+                    // println!("Pending Composites... {:?} {:?} {:?}", pipeline.is_some(), texture_view.is_some(), config);
 
                     if let (Some(pipeline), Some(texture_view)) = (pipeline, texture_view) {
                          let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
@@ -2669,10 +2669,36 @@ impl AddonEngine {
                     }
 
                     if let Some(heights) = heights {
+                        let mut scaled_like_image = Vec::new();
+                        // 1. Find the current range
+                        if !heights.is_empty() {
+                            let mut min_h = heights[0];
+                            let mut max_h = heights[0];
+                            
+                            for &h in &heights {
+                                if h < min_h { min_h = h; }
+                                if h > max_h { max_h = h; }
+                            }
+
+                            let range = max_h - min_h;
+
+                            // 2. Scale the values
+                            if range > 0.0 {
+                                for h in heights.iter() {
+                                    scaled_like_image.push((*h - min_h) / range);
+                                }
+                            } else {
+                                // If all heights are the same (range == 0), 
+                                // set them all to 0.0 (a flat plain)
+                                scaled_like_image.fill(0.0);
+                            }
+                        }
+
                         let data = crate::helpers::landscapes::generate_landscape_data(
                             config.width,
                             config.height,
-                            heights,
+                            // heights,
+                            scaled_like_image,
                             1024.0 * 4.0, // square_size
                             1024.0 * 4.0, // square_size
                             150.0 * 4.0,  // square_height
@@ -2715,7 +2741,7 @@ impl AddonEngine {
             
 
             if let Some(gpu) = &renderer_state.gpu_resources {
-                println!("renderer_state landscapes... {:?}", renderer_state.addon_landscapes.keys());
+                // println!("renderer_state landscapes... {:?}", renderer_state.addon_landscapes.keys());
 
                 for (addon_name, update) in pending_landscape_texture_updates {
                     if let Some(landscapes) = renderer_state.addon_landscapes.get_mut(&addon_name) {
@@ -2731,7 +2757,7 @@ impl AddonEngine {
                                 }
                             };
 
-                            println!("renderer_state.addon_landscapes {:?}", addon_name);
+                            // println!("renderer_state.addon_landscapes {:?}", addon_name);
 
                             if let Some(texture) = texture_data {
                                 match update {
@@ -2777,16 +2803,16 @@ impl AddonEngine {
 
                     // let mut landscape_bind_group = None;
                     if let Some(terrain) = landscape {
-                        println!("LANDSCAPPPPE COOOUNNNTTT {:?}", terrain.len());
+                        // println!("LANDSCAPPPPE COOOUNNNTTT {:?}", terrain.len());
 
                        if let Some(land)  = terrain.first_mut() {
-                        println!("read heightmap {:?} {:?} {:?}", self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
+                        // println!("read heightmap {:?} {:?} {:?}", self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
                         // not good for dynamic texture
                             // let heightmap_texture = read_landscape_heightmap_as_texture(self.project_id.to_string(), land.id.clone(), land.heightmap_filename.clone());
                                 
                             if let Some(texture) = land.heightmap_texture.clone() { // possibly an expensive clone, although infrequent
                                 // let texture = Texture::new(texture_data.bytes, texture_data.width, texture_data.height);
-                                println!("LANDSCAPPPPE update_particle_texture");
+                                // println!("LANDSCAPPPPE update_particle_texture");
 
                                 land.update_particle_texture(
                                     &gpu.device,
@@ -2807,7 +2833,7 @@ impl AddonEngine {
                         }
                     }
 
-                    println!("LANDSCAPPPPE landscape_view {:?}", landscape_view.is_some());                
+                    // println!("LANDSCAPPPPE landscape_view {:?}", landscape_view.is_some());                
                     
                     // 1. Try to find and update existing instance
                     if let Some(id) = &config.id {
@@ -2848,7 +2874,7 @@ impl AddonEngine {
                                     }
                                 }
 
-                                println!("update hair {:?} {:?}", grass.config.base_color, grass.config.tip_color);
+                                // println!("update hair {:?} {:?}", grass.config.base_color, grass.config.tip_color);
 
                                 grass.update_config(&gpu.queue, grass.config);
                                 updated = true;
@@ -2889,7 +2915,7 @@ impl AddonEngine {
                     if let Some(landscape) = renderer_state.addon_landscapes
                                                                 .get_mut(&current_addon_name) {
                         if let Some(landscape) = landscape.first_mut() {
-                            println!("binding grass to landscape landscape_view!!! {:?}", current_addon_name.clone());
+                            // println!("binding grass to landscape landscape_view!!! {:?}", current_addon_name.clone());
 
                             grass = Grass::new(&gpu.device, &camera_layout, landscape, custom_pipeline);
                         }

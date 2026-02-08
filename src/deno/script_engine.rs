@@ -223,7 +223,7 @@ impl DenoEngine {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_engine::init_ops_and_esm();
         // let ext = entropy_engine::init_ops();
-        println!("ext {:?} {:?} {:?}", ext.enabled, ext.esm_entry_point, ext.esm_files);
+        // println!("ext {:?} {:?} {:?}", ext.enabled, ext.esm_entry_point, ext.esm_files);
         let mut runtime = JsRuntime::new(RuntimeOptions {
             module_loader: Some(loader),
             extensions: vec![

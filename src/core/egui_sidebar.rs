@@ -145,7 +145,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         // Poll Webview IPC
         if let Some(rx) = &editor.webview_ipc_rx {
             while let Ok(msg) = rx.try_recv() {
-                println!("Incoming msg: {:?}", msg);
+                // println!("Incoming msg: {:?}", msg);
 
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(&msg) {
                     println!("Incoming json: {:?}", json);

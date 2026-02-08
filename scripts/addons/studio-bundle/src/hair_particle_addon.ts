@@ -22,9 +22,9 @@ let hairParams: any = {
     brownianStrength: 0.03,
     bladeHeightVariability: 0.6,
     bladeDensity: 15.0,
-    landscapeSize: 100.0,
-    landscapeHeight: 0.0,
-    landscapeYOffset: -450.0,
+    landscapeSize: 4096.0,
+    landscapeHeight: 600.0,
+    landscapeYOffset: 0.0,
     baseColor: [0.1, 0.3, 0.35, 1.0],
     tipColor: [0.2, 0.7, 0.8, 1.0],
     pipelineId: null,
@@ -87,7 +87,9 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     // square_height = 150.0 * 4.0 = 600.0
     let landscape_size = 4096.0;
     let max_height = 600.0;
-    let landscape_y_offset = -450.0;
+    // let max_height = 900.0; // 1.5 scale?
+    // let landscape_y_offset = -450.0;
+    let landscape_y_offset = -400.0 + 8.0; // +10.0 minor gap fix?
 
     // dynamic terrain sizing
     // let landscape_size = uniforms.landscape_size;
@@ -111,9 +113,13 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
 
 // fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
 //     let max_height = 600.0;  // This should be your HEIGHT RANGE, not just max
-//     let min_height = -691.66; // Add this
-//     let landscape_size = uniforms.landscape_size;
-//     let landscape_y_offset = uniforms.landscape_y_offset;
+//     // let min_height = -691.66; // Add this
+//     let min_height = -600.00; // Add this
+//     // let landscape_size = uniforms.landscape_size;
+//     // let landscape_y_offset = uniforms.landscape_y_offset;
+
+//     let landscape_size = 4096.0;
+//     let landscape_y_offset = 0.0;
     
 //     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
 //     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));

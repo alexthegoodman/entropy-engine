@@ -464,7 +464,7 @@ pub enum InputValue {
 
 impl Editor {
     pub fn replace_background(&mut self, sequence_id: Uuid, fill: [f32; 4]) {
-        println!("replace background {:?} {:?}", sequence_id, fill);
+        // println!("replace background {:?} {:?}", sequence_id, fill);
 
         let camera = self.camera.as_ref().expect("Couldn't get camera");
         let window_size = camera.viewport.window_size;
@@ -673,20 +673,8 @@ impl Editor {
 
         let font_manager = FontManager::new();
 
-        // Create capture directory for this project
-        let project_path = std::env::current_dir()
-            .unwrap_or_else(|_| std::path::PathBuf::from("."))
-            .join("captures")
-            .join(project_id.clone());
-
-        if let Err(e) = std::fs::create_dir_all(&project_path) {
-            println!("Failed to create capture directory: {}", e);
-            // return Ok(());,
-        }
-
         // Initialize StCapture - this handles the non-Send+Sync Windows capture types
         // let st_capture = StCapture::new(project_path);
-
 
         Editor {
             project_id: project_id.clone(),

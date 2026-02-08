@@ -100,15 +100,15 @@ impl Landscape {
             "Heightmap dimensions: {} x {}",
             heightmap_width, heightmap_height
         );
-        println!(
-            "Sample heights min/max: {:?}/{:?}",
-            data.rapier_heights
-                .iter()
-                .fold(f32::INFINITY, |a, &b| a.min(b)),
-            data.rapier_heights
-                .iter()
-                .fold(f32::NEG_INFINITY, |a, &b| a.max(b))
-        );
+        // println!(
+        //     "Sample heights min/max: {:?}/{:?}",
+        //     data.rapier_heights
+        //         .iter()
+        //         .fold(f32::INFINITY, |a, &b| a.min(b)),
+        //     data.rapier_heights
+        //         .iter()
+        //         .fold(f32::NEG_INFINITY, |a, &b| a.max(b))
+        // );
 
         // let square_size = 1024.0 * 100.0;
         // let square_height = 1858.0;
@@ -342,6 +342,8 @@ impl Landscape {
                 width: camera.viewport.window_size.width,
                 height: camera.viewport.window_size.height
             });
+
+        println!("Create landscape position: {:?}", position);
 
         Self {
             heightmap_filename: data.filename.clone(),

@@ -202,7 +202,7 @@ impl Camera {
 
     pub fn zoom(&mut self, delta: f32, center: Point) {
         self.zoom = self.zoom + delta;
-        println!("new zoom: {:?} delta: {:?}", self.zoom, delta);
+        // println!("new zoom: {:?} delta: {:?}", self.zoom, delta);
     }
 }
 

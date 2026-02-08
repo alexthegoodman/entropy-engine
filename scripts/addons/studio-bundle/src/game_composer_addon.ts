@@ -48,8 +48,10 @@ const availablePipelines = [
     "wireframe"
 ];
 
+// TODO: make this dynamic
 const sourceAddons = [
     "FFT Ocean",
+    "FFT River Water", 
     "FlexNoise Terrain",
     "Hair Particles with Ornaments",
     "PBR Texture Designer Pro",
