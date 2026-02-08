@@ -1,6 +1,4 @@
-
-
-const addon = Entropy.Addon.register({
+const addonInfo = {
     name: "Hair Particles with Ornaments",
     version: "3.0.0",
     description: "Highly customizable hair and grass particles with decorative ornament clusters",
@@ -9,7 +7,9 @@ const addon = Entropy.Addon.register({
         graphics: true,
         ui: true
     }
-});
+};
+
+const addon = Entropy.Addon.register(addonInfo);
 
 let hairParams: any = {
     id: "main_hair",
@@ -2018,9 +2018,9 @@ addon.onInit(async () => {
         addonState.savedComponents.push({ id, name: args.name, params });
         
         if (Entropy.Composer) {
-            Entropy.Composer.registerComponent(addon.name, id, args.name, params);
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
         }
         
-        return { success: true, id: id, name: args.name, addonName: addon.name };
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
     });
 });
