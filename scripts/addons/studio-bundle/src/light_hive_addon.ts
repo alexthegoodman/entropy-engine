@@ -218,41 +218,37 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "spawn_point_light",
-        description: "Place a new point light in the scene at a specific position.",
+        description: "Spawn a new point light and register it as a component for the Game Composer.",
         parameters: {
             type: "object",
             properties: {
-                position: { 
-                    type: "array", 
-                    items: { type: "number" }, 
-                    minItems: 3, 
-                    maxItems: 3,
-                    description: "The [x, y, z] position of the light." 
-                },
-                color: { 
-                    type: "array", 
-                    items: { type: "number" }, 
-                    minItems: 3, 
-                    maxItems: 3,
-                    description: "The RGB color of the light." 
-                },
-                intensity: { type: "number", description: "Brightness of the light (e.g., 5.0 to 50.0)." },
-                maxDistance: { type: "number", description: "Radius of the light's influence." }
+                name: { type: "string", description: "Name of the light (e.g., 'Red Beacon')." },
+                position: { type: "array", items: { type: "number" }, description: "[x, y, z] position." },
+                color: { type: "array", items: { type: "number" }, description: "RGB color." },
+                intensity: { type: "number", description: "Brightness." },
+                maxDistance: { type: "number", description: "Radius." }
             },
-            required: ["position"]
+            required: ["name", "position"]
         }
     }, (args: any) => {
-        Entropy.println("Spawning point light via tool: " + JSON.stringify(args));
+        Entropy.println("Spawning light component via tool: " + args.name);
         
-        const params: LightParams & { _transform: { position: [number, number, number] } } = {
+        const id = Entropy.generateUUID();
+        const params: LightParams = {
             color: args.color || [1.0, 1.0, 1.0],
             intensity: args.intensity || 10.0,
-            maxDistance: args.maxDistance || 50.0,
-            _transform: { position: args.position }
+            maxDistance: args.maxDistance || 50.0
         };
 
-        renderLight(Entropy.generateUUID(), params);
+        // 1. Save/Register
+        lightState.savedComponents.push({ id, name: args.name, params });
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
+        }
+
+        // 2. Render immediately
+        renderLight(id, { ...params, _transform: { position: args.position } });
         
-        return { success: true, position: args.position, color: params.color };
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
     });
 });

@@ -855,4 +855,27 @@ addon.onInit(async () => {
 
         return { success: false, error: "Texture renderer not found." };
     });
+
+    addon.registerTool({
+        name: "save_terrain_component",
+        description: "Save the current terrain settings as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for this terrain configuration (e.g., 'Rocky Highlands')." }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const params = JSON.parse(JSON.stringify(addonState.currentParams));
+        
+        addonState.savedComponents.push({ id, name: args.name, params });
+        
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
+        }
+        
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
+    });
 });

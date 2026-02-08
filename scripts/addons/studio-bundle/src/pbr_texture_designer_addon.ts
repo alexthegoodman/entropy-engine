@@ -737,18 +737,14 @@ addon.onInit(async () => {
         let component = addonState.savedComponents.find(c => c.id === compId);
         
         if (!component) {
-            // If no component found, maybe we just update currentParams directly if no ID was strictly required?
-            // But better to enforce working on a component context if we want to save it.
-            // However, let's allow updating currentParams if it matches active.
              if (!compId && addonState.currentParams) {
-                 // Update current params directly (transient state)
-                 component = { id: "temp", name: "Temp", params: addonState.currentParams }; // Mock
+                 component = { id: "temp", name: "Temp", params: addonState.currentParams };
              } else {
                  return { success: false, error: "Texture component not found." };
              }
         }
 
-        const params = component.params; // Reference to params
+        const params = component.params;
         
         if (typeof args.patternScale !== "undefined") params.patternScale = args.patternScale;
         if (typeof args.roughness !== "undefined") params.roughness = args.roughness;
@@ -757,14 +753,12 @@ addon.onInit(async () => {
         if (args.baseColor) params.baseColor = args.baseColor.length === 3 ? [...args.baseColor, 1.0] : args.baseColor;
         if (args.secondaryColor) params.secondaryColor = args.secondaryColor.length === 3 ? [...args.secondaryColor, 1.0] : args.secondaryColor;
 
-        // If it was a saved component, we need to update the main state if it's the active one
         if (component.id === addonState.activeComponentId) {
             addonState.currentParams = params;
         }
 
         updatePreview(params, compId || "temp");
         
-        // Re-register if it's a real component
         if (Entropy.Composer && component.id !== "temp") {
             Entropy.Composer.registerComponent(addonInfo.name, component.id, component.name, params);
         }

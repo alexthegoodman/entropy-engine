@@ -2000,4 +2000,27 @@ addon.onInit(async () => {
         updateOrnaments(addonState.currentParams, id);
         return { success: true, preset: args.preset };
     });
+
+    addon.registerTool({
+        name: "save_hair_component",
+        description: "Save the current hair/grass settings as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for this hair configuration." }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const params = JSON.parse(JSON.stringify(addonState.currentParams));
+        
+        addonState.savedComponents.push({ id, name: args.name, params });
+        
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addon.name, id, args.name, params);
+        }
+        
+        return { success: true, id: id, name: args.name, addonName: addon.name };
+    });
 });

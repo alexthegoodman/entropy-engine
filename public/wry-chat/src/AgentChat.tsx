@@ -160,6 +160,11 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
           
           CRITICAL: You must CONTINUE executing steps one by one WITHOUT stopping or asking for confirmation until the entire plan status is marked as 'completed'. 
           If a step is 'pending' or 'in_progress', execute it immediately.
+
+          CRITICAL: When adding objects to the world (lights, terrain, water, models, etc.), you must follow a 2-step process:
+          1. Create or save the component using the specific addon tool (e.g., 'create_light_component', 'save_terrain_component').
+          2. Add that component to the scene using the 'add_to_scene' tool from the Game Composer.
+          Do not assume creating a component makes it visible. You must add it to the scene.
           
           Always keep the user informed.`,
         },

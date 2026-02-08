@@ -648,4 +648,27 @@ addon.onInit(async () => {
         updateWater(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
         return { success: true, preset: args.preset };
     });
+
+    addon.registerTool({
+        name: "save_water_component",
+        description: "Save the current water settings as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for this water configuration." }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const params = JSON.parse(JSON.stringify(addonState.currentParams));
+        
+        addonState.savedComponents.push({ id, name: args.name, params });
+        
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
+        }
+        
+        return { success: true, id: id, name: args.name, addonName: addonInfo.name };
+    });
 });

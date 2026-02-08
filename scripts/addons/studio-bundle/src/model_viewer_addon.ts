@@ -220,30 +220,35 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "spawn_model",
-        description: "Spawn a 3D model instance into the scene.",
+        description: "Spawn a 3D model and register it as a component for the Game Composer.",
         parameters: {
             type: "object",
             properties: {
-                path: { type: "string", description: "The filename of the model (e.g., 'Player.glb'). Use list_available_models to see options." },
-                position: { type: "array", items: { type: "number" }, description: "[x, y, z] coordinates." },
+                path: { type: "string", description: "The filename of the model (e.g., 'Player.glb')." },
+                name: { type: "string", description: "A friendly name for this model instance." },
+                position: { type: "array", items: { type: "number" }, description: "[x, y, z] position." },
                 rotation: { type: "array", items: { type: "number" }, description: "[x, y, z] rotation in radians." },
                 scale: { type: "array", items: { type: "number" }, description: "[x, y, z] scale. Usually [1, 1, 1]." }
             },
-            required: ["path"]
+            required: ["path", "name"]
         }
     }, (args: any) => {
-        Entropy.println("Spawning model via tool: " + args.path);
-        const id = Entropy.generateUUID();
-        const newModel: ModelInstance = {
-            id,
+        // 1. Register component
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, args.path, args.name, {
+                path: args.path
+            });
+        }
+
+        // 2. Load immediately
+        addon.Model.load({
+            id: Entropy.generateUUID(),
             path: args.path,
             position: args.position || [0, 0, 0],
             rotation: args.rotation || [0, 0, 0],
             scale: args.scale || [1, 1, 1]
-        };
-        state.models.push(newModel);
-        state.activeModelId = id;
-        refreshModels();
-        return { success: true, id, path: args.path };
+        });
+
+        return { success: true, id: args.path, name: args.name, addonName: addonInfo.name };
     });
 });
