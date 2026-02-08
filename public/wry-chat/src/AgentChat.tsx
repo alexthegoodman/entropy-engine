@@ -80,12 +80,51 @@ const models = [
   { id: "claude-opus-4-20250514", name: "Claude 4 Opus" },
 ];
 
+interface PlanStep {
+  id: string;
+  description: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+}
+
+const PLAN_TOOL = {
+  name: "manage_plan",
+  description:
+    "Create or update a multi-step plan. Use this to outline the steps you will take to complete the request. Call this tool whenever you start a new plan or complete a step.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      steps: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            description: { type: "string" },
+            status: {
+              type: "string",
+              enum: ["pending", "in_progress", "completed", "failed"],
+            },
+          },
+          required: ["id", "description", "status"],
+        },
+      },
+    },
+    required: ["steps"],
+  },
+};
+
 const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
   const [text, setText] = useState<string>("");
   const [model, setModel] = useState<string>(models[0].id);
   const [useWebSearch, setUseWebSearch] = useState<boolean>(false);
   // const [availableTools, setAvailableTools] = useState<any[]>([]);
   const [initialMessages, setInitialMessages] = useState<any[]>([]); // Use any[] or UIMessage[] based on types
+  const [plan, setPlan] = useState<PlanStep[]>([]);
+
+  const allTools = useMemo(
+    () => [...availableTools, PLAN_TOOL],
+    [availableTools],
+  );
 
   const transport = useMemo(
     () =>
@@ -94,19 +133,18 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
         body: {
           model,
           webSearch: useWebSearch,
-          tools: availableTools,
-          // systemPrompt: `You are a helpful file analysis assistant. 
+          tools: allTools,
+          systemPrompt: `You are a helpful AI assistant for the Entropy Engine.
           
-          // When working with files:
-          // - Use listFiles to see what's available
-          // - Use readFile to access file content
-          // - Use analyzeData to provide insights
-          // - Use askForConfirmation before sensitive operations
+          For complex requests:
+          1. create a plan using the 'manage_plan' tool.
+          2. Execute one step at a time.
+          3. After each step, update the plan status using 'manage_plan' and decide if you need to revise the plan based on the results.
           
-          // Be concise and helpful.`,
+          Always keep the user informed.`,
         },
       }),
-    [model, useWebSearch, availableTools],
+    [model, useWebSearch, allTools],
   );
 
   const { messages, status, sendMessage, addToolOutput } = useChat({
@@ -114,6 +152,21 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
     // initialMessages,
     onToolCall: ({ toolCall }) => {
       console.log("Calling tool:", toolCall.toolName);
+
+      if (toolCall.toolName === "manage_plan") {
+        const args = toolCall.input as any;
+        if (args.steps) {
+            setPlan(args.steps);
+        }
+        
+        addToolOutput({
+            toolCallId: toolCall.toolCallId,
+            tool: toolCall.toolName,
+            output: { result: "Plan updated successfully." },
+        });
+        return;
+      }
+
       if (window.ipc) {
         window.ipc.postMessage(
           JSON.stringify({
@@ -189,6 +242,37 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
   return (
     <div className="max-w-4xl mx-auto p-6 relative size-full rounded-lg border h-[95vh]">
       <div className="flex flex-col h-full">
+        {plan.length > 0 && (
+          <div className="bg-muted/50 p-4 rounded-lg mb-4 text-sm max-h-[200px] overflow-y-auto">
+            <h3 className="font-semibold mb-2">Current Plan</h3>
+            <div className="space-y-2">
+              {plan.map((step) => (
+                <div key={step.id} className="flex items-center gap-2">
+                  <div
+                    className={`size-2 rounded-full ${
+                      step.status === "completed"
+                        ? "bg-green-500"
+                        : step.status === "in_progress"
+                        ? "bg-blue-500 animate-pulse"
+                        : step.status === "failed"
+                        ? "bg-red-500"
+                        : "bg-gray-300"
+                    }`}
+                  />
+                  <span
+                    className={
+                      step.status === "completed"
+                        ? "text-muted-foreground line-through"
+                        : ""
+                    }
+                  >
+                    {step.description}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {/* <p className="text-xs">{JSON.stringify(availableTools)}</p> */}
         <Conversation>
           <ConversationContent>
