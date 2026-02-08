@@ -35,7 +35,7 @@ interface VolumetricConfig {
 
 class VolumetricFX {
   private api: ScopedAPI;
-  private config: VolumetricConfig;
+  public config: VolumetricConfig; // changed to public for tool access
   
   private noise3D = createNoise3D();
   private noise4D = createNoise4D();
@@ -61,6 +61,9 @@ class VolumetricFX {
 
   particleStride: number = 0;
   particleData: Float32Array | null = null;
+
+  public savedComponents: { id: string, name: string, config: VolumetricConfig }[] = [];
+  public activeComponentId: string | null = null;
   
   constructor(api: ScopedAPI) {
     this.api = api;
@@ -92,9 +95,26 @@ class VolumetricFX {
   }
   
   init() {
-    println("🌫️ Initializing Volumetric FX...");
+    println("🌫️ Volumetric FX Initializing...");
     
-    // TODO: load data on project changed and add component UI, json structure, and tools
+    const loadData = () => {
+        const saved = this.api.IO.load();
+        if (saved) {
+            this.savedComponents = saved.savedComponents || [];
+            this.activeComponentId = saved.activeComponentId || null;
+            if (saved.config) this.config = saved.config;
+
+            if (Entropy.Composer) {
+                this.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent("VolumetricFX", comp.id, comp.name, comp.config);
+                });
+            }
+        }
+    };
+
+    this.api.onProjectChanged(() => {
+        loadData();
+    });
     
     // Create 3D noise texture for volumetric density
     // NOTE: Would benefit from op_texture_create_3d for true 3D lookup
@@ -731,6 +751,49 @@ class VolumetricFX {
   renderUI() {
     if (!this.tabId) return;
     
+    Entropy.UI.Widget.label(this.tabId, { text: "🌫️ Volumetric FX Settings", bold: true });
+
+    Entropy.UI.Widget.button(this.tabId, {
+        text: "💾 Save All to Project",
+        onClick: () => {
+            this.api.IO.save({
+                config: this.config,
+                savedComponents: this.savedComponents,
+                activeComponentId: this.activeComponentId
+            });
+            if (Entropy.Composer) {
+                this.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent("VolumetricFX", comp.id, comp.name, comp.config);
+                });
+            }
+        }
+    });
+
+    Entropy.UI.Widget.label(this.tabId, { text: "📦 Components", bold: true });
+    Entropy.UI.Widget.button(this.tabId, {
+        text: "➕ Save Current as Component",
+        onClick: () => {
+            const id = Entropy.generateUUID();
+            const name = "New Atmosphere";
+            this.savedComponents.push({ id, name, config: JSON.parse(JSON.stringify(this.config)) });
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent("VolumetricFX", id, name, this.config);
+            }
+        }
+    });
+
+    this.savedComponents.forEach(comp => {
+        Entropy.UI.Widget.button(this.tabId!, {
+            text: `📂 Load: ${comp.name}`,
+            onClick: () => {
+                this.config = JSON.parse(JSON.stringify(comp.config));
+                this.activeComponentId = comp.id;
+                this.saveConfig();
+            }
+        });
+    });
+
+    Entropy.UI.Widget.label(this.tabId, { text: "--------------------------------" });
     Entropy.UI.Widget.label(this.tabId, { text: "FOG SETTINGS", bold: true });
     
     Entropy.UI.Widget.slider(this.tabId, {
@@ -1014,7 +1077,7 @@ api.registerTool({
 }, (args: any) => {
     Entropy.println("Updating Volumetric Fog via tool: " + JSON.stringify(args));
     let changed = false;
-    const config = fx["config"];
+    const config = fx.config;
 
     if (typeof args.density !== "undefined") { config.fogDensity = args.density; changed = true; }
     if (args.color) { config.fogColor = [args.color[0], args.color[1], args.color[2]]; changed = true; }
@@ -1022,7 +1085,15 @@ api.registerTool({
     if (typeof args.end !== "undefined") { config.fogEnd = args.end; changed = true; }
 
     if (changed) {
-        fx["saveConfig"]();
+        fx.saveConfig();
+        // Sync active component if exists
+        if (fx.activeComponentId) {
+            const comp = fx.savedComponents.find(c => c.id === fx.activeComponentId);
+            if (comp) {
+                comp.config = JSON.parse(JSON.stringify(config));
+                if (Entropy.Composer) Entropy.Composer.registerComponent("VolumetricFX", comp.id, comp.name, comp.config);
+            }
+        }
         return { success: true, config };
     }
     return { success: false, error: "No parameters provided." };
@@ -1043,7 +1114,7 @@ api.registerTool({
 }, (args: any) => {
     Entropy.println("Updating Volumetric Dust via tool: " + JSON.stringify(args));
     let changed = false;
-    const config = fx["config"];
+    const config = fx.config;
 
     if (typeof args.density !== "undefined") { config.dustDensity = args.density; changed = true; }
     if (typeof args.size !== "undefined") { config.dustSize = args.size; changed = true; }
@@ -1051,8 +1122,40 @@ api.registerTool({
     if (typeof args.speed !== "undefined") { config.dustSpeed = args.speed; changed = true; }
 
     if (changed) {
-        fx["saveConfig"]();
+        fx.saveConfig();
+        // Sync active component if exists
+        if (fx.activeComponentId) {
+            const comp = fx.savedComponents.find(c => c.id === fx.activeComponentId);
+            if (comp) {
+                comp.config = JSON.parse(JSON.stringify(config));
+                if (Entropy.Composer) Entropy.Composer.registerComponent("VolumetricFX", comp.id, comp.name, comp.config);
+            }
+        }
         return { success: true, config };
     }
     return { success: false, error: "No parameters provided." };
+});
+
+api.registerTool({
+    name: "save_volumetric_component",
+    description: "Save current atmospheric volumetric settings as a reusable component for the Game Composer.",
+    parameters: {
+        type: "object",
+        properties: {
+            name: { type: "string", description: "Name for this atmosphere (e.g., 'Spooky Mist')." }
+        },
+        required: ["name"]
+    }
+}, (args: any) => {
+    const id = Entropy.generateUUID();
+    const config = JSON.parse(JSON.stringify(fx.config));
+    
+    fx.savedComponents.push({ id, name: args.name, config });
+    fx.activeComponentId = id;
+    
+    if (Entropy.Composer) {
+        Entropy.Composer.registerComponent("VolumetricFX", id, args.name, config);
+    }
+    
+    return { success: true, id, name: args.name, addonName: "VolumetricFX" };
 });
