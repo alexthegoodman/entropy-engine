@@ -670,4 +670,122 @@ addon.onInit(async () => {
             renderTerrainUI(tab);
         }
     });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "update_terrain_parameters",
+        description: "Update the procedural noise parameters for the terrain generation.",
+        parameters: {
+            type: "object",
+            properties: {
+                seed: { type: "number", description: "Random seed for the noise generator" },
+                frequency: { type: "number", description: "Noise frequency (detail density). Suggested: 0.001 to 0.05" },
+                octaves: { type: "number", description: "Number of noise layers. Suggested: 1 to 8" },
+                persistence: { type: "number", description: "Amplitude reduction per octave. Suggested: 0.0 to 1.0" },
+                lacunarity: { type: "number", description: "Frequency multiplier per octave. Suggested: 1.0 to 4.0" },
+                heightScale: { type: "number", description: "Vertical scaling factor. Suggested: 0.1 to 10.0" }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating terrain parameters via tool: " + JSON.stringify(args));
+        let changed = false;
+        
+        if (typeof args.seed !== "undefined") { addonState.currentParams.seed = args.seed; changed = true; }
+        if (typeof args.frequency !== "undefined") { addonState.currentParams.frequency = args.frequency; changed = true; }
+        if (typeof args.octaves !== "undefined") { addonState.currentParams.octaves = args.octaves; changed = true; }
+        if (typeof args.persistence !== "undefined") { addonState.currentParams.persistence = args.persistence; changed = true; }
+        if (typeof args.lacunarity !== "undefined") { addonState.currentParams.lacunarity = args.lacunarity; changed = true; }
+        if (typeof args.heightScale !== "undefined") { addonState.currentParams.heightScale = args.heightScale; changed = true; }
+
+        if (changed) {
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided to update." };
+    });
+
+    addon.registerTool({
+        name: "set_terrain_resolution",
+        description: "Set the resolution (width and height) of the terrain grid.",
+        parameters: {
+            type: "object",
+            properties: {
+                resolution: { 
+                    type: "number", 
+                    description: "Resolution in vertices (e.g., 64, 128, 256, 512). Higher means more detail but slower performance." 
+                }
+            },
+            required: ["resolution"]
+        }
+    }, (args: any) => {
+        Entropy.println("Setting terrain resolution via tool: " + JSON.stringify(args));
+        if (typeof args.resolution !== "undefined") {
+            addonState.currentParams.width = args.resolution;
+            addonState.currentParams.height = args.resolution;
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, resolution: args.resolution };
+        }
+        return { success: false, error: "Resolution parameter missing." };
+    });
+
+    addon.registerTool({
+        name: "set_terrain_position",
+        description: "Set the vertical (Y) position of the terrain.",
+        parameters: {
+            type: "object",
+            properties: {
+                y: { type: "number", description: "The Y coordinate for the terrain base." }
+            },
+            required: ["y"]
+        }
+    }, (args: any) => {
+        Entropy.println("Setting terrain position via tool: " + JSON.stringify(args));
+        if (typeof args.y !== "undefined") {
+            addonState.currentParams.positionY = args.y;
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, positionY: args.y };
+        }
+        return { success: false, error: "Y parameter missing." };
+    });
+
+    addon.registerTool({
+        name: "set_terrain_visuals",
+        description: "Configure terrain visual style (PBR or Custom Color).",
+        parameters: {
+            type: "object",
+            properties: {
+                usePBR: { type: "boolean", description: "Enable Physically Based Rendering (requires textures)" },
+                color: { 
+                    type: "array", 
+                    items: { type: "number" }, 
+                    minItems: 3, 
+                    maxItems: 4, 
+                    description: "RGB or RGBA color array (e.g., [0.2, 0.8, 0.2]). Only used if usePBR is false." 
+                }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Setting terrain visuals via tool: " + JSON.stringify(args));
+        let changed = false;
+
+        if (typeof args.usePBR !== "undefined") { 
+            addonState.currentParams.usePBR = args.usePBR; 
+            changed = true; 
+        }
+        
+        if (args.color && Array.isArray(args.color)) {
+            addonState.currentParams.terrainColor = args.color;
+            if (addonState.currentParams.terrainColor.length === 3) {
+                addonState.currentParams.terrainColor.push(1.0); // Ensure alpha
+            }
+            changed = true;
+        }
+
+        if (changed) {
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            return { success: true, usePBR: addonState.currentParams.usePBR, color: addonState.currentParams.terrainColor };
+        }
+        return { success: false, error: "No visual parameters provided." };
+    });
 });
