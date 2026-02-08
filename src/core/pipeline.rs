@@ -366,7 +366,7 @@ impl EntropyPipeline {
                     label: None,
                     // required_features: wgpu::Features::FLOAT32_FILTERABLE,
                     required_limits: Limits {
-                        max_bind_groups: 6, // bad for wasm :(
+                        max_bind_groups: 8, // bad for wasm :(
                         ..Default::default()
                     },
                     ..Default::default()

@@ -279,6 +279,177 @@ fn bitReverse(x: u32) -> u32 {
 }
 `;
 
+// ===== FLOW ACCUMULATION SHADER =====
+// Detects natural river paths by simulating water flow downhill
+
+const FLOW_ACCUMULATION_SHADER = `
+// This shader traces water flow across the terrain to find river paths
+// Each pixel accumulates flow from uphill neighbors
+
+struct FlowParams {
+    landscape_size: f32,
+    max_height: f32,
+    landscape_y_offset: f32,
+    resolution: f32,
+    min_flow_threshold: f32,  // Minimum accumulation to show as river
+    padding1: f32,
+    padding2: f32,
+    padding3: f32,
+}
+
+@group(0) @binding(0)
+var landscape_texture: texture_2d<f32>;
+
+@group(0) @binding(1)
+var landscape_sampler: sampler;
+
+@group(0) @binding(2)
+var output_flow: texture_storage_2d<rgba16float, write>;
+
+@group(0) @binding(3)
+var<uniform> params: FlowParams;
+
+fn sample_height(uv: vec2<f32>) -> f32 {
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    let height_sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
+    return (height_sample.r * params.max_height) + params.landscape_y_offset;
+}
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let N = u32(params.resolution);
+    
+    // Current pixel's UV
+    let pixel_size = 1.0 / f32(N);
+    let uv = vec2<f32>(f32(id.x) + 0.5, f32(id.y) + 0.5) * pixel_size;
+    
+    let center_height = sample_height(uv);
+    
+    // Check 8 neighboring pixels
+    var flow_accumulation = 1.0; // Start with 1 (the pixel itself)
+    
+    // Offsets for 8-connected neighbors
+    let offsets = array<vec2<f32>, 8>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(0.0, -1.0), vec2<f32>(1.0, -1.0),
+        vec2<f32>(-1.0,  0.0),                        vec2<f32>(1.0,  0.0),
+        vec2<f32>(-1.0,  1.0), vec2<f32>(0.0,  1.0), vec2<f32>(1.0,  1.0)
+    );
+    
+    // For each neighbor, check if water would flow FROM neighbor TO center
+    for (var i = 0; i < 8; i++) {
+        let neighbor_uv = uv + offsets[i] * pixel_size;
+        let neighbor_height = sample_height(neighbor_uv);
+        
+        // Water flows downhill - if neighbor is higher, it contributes flow
+        if (neighbor_height > center_height) {
+            let height_diff = neighbor_height - center_height;
+            let flow_contribution = height_diff * 0.1; // Weight by slope
+            flow_accumulation += flow_contribution;
+        }
+    }
+    
+    // Calculate slope (how steep is this location)
+    let right_height = sample_height(uv + vec2<f32>(pixel_size, 0.0));
+    let up_height = sample_height(uv + vec2<f32>(0.0, pixel_size));
+    let slope = length(vec2<f32>(right_height - center_height, up_height - center_height));
+    
+    // Store: (flow_accumulation, slope, height, 1.0)
+    textureStore(output_flow, vec2<i32>(id.xy), vec4<f32>(flow_accumulation, slope, center_height, 1.0));
+}
+`;
+
+// ===== MULTI-PASS FLOW PROPAGATION SHADER =====
+// Iteratively propagates flow downstream for more accurate river detection
+
+const FLOW_PROPAGATION_SHADER = `
+struct FlowParams {
+    landscape_size: f32,
+    max_height: f32,
+    landscape_y_offset: f32,
+    resolution: f32,
+    iteration: f32,
+    total_iterations: f32,
+    padding1: f32,
+    padding2: f32,
+}
+
+@group(0) @binding(0)
+var landscape_texture: texture_2d<f32>;
+
+@group(0) @binding(1)
+var input_flow: texture_2d<f32>;
+
+@group(0) @binding(2)
+var output_flow: texture_storage_2d<rgba16float, write>;
+
+@group(0) @binding(3)
+var<uniform> params: FlowParams;
+
+fn sample_height(uv: vec2<f32>) -> f32 {
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    let height_sample = textureSampleLevel(landscape_texture, texture_sampler, clamped_uv, 0.0);
+    return (height_sample.r * params.max_height) + params.landscape_y_offset;
+}
+
+@group(0) @binding(4)
+var texture_sampler: sampler;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let N = u32(params.resolution);
+    let pixel_size = 1.0 / f32(N);
+    let uv = vec2<f32>(f32(id.x) + 0.5, f32(id.y) + 0.5) * pixel_size;
+    
+    // Read current flow data
+    let current_flow = textureLoad(input_flow, vec2<i32>(id.xy), 0);
+    var accumulated_flow = current_flow.x;
+    let center_height = sample_height(uv);
+    
+    // 8-connected neighbors
+    let offsets = array<vec2<f32>, 8>(
+        vec2<f32>(-1.0, -1.0), vec2<f32>(0.0, -1.0), vec2<f32>(1.0, -1.0),
+        vec2<f32>(-1.0,  0.0),                        vec2<f32>(1.0,  0.0),
+        vec2<f32>(-1.0,  1.0), vec2<f32>(0.0,  1.0), vec2<f32>(1.0,  1.0)
+    );
+    
+    let diagonal_dist = 1.414;
+    let distances = array<f32, 8>(
+        diagonal_dist, 1.0, diagonal_dist,
+        1.0,                1.0,
+        diagonal_dist, 1.0, diagonal_dist
+    );
+    
+    // Propagate flow from uphill neighbors
+    for (var i = 0; i < 8; i++) {
+        let neighbor_pixel = vec2<i32>(id.xy) + vec2<i32>(i32(offsets[i].x), i32(offsets[i].y));
+        
+        // Bounds check
+        if (neighbor_pixel.x >= 0 && neighbor_pixel.x < i32(N) && 
+            neighbor_pixel.y >= 0 && neighbor_pixel.y < i32(N)) {
+            
+            let neighbor_uv = uv + offsets[i] * pixel_size;
+            let neighbor_height = sample_height(neighbor_uv);
+            let neighbor_flow_data = textureLoad(input_flow, neighbor_pixel, 0);
+            let neighbor_flow = neighbor_flow_data.x;
+            
+            // If neighbor is higher, it contributes its accumulated flow
+            if (neighbor_height > center_height + 0.1) {
+                let slope = (neighbor_height - center_height) / distances[i];
+                let flow_fraction = slope / (slope + 0.1); // More flow on steeper slopes
+                accumulated_flow += neighbor_flow * flow_fraction * 0.5;
+            }
+        }
+    }
+    
+    // Calculate slope
+    let right_height = sample_height(uv + vec2<f32>(pixel_size, 0.0));
+    let up_height = sample_height(uv + vec2<f32>(0.0, pixel_size));
+    let slope = length(vec2<f32>(right_height - center_height, up_height - center_height));
+    
+    textureStore(output_flow, vec2<i32>(id.xy), vec4<f32>(accumulated_flow, slope, center_height, 1.0));
+}
+`;
+
 const DISPLACEMENT_SHADER = `
 struct OutputParams {
     resolution: f32,
@@ -363,6 +534,27 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     return (height_sample.r * max_height) + landscape_y_offset;
 }
 
+// Sample flow accumulation to determine if this is a river
+fn sample_flow_accumulation(world_pos: vec2<f32>) -> vec4<f32> {
+    let landscape_size = 4096.0;
+    let uv = (world_pos + landscape_size * 0.5) / landscape_size;
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    return textureSampleLevel(flow_texture, flow_sampler, clamped_uv, 0.0);
+}
+
+// Sample terrain normal for flow direction
+fn sample_landscape_normal(world_pos: vec2<f32>) -> vec3<f32> {
+    let offset = 2.0;
+    let h_center = sample_landscape_height(world_pos);
+    let h_right = sample_landscape_height(world_pos + vec2<f32>(offset, 0.0));
+    let h_up = sample_landscape_height(world_pos + vec2<f32>(0.0, offset));
+    
+    let tangent_x = vec3<f32>(offset, h_right - h_center, 0.0);
+    let tangent_z = vec3<f32>(0.0, h_up - h_center, offset);
+    
+    return normalize(cross(tangent_z, tangent_x));
+}
+
 struct Camera {
     view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
@@ -388,6 +580,11 @@ var landscape_texture: texture_2d<f32>;
 @group(4) @binding(1)
 var landscape_sampler: sampler;
 
+@group(5) @binding(0)
+var flow_texture: texture_2d<f32>;
+@group(5) @binding(1)
+var flow_sampler: sampler;
+
 struct WaterConfig {
     shallow_color: vec4<f32>,
     medium_color: vec4<f32>,
@@ -395,9 +592,9 @@ struct WaterConfig {
     ocean_size: vec4<f32>,
     lighting_params: vec4<f32>,
     foam_params: vec4<f32>,
-    water_level: vec4<f32>,  // x: base level, y: depth threshold, z: edge softness
+    river_params: vec4<f32>,  // x: min_flow_threshold, y: water_depth, z: edge_softness, w: river_width_scale
 }
-@group(5) @binding(0)
+@group(6) @binding(0)
 var<uniform> water_config: WaterConfig;
 
 struct VertexInput {
@@ -413,7 +610,9 @@ struct VertexOutput {
     @location(1) normal: vec3<f32>,
     @location(2) uv: vec2<f32>,
     @location(3) terrain_height: f32,
-    @location(4) water_depth: f32,
+    @location(4) flow_amount: f32,
+    @location(5) terrain_slope: f32,
+    @location(6) river_distance: f32,
 };
 
 struct GbufferOutput {
@@ -427,47 +626,78 @@ struct GbufferOutput {
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
     
-    // Sample terrain height at this position
+    // Sample terrain and flow data
     let terrain_height = sample_landscape_height(in.position.xz);
+    let terrain_normal = sample_landscape_normal(in.position.xz);
+    let flow_data = sample_flow_accumulation(in.position.xz);
     
-    // Calculate water depth (how far above terrain)
-    let water_base = water_config.water_level.x;
-    let depth_threshold = water_config.water_level.y;
+    let flow_accumulation = flow_data.x;
+    let terrain_slope = flow_data.y;
     
-    // Only show water where terrain is below threshold
-    let raw_depth = water_base - terrain_height;
-    let water_depth = max(0.0, raw_depth);
+    // River parameters
+    let min_flow_threshold = water_config.river_params.x;
+    let water_depth = water_config.river_params.y;
+    let edge_softness = water_config.river_params.z;
+    let river_width_scale = water_config.river_params.w;
+    
+    // Only show water where flow accumulation is high enough (actual river paths)
+    let is_river = step(min_flow_threshold, flow_accumulation);
+    
+    // Calculate river width based on flow accumulation (more flow = wider river)
+    let river_width = sqrt(flow_accumulation) * river_width_scale;
+    
+    // Distance from river centerline (0 = center, increases toward edges)
+    // For now, we'll use a simple calculation based on flow gradient
+    let river_distance = max(0.0, 1.0 - (flow_accumulation / (min_flow_threshold + 10.0)));
     
     // UV coordinates for displacement lookup
     let ocean_size = water_config.ocean_size.x;
     let uv = (in.position.xz + ocean_size * 0.5) / ocean_size;
     
-    // Sample displacement - scale by depth for natural effect
+    // Sample FFT displacement
     let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, uv, 0.0);
     let displacement = disp_data.xyz;
     
-    // Scale wave displacement by water depth (calmer in shallow areas)
-    let depth_factor = smoothstep(0.0, depth_threshold, water_depth);
-    let scaled_displacement = displacement * depth_factor;
+    // Scale waves based on flow and distance from edge
+    let flow_factor = smoothstep(min_flow_threshold, min_flow_threshold * 2.0, flow_accumulation);
+    let edge_factor = smoothstep(0.8, 0.3, river_distance);
+    let scaled_displacement = displacement * flow_factor * edge_factor;
     
-    // Apply displacement
-    var world_pos = in.position + scaled_displacement;
-    world_pos.y = water_base + scaled_displacement.y * 0.5; // Water surface at base level
+    // RIVER LOGIC: Water surface follows terrain with offset
+    var water_surface_y = terrain_height + water_depth;
+    
+    // Apply FFT wave displacement
+    water_surface_y += scaled_displacement.y * 0.5;
+    
+    // Apply horizontal displacement (choppy waves)
+    // var world_pos = vec3<f32>(
+    //     in.position.x + scaled_displacement.x,
+    //     water_surface_y,
+    //     in.position.z + scaled_displacement.z
+    // );
 
-    // var world_pos = in.position;
+    var world_pos = in.position;
     
-    // Compute normal from derivatives
+    // Hide water if not in river path
+    // world_pos.y = mix(-10000.0, world_pos.y, is_river);
+    
+    // Compute water normal from FFT derivatives + terrain slope
     let deriv_data = textureSampleLevel(derivatives_texture, ocean_sampler, uv, 0.0);
     let dhdx = deriv_data.x;
     let dhdz = deriv_data.y;
-    let normal = normalize(vec3<f32>(-dhdx, 1.0, -dhdz));
+    
+    // Blend water normal with terrain normal for natural flow
+    let water_normal = normalize(vec3<f32>(-dhdx, 1.0, -dhdz));
+    let blended_normal = normalize(mix(water_normal, terrain_normal, 0.3));
     
     out.world_position = world_pos;
     out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
-    out.normal = normal;
+    out.normal = blended_normal;
     out.uv = uv;
     out.terrain_height = terrain_height;
-    out.water_depth = water_depth;
+    out.flow_amount = flow_accumulation;
+    out.terrain_slope = terrain_slope;
+    out.river_distance = river_distance;
     
     return out;
 }
@@ -476,11 +706,11 @@ fn vs_main(in: VertexInput) -> VertexOutput {
 fn fs_main(in: VertexOutput) -> GbufferOutput {
     var output: GbufferOutput;
     
-    // Discard pixels where water is too shallow (creates natural edges)
-    let edge_softness = water_config.water_level.z;
-    let depth_alpha = smoothstep(0.0, edge_softness, in.water_depth);
+    // Soft edge fading based on distance from river center
+    let edge_softness = water_config.river_params.z;
+    let edge_alpha = smoothstep(1.0, 0.5, in.river_distance);
     
-    // if (depth_alpha < 0.01) {
+    // if (edge_alpha < 0.01) {
     //     discard;
     // }
     
@@ -495,21 +725,15 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let ndotv = max(dot(normal, view_dir), 0.0);
     let fresnel = pow(1.0 - ndotv, water_config.lighting_params.x);
     
-    // Depth-based coloring
-    var water_color: vec3<f32>;
-    if (in.water_depth < 2.0) {
-        water_color = mix(
-            water_config.shallow_color.xyz,
-            water_config.medium_color.xyz,
-            in.water_depth / 2.0
-        );
-    } else {
-        water_color = mix(
-            water_config.medium_color.xyz,
-            water_config.deep_color.xyz,
-            clamp((in.water_depth - 2.0) / 8.0, 0.0, 1.0)
-        );
-    }
+    // Color based on flow amount (faster/deeper rivers are darker)
+    var water_color = water_config.shallow_color.xyz;
+    
+    let flow_depth_factor = log2(in.flow_amount + 1.0) * 0.2;
+    water_color = mix(
+        water_config.shallow_color.xyz,
+        water_config.medium_color.xyz,
+        clamp(flow_depth_factor, 0.0, 1.0)
+    );
     
     // Sky reflection
     let sky_color = vec3<f32>(0.6, 0.8, 1.0);
@@ -521,21 +745,26 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let spec = pow(max(dot(view_dir, reflect_dir), 0.0), water_config.lighting_params.z);
     final_color += vec3<f32>(1.0, 1.0, 0.95) * spec * water_config.lighting_params.w;
     
-    // Foam - more prominent in shallow areas
+    // Foam - enhanced on slopes (rapids) and high flow
+    let slope_foam = in.terrain_slope * 2.0;
+    let flow_foam = log2(in.flow_amount + 1.0) * 0.1;
+    let total_foam = foam + slope_foam + flow_foam;
+    
     let foam_intensity = smoothstep(
         water_config.foam_params.x,
         water_config.foam_params.x + 0.2,
-        foam
-    ) * (1.0 + (1.0 / max(in.water_depth, 0.5)));
+        total_foam
+    );
     final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
     
-    // Edge foam in very shallow areas
-    let edge_foam = smoothstep(0.0, 0.5, 0.5 - in.water_depth);
-    final_color = mix(final_color, vec3<f32>(1.0, 1.0, 1.0), edge_foam * 0.3);
+    // Extra foam at river edges
+    let edge_foam = smoothstep(0.5, 0.9, in.river_distance);
+    final_color = mix(final_color, vec3<f32>(1.0, 1.0, 1.0), edge_foam * 0.2);
     
     output.position = vec4<f32>(in.world_position, 1.0);
     output.normal = vec4<f32>(normal, 1.0);
-    output.albedo = vec4<f32>(final_color, 0.85 * depth_alpha);
+    // output.albedo = vec4<f32>(final_color, 0.85 * edge_alpha);
+    output.albedo = vec4<f32>(1.0, 0.0, 0.0, 0.85);
     output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
     
     return output;
@@ -557,9 +786,13 @@ interface RiverWaterParams {
     shallowColor: [number, number, number, number];
     mediumColor: [number, number, number, number];
     deepColor: [number, number, number, number];
-    waterLevel: number;
-    depthThreshold: number;
-    edgeSoftness: number;
+    
+    // Flow-based river params
+    minFlowThreshold: number;  // Minimum flow accumulation to show as river
+    waterDepth: number;        // How thick the water layer is
+    edgeSoftness: number;      // How gradually river edges fade
+    riverWidthScale: number;   // How much flow affects river width
+    flowIterations: number;    // Number of flow propagation passes
     
     fresnelPower: number;
     fresnelMult: number;
@@ -588,16 +821,19 @@ let riverParams: RiverWaterParams = {
     waterSize: 4096.0,
     windSpeed: 1.5,
     windDirection: [1.0, 0.3],
-    amplitude: 0.005,
+    amplitude: 0.003,
     choppiness: 0.08,
     gravity: 9.81,
     
     shallowColor: [0.4, 0.7, 0.8, 1.0],
     mediumColor: [0.1, 0.4, 0.6, 1.0],
     deepColor: [0.05, 0.2, 0.4, 1.0],
-    waterLevel: -100.0,  // Adjust based on your terrain
-    depthThreshold: 10.0,
-    edgeSoftness: 2.0,
+    
+    minFlowThreshold: 5.0,    // Minimum flow to show river (tune this!)
+    waterDepth: 2.0,          // Thickness of water layer
+    edgeSoftness: 0.5,        // River edge fade
+    riverWidthScale: 0.5,     // Flow → width multiplier
+    flowIterations: 8,        // More = better flow detection
     
     fresnelPower: 3.0,
     fresnelMult: 0.7,
@@ -619,6 +855,8 @@ let addonState: {
 };
 
 let pipelineIds = {
+    flowAccumulation: null as string | null,
+    flowPropagation: null as string | null,
     spectrumInit: null as string | null,
     spectrumUpdate: null as string | null,
     fftHorizontal: null as string | null,
@@ -628,6 +866,7 @@ let pipelineIds = {
 };
 
 let textures = {
+    flowMap: [null, null] as (string | null)[], // Pingpong for flow iterations
     h0: null as string | null,
     ht: null as string | null,
     pingpong: [null, null] as (string | null)[],
@@ -637,6 +876,34 @@ let textures = {
 
 addon.onInit(async () => {
     Entropy.println("🌊 FFT River Water: Initializing...");
+    
+    // Create flow accumulation pipelines
+    pipelineIds.flowAccumulation = Entropy.Pipeline.createCompute({
+        name: "FlowAccumulation",
+        shaderSource: FLOW_ACCUMULATION_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "Sampler" },
+                { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
+            ]
+        }]
+    });
+    
+    pipelineIds.flowPropagation = Entropy.Pipeline.createCompute({
+        name: "FlowPropagation",
+        shaderSource: FLOW_PROPAGATION_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
+                { binding: 4, visibility: ["Compute"], resourceType: "Sampler" },
+            ]
+        }]
+    });
     
     // Create compute pipelines
     pipelineIds.spectrumInit = Entropy.Pipeline.createCompute({
@@ -699,7 +966,7 @@ addon.onInit(async () => {
         }]
     });
     
-    // Create water render pipeline with landscape binding
+    // Create water render pipeline with flow texture binding
     pipelineIds.waterRender = Entropy.Pipeline.create({
         name: "River_Water_Render",
         layout: "mesh",
@@ -721,12 +988,24 @@ addon.onInit(async () => {
                     { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" },
                 ]
             },
+            {
+                entries: [
+                    { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
+                    { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" },
+                ]
+            },
             { entries: [{ binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }] }
         ]
     });
     
     // Initialize resources
     initializeResources();
+    
+    // Compute flow paths
+    Entropy.println("🌊 Computing river flow paths...");
+    computeFlowAccumulation();
+    
+    Entropy.println("🌊 Generating spectrum noise pattern...");
     generateInitialSpectrum();
     // createWaterMesh("river_water_preview", addonState.currentParams);
     
@@ -770,7 +1049,7 @@ addon.onInit(async () => {
         updateWater(time);
         (globalThis as any).__entropy_current_addon_context_override = null;
     });
-
+    
     addon.onUpdate((time) => {
         updateWater(time);
     });
@@ -780,12 +1059,72 @@ addon.onInit(async () => {
 
 function initializeResources() {
     const N = addonState.currentParams.resolution;
+    
+    // Flow map textures (for river path detection)
+    textures.flowMap[0] = Entropy.Texture.createStorage(512, 512, "Rgba16Float");
+    textures.flowMap[1] = Entropy.Texture.createStorage(512, 512, "Rgba16Float");
+    
+    // FFT textures
     textures.h0 = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     textures.ht = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     textures.pingpong[0] = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     textures.pingpong[1] = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     textures.displacement = Entropy.Texture.createStorage(N, N, "Rgba16Float");
     textures.derivatives = Entropy.Texture.createStorage(N, N, "Rgba16Float");
+}
+
+function computeFlowAccumulation() {
+    if (!pipelineIds.flowAccumulation || !pipelineIds.flowPropagation) return;
+    
+    const flowRes = 512;
+    const workgroups = Math.ceil(flowRes / 8);
+    
+    const flowParams = new Float32Array([
+        4096.0, // landscape_size
+        600.0,  // max_height
+        -400.0 + 8.0, // landscape_y_offset
+        flowRes,
+        addonState.currentParams.minFlowThreshold,
+        0, 0, 0
+    ]);
+    
+    // Initial flow accumulation pass
+    Entropy.Compute.dispatch({
+        pipelineId: pipelineIds.flowAccumulation,
+        groups: [workgroups, workgroups, 1],
+        bindings: [
+            { group: 0, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
+            { group: 0, binding: 1, resource: { type: "Sampler" } },
+            { group: 0, binding: 2, resource: { type: "StorageTextureRgba16", value: { id: textures.flowMap[0]! } } },
+            { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(flowParams) } } },
+        ]
+    });
+    
+    // Iterative flow propagation
+    let pingpong = 0;
+    for (let i = 0; i < addonState.currentParams.flowIterations; i++) {
+        const input = textures.flowMap[pingpong];
+        const output = textures.flowMap[1 - pingpong];
+        
+        flowParams[4] = i; // iteration
+        flowParams[5] = addonState.currentParams.flowIterations; // total_iterations
+        
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.flowPropagation,
+            groups: [workgroups, workgroups, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
+                { group: 0, binding: 1, resource: { type: "TextureNonFilterable", value: { id: input! } } },
+                { group: 0, binding: 2, resource: { type: "StorageTextureRgba16", value: { id: output! } } },
+                { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(flowParams) } } },
+                { group: 0, binding: 4, resource: { type: "Sampler" } },
+            ]
+        });
+        
+        pingpong = 1 - pingpong;
+    }
+    
+    Entropy.println(`✅ Flow computation complete (${addonState.currentParams.flowIterations} iterations)`);
 }
 
 function generateInitialSpectrum() {
@@ -925,10 +1264,13 @@ function createWaterMesh(id: string, params: RiverWaterParams & { _transform?: {
         params.waterSize, 0, 0, 0,
         params.fresnelPower, params.fresnelMult, params.specularPower, params.specularIntensity,
         params.foamThreshold, params.foamIntensity, 0, 0,
-        params.waterLevel, params.depthThreshold, params.edgeSoftness, 0,
+        params.minFlowThreshold, params.waterDepth, params.edgeSoftness, params.riverWidthScale,
     ];
 
     const pos = params._transform?.position || [0, 0, 0];
+    
+    // Determine which flow map to use (result of last iteration)
+    const flowMapIndex = addonState.currentParams.flowIterations % 2;
     
     addon.Model.clearMesh(id);
     addon.Model.createMesh({
@@ -940,16 +1282,18 @@ function createWaterMesh(id: string, params: RiverWaterParams & { _transform?: {
         renderRole: "Water",
         bindings: [
             { group: 2, binding: 0, resource: { type: "Time" } },
-            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.displacement! } } },
+            { group: 3, binding: 0, resource: { type: "Texture", value: { id: textures.ht! } } },
             { group: 3, binding: 1, resource: { type: "Texture", value: { id: textures.derivatives! } } },
             { group: 3, binding: 2, resource: { type: "Sampler" } },
             { group: 4, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
             { group: 4, binding: 1, resource: { type: "Sampler" } },
-            { group: 5, binding: 0, resource: { type: "Uniform", value: { data: waterConfig } } },
+            { group: 5, binding: 0, resource: { type: "Texture", value: { id: textures.flowMap[flowMapIndex]! } } },
+            { group: 5, binding: 1, resource: { type: "Sampler" } },
+            { group: 6, binding: 0, resource: { type: "Uniform", value: { data: waterConfig } } },
         ]
     });
     
-    Entropy.println(`River water mesh created: ${id} pos: ` + JSON.stringify(pos));
+    Entropy.println(`River water mesh created: ${id}`);
 }
 
 function setupUI() {
@@ -963,8 +1307,8 @@ let newComponentName = "New Water Component";
 
 function renderUI(tab: string) {
     Entropy.Addon.setVisibility(addonInfo.name, true);
-    Entropy.UI.Widget.label(tab, { text: "🌊 FFT River Water", bold: true });
-
+    Entropy.UI.Widget.label(tab, { text: "🌊 FFT River System", bold: true });
+    
     Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
         addon.IO.save(addonState);
         if (Entropy.Composer) {
@@ -990,26 +1334,64 @@ function renderUI(tab: string) {
     
     Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
-    Entropy.UI.Widget.label(tab, { text: "💧 Water Level Control", bold: true });
+    
+    Entropy.UI.Widget.label(tab, { text: "Rivers follow natural flow paths down terrain" });
+
+    Entropy.UI.Widget.label(tab, { text: "💧 Flow Detection", bold: true });
     
     Entropy.UI.Widget.slider(tab, {
-        label: "Water Level (Height)",
-        value: addonState.currentParams.waterLevel,
-        min: -600,
-        max: -300,
+        label: "Min Flow Threshold",
+        value: addonState.currentParams.minFlowThreshold,
+        min: 1,
+        max: 50,
         onChange: (v) => {
-            addonState.currentParams.waterLevel = parseFloat(v);
+            addonState.currentParams.minFlowThreshold = parseFloat(v);
+            computeFlowAccumulation();
             createWaterMesh("river_water_preview", addonState.currentParams);
         }
     });
     
     Entropy.UI.Widget.slider(tab, {
-        label: "Depth Threshold",
-        value: addonState.currentParams.depthThreshold,
+        label: "Flow Iterations (Quality)",
+        value: addonState.currentParams.flowIterations,
         min: 1,
-        max: 50,
+        max: 20,
         onChange: (v) => {
-            addonState.currentParams.depthThreshold = parseFloat(v);
+            addonState.currentParams.flowIterations = Math.floor(parseFloat(v));
+            computeFlowAccumulation();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+    
+    Entropy.UI.Widget.button(tab, {
+        text: "🔄 Recompute Flow Paths",
+        onClick: () => {
+            Entropy.println("Recomputing river flow paths...");
+            computeFlowAccumulation();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+
+    Entropy.UI.Widget.label(tab, { text: "🌊 River Appearance", bold: true });
+    
+    Entropy.UI.Widget.slider(tab, {
+        label: "Water Depth",
+        value: addonState.currentParams.waterDepth,
+        min: 0.5,
+        max: 10,
+        onChange: (v) => {
+            addonState.currentParams.waterDepth = parseFloat(v);
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+    
+    Entropy.UI.Widget.slider(tab, {
+        label: "River Width Scale",
+        value: addonState.currentParams.riverWidthScale,
+        min: 0.1,
+        max: 2.0,
+        onChange: (v) => {
+            addonState.currentParams.riverWidthScale = parseFloat(v);
             createWaterMesh("river_water_preview", addonState.currentParams);
         }
     });
@@ -1018,7 +1400,7 @@ function renderUI(tab: string) {
         label: "Edge Softness",
         value: addonState.currentParams.edgeSoftness,
         min: 0.1,
-        max: 10,
+        max: 2.0,
         onChange: (v) => {
             addonState.currentParams.edgeSoftness = parseFloat(v);
             createWaterMesh("river_water_preview", addonState.currentParams);
@@ -1058,6 +1440,17 @@ function renderUI(tab: string) {
             generateInitialSpectrum();
         }
     });
+    
+    Entropy.UI.Widget.slider(tab, {
+        label: "Foam Intensity",
+        value: addonState.currentParams.foamIntensity,
+        min: 0,
+        max: 1.5,
+        onChange: (v) => {
+            addonState.currentParams.foamIntensity = parseFloat(v);
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
 
     Entropy.UI.Widget.label(tab, { text: "🎨 Colors", bold: true });
     
@@ -1082,49 +1475,90 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "✨ Presets", bold: true });
     
     Entropy.UI.Widget.button(tab, {
-        text: "🏞️ Mountain Stream",
+        text: "🏔️ Mountain Streams",
         onClick: () => {
-            addonState.currentParams.windSpeed = 1.0;
-            addonState.currentParams.amplitude = 0.003;
-            addonState.currentParams.choppiness = 0.15;
+            addonState.currentParams.minFlowThreshold = 3.0;
+            addonState.currentParams.windSpeed = 0.8;
+            addonState.currentParams.amplitude = 0.002;
+            addonState.currentParams.choppiness = 0.12;
+            addonState.currentParams.waterDepth = 1.2;
+            addonState.currentParams.riverWidthScale = 0.3;
             addonState.currentParams.shallowColor = [0.5, 0.75, 0.85, 1.0];
             addonState.currentParams.deepColor = [0.1, 0.3, 0.5, 1.0];
-            addonState.currentParams.foamIntensity = 0.6;
+            addonState.currentParams.foamIntensity = 0.8;
+            addonState.currentParams.flowIterations = 10;
+            computeFlowAccumulation();
             generateInitialSpectrum();
             createWaterMesh("river_water_preview", addonState.currentParams);
         }
     });
     
     Entropy.UI.Widget.button(tab, {
-        text: "🌊 Calm Lake",
+        text: "🏞️ Major Rivers",
         onClick: () => {
+            addonState.currentParams.minFlowThreshold = 8.0;
+            addonState.currentParams.windSpeed = 1.2;
+            addonState.currentParams.amplitude = 0.003;
+            addonState.currentParams.choppiness = 0.08;
+            addonState.currentParams.waterDepth = 3.0;
+            addonState.currentParams.riverWidthScale = 0.8;
+            addonState.currentParams.shallowColor = [0.3, 0.5, 0.6, 1.0];
+            addonState.currentParams.deepColor = [0.05, 0.2, 0.35, 1.0];
+            addonState.currentParams.foamIntensity = 0.5;
+            addonState.currentParams.flowIterations = 12;
+            computeFlowAccumulation();
+            generateInitialSpectrum();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+    
+    Entropy.UI.Widget.button(tab, {
+        text: "🌾 Gentle Creeks",
+        onClick: () => {
+            addonState.currentParams.minFlowThreshold = 2.0;
             addonState.currentParams.windSpeed = 0.5;
             addonState.currentParams.amplitude = 0.001;
-            addonState.currentParams.choppiness = 0.03;
-            addonState.currentParams.shallowColor = [0.3, 0.6, 0.7, 1.0];
-            addonState.currentParams.deepColor = [0.05, 0.15, 0.3, 1.0];
-            addonState.currentParams.foamIntensity = 0.2;
-            generateInitialSpectrum();
-            createWaterMesh("river_water_preview", addonState.currentParams);
-        }
-    });
-    
-    Entropy.UI.Widget.button(tab, {
-        text: "💎 Crystal Clear",
-        onClick: () => {
-            addonState.currentParams.windSpeed = 0.3;
-            addonState.currentParams.amplitude = 0.002;
             addonState.currentParams.choppiness = 0.05;
-            addonState.currentParams.shallowColor = [0.6, 0.85, 0.95, 0.7];
-            addonState.currentParams.deepColor = [0.2, 0.5, 0.7, 0.8];
-            addonState.currentParams.foamIntensity = 0.1;
+            addonState.currentParams.waterDepth = 0.8;
+            addonState.currentParams.riverWidthScale = 0.4;
+            addonState.currentParams.shallowColor = [0.4, 0.6, 0.65, 1.0];
+            addonState.currentParams.deepColor = [0.15, 0.35, 0.45, 1.0];
+            addonState.currentParams.foamIntensity = 0.3;
+            addonState.currentParams.flowIterations = 8;
+            computeFlowAccumulation();
             generateInitialSpectrum();
             createWaterMesh("river_water_preview", addonState.currentParams);
         }
     });
     
     Entropy.UI.Widget.button(tab, {
-        text: "🔄 Regenerate Spectrum",
-        onClick: () => generateInitialSpectrum()
+        text: "⚡ Raging Rapids",
+        onClick: () => {
+            addonState.currentParams.minFlowThreshold = 5.0;
+            addonState.currentParams.windSpeed = 3.0;
+            addonState.currentParams.amplitude = 0.008;
+            addonState.currentParams.choppiness = 0.25;
+            addonState.currentParams.waterDepth = 2.5;
+            addonState.currentParams.riverWidthScale = 0.6;
+            addonState.currentParams.shallowColor = [0.7, 0.8, 0.85, 1.0];
+            addonState.currentParams.deepColor = [0.2, 0.4, 0.55, 1.0];
+            addonState.currentParams.foamIntensity = 1.2;
+            addonState.currentParams.flowIterations = 10;
+            computeFlowAccumulation();
+            generateInitialSpectrum();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+    
+    Entropy.UI.Widget.button(tab, {
+        text: "🌍 Show All Drainage",
+        onClick: () => {
+            addonState.currentParams.minFlowThreshold = 1.0;
+            addonState.currentParams.waterDepth = 1.5;
+            addonState.currentParams.riverWidthScale = 0.3;
+            addonState.currentParams.flowIterations = 15;
+            computeFlowAccumulation();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
     });
 }
