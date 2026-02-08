@@ -30,7 +30,7 @@ import {
 import { GlobeIcon } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls } from "ai";
 import {
   Conversation,
   ConversationContent,
@@ -156,7 +156,10 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
           2. Execute one step at a time.
           3. After each step, update the plan status using 'manage_plan' and decide if you need to revise the plan based on the results.
           
-          The current state of your plan is provided in the 'Context' block. Always ensure the plan accurately reflects your progress.
+          The current state of your plan is provided in the 'Context' block.
+          
+          CRITICAL: You must CONTINUE executing steps one by one WITHOUT stopping or asking for confirmation until the entire plan status is marked as 'completed'. 
+          If a step is 'pending' or 'in_progress', execute it immediately.
           
           Always keep the user informed.`,
         },
@@ -166,6 +169,7 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
 
   const { messages, status, sendMessage, addToolOutput } = useChat({
     transport,
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
     // initialMessages,
     onToolCall: ({ toolCall }) => {
       console.log("Calling tool:", toolCall.toolName);
@@ -179,7 +183,7 @@ const AgentChat = ({ availableTools = [] }: { availableTools: any[] }) => {
         addToolOutput({
             toolCallId: toolCall.toolCallId,
             tool: toolCall.toolName,
-            output: { result: "Plan updated successfully." },
+            output: { result: "Plan updated successfully. Proceed immediately to the next step." },
         });
         return;
       }
