@@ -12,6 +12,7 @@ use uuid::Uuid;
 use wgpu::util::{DeviceExt, TextureDataOrder};
 use rand::prelude::*;
 use rand::Rng;
+use std::sync::Arc;
 
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::Texture::Texture;
@@ -58,7 +59,7 @@ pub struct Landscape {
     pub rigid_body_handle: Option<RigidBodyHandle>,
     pub heights: nalgebra::DMatrix<f32>,
     pub particle_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    pub particle_texture_view: Option<wgpu::TextureView>,
+    pub particle_texture_view: Option<Arc<wgpu::TextureView>>,
     pub terrain_size: f32,
     pub terrain_height: f32,
     pub pipeline_id: Option<String>,
@@ -510,7 +511,7 @@ impl Landscape {
             ..Default::default()
         });
 
-        self.particle_texture_view = Some(texture_view);
+        self.particle_texture_view = Some(Arc::new(texture_view));
     }
 
     pub fn create_particle_bind_group(&self, device: &wgpu::Device) -> wgpu::BindGroup {

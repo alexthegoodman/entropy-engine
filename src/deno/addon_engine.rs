@@ -363,6 +363,7 @@ pub struct AddonContext {
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: String,
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
+    pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
@@ -1737,7 +1738,16 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
                                 }
                             },
                             ResourceType::StorageTexture { id } | ResourceType::StorageTextureRgba16 { id } | ResourceType::Texture { id: Some(id) } | ResourceType::TextureNonFilterable { id } => {
-                                if let Some(view) = ctx.textures.get(id) {
+                                if id == "Landscape" {
+                                    if let Some(view) = &ctx.landscape_texture_view {
+                                        wgpu_entries.push(wgpu::BindGroupEntry {
+                                            binding: b.binding,
+                                            resource: wgpu::BindingResource::TextureView(view),
+                                        });
+                                    } else {
+                                        return Err(deno_error::JsErrorBox::generic("Compute Dispatch: Landscape texture not available yet (wait for first frame update)"));
+                                    }
+                                } else if let Some(view) = ctx.textures.get(id) {
                                     wgpu_entries.push(wgpu::BindGroupEntry {
                                         binding: b.binding,
                                         resource: wgpu::BindingResource::TextureView(view),
@@ -2030,6 +2040,7 @@ impl AddonEngine {
             render_roles: HashMap::new(),
             project_id: project_id.clone(),
             textures: HashMap::new(),
+            landscape_texture_view: None,
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
@@ -2088,7 +2099,7 @@ impl AddonEngine {
     fn create_bindings_from_config(
         &mut self,
         gpu: &GpuResources,
-        landscape_view: Option<wgpu::TextureView>,
+        landscape_view: Option<Arc<wgpu::TextureView>>,
         pipeline: &wgpu::RenderPipeline,
         bindings: Vec<BindingConfig>,
         id: Option<String>,
@@ -2315,6 +2326,7 @@ impl AddonEngine {
             context.current_time = current_time;
             context.camera_position = [camera.position.x, camera.position.y, camera.position.z];
             context.camera_direction = [camera.direction.x, camera.direction.y, camera.direction.z];
+            context.landscape_texture_view = landscape_view.clone();
         }
 
         // 0. Run onUpdate callbacks

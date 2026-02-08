@@ -854,6 +854,8 @@ let addonState: {
     activeComponentId: Entropy.generateUUID()
 };
 
+let initialized = false;
+
 let pipelineIds = {
     flowAccumulation: null as string | null,
     flowPropagation: null as string | null,
@@ -1002,11 +1004,11 @@ addon.onInit(async () => {
     initializeResources();
     
     // Compute flow paths
-    Entropy.println("🌊 Computing river flow paths...");
-    computeFlowAccumulation();
+    // Entropy.println("🌊 Computing river flow paths...");
+    // computeFlowAccumulation();
     
-    Entropy.println("🌊 Generating spectrum noise pattern...");
-    generateInitialSpectrum();
+    // Entropy.println("🌊 Generating spectrum noise pattern...");
+    // generateInitialSpectrum();
     // createWaterMesh("river_water_preview", addonState.currentParams);
     
     // Lighting
@@ -1040,18 +1042,31 @@ addon.onInit(async () => {
                     Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
                 });
             }
+
+            Entropy.println("🌊 Computing river flow paths (first frame)...");
+            computeFlowAccumulation();
+
+            Entropy.println("🌊 Generating spectrum noise pattern...");
+            generateInitialSpectrum();
+
             createWaterMesh("river_water_preview", addonState.currentParams);
+
+            initialized = true;
         }
     });
 
     addon.onUpdatePlus("Game Composer", (time) => {
-        (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
-        updateWater(time);
-        (globalThis as any).__entropy_current_addon_context_override = null;
+        if (initialized) {
+            (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+            updateWater(time);
+            (globalThis as any).__entropy_current_addon_context_override = null;
+        }
     });
     
     addon.onUpdate((time) => {
-        updateWater(time);
+        if (initialized) {
+            updateWater(time);
+        }
     });
     
     Entropy.println("✅ FFT River Water initialized!");
