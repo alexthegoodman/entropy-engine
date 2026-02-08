@@ -788,4 +788,71 @@ addon.onInit(async () => {
         }
         return { success: false, error: "No visual parameters provided." };
     });
+
+    addon.registerTool({
+        name: "apply_texture_to_terrain",
+        description: "Apply a PBR texture component to a specific terrain layer.",
+        parameters: {
+            type: "object",
+            properties: {
+                textureComponentId: { type: "string", description: "The ID of the PBR Texture component to apply." },
+                slot: { 
+                    type: "string", 
+                    enum: ["Primary", "Rockmap", "Soil"],
+                    description: "The terrain layer to apply the texture to. 'Primary' covers everything by default. 'Rockmap' applies to steep slopes/heights based on rock threshold. 'Soil' is a secondary layer." 
+                }
+            },
+            required: ["textureComponentId", "slot"]
+        }
+    }, (args: any) => {
+        Entropy.println("Applying texture to terrain via tool: " + JSON.stringify(args));
+        
+        if (!Entropy.Composer) {
+            return { success: false, error: "Composer not available." };
+        }
+
+        // We assume the component addon name is "PBR Texture Designer Pro"
+        const texAddonName = "PBR Texture Designer Pro";
+        const components = Entropy.Composer.getComponents(texAddonName) || {};
+        
+        // Find component by ID or Name
+        let compId = args.textureComponentId;
+        let comp = components[compId];
+        
+        // If not found by ID, try finding by Name
+        if (!comp) {
+            const foundId = Object.keys(components).find(k => components[k].name === args.textureComponentId);
+            if (foundId) {
+                compId = foundId;
+                comp = components[foundId];
+            }
+        }
+
+        if (!comp) {
+            return { success: false, error: `Texture component '${args.textureComponentId}' not found.` };
+        }
+
+        // Update state in FlexNoise
+        if (!addonState.currentParams.textureLayers) {
+            addonState.currentParams.textureLayers = { "Primary": null, "Rockmap": null, "Soil": null };
+        }
+        
+        const slot = args.slot as "Primary" | "Rockmap" | "Soil";
+        addonState.currentParams.textureLayers[slot] = compId;
+
+        // Execute application logic (same as UI button)
+        const renderer = Entropy.Composer.getRenderer(texAddonName);
+        if (renderer) {
+            // Render the texture to ensure it's in memory/cache
+            // We use a temporary ID for the render pass but with the component's params
+            renderer("temp_interop_tool", comp.params);
+            
+            // Apply it to the terrain
+            applyPBRToSlot("FlexNoise Terrain", "temp_interop_tool", slot);
+            
+            return { success: true, message: `Applied texture '${comp.name}' to '${slot}' layer.` };
+        }
+
+        return { success: false, error: "Texture renderer not found." };
+    });
 });

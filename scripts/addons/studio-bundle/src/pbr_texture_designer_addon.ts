@@ -660,4 +660,128 @@ addon.onInit(async () => {
     
 
     Entropy.println("✓ PBR Texture Designer Pro Initialized!");
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "create_pbr_texture",
+        description: "Create a new procedural PBR texture component.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for the new texture component" },
+                patternType: { 
+                    type: "string", 
+                    enum: ["noise", "wood_grain", "marble", "brick", "hex_tiles", "scales", "fabric", "rust"],
+                    description: "The base pattern type for the texture." 
+                },
+                baseColor: { 
+                    type: "array", 
+                    items: { type: "number" }, 
+                    minItems: 3, 
+                    maxItems: 4,
+                    description: "Primary RGB(A) color [r, g, b, a?]" 
+                },
+                secondaryColor: {
+                    type: "array", 
+                    items: { type: "number" }, 
+                    minItems: 3, 
+                    maxItems: 4,
+                    description: "Secondary RGB(A) color" 
+                }
+            },
+            required: ["name", "patternType"]
+        }
+    }, (args: any) => {
+        Entropy.println("Creating PBR texture via tool: " + JSON.stringify(args));
+        
+        const id = Entropy.generateUUID();
+        const newParams = JSON.parse(JSON.stringify(texParams)); // Start with defaults
+        
+        newParams.patternType = args.patternType;
+        if (args.baseColor) newParams.baseColor = args.baseColor.length === 3 ? [...args.baseColor, 1.0] : args.baseColor;
+        if (args.secondaryColor) newParams.secondaryColor = args.secondaryColor.length === 3 ? [...args.secondaryColor, 1.0] : args.secondaryColor;
+
+        addonState.savedComponents.push({ id, name: args.name, params: newParams });
+        addonState.activeComponentId = id;
+        addonState.currentParams = newParams;
+
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, newParams);
+        }
+
+        updatePreview(newParams, id);
+
+        return { success: true, id: id, name: args.name, patternType: args.patternType };
+    });
+
+    addon.registerTool({
+        name: "update_pbr_texture",
+        description: "Update parameters of an existing or active PBR texture.",
+        parameters: {
+            type: "object",
+            properties: {
+                id: { type: "string", description: "ID of the texture to update. If omitted, updates the currently active texture." },
+                patternScale: { type: "number", description: "Scale of the pattern (0.1 to 5.0)" },
+                roughness: { type: "number", description: "Material roughness (0.0 to 1.0)" },
+                metallic: { type: "number", description: "Material metallic (0.0 to 1.0)" },
+                normalStrength: { type: "number", description: "Strength of the normal map (0.1 to 20.0)" },
+                baseColor: { type: "array", items: { type: "number" } },
+                secondaryColor: { type: "array", items: { type: "number" } }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating PBR texture via tool: " + JSON.stringify(args));
+        
+        let compId = args.id || addonState.activeComponentId;
+        let component = addonState.savedComponents.find(c => c.id === compId);
+        
+        if (!component) {
+            // If no component found, maybe we just update currentParams directly if no ID was strictly required?
+            // But better to enforce working on a component context if we want to save it.
+            // However, let's allow updating currentParams if it matches active.
+             if (!compId && addonState.currentParams) {
+                 // Update current params directly (transient state)
+                 component = { id: "temp", name: "Temp", params: addonState.currentParams }; // Mock
+             } else {
+                 return { success: false, error: "Texture component not found." };
+             }
+        }
+
+        const params = component.params; // Reference to params
+        
+        if (typeof args.patternScale !== "undefined") params.patternScale = args.patternScale;
+        if (typeof args.roughness !== "undefined") params.roughness = args.roughness;
+        if (typeof args.metallic !== "undefined") params.metallic = args.metallic;
+        if (typeof args.normalStrength !== "undefined") params.normalStrength = args.normalStrength;
+        if (args.baseColor) params.baseColor = args.baseColor.length === 3 ? [...args.baseColor, 1.0] : args.baseColor;
+        if (args.secondaryColor) params.secondaryColor = args.secondaryColor.length === 3 ? [...args.secondaryColor, 1.0] : args.secondaryColor;
+
+        // If it was a saved component, we need to update the main state if it's the active one
+        if (component.id === addonState.activeComponentId) {
+            addonState.currentParams = params;
+        }
+
+        updatePreview(params, compId || "temp");
+        
+        // Re-register if it's a real component
+        if (Entropy.Composer && component.id !== "temp") {
+            Entropy.Composer.registerComponent(addonInfo.name, component.id, component.name, params);
+        }
+
+        return { success: true, params: { ...params } };
+    });
+
+    addon.registerTool({
+        name: "list_pbr_textures",
+        description: "List all created PBR texture components.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        const textures = addonState.savedComponents.map(c => ({
+            id: c.id,
+            name: c.name,
+            patternType: c.params.patternType
+        }));
+        return { success: true, textures };
+    });
 });
