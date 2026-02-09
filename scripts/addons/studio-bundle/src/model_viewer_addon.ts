@@ -321,7 +321,17 @@ addon.onInit(async () => {
                 rotation: { type: "array", items: { type: "number" }, description: "[x, y, z] rotation in radians." },
                 scale: { type: "array", items: { type: "number" }, description: "[x, y, z] scale. Usually [1, 1, 1]." },
                 kind: { type: "string", enum: ["None", "Player", "NPC"], description: "Character type." },
-                npcProps: { type: "object", description: "NPC behavior settings." }
+                npcProps: { 
+                    type: "object", 
+                    description: "NPC behavior settings.",
+                    properties: {
+                        aggressiveness: { type: "number", description: "Aggressiveness (0.0 to 1.0) (0.0 for friendly)" },
+                        combatType: { type: "string", enum: ["Melee", "Ranged"], description: "Primary combat style" },
+                        wanderRadius: { type: "number", description: "Random movement radius" },
+                        wanderSpeed: { type: "number", description: "Movement speed multiplier" },
+                        detectionRadius: { type: "number", description: "Player detection range" }
+                    }
+                }
             },
             required: ["path", "name"]
         }
