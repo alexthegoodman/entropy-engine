@@ -1838,7 +1838,8 @@ impl EntropyPipeline {
             }
 
             let raw_input = gui.state.take_egui_input(&window);
-            let full_output = gui.ctx.run(raw_input, |ctx| {
+            let egui_ctx = gui.ctx.clone();
+            let full_output = egui_ctx.run(raw_input, |ctx| {
                 self.ui(gui);
             });
         

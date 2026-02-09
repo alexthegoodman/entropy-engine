@@ -1172,7 +1172,7 @@ fn op_ui_widget_checkbox(
     }
 }
 
-#[op2(fast)]
+#[op2]
 fn op_ui_widget_mini_map(
     state: &mut OpState,
     #[string] window_id: String,
@@ -3660,17 +3660,17 @@ impl AddonEngine {
         }
 
         // 2. Execute JS callback for this tab
-        let (callback, addon_name) = {
+        let callback_opt = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.ui_tabs.get(tab_id).map(|(_, cb, name)| (cb.clone(), name.clone())).unwrap_or((v8::Global::<v8::Function>::new(&mut self.runtime.handle_scope(), v8::Function::new(&mut self.runtime.handle_scope(), |_, _, _| {}).unwrap()), "Global".to_string()))
+                context.ui_tabs.get(tab_id).map(|(_, cb, _)| cb.clone())
             } else {
-                (v8::Global::<v8::Function>::new(&mut self.runtime.handle_scope(), v8::Function::new(&mut self.runtime.handle_scope(), |_, _, _| {}).unwrap()), "Global".to_string())
+                None
             }
         };
 
-        if !callback.is_null() {
+        if let Some(callback) = callback_opt {
             let scope = &mut self.runtime.handle_scope();
             let tc = &mut v8::TryCatch::new(scope);
             let func = v8::Local::new(tc, callback);
