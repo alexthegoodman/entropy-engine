@@ -3,6 +3,249 @@
 // High-performance particle-based water that flows over terrain
 // ============================================================================
 
+// ============================================================================
+// DEBUG SHADERS - Drop-in replacements for diagnosing rendering issues
+// Use the same bindings as the original shaders
+// ============================================================================
+
+// ===== DEBUG WATER RENDER VERTEX SHADER =====
+// Simplified version - same bindings as original
+const DEBUG_WATER_VERTEX = `
+struct Particle {
+    pos: vec2<f32>,
+    vel: vec2<f32>,
+    age: f32,
+    id: f32,
+    padding: vec2<f32>,
+}
+
+@group(3) @binding(0)
+var<storage, read> particles: array<Particle>;
+
+struct SimParams {
+    dt: f32,
+    gravity: f32,
+    friction: f32,
+    respawn_age: f32,
+    source_pos: vec2<f32>,
+    source_radius: f32,
+    landscape_size: f32,
+    landscape_height: f32,
+    landscape_y_offset: f32,
+    time: f32,
+    speed_multiplier: f32,
+    padding: f32,
+}
+@group(3) @binding(1)
+var<uniform> params: SimParams;
+
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+};
+@group(0) @binding(0)
+var<uniform> camera: Camera;
+
+@group(2) @binding(0)
+var landscape_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var landscape_sampler: sampler;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) tex_coords: vec2<f32>,
+    @location(3) color: vec4<f32>,
+    @builtin(instance_index) instance_index: u32,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) particle_id: f32,
+    @location(3) particle_pos: vec2<f32>,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let p = particles[in.instance_index];
+    
+    // DEBUG: Fixed height above origin, ignore terrain
+    let world_center = vec3<f32>(p.pos.x, 50.0, p.pos.y);
+    
+    // DEBUG: Large, simple billboards (no rotation, no velocity stretching)
+    var local_pos = in.position * 5.0;
+    let world_pos = world_center + local_pos;
+    
+    var out: VertexOutput;
+    out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
+    out.world_pos = world_pos;
+    out.uv = in.tex_coords;
+    out.particle_id = f32(in.instance_index);
+    out.particle_pos = p.pos;
+    
+    return out;
+}
+`;
+
+// ===== DEBUG WATER RENDER FRAGMENT SHADER =====
+const DEBUG_WATER_FRAGMENT = `
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) particle_id: f32,
+    @location(3) particle_pos: vec2<f32>,
+};
+
+struct GbufferOutput {
+    @location(0) position: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+    @location(2) albedo: vec4<f32>,
+    @location(3) pbr_material: vec4<f32>,
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> GbufferOutput {
+    // DEBUG: Bright, easy-to-see colors cycling by particle ID
+    let color_cycle = fract(in.particle_id / 1000.0);
+    var color = vec3<f32>(1.0, 0.0, 0.0); // Bright red
+    
+    if (color_cycle > 0.33) {
+        color = vec3<f32>(0.0, 1.0, 0.0); // Bright green
+    }
+    if (color_cycle > 0.66) {
+        color = vec3<f32>(0.0, 0.5, 1.0); // Bright cyan
+    }
+    
+    // DEBUG: Fully opaque (no alpha issues)
+    var out: GbufferOutput;
+    out.position = vec4<f32>(in.world_pos, 1.0);
+    out.normal = vec4<f32>(0.0, 1.0, 0.0, 1.0);
+    out.albedo = vec4<f32>(color, 1.0); // Full alpha
+    out.pbr_material = vec4<f32>(0.0, 1.0, 0.0, 1.0); // Rough, non-metallic
+    
+    return out;
+}
+`;
+
+// ===== DEBUG COMPUTE SHADER =====
+// Simplified simulation - same bindings as original
+const DEBUG_COMPUTE = `
+struct Particle {
+    pos: vec2<f32>,
+    vel: vec2<f32>,
+    age: f32,
+    id: f32,
+    padding: vec2<f32>,
+}
+
+@group(0) @binding(0)
+var<storage, read_write> particles: array<Particle>;
+
+struct SimParams {
+    dt: f32,
+    gravity: f32,
+    friction: f32,
+    respawn_age: f32,
+    source_pos: vec2<f32>,
+    source_radius: f32,
+    landscape_size: f32,
+    landscape_height: f32,
+    landscape_y_offset: f32,
+    time: f32,
+    speed_multiplier: f32,
+    padding: f32,
+}
+
+@group(1) @binding(0)
+var<uniform> params: SimParams;
+
+@group(2) @binding(0)
+var landscape_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var landscape_sampler: sampler;
+
+fn hash21(p: f32) -> vec2<f32> {
+	var p3 = fract(vec3<f32>(p) * vec3<f32>(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if (idx >= arrayLength(&particles)) { return; }
+
+    var p = particles[idx];
+    
+    // DEBUG: Simple constant velocity movement
+    p.age += params.dt;
+    
+    if (p.age > params.respawn_age) {
+        // Respawn at source
+        let rng = hash21(p.id + params.time);
+        let angle = rng.x * 6.28318;
+        let radius = sqrt(rng.y) * params.source_radius;
+        p.pos = params.source_pos + vec2<f32>(cos(angle), sin(angle)) * radius;
+        p.vel = vec2<f32>(20.0, 0.0); // Constant velocity
+        p.age = 0.0;
+    } else {
+        // DEBUG: Just move in +X direction, ignore terrain
+        p.pos += vec2<f32>(20.0, 0.0) * params.dt * params.speed_multiplier;
+        p.vel = vec2<f32>(20.0, 0.0);
+    }
+
+    particles[idx] = p;
+}
+`;
+
+// ===== USAGE INSTRUCTIONS =====
+/*
+
+STEP 1: Test if rendering is working at all
+---------------------------------------------
+Replace your WATER_RENDER_SHADER vertex function with DEBUG_WATER_VERTEX
+Replace your fragment shader with DEBUG_WATER_FRAGMENT
+
+Result: You should see bright red/green/cyan particles at Y=50, all moving in +X direction
+
+If you SEE particles:
+  ✅ Rendering pipeline works
+  ❌ Problem is in original shader logic (terrain height, size scaling, alpha, velocity rotation)
+  
+If you DON'T see particles:
+  ❌ Problem is with mesh creation, bindings, or pipeline setup
+
+
+STEP 2: If rendering works, test compute shader
+------------------------------------------------
+Replace your SIMULATION_SHADER with DEBUG_COMPUTE
+
+Result: Particles should move in straight lines at constant speed
+
+If particles move correctly:
+  ✅ Compute pipeline works
+  ❌ Problem is in original compute logic (terrain sampling, gradient calculation, bounds)
+  
+If particles don't move or behave oddly:
+  ❌ Problem is with compute dispatch or buffer bindings
+
+
+DEBUGGING TIPS:
+---------------
+1. Start with just the render shaders (Step 1)
+2. Check particle count in UI - make it smaller (1000-5000) for easier debugging
+3. Position camera at [0, 100, 0] looking down to see particles
+4. If you see NOTHING with debug shaders, check:
+   - Is the mesh being created? (check console logs)
+   - Is renderRole "Water" being called in your render pass?
+   - Are buffers actually populated? (log buffer sizes)
+   - Is instance count correct?
+
+*/
+
 // ===== COMPUTE SHADERS =====
 
 const SIMULATION_SHADER = `
@@ -291,6 +534,7 @@ addon.onInit(async () => {
     pipelineIds.simulation = Entropy.Pipeline.createCompute({
         name: "RiverSimulation",
         shaderSource: SIMULATION_SHADER,
+        // shaderSource: DEBUG_COMPUTE,
         bindGroups: [
             { entries: [{ binding: 0, visibility: ["Compute"], resourceType: "Storage" }] },
             { entries: [{ binding: 0, visibility: ["Compute"], resourceType: "Uniform" }] },
@@ -307,6 +551,7 @@ addon.onInit(async () => {
         layout: "mesh",
         pbr: true, 
         vertexShader: WATER_RENDER_SHADER,
+        // vertexShader: DEBUG_WATER_VERTEX,
         fragmentShader: `
             struct VertexOutput {
                 @builtin(position) clip_position: vec4<f32>,
@@ -347,6 +592,7 @@ addon.onInit(async () => {
                 return out;
             }
         `,
+        // fragmentShader: DEBUG_WATER_FRAGMENT,
         extraBindGroups: [
             { entries: [
                 { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
