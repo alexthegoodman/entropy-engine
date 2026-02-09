@@ -1844,6 +1844,30 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
+    const persistState = (newComponent = false) => {
+        let id = addonState.activeComponentId;
+        
+        // persist state
+        if (newComponent) {
+            id = Entropy.generateUUID();
+
+            addonState.savedComponents.push({
+                id,
+                name: newComponentName,
+                params: JSON.parse(JSON.stringify(addonState.currentParams))
+            });
+
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
+            }
+        }
+
+        // at least, save the current state
+        addon.IO.save(addonState);
+
+        return id;
+    }
+
     addon.registerTool({
         name: "update_hair_parameters",
         description: "Update the hair/grass particle parameters.",
@@ -1873,6 +1897,7 @@ addon.onInit(async () => {
             const id = addonState.activeComponentId || Entropy.generateUUID();
             updateHair(addonState.currentParams, id);
             updateOrnaments(addonState.currentParams, id);
+            persistState();
             return { success: true, currentParams: addonState.currentParams };
         }
         return { success: false, error: "No parameters provided to update." };
@@ -1946,6 +1971,7 @@ addon.onInit(async () => {
 
         if (changed) {
             updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            persistState();
             return { success: true, ornamentParams: addonState.currentParams };
         }
         return { success: false, error: "No ornament parameters provided." };
@@ -1998,6 +2024,7 @@ addon.onInit(async () => {
         const id = addonState.activeComponentId || Entropy.generateUUID();
         updateHair(addonState.currentParams, id);
         updateOrnaments(addonState.currentParams, id);
+        persistState();
         return { success: true, preset: args.preset };
     });
 
@@ -2012,14 +2039,7 @@ addon.onInit(async () => {
             required: ["name"]
         }
     }, (args: any) => {
-        const id = Entropy.generateUUID();
-        const params = JSON.parse(JSON.stringify(addonState.currentParams));
-        
-        addonState.savedComponents.push({ id, name: args.name, params });
-        
-        if (Entropy.Composer) {
-            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
-        }
+        const id = persistState(true);
         
         return { success: true, id: id, name: args.name, addonName: addonInfo.name };
     });

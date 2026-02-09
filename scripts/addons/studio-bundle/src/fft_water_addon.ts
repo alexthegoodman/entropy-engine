@@ -1036,6 +1036,30 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
+    const persistState = (newComponent = false) => {
+        let id = addonState.activeComponentId;
+        
+        // persist state
+        if (newComponent) {
+            id = Entropy.generateUUID();
+
+            addonState.savedComponents.push({
+                id,
+                name: newComponentName,
+                params: JSON.parse(JSON.stringify(addonState.currentParams))
+            });
+
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
+            }
+        }
+
+        // at least, save the current state
+        addon.IO.save(addonState);
+
+        return id;
+    }
+
     addon.registerTool({
         name: "update_ocean_parameters",
         description: "Update the high-fidelity FFT ocean simulation parameters.",
@@ -1063,6 +1087,7 @@ addon.onInit(async () => {
         if (changed) {
             if (spectrumChanged) generateInitialSpectrum();
             createWaterMesh("fft_ocean_preview", addonState.currentParams);
+            persistState();
             return { success: true, currentParams: addonState.currentParams };
         }
         return { success: false, error: "No parameters provided." };
@@ -1079,14 +1104,7 @@ addon.onInit(async () => {
             required: ["name"]
         }
     }, (args: any) => {
-        const id = Entropy.generateUUID();
-        const params = JSON.parse(JSON.stringify(addonState.currentParams));
-        
-        addonState.savedComponents.push({ id, name: args.name, params });
-        
-        if (Entropy.Composer) {
-            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
-        }
+        const id = persistState(true);
         
         return { success: true, id: id, name: args.name, addonName: addonInfo.name };
     });

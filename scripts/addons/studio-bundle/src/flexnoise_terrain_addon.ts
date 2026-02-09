@@ -25,7 +25,7 @@ let terrainParams = {
     width: 128, // not very accurate for height sampling and vegetation or scattering
     height: 128,
     heightScale: 1.5,
-    positionY: 0.0,
+    positionY: -400.0,
     terrainColor: [0.3, 0.5, 0.2, 1.0],
     use3D: false,
     time: 0.0,
@@ -713,10 +713,40 @@ addon.onInit(async () => {
 
         if (changed) {
             generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+
             return { success: true, currentParams: addonState.currentParams };
         }
         return { success: false, error: "No parameters provided to update." };
     });
+
+    const persistState = (newComponent = false, resetTextures = false) => {
+        let id = addonState.activeComponentId;
+        
+        // persist state
+        if (newComponent) {
+            id = Entropy.generateUUID();
+
+            addonState.savedComponents.push({
+                id,
+                name: newComponentName,
+                params: JSON.parse(JSON.stringify(addonState.currentParams))
+            });
+
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
+            }
+        }
+        
+        if (resetTextures) {
+            restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+            restoreLayerTextures("Game Composer", addonState.currentParams);
+        }
+
+        // at least, save the current state
+        addon.IO.save(addonState);
+
+        return id;
+    }
 
     addon.registerTool({
         name: "set_terrain_resolution",
@@ -737,6 +767,9 @@ addon.onInit(async () => {
             addonState.currentParams.width = args.resolution;
             addonState.currentParams.height = args.resolution;
             generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+
+            persistState();
+
             return { success: true, resolution: args.resolution };
         }
         return { success: false, error: "Resolution parameter missing." };
@@ -757,6 +790,7 @@ addon.onInit(async () => {
         if (typeof args.y !== "undefined") {
             addonState.currentParams.positionY = args.y;
             generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            persistState();
             return { success: true, positionY: args.y };
         }
         return { success: false, error: "Y parameter missing." };
@@ -797,6 +831,7 @@ addon.onInit(async () => {
 
         if (changed) {
             generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            persistState();
             return { success: true, usePBR: addonState.currentParams.usePBR, color: addonState.currentParams.terrainColor };
         }
         return { success: false, error: "No visual parameters provided." };
@@ -862,6 +897,10 @@ addon.onInit(async () => {
             
             // Apply it to the terrain
             applyPBRToSlot("FlexNoise Terrain", "temp_interop_tool", slot);
+
+            let resetTextures = true;
+            let newComponent = false;
+            persistState(newComponent, resetTextures);
             
             return { success: true, message: `Applied texture '${comp.name}' to '${slot}' layer.` };
         }
@@ -880,14 +919,9 @@ addon.onInit(async () => {
             required: ["name"]
         }
     }, (args: any) => {
-        const id = Entropy.generateUUID();
-        const params = JSON.parse(JSON.stringify(addonState.currentParams));
-        
-        addonState.savedComponents.push({ id, name: args.name, params });
-        
-        if (Entropy.Composer) {
-            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, params);
-        }
+        let resetTextures = true;
+        let newComponent = true;
+        let id = persistState(newComponent, resetTextures);
         
         return { success: true, id: id, name: args.name, addonName: addonInfo.name };
     });

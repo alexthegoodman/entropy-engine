@@ -663,6 +663,30 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
+    const persistState = (newComponent = false) => {
+        let id = addonState.activeComponentId;
+        
+        // persist state
+        if (newComponent) {
+            id = Entropy.generateUUID();
+
+            addonState.savedComponents.push({
+                id,
+                name: newComponentName,
+                params: JSON.parse(JSON.stringify(addonState.currentParams))
+            });
+
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
+            }
+        }
+
+        // at least, save the current state
+        addon.IO.save(addonState);
+
+        return id;
+    }
+
     addon.registerTool({
         name: "create_pbr_texture",
         description: "Create a new procedural PBR texture component.",
@@ -706,9 +730,7 @@ addon.onInit(async () => {
         addonState.activeComponentId = id;
         addonState.currentParams = newParams;
 
-        if (Entropy.Composer) {
-            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, newParams);
-        }
+        persistState(true);
 
         updatePreview(newParams, id);
 
@@ -759,9 +781,7 @@ addon.onInit(async () => {
 
         updatePreview(params, compId || "temp");
         
-        if (Entropy.Composer && component.id !== "temp") {
-            Entropy.Composer.registerComponent(addonInfo.name, component.id, component.name, params);
-        }
+        persistState();
 
         return { success: true, params: { ...params } };
     });

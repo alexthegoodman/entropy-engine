@@ -216,6 +216,33 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
+    let newComponentName = "New Light";
+
+    const persistState = (newComponent = false) => {
+        let id = ""; // careful
+        
+        // persist state
+        if (newComponent) {
+            id = Entropy.generateUUID();
+
+            lightState.savedComponents.push({
+                id,
+                name: newComponentName,
+                params: JSON.parse(JSON.stringify(lightState.currentParams))
+            });
+
+            if (Entropy.Composer) {
+                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, lightState.currentParams);
+            }
+        }
+
+        // at least, save the current state
+        addon.IO.save(lightState);
+
+        return id;
+    }
+
+
     addon.registerTool({
         name: "spawn_point_light",
         description: "Spawn a new point light and register it as a component for the Game Composer.",
