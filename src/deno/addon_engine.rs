@@ -191,23 +191,49 @@ pub struct UiSize {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
+
+
 #[serde(tag = "type")]
+
+
 
 pub enum UiWidget {
 
-        Label { text: String, bold: Option<bool> },
 
-        Button { text: String, id: String, label: String },
 
-        ColorInput { id: String, label: String, color: [f32; 4] },
+    Label { text: String, bold: Option<bool> },
 
-        Slider { id: String, label: String, value: f32, min: f32, max: f32 },
 
-        NumericInput { id: String, label: String, value: f32 },
 
-        Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
+    Button { text: String, id: String, label: String },
 
-    }
+
+
+    ColorInput { id: String, label: String, color: [f32; 4] },
+
+
+
+    Slider { id: String, label: String, value: f32, min: f32, max: f32 },
+
+
+
+    NumericInput { id: String, label: String, value: f32 },
+
+
+
+    Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
+
+
+
+    Checkbox { id: String, label: String, value: bool },
+
+
+
+    Separator,
+
+
+
+}
 
 
 
@@ -1075,6 +1101,29 @@ fn op_ui_widget_dropdown(
                 options,
                 selected_index,
             });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_checkbox(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    value: bool,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_default()
+            .push(UiWidget::Checkbox { id, label, value });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_separator(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Separator);
     }
 }
 
@@ -1968,6 +2017,8 @@ extension!(
         op_ui_widget_slider,
         op_ui_widget_numeric_input,
         op_ui_widget_dropdown,
+        op_ui_widget_checkbox,
+        op_ui_widget_separator,
         op_addon_save_data,
         op_addon_save_image,
         op_io_list_models,
@@ -3551,6 +3602,16 @@ impl AddonEngine {
                                          events_to_push.push(payload);
                                      }
                                  });
+                             }
+                             UiWidget::Checkbox { id: check_id, label, value } => {
+                                 let mut current_value = *value;
+                                 if ui.checkbox(&mut current_value, label).changed() {
+                                     let payload = format!("{}|{}", check_id, current_value);
+                                     events_to_push.push(payload);
+                                 }
+                             }
+                             UiWidget::Separator => {
+                                 ui.separator();
                              }
                          }
                      }

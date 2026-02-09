@@ -280,6 +280,8 @@ addon.onInit(async () => {
             }
         });
 
+        Entropy.UI.Widget.separator(tab);
+
         Entropy.UI.Widget.label(tab, { text: "Atmosphere", bold: true });
         Entropy.UI.Widget.slider(tab, {
             label: "Fog Density",
@@ -298,11 +300,14 @@ addon.onInit(async () => {
                 fogColor = col;
             }
         });
+
+        Entropy.UI.Widget.separator(tab);
         
-        Entropy.UI.Widget.button(tab, {
-            text: isCycleEnabled ? "Pause Time Cycle" : "Resume Time Cycle",
-            onClick: () => {
-                isCycleEnabled = !isCycleEnabled;
+        Entropy.UI.Widget.checkbox(tab, {
+            label: "Enable Time Cycle",
+            value: isCycleEnabled,
+            onChange: (val: any) => {
+                isCycleEnabled = val;
             }
         });
     };

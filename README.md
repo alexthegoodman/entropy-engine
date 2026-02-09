@@ -106,3 +106,4 @@ This addon will act as the "Source of Truth". It should:
 * Register a Component: Use Entropy.Composer.registerComponent so point lights show up in the Game Composer's library.
 * Register a Renderer: Provide a function that calls addon.Lighting.createPointLight, Model.createMesh, or similar (using the _transform passed by the Composer).
 * Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties, possibly setting uniforms or clearing and recreating meshes.
+* Register your tools: Use addon.registerTool to add a handler for LLMs to use via the universal chat

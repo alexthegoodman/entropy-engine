@@ -360,6 +360,23 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onChange;
                 }
+            },
+            checkbox: (windowId, config) => {
+                const label = config?.label || "";
+                const value = config?.value || false;
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
+                ops.op_ui_widget_checkbox(windowId, label, value, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
+            },
+            separator: (windowId) => {
+                ops.op_ui_widget_separator(windowId);
             }
         }
     },

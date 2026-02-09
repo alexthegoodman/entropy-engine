@@ -340,6 +340,12 @@ export interface DropdownConfig {
     onChange?: (index: string) => void;
 }
 
+export interface CheckboxConfig {
+    label: string;
+    value: boolean;
+    onChange?: (value: boolean) => void;
+}
+
 // Main Entropy API
 export interface EntropyAPI {
   Addon: {
@@ -357,6 +363,8 @@ export interface EntropyAPI {
       slider: (windowId: string, config: SliderConfig) => void;
       numericInput: (windowId: string, config: NumericInputConfig) => void;
       dropdown: (windowId: string, config: DropdownConfig) => void;
+      checkbox: (windowId: string, config: CheckboxConfig) => void;
+      separator: (windowId: string) => void;
     };
   };
   Composer?: {
