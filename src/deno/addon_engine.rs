@@ -36,6 +36,7 @@ use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
 use egui;
 use wgpu::util::DeviceExt;
+use egui_wgpu;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AddonMetadata {
@@ -190,61 +191,25 @@ pub struct UiSize {
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MiniMapMarker {
+    pub position: [f32; 2], // 0-1 range
+    pub color: Option<[f32; 4]>,
+    pub label: Option<String>,
+}
 
-
-
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
-
-
-
 pub enum UiWidget {
-
-
-
     Label { text: String, bold: Option<bool> },
-
-
-
     Button { text: String, id: String, label: String },
-
-
-
     ColorInput { id: String, label: String, color: [f32; 4] },
-
-
-
     Slider { id: String, label: String, value: f32, min: f32, max: f32 },
-
-
-
     NumericInput { id: String, label: String, value: f32 },
-
-
-
     Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
-
-
-
-        Checkbox { id: String, label: String, value: bool },
-
-
-
-    
-
-
-
-        CodeEditor { id: String, label: String, content: String, language: String },
-
-
-
-    
-
-
-
-        Separator,
-
-
-
+    Checkbox { id: String, label: String, value: bool },
+    CodeEditor { id: String, label: String, content: String, language: String },
+    MiniMap { id: String, landscape_id: Option<String>, brush_size: f32, markers: Vec<MiniMapMarker> },
+    Separator,
 }
 
 
@@ -414,6 +379,7 @@ pub struct AddonContext {
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
+    pub egui_textures: HashMap<String, egui::TextureId>,
 }
 
 pub struct CompositeInstance {
@@ -1203,6 +1169,25 @@ fn op_ui_widget_checkbox(
             .entry(window_id)
             .or_default()
             .push(UiWidget::Checkbox { id, label, value });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_mini_map(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] landscape_id: String,
+    brush_size: f32,
+    #[serde] markers: Vec<MiniMapMarker>,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::MiniMap { 
+            id, 
+            landscape_id: Some(landscape_id), 
+            brush_size, 
+            markers 
+        });
     }
 }
 
@@ -2105,6 +2090,7 @@ extension!(
         op_ui_widget_dropdown,
         op_ui_widget_checkbox,
         op_ui_widget_code_editor,
+        op_ui_widget_mini_map,
         op_ui_widget_separator,
         op_addon_save_data,
         op_addon_save_image,
@@ -2206,7 +2192,8 @@ impl AddonEngine {
             composite_pipelines: HashMap::new(),
             composites: Vec::new(),
             registered_tools: HashMap::new(),
-            op_addon_on_all_projects_loaded_callbacks: Vec::new()
+            op_addon_on_all_projects_loaded_callbacks: Vec::new(),
+            egui_textures: HashMap::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3389,7 +3376,7 @@ impl AddonEngine {
         }
     }
 
-    pub fn render_ui(&mut self, ctx: &egui::Context) {
+    pub fn render_ui(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
         // 0. Reset widget counter in JS
         {
             let scope = &mut self.runtime.handle_scope();
@@ -3470,9 +3457,9 @@ impl AddonEngine {
         // 3. Render
         let mut events_to_push = Vec::new();
         {
-            let op_state = self.runtime.op_state();
-            let op_state = op_state.borrow();
-            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                 let mut sorted_windows: Vec<_> = context.ui_windows.iter().collect();
                 sorted_windows.sort_by(|a, b| a.0.cmp(b.0));
 
@@ -3555,12 +3542,73 @@ impl AddonEngine {
                                                 events_to_push.push(payload);
                                             }
                                         }
+                                        UiWidget::CodeEditor { id: editor_id, label, content, language } => {
+                                            ui.label(label);
+                                            let syntax = if language == "javascript" || language == "js" {
+                                                egui_code_editor::Syntax::lua()
+                                            } else {
+                                                egui_code_editor::Syntax::rust()
+                                            };
+           
+                                            let mut current_content = content.clone();
+                                            let response = egui_code_editor::CodeEditor::default()
+                                                .id_source(editor_id)
+                                                .with_syntax(syntax)
+                                                .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
+                                                .with_numlines(true)
+                                                .show(ui, &mut current_content);
+           
+                                            if response.response.changed() {
+                                                let payload = format!("{}|{}", editor_id, current_content);
+                                                events_to_push.push(payload);
+                                            }
+                                        }
+                                        UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers } => {
+                                            let texture_id = if let Some(view) = &context.landscape_texture_view {
+                                                let key = format!("landscape_{}", mm_id);
+                                                if let Some(tid) = context.egui_textures.get(&key) {
+                                                    *tid
+                                                } else {
+                                                    let tid = egui_renderer.register_native_texture(&context.gpu_resources.as_ref().unwrap().device, view, wgpu::FilterMode::Linear);
+                                                    context.egui_textures.insert(key, tid);
+                                                    tid
+                                                }
+                                            } else {
+                                                ui.label("Waiting for landscape texture...");
+                                                continue;
+                                            };
+           
+                                            let mm_size = ui.available_size();
+                                            let mm_size = mm_size.x.min(mm_size.y);
+                                            let (rect, response) = ui.allocate_exact_size(egui::vec2(mm_size, mm_size), egui::Sense::click_and_drag());
+                                            
+                                            // Draw the landscape texture
+                                            ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+           
+                                            // Interaction: Drawing
+                                            if response.dragged() || response.clicked() {
+                                                if let Some(pointer_pos) = response.interact_pointer_pos() {
+                                                    let local_pos = pointer_pos - rect.min;
+                                                    let x = local_pos.x / rect.width();
+                                                    let y = local_pos.y / rect.height();
+                                                    let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
+                                                    events_to_push.push(payload);
+                                                }
+                                            }
+           
+                                            // Draw markers
+                                            for marker in markers {
+                                                let m_pos = rect.min + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
+                                                let m_color = marker.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::RED);
+                                                
+                                                ui.painter().circle_filled(m_pos, 5.0, m_color);
+                                                if let Some(label) = &marker.label {
+                                                    ui.painter().text(m_pos + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.0), egui::Color32::WHITE);
+                                                }
+                                            }
+                                        }
                                         UiWidget::Separator => {
                                             ui.separator();
-                                        }
-                                        _ => {
-                                            let mut txt = egui::RichText::new("No renderer supported by engine");
-                                            ui.label(txt);
                                         }
                                     }
                                  }
@@ -3582,7 +3630,7 @@ impl AddonEngine {
         }
     }
 
-    pub fn render_tab(&mut self, ui: &mut egui::Ui, tab_id: &str) {
+    pub fn render_tab(&mut self, ui: &mut egui::Ui, tab_id: &str, egui_renderer: &mut egui_wgpu::Renderer) {
         // 0. Reset widget counter in JS
         {
             let scope = &mut self.runtime.handle_scope();
@@ -3612,20 +3660,20 @@ impl AddonEngine {
         }
 
         // 2. Execute JS callback for this tab
-        let callback = {
+        let (callback, addon_name) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.ui_tabs.get(tab_id).map(|(_, cb, _)| cb.clone())
+                context.ui_tabs.get(tab_id).map(|(_, cb, name)| (cb.clone(), name.clone())).unwrap_or((v8::Global::<v8::Function>::new(&mut self.runtime.handle_scope(), v8::Function::new(&mut self.runtime.handle_scope(), |_, _, _| {}).unwrap()), "Global".to_string()))
             } else {
-                None
+                (v8::Global::<v8::Function>::new(&mut self.runtime.handle_scope(), v8::Function::new(&mut self.runtime.handle_scope(), |_, _, _| {}).unwrap()), "Global".to_string())
             }
         };
 
-        if let Some(cb) = callback {
+        if !callback.is_null() {
             let scope = &mut self.runtime.handle_scope();
             let tc = &mut v8::TryCatch::new(scope);
-            let func = v8::Local::new(tc, cb);
+            let func = v8::Local::new(tc, callback);
             let receiver = v8::undefined(tc);
             let _ = func.call(tc, receiver.into(), &[]); 
             
@@ -3640,9 +3688,9 @@ impl AddonEngine {
         // 3. Render
         let mut events_to_push = Vec::new();
         {
-            let op_state = self.runtime.op_state();
-            let op_state = op_state.borrow();
-            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                  if let Some(widgets) = context.ui_widgets.get(tab_id) {
                      for widget in widgets {
                          match widget {
@@ -3733,6 +3781,50 @@ impl AddonEngine {
                                  if response.response.changed() {
                                      let payload = format!("{}|{}", editor_id, current_content);
                                      events_to_push.push(payload);
+                                 }
+                             }
+                             UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers } => {
+                                 let texture_id = if let Some(view) = &context.landscape_texture_view {
+                                     let key = format!("landscape_{}", mm_id);
+                                     if let Some(tid) = context.egui_textures.get(&key) {
+                                         *tid
+                                     } else {
+                                         let tid = egui_renderer.register_native_texture(&context.gpu_resources.as_ref().unwrap().device, view, wgpu::FilterMode::Linear);
+                                         context.egui_textures.insert(key, tid);
+                                         tid
+                                     }
+                                 } else {
+                                     ui.label("Waiting for landscape texture...");
+                                     continue;
+                                 };
+
+                                 let mm_size = ui.available_size();
+                                 let mm_size = mm_size.x.min(mm_size.y);
+                                 let (rect, response) = ui.allocate_exact_size(egui::vec2(mm_size, mm_size), egui::Sense::click_and_drag());
+                                 
+                                 // Draw the landscape texture
+                                 ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+
+                                 // Interaction: Drawing
+                                 if response.dragged() || response.clicked() {
+                                     if let Some(pointer_pos) = response.interact_pointer_pos() {
+                                         let local_pos = pointer_pos - rect.min;
+                                         let x = local_pos.x / rect.width();
+                                         let y = local_pos.y / rect.height();
+                                         let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
+                                         events_to_push.push(payload);
+                                     }
+                                 }
+
+                                 // Draw markers
+                                 for marker in markers {
+                                     let m_pos = rect.min + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
+                                     let m_color = marker.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::RED);
+                                     
+                                     ui.painter().circle_filled(m_pos, 5.0, m_color);
+                                     if let Some(label) = &marker.label {
+                                         ui.painter().text(m_pos + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.0), egui::Color32::WHITE);
+                                     }
                                  }
                              }
                              UiWidget::Separator => {

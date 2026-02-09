@@ -1839,7 +1839,7 @@ impl EntropyPipeline {
 
             let raw_input = gui.state.take_egui_input(&window);
             let full_output = gui.ctx.run(raw_input, |ctx| {
-                self.ui(ctx);
+                self.ui(gui);
             });
         
             gui.state.handle_platform_output(&window, full_output.platform_output);
@@ -1913,7 +1913,7 @@ impl EntropyPipeline {
         output.present();
     }
     
-    fn ui(&mut self, ctx: &egui::Context) {
-        render_egui(self, ctx);
+    fn ui(&mut self, gui: &mut Gui) {
+        render_egui(self, gui);
     }
 }

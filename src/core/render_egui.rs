@@ -59,120 +59,8 @@ use crate::game_ui::quest_ui;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
- pub fn render_egui(pipeline: &mut EntropyPipeline, ctx: &egui::Context) {
-        // egui::TopBottomPanel::top("command_bar").show(ctx, |ui| {
-        //     ui.horizontal_centered(|ui| {
-        //          // Check if we need to load projects
-        //          if pipeline.projects.is_empty() {
-        //              if let Ok(registry) = utilities::load_project_registry() {
-        //                  for project in registry.projects {
-        //                      pipeline.projects.push((project.project_name, project.project_id));
-        //                  }
-        //              }
-        //          }
-
-        //          let mut selected_text = "All Projects".to_string();
-        //          if let Some(id) = &pipeline.command_bar_project_id {
-        //              if let Some((name, _)) = pipeline.projects.iter().find(|(_, pid)| pid == id) {
-        //                  selected_text = name.clone();
-        //              }
-        //          }
-
-        //          egui::ComboBox::from_id_source("command_bar_project_combo")
-        //             .selected_text(selected_text)
-        //             .show_ui(ui, |ui| {
-        //                 ui.selectable_value(&mut pipeline.command_bar_project_id, None, "All Projects");
-        //                 for (name, id) in &pipeline.projects {
-        //                      ui.selectable_value(&mut pipeline.command_bar_project_id, Some(id.clone()), name);
-        //                 }
-        //             });
-
-        //          let response = ui.add_sized(
-        //              ui.available_size(),
-        //              egui::TextEdit::multiline(&mut pipeline.command_bar_input).desired_rows(2).hint_text("Enter AI command (Ctrl+K to focus)...")
-        //          );
-                 
-        //          if ctx.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::K)) {
-        //              response.request_focus();
-        //          }
-
-        //          if response.lost_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
-        //              if !pipeline.command_bar_input.trim().is_empty() {
-        //                  let content = pipeline.command_bar_input.clone();
-        //                  pipeline.command_bar_input.clear();
-                         
-        //                  pipeline.chat.is_loading = true;
-                         
-        //                  let client = pipeline.chat.client.clone();
-        //                  let api_url = pipeline.chat.api_url.clone();
-                         
-        //                  // Determine project ID
-        //                  let project_id_to_use = pipeline.command_bar_project_id.clone()
-        //                      .or_else(|| pipeline.export_editor.as_ref().and_then(|e| e.world_state.as_ref()).and_then(|ws| ws.id.clone()));
-                        
-        //                 // TODO: need to load the correct state depending on either the chosen project, or, if All Projects is chosen, then it needs to
-        //                 // use an AI endpoint to decide which project is relevant to the AI command, then here we use that info to finally send the relevant state
-        //                 // probably easiest to just freshly load the relevant project's state direct from file once it is chosen / determined
-        //                  let mut world_state_cl = None;
-        //                  if let Some(editor) = pipeline.export_editor.as_ref() {
-        //                      if let Some(ws) = &editor.world_state {
-        //                          world_state_cl = Some(ws.clone());
-        //                      }
-        //                  }
-                         
-        //                  let current_session = pipeline.chat.current_session.clone();
-        //                  let (tx, rx) = std::sync::mpsc::channel();
-        //                  pipeline.chat.rx = Some(rx);
-
-        //                  // Add user message to chat immediately for UI feedback
-        //                  pipeline.chat.messages.push(ChatMessage {
-        //                      id: Uuid::new_v4().to_string(),
-        //                      role: "user".to_string(),
-        //                      content: Some(content.clone()),
-        //                      tool_call_id: None,
-        //                      tool_calls: None,
-        //                  });
-
-        //                  std::thread::spawn(move || {
-        //                      let rt = tokio::runtime::Runtime::new().unwrap();
-        //                      rt.block_on(async {
-        //                          let mut session_id = None;
-                                 
-        //                          if let Some(s) = current_session {
-        //                              session_id = Some(s.id);
-        //                          } else if let Some(pid) = project_id_to_use {
-        //                              // Create session
-        //                              let url = format!("{}/api/sessions", api_url);
-        //                              let body = serde_json::json!({ "projectId": pid });
-        //                              if let Ok(res) = client.post(&url).json(&body).send().await {
-        //                                  if let Ok(session) = res.json::<ChatSession>().await {
-        //                                      session_id = Some(session.id);
-        //                                  }
-        //                              }
-        //                          }
-
-        //                          if let Some(sid) = session_id {
-        //                              let url = format!("{}/api/sessions/{}/messages", api_url, sid);
-        //                              let body = serde_json::json!({
-        //                                  "role": "user",
-        //                                  "content": content,
-        //                                  "world_state": world_state_cl
-        //                              });
-                                     
-        //                              let res = client.post(&url).json(&body).send().await;
-        //                              if let Ok(resp) = res {
-        //                                  if let Ok(msg) = resp.json::<ChatMessage>().await {
-        //                                      let _ = tx.send(msg);
-        //                                  }
-        //                              }
-        //                          }
-        //                      });
-        //                  });
-        //              }
-        //          }
-        //     });
-        // });
-
+ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
+        let ctx = &gui.ctx;
         let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
             editor.world_state.is_some() || editor.stunts_state.is_some() || editor.sophia_state.is_some()
         } else {
@@ -197,6 +85,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                     Workspace::Addon(_) => AppExperience::OpenWorldStudio, // Default for addons
                 },
                 next_workspace: &mut next_workspace,
+                egui_renderer: &mut gui.renderer,
             };
 
             let mut viewer = PipelineTabViewer { context };
@@ -371,7 +260,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                             .show_inside(ui, &mut viewer);
 
                         if let Some(editor) = &mut viewer.context.export_editor {
-                            editor.addon_engine.render_ui(ctx);
+                            editor.addon_engine.render_ui(ctx, viewer.context.egui_renderer);
                         }
 
                         // Draw selection highlight for Stunts objects

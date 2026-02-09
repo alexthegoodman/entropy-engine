@@ -87,6 +87,7 @@ pub struct UiContext<'a> {
     pub gpu_resources: &'a Option<Arc<GpuResources>>,
     pub current_app: AppExperience,
     pub next_workspace: &'a mut Option<Workspace>,
+    pub egui_renderer: &'a mut egui_wgpu::Renderer,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -1682,7 +1683,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             }
             Tab::AddonTab { id, .. } => {
                 let editor = self.context.export_editor.as_mut().unwrap();
-                editor.addon_engine.render_tab(ui, id);
+                editor.addon_engine.render_tab(ui, id, self.context.egui_renderer);
             }
             Tab::ScriptEditor { path } => {
                 let editor = self.context.export_editor.as_mut().unwrap();

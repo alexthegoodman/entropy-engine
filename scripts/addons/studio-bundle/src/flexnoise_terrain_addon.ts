@@ -301,6 +301,19 @@ addon.onInit(async () => {
         Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
+        Entropy.UI.Widget.miniMap(tab, {
+            landscapeId: "Global",
+            brushSize: 5.0,
+            markers: [
+                { position: [0.5, 0.5], color: [1, 0, 0, 1], label: "Center" }
+            ],
+            onDraw: (x, y, brushSize) => {
+                println(`Drawing on MiniMap at ${x}, ${y} with size ${brushSize}`);
+            }
+        });
+
+        Entropy.UI.Widget.separator(tab);
+
         // Entropy.UI.Widget.button(tab, {
         //     text: "Restore Textures",
         //     onClick: () => {
@@ -635,10 +648,10 @@ addon.onInit(async () => {
                 });
             }
 
-            // generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
 
-            // restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
-            // restoreLayerTextures("Game Composer", addonState.currentParams);
+            restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
+            restoreLayerTextures("Game Composer", addonState.currentParams);
         }
     });
 

@@ -33,7 +33,11 @@ globalThis.Entropy = {
                     
                     // automatically call on init hooks
                     if (globalThis.Entropy.Composer && typeof globalThis.Entropy.Composer.initCallbacks[metadata.name] === "function") {
-                        globalThis.Entropy.Composer.initCallbacks[metadata.name]();
+                        try {
+                            globalThis.Entropy.Composer.initCallbacks[metadata.name]();
+                        } catch (e) {
+                            ops.op_println("Error in Composer initCallback for " + metadata.name + ": " + e);
+                        }
                     }
                 },
                 onAllProjectsLoaded: (callback) => {
@@ -293,6 +297,9 @@ globalThis.Entropy = {
             const tabId = ops.op_ui_create_tab("Global", config, config.onRender);
             return tabId;
         },
+        miniMap: (windowId, config) => {
+            globalThis.Entropy.UI.Widget.miniMap(windowId, config);
+        },
         Widget: {
             label: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
@@ -401,6 +408,21 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners[id] = config.onChange;
                 }
             },
+            miniMap: (windowId, config) => {
+                const landscapeId = config?.landscapeId || "Global";
+                const brushSize = config?.brushSize || 5.0;
+                const markers = config?.markers || [];
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_minimap_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
+                ops.op_ui_widget_mini_map(windowId, landscapeId, brushSize, markers, id);
+
+                if (config?.onDraw) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onDraw;
+                }
+            },
             separator: (windowId) => {
                 ops.op_ui_widget_separator(windowId);
             }
@@ -421,10 +443,16 @@ globalThis.Entropy = {
 
             if (globalThis._entropy_event_listeners && globalThis._entropy_event_listeners[id]) {
                 if (payload !== null) {
-                    // Try to parse payload if it looks like a color or array
+                    // Try to parse payload if it looks like a color or array or drawing event
                     if (payload.includes(",")) {
                         const values = payload.split(",").map(v => parseFloat(v));
-                        globalThis._entropy_event_listeners[id](values);
+                        
+                        // For minimap draw events: x, y, brushSize
+                        if (values.length === 3) {
+                             globalThis._entropy_event_listeners[id](values[0], values[1], values[2]);
+                        } else {
+                             globalThis._entropy_event_listeners[id](values);
+                        }
                     } else {
                         globalThis._entropy_event_listeners[id](payload);
                     }

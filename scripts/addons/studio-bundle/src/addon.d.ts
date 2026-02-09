@@ -351,6 +351,19 @@ export interface CheckboxConfig {
     onChange?: (value: boolean) => void;
 }
 
+export interface MiniMapMarker {
+    position: [number, number]; // [x, y] in 0-1 range
+    color?: [number, number, number, number];
+    label?: string;
+}
+
+export interface MiniMapConfig {
+    landscapeId?: string;
+    brushSize?: number;
+    markers?: MiniMapMarker[];
+    onDraw?: (x: number, y: number, brushSize: number) => void;
+}
+
 export interface CodeEditorConfig {
     label: string;
     content: string;
@@ -368,6 +381,7 @@ export interface EntropyAPI {
   UI: {
     createWindow: (config: WindowConfig) => string;
     createTab: (config: TabConfig) => string;
+    miniMap: (windowId: string, config: MiniMapConfig) => void;
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
@@ -377,6 +391,7 @@ export interface EntropyAPI {
       dropdown: (windowId: string, config: DropdownConfig) => void;
       checkbox: (windowId: string, config: CheckboxConfig) => void;
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
+      miniMap: (windowId: string, config: MiniMapConfig) => void;
       separator: (windowId: string) => void;
     };
   };
