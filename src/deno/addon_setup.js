@@ -661,7 +661,13 @@ globalThis.Entropy.Composer = {
     },
     setRolePipeline: (role, pipelineId) => {
         ops.op_composer_set_role_pipeline(role, pipelineId);
-    }
+    },
+    enableGameComposerOverride: () => {
+        globalThis.__entropy_current_addon_context_override = "Game Composer";
+    },
+    disableGameComposerOverride: () => {
+        globalThis.__entropy_current_addon_context_override = null;
+    },
 };
 
 // Convenience global

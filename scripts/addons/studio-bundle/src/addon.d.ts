@@ -408,6 +408,8 @@ export interface EntropyAPI {
       initCallbacks: {
         [key: string]: () => void
       }
+      enableGameComposerOverride: () => void,
+      disableGameComposerOverride: () => void,
   };
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;

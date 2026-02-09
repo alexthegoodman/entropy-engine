@@ -20,7 +20,7 @@ import "./pbr_texture_designer_addon";
 import "./flexnoise_terrain_addon";
 import "./hair_particle_addon";
 import "./fft_water_addon";
-// import "./fft_river_addon"; // not high enough quality yet
+import "./gpgpu_river_addon";
 import "./model_viewer_addon";
 import "./game_scripts_addon";
 

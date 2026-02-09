@@ -1,0 +1,567 @@
+// ============================================================================
+// GPGPU RIVER - REAL-TIME LAGRANGIAN FLUID SIMULATION
+// High-performance particle-based water that flows over terrain
+// ============================================================================
+
+// ===== COMPUTE SHADERS =====
+
+const SIMULATION_SHADER = `
+struct Particle {
+    pos: vec2<f32>,
+    vel: vec2<f32>,
+    age: f32,
+    id: f32,
+    padding: vec2<f32>,
+}
+
+@group(0) @binding(0)
+var<storage, read_write> particles: array<Particle>;
+
+struct SimParams {
+    dt: f32,
+    gravity: f32,
+    friction: f32,
+    respawn_age: f32,
+    source_pos: vec2<f32>,
+    source_radius: f32,
+    landscape_size: f32,
+    landscape_height: f32,
+    landscape_y_offset: f32,
+    time: f32,
+    speed_multiplier: f32,
+    padding: f32,
+}
+
+@group(1) @binding(0)
+var<uniform> params: SimParams;
+
+@group(2) @binding(0)
+var landscape_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var landscape_sampler: sampler;
+
+fn hash21(p: f32) -> vec2<f32> {
+	var p3 = fract(vec3<f32>(p) * vec3<f32>(0.1031, 0.1030, 0.0973));
+	p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.xx + p3.yz) * p3.zy);
+}
+
+fn get_height(pos: vec2<f32>) -> f32 {
+    let uv = (pos + params.landscape_size * 0.5) / params.landscape_size;
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    let sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
+    return (sample.r * params.landscape_height) + params.landscape_y_offset;
+}
+
+fn get_gradient(pos: vec2<f32>) -> vec2<f32> {
+    let eps = 2.0;
+    let h_c = get_height(pos);
+    let h_r = get_height(pos + vec2<f32>(eps, 0.0));
+    let h_u = get_height(pos + vec2<f32>(0.0, eps));
+    return vec2<f32>(h_r - h_c, h_u - h_c) / eps;
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let idx = id.x;
+    if (idx >= arrayLength(&particles)) { return; }
+
+    var p = particles[idx];
+    
+    // Increment age
+    p.age += params.dt;
+    
+    // Bounds check
+    let out_of_bounds = abs(p.pos.x) > params.landscape_size * 0.5 || abs(p.pos.y) > params.landscape_size * 0.5;
+
+    // Respawn logic
+    if (p.age > params.respawn_age || out_of_bounds) {
+        let rng = hash21(p.id + params.time);
+        let angle = rng.x * 6.28318;
+        let radius = sqrt(rng.y) * params.source_radius;
+        p.pos = params.source_pos + vec2<f32>(cos(angle), sin(angle)) * radius;
+        p.vel = vec2<f32>(0.0, 0.0);
+        p.age = 0.0;
+    } else {
+        // Physics update
+        let grad = get_gradient(p.pos);
+        
+        // Acceleration = gravity pulling downhill + some turbulence
+        let turbulence_phase = params.time * 0.5 + p.id * 0.1;
+        let turbulence = vec2<f32>(
+            sin(turbulence_phase + p.pos.y * 0.1),
+            cos(turbulence_phase + p.pos.x * 0.1)
+        );
+        let accel = -grad * params.gravity + turbulence * 2.0;
+        
+        // Update velocity with friction
+        p.vel += accel * params.dt * params.speed_multiplier;
+        p.vel *= (1.0 - params.friction * params.dt);
+        
+        // Cap velocity
+        let speed = length(p.vel);
+        if (speed > 50.0) {
+            p.vel = (p.vel / speed) * 50.0;
+        }
+        
+        // Update position
+        p.pos += p.vel * params.dt;
+    }
+
+    particles[idx] = p;
+}
+`;
+
+// ===== RENDERING SHADERS =====
+
+const WATER_RENDER_SHADER = `
+struct Particle {
+    pos: vec2<f32>,
+    vel: vec2<f32>,
+    age: f32,
+    id: f32,
+    padding: vec2<f32>,
+}
+
+@group(3) @binding(0)
+var<storage, read> particles: array<Particle>;
+
+struct SimParams {
+    dt: f32,
+    gravity: f32,
+    friction: f32,
+    respawn_age: f32,
+    source_pos: vec2<f32>,
+    source_radius: f32,
+    landscape_size: f32,
+    landscape_height: f32,
+    landscape_y_offset: f32,
+    time: f32,
+    speed_multiplier: f32,
+    padding: f32,
+}
+@group(3) @binding(1)
+var<uniform> params: SimParams;
+
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+};
+@group(0) @binding(0)
+var<uniform> camera: Camera;
+
+@group(2) @binding(0)
+var landscape_texture: texture_2d<f32>;
+@group(2) @binding(1)
+var landscape_sampler: sampler;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) tex_coords: vec2<f32>,
+    @location(3) color: vec4<f32>,
+    @builtin(instance_index) instance_index: u32,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) age_factor: f32,
+    @location(3) velocity: f32,
+};
+
+fn get_height(pos: vec2<f32>) -> f32 {
+    let uv = (pos + params.landscape_size * 0.5) / params.landscape_size;
+    let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
+    let sample = textureSampleLevel(landscape_texture, landscape_sampler, clamped_uv, 0.0);
+    return (sample.r * params.landscape_height) + params.landscape_y_offset;
+}
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    let p = particles[in.instance_index];
+    
+    // Particle size based on age (fade in/out)
+    let age_factor = 1.0 - (p.age / params.respawn_age);
+    let fade_in = smoothstep(0.0, 0.1, p.age / params.respawn_age);
+    let size_scale = fade_in * age_factor * 1.5;
+    
+    // Determine world position
+    let terrain_h = get_height(p.pos);
+    let world_center = vec3<f32>(p.pos.x, terrain_h + 0.5, p.pos.y);
+    
+    // Stretch particle based on velocity
+    let vel_len = length(p.vel);
+    let vel_dir = select(vec2<f32>(1.0, 0.0), p.vel / (vel_len + 0.001), vel_len > 0.001);
+    
+    var local_pos = in.position;
+    local_pos.x *= 0.5 * size_scale;
+    local_pos.z *= (0.5 + min(vel_len * 0.1, 2.0)) * size_scale;
+    
+    // Rotate to align with velocity
+    let rotated_pos = vec3<f32>(
+        local_pos.x * vel_dir.y + local_pos.z * vel_dir.x,
+        local_pos.y,
+        local_pos.x * -vel_dir.x + local_pos.z * vel_dir.y
+    );
+    
+    let world_pos = world_center + rotated_pos;
+    
+    var out: VertexOutput;
+    out.clip_position = camera.view_proj * vec4<f32>(world_pos, 1.0);
+    out.world_pos = world_pos;
+    out.uv = in.tex_coords;
+    out.age_factor = age_factor;
+    out.velocity = vel_len;
+    
+    return out;
+}
+`;
+
+// ===== ADDON TYPES =====
+
+interface RiverParams {
+    particleCount: number;
+    sourcePos: [number, number];
+    sourceRadius: number;
+    respawnAge: number;
+    gravity: number;
+    friction: number;
+    speedMultiplier: number;
+    
+    landscapeSize: number;
+    landscapeHeight: number;
+    landscapeYOffset: number;
+}
+
+const addonInfo = {
+    name: "GPGPU River Simulation",
+    version: "1.0.0",
+    description: "Real-time particle-based river fluid simulation",
+    author: ["Entropy Team"],
+    capabilities: {
+        graphics: true,
+        ui: true
+    }
+};
+
+const addon = Entropy.Addon.register(addonInfo);
+
+let riverState: {
+    params: RiverParams,
+    activeComponentId: string | null
+} = {
+    params: {
+        particleCount: 50000,
+        sourcePos: [0, 0],
+        sourceRadius: 15.0,
+        respawnAge: 20.0,
+        gravity: 25.0,
+        friction: 1.2,
+        speedMultiplier: 2.5,
+        
+        landscapeSize: 4096.0,
+        landscapeHeight: 600.0,
+        landscapeYOffset: -392.0,
+    },
+    activeComponentId: Entropy.generateUUID()
+};
+
+let pipelineIds = {
+    simulation: null as string | null,
+    rendering: null as string | null,
+};
+
+let resources = {
+    particleBuffer: null as string | null,
+    paramsBuffer: null as string | null,
+};
+
+addon.onInit(async () => {
+    Entropy.println("🌊 GPGPU River: Initializing...");
+
+    // 1. Create Compute Pipeline
+    pipelineIds.simulation = Entropy.Pipeline.createCompute({
+        name: "RiverSimulation",
+        shaderSource: SIMULATION_SHADER,
+        bindGroups: [
+            { entries: [{ binding: 0, visibility: ["Compute"], resourceType: "Storage" }] },
+            { entries: [{ binding: 0, visibility: ["Compute"], resourceType: "Uniform" }] },
+            { entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "Texture" },
+                { binding: 1, visibility: ["Compute"], resourceType: "Sampler" }
+            ]}
+        ]
+    });
+
+    // 2. Create Render Pipeline (PBR for full lighting integration)
+    pipelineIds.rendering = Entropy.Pipeline.create({
+        name: "RiverRendering",
+        layout: "mesh",
+        pbr: true, 
+        vertexShader: WATER_RENDER_SHADER,
+        fragmentShader: `
+            struct VertexOutput {
+                @builtin(position) clip_position: vec4<f32>,
+                @location(0) world_pos: vec3<f32>,
+                @location(1) uv: vec2<f32>,
+                @location(2) age_factor: f32,
+                @location(3) velocity: f32,
+            };
+
+            struct GbufferOutput {
+                @location(0) position: vec4<f32>,
+                @location(1) normal: vec4<f32>,
+                @location(2) albedo: vec4<f32>,
+                @location(3) pbr_material: vec4<f32>,
+            }
+
+            @fragment
+            fn fs_main(in: VertexOutput) -> GbufferOutput {
+                let dist = length(in.uv - 0.5);
+                if (dist > 0.5) { discard; }
+                
+                let shallow_blue = vec3<f32>(0.2, 0.7, 1.0);
+                let deep_blue = vec3<f32>(0.05, 0.2, 0.5);
+                let foam_white = vec3<f32>(1.0, 1.0, 1.0);
+                
+                let vel_factor = smoothstep(5.0, 40.0, in.velocity);
+                var color = mix(deep_blue, shallow_blue, vel_factor);
+                color = mix(color, foam_white, smoothstep(25.0, 50.0, in.velocity));
+                
+                let alpha = (1.0 - smoothstep(0.3, 0.5, dist)) * in.age_factor * 0.6;
+                
+                var out: GbufferOutput;
+                out.position = vec4<f32>(in.world_pos, 1.0);
+                out.normal = vec4<f32>(0.0, 1.0, 0.0, 1.0); 
+                out.albedo = vec4<f32>(color, alpha);
+                out.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0); 
+                
+                return out;
+            }
+        `,
+        extraBindGroups: [
+            { entries: [
+                { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
+                { binding: 1, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" }
+            ]},
+            { entries: [
+                { binding: 0, visibility: ["Vertex"], resourceType: "StorageReadOnly" },
+                { binding: 1, visibility: ["Vertex"], resourceType: "Uniform" }
+            ]}
+        ]
+    });
+
+    // 3. Initialize Buffers
+    initResources();
+
+    // 4. Register with Composer
+    if (Entropy.Composer) {
+        Entropy.Composer.registerEditor(addonInfo.name, renderUI);
+        Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
+            Object.assign(riverState.params, params);
+            updateBuffers();
+            createRiverMesh(id);
+            Entropy.println("✅ [GPGPU River] river mesh created!");
+        });
+    }
+
+    // 5. Update Loop
+    // addon.onUpdate((time) => {
+    //     Entropy.println("Running river GPGPU");
+    //     runSimulation(time);
+    // });
+
+    addon.onUpdatePlus("Game Composer", (time) => {
+        Entropy.Composer?.enableGameComposerOverride();
+        runSimulation(time);
+        Entropy.Composer?.disableGameComposerOverride();
+    });
+
+    setupUI();
+
+    Entropy.println("✅ [GPGPU River] initialized!");
+});
+
+function initResources() {
+    const count = riverState.params.particleCount;
+    
+    // Create particle buffer (8 floats per particle for alignment: pos.x, pos.y, vel.x, vel.y, age, id, pad, pad)
+    const initialData = new Float32Array(count * 8); 
+    for (let i = 0; i < count; i++) {
+        const rng = [Math.random(), Math.random()];
+        const angle = rng[0] * 6.28318;
+        const radius = Math.sqrt(rng[1]) * riverState.params.sourceRadius;
+        
+        initialData[i * 8 + 0] = riverState.params.sourcePos[0] + Math.cos(angle) * radius;
+        initialData[i * 8 + 1] = riverState.params.sourcePos[1] + Math.sin(angle) * radius;
+        initialData[i * 8 + 4] = Math.random() * riverState.params.respawnAge;
+        initialData[i * 8 + 5] = i;
+    }
+    
+    resources.particleBuffer = Entropy.Buffer.create({
+        size: count * 8 * 4,
+        usage: "Storage"
+    });
+    Entropy.Buffer.write(resources.particleBuffer!, initialData);
+
+    // Uniform buffer for params
+    resources.paramsBuffer = Entropy.Buffer.create({
+        size: 64,
+        usage: "Uniform"
+    });
+    updateBuffers();
+}
+
+function updateBuffers() {
+    if (!resources.paramsBuffer) return;
+    
+    const data = new Float32Array([
+        0.016, // dt
+        riverState.params.gravity,
+        riverState.params.friction,
+        riverState.params.respawnAge,
+        riverState.params.sourcePos[0],
+        riverState.params.sourcePos[1],
+        riverState.params.sourceRadius,
+        riverState.params.landscapeSize,
+        riverState.params.landscapeHeight,
+        riverState.params.landscapeYOffset,
+        Date.now() / 1000,
+        riverState.params.speedMultiplier,
+    ]);
+    Entropy.Buffer.write(resources.paramsBuffer, data);
+}
+
+function runSimulation(time: number) {
+    if (!pipelineIds.simulation || !resources.particleBuffer) return;
+
+    try {
+        // Update time in uniform
+        updateBuffers();
+
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.simulation,
+            groups: [Math.ceil(riverState.params.particleCount / 64), 1, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "Buffer", value: { id: resources.particleBuffer! } } },
+                { group: 1, binding: 0, resource: { type: "Buffer", value: { id: resources.paramsBuffer! } } },
+                { group: 2, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
+                { group: 2, binding: 1, resource: { type: "Sampler" } }
+            ]
+        });
+
+        // Entropy.println("Dispatched river");
+    } catch (e) {
+        // Silently fail if landscape is not yet available
+        Entropy.println("Is landscape available? " + JSON.stringify(e));
+    }
+}
+
+function createRiverMesh(id: string) {
+    if (!pipelineIds.rendering || !resources.particleBuffer) return;
+
+    // A simple quad for each particle
+    const vertices = [
+        -1, 0, -1,  0, 1, 0,  0, 0,  1, 1, 1, 1,
+         1, 0, -1,  0, 1, 0,  1, 0,  1, 1, 1, 1,
+         1, 0,  1,  0, 1, 0,  1, 1,  1, 1, 1, 1,
+        -1, 0,  1,  0, 1, 0,  0, 1,  1, 1, 1, 1,
+    ];
+    const indices = [0, 1, 2, 0, 2, 3];
+
+    addon.Model.clearMesh(id);
+    addon.Model.createMesh({
+        id: id,
+        position: [0, 0, 0],
+        vertexData: vertices,
+        indexData: indices,
+        instanceCount: riverState.params.particleCount,
+        pipelineId: pipelineIds.rendering,
+        renderRole: "Water",
+        bindings: [
+            { group: 2, binding: 0, resource: { type: "Texture", value: { id: "Landscape" } } },
+            { group: 2, binding: 1, resource: { type: "Sampler" } },
+            { group: 3, binding: 0, resource: { type: "Buffer", value: { id: resources.particleBuffer! } } },
+            { group: 3, binding: 1, resource: { type: "Buffer", value: { id: resources.paramsBuffer! } } },
+        ]
+    });
+}
+
+function setupUI() {
+    const tab = addon.UI.createTab({
+        title: "GPGPU River",
+        onRender: () => renderUI(tab)
+    });
+}
+
+function renderUI(tab: string) {
+    Entropy.UI.Widget.label(tab, { text: "🌊 GPGPU River Fluid", bold: true });
+    
+    Entropy.UI.Widget.slider(tab, {
+        label: "Source X",
+        value: riverState.params.sourcePos[0],
+        min: -2048,
+        max: 2048,
+        onChange: (v) => { riverState.params.sourcePos[0] = parseFloat(v); updateBuffers(); }
+    });
+    
+    Entropy.UI.Widget.slider(tab, {
+        label: "Source Z",
+        value: riverState.params.sourcePos[1],
+        min: -2048,
+        max: 2048,
+        onChange: (v) => { riverState.params.sourcePos[1] = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Source Radius",
+        value: riverState.params.sourceRadius,
+        min: 1,
+        max: 100,
+        onChange: (v) => { riverState.params.sourceRadius = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Flow Speed",
+        value: riverState.params.speedMultiplier,
+        min: 0.1,
+        max: 10.0,
+        onChange: (v) => { riverState.params.speedMultiplier = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Friction",
+        value: riverState.params.friction,
+        min: 0,
+        max: 2,
+        onChange: (v) => { riverState.params.friction = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Landscape Y Offset",
+        value: riverState.params.landscapeYOffset,
+        min: -1000,
+        max: 1000,
+        onChange: (v) => { riverState.params.landscapeYOffset = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Particle Life",
+        value: riverState.params.respawnAge,
+        min: 1,
+        max: 60,
+        onChange: (v) => { riverState.params.respawnAge = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "Reset Particles",
+        onClick: () => { initResources(); createRiverMesh("river_preview"); }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "Refresh Render",
+        onClick: () => { createRiverMesh("river_preview"); }
+    });
+}
