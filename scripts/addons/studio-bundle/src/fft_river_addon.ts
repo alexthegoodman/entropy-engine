@@ -811,6 +811,18 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
 
 // ===== ADDON CODE =====
 
+interface RiverPoint {
+    x: number;
+    y: number;
+}
+
+interface RiverStroke {
+    points: RiverPoint[];
+    brushSize: number;
+    isErase: boolean;
+    direction: "Forward" | "Backward";
+}
+
 interface RiverWaterParams {
     resolution: number;
     waterSize: number;
@@ -843,13 +855,13 @@ interface RiverWaterParams {
     useManualRivers: boolean;
     brushSize: number;
     brushDirection: "Forward" | "Backward";
-    manualRiverMaskData?: string; // Base64 encoded
+    strokes: RiverStroke[];
 }
 
 const addonInfo = {
     name: "FFT River Water",
-    version: "1.0.0",
-    description: "Terrain-aware FFT water that naturally flows in low-lying areas",
+    version: "1.1.0",
+    description: "Terrain-aware FFT water with path-based manual drawing",
     author: ["Entropy Team", "Claude"],
     capabilities: {
         graphics: true,
@@ -889,6 +901,7 @@ let riverParams: RiverWaterParams = {
     useManualRivers: true,
     brushSize: 5.0,
     brushDirection: "Forward",
+    strokes: []
 };
 
 let addonState: {
@@ -947,50 +960,80 @@ function getManualRiverMask(): Uint8Array {
     return addonState.manualRiverMaskRaw;
 }
 
-function updateManualRiverMask(x: number, y: number, brushSize: number) {
+/**
+ * Rasterizes all stored strokes into the manualRiverMaskRaw Uint8Array
+ */
+function rasterizeStrokes() {
     const res = 512;
-    const centerX = x * res;
-    const centerY = y * res;
-    const radius = brushSize * (res / 100.0);
     const mask = getManualRiverMask();
-    const val = addonState.eraseMode ? 0 : 255;
-    
-    let changed = false;
-    for (let iy = Math.max(0, Math.floor(centerY - radius)); iy < Math.min(res, Math.ceil(centerY + radius)); iy++) {
-        for (let ix = Math.max(0, Math.floor(centerX - radius)); ix < Math.min(res, Math.ceil(centerX + radius)); ix++) {
-            const dx = ix - centerX;
-            const dy = iy - centerY;
-            if (dx * dx + dy * dy <= radius * radius) {
-                const idx = iy * res + ix;
-                if (mask[idx] !== val) {
-                    mask[idx] = val;
-                    changed = true;
+    mask.fill(0); // Reset
+
+    for (const stroke of addonState.currentParams.strokes) {
+        const val = stroke.isErase ? 0 : 255;
+        const radius = stroke.brushSize * (res / 100.0);
+        
+        for (const pt of stroke.points) {
+            const centerX = pt.x * res;
+            const centerY = pt.y * res;
+            
+            for (let iy = Math.max(0, Math.floor(centerY - radius)); iy < Math.min(res, Math.ceil(centerY + radius)); iy++) {
+                for (let ix = Math.max(0, Math.floor(centerX - radius)); ix < Math.min(res, Math.ceil(centerX + radius)); ix++) {
+                    const dx = ix - centerX;
+                    const dy = iy - centerY;
+                    if (dx * dx + dy * dy <= radius * radius) {
+                        mask[iy * res + ix] = val;
+                    }
                 }
             }
         }
     }
 
-    if (changed) {
-        let manualMaskId = (globalThis as any).manualRiverMaskId;
-        const rgbaData = new Uint8Array(res * res * 4);
-        for (let i = 0; i < res * res; i++) {
-            const mVal = mask[i];
-            rgbaData[i * 4] = mVal;
-            rgbaData[i * 4 + 1] = mVal;
-            rgbaData[i * 4 + 2] = mVal;
-            rgbaData[i * 4 + 3] = 255;
-        }
-        
-        if (manualMaskId) {
-            addon.Texture.update(manualMaskId, rgbaData);
-        } else {
-            manualMaskId = addon.Texture.create(res, res, rgbaData);
-            (globalThis as any).manualRiverMaskId = manualMaskId;
-        }
-        
-        if (addonState.currentParams.useManualRivers) {
-            computeFlowAccumulation();
-        }
+    // Update GPU texture
+    let manualMaskId = (globalThis as any).manualRiverMaskId;
+    const rgbaData = new Uint8Array(res * res * 4);
+    for (let i = 0; i < res * res; i++) {
+        const mVal = mask[i];
+        rgbaData[i * 4] = mVal;
+        rgbaData[i * 4 + 1] = mVal;
+        rgbaData[i * 4 + 2] = mVal;
+        rgbaData[i * 4 + 3] = 255;
+    }
+    
+    if (manualMaskId) {
+        addon.Texture.update(manualMaskId, rgbaData);
+    } else {
+        manualMaskId = addon.Texture.create(res, res, rgbaData);
+        (globalThis as any).manualRiverMaskId = manualMaskId;
+    }
+    
+    if (addonState.currentParams.useManualRivers) {
+        computeFlowAccumulation();
+    }
+}
+
+let lastDrawTime = 0;
+
+function updateManualRiverMask(x: number, y: number, brushSize: number) {
+    const now = Date.now();
+    
+    // Heuristic: If it's been more than 250ms since the last point, it's a new stroke
+    if (now - lastDrawTime > 250) {
+        addonState.currentParams.strokes.push({
+            points: [],
+            brushSize: brushSize,
+            isErase: addonState.eraseMode,
+            direction: addonState.currentParams.brushDirection
+        });
+    }
+    
+    lastDrawTime = now;
+    const currentStroke = addonState.currentParams.strokes[addonState.currentParams.strokes.length - 1];
+    
+    // Avoid duplicate points
+    const lastPoint = currentStroke.points[currentStroke.points.length - 1];
+    if (!lastPoint || Math.abs(lastPoint.x - x) > 0.001 || Math.abs(lastPoint.y - y) > 0.001) {
+        currentStroke.points.push({ x, y });
+        rasterizeStrokes();
     }
 }
 
@@ -1231,30 +1274,8 @@ addon.onInit(async () => {
         if (data) {
             addonState = { ...addonState, ...data };
             
-            // Restore manual mask from base64
-            if (addonState.currentParams.manualRiverMaskData) {
-                addonState.manualRiverMaskRaw = base64ToUint8Array(addonState.currentParams.manualRiverMaskData);
-                
-                // Trigger texture update
-                const res = 512;
-                const mask = getManualRiverMask();
-                const rgbaData = new Uint8Array(res * res * 4);
-                for (let i = 0; i < res * res; i++) {
-                    const mVal = mask[i];
-                    rgbaData[i * 4] = mVal;
-                    rgbaData[i * 4 + 1] = mVal;
-                    rgbaData[i * 4 + 2] = mVal;
-                    rgbaData[i * 4 + 3] = 255;
-                }
-                
-                let manualMaskId = (globalThis as any).manualRiverMaskId;
-                if (manualMaskId) {
-                    addon.Texture.update(manualMaskId, rgbaData);
-                } else {
-                    manualMaskId = addon.Texture.create(res, res, rgbaData);
-                    (globalThis as any).manualRiverMaskId = manualMaskId;
-                }
-            }
+            // Restore manual mask from paths
+            rasterizeStrokes();
 
             if (Entropy.Composer) {
                 addonState.savedComponents.forEach(comp => {
@@ -1676,15 +1697,29 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "🌊 FFT River System", bold: true });
     
     Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
-        // Serialize mask to base64
-        if (addonState.manualRiverMaskRaw) {
-            addonState.currentParams.manualRiverMaskData = uint8ArrayToBase64(addonState.manualRiverMaskRaw);
-        }
         addon.IO.save(addonState);
         if (Entropy.Composer) {
             addonState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params); });
         }
     }});
+
+    Entropy.UI.Widget.button(tab, {
+        text: "↩️ Undo Last Stroke",
+        onClick: () => {
+            if (addonState.currentParams.strokes.length > 0) {
+                addonState.currentParams.strokes.pop();
+                rasterizeStrokes();
+            }
+        }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "🗑️ Clear All Rivers",
+        onClick: () => {
+            addonState.currentParams.strokes = [];
+            rasterizeStrokes();
+        }
+    });
 
     Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
     Entropy.UI.Widget.button(tab, { text: "➕ Save Current as Component", onClick: () => {
