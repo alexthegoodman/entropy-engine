@@ -225,11 +225,23 @@ pub enum UiWidget {
 
 
 
-    Checkbox { id: String, label: String, value: bool },
+        Checkbox { id: String, label: String, value: bool },
 
 
 
-    Separator,
+    
+
+
+
+        CodeEditor { id: String, label: String, content: String, language: String },
+
+
+
+    
+
+
+
+        Separator,
 
 
 
@@ -477,6 +489,80 @@ fn op_landscape_update_pbr_texture(
     // println!("op_landscape_update_pbr_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
+    }
+}
+
+#[op2]
+#[serde]
+fn op_script_list(state: &mut OpState) -> Result<Vec<String>, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.clone();
+    
+    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
+        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+    let mut script_files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(scripts_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension() {
+                    if ext == "js" {
+                        if let Some(name) = path.file_name() {
+                            script_files.push(name.to_string_lossy().into_owned());
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(script_files)
+}
+
+#[op2]
+#[string]
+fn op_script_read(state: &mut OpState, #[string] filename: String) -> Result<String, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.clone();
+    
+    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
+        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+    let file_path = scripts_dir.join(filename);
+    if !file_path.exists() {
+        return Err(deno_error::JsErrorBox::generic("Script file not found"));
+    }
+
+    std::fs::read_to_string(file_path)
+        .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to read script: {}", e)))
+}
+
+#[op2(fast)]
+fn op_script_write(state: &mut OpState, #[string] filename: String, #[string] content: String) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.clone();
+    
+    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
+        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+    let file_path = scripts_dir.join(filename);
+    
+    std::fs::write(file_path, content)
+        .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to write script: {}", e)))
+}
+
+#[op2(fast)]
+fn op_ui_widget_code_editor(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    #[string] content: String,
+    #[string] language: String,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::CodeEditor { id, label, content, language });
     }
 }
 
@@ -2018,11 +2104,15 @@ extension!(
         op_ui_widget_numeric_input,
         op_ui_widget_dropdown,
         op_ui_widget_checkbox,
+        op_ui_widget_code_editor,
         op_ui_widget_separator,
         op_addon_save_data,
         op_addon_save_image,
         op_io_list_models,
         op_io_pick_and_import_model,
+        op_script_list,
+        op_script_read,
+        op_script_write,
         op_texture_create,
         op_texture_create_ex,
         op_texture_load,
@@ -3468,6 +3558,10 @@ impl AddonEngine {
                                         UiWidget::Separator => {
                                             ui.separator();
                                         }
+                                        _ => {
+                                            let mut txt = egui::RichText::new("No renderer supported by engine");
+                                            ui.label(txt);
+                                        }
                                     }
                                  }
                              }
@@ -3617,6 +3711,27 @@ impl AddonEngine {
                                  let mut current_value = *value;
                                  if ui.checkbox(&mut current_value, label).changed() {
                                      let payload = format!("{}|{}", check_id, current_value);
+                                     events_to_push.push(payload);
+                                 }
+                             }
+                             UiWidget::CodeEditor { id: editor_id, label, content, language } => {
+                                 ui.label(label);
+                                 let syntax = if language == "javascript" || language == "js" {
+                                     egui_code_editor::Syntax::lua()
+                                 } else {
+                                     egui_code_editor::Syntax::rust()
+                                 };
+
+                                 let mut current_content = content.clone();
+                                 let response = egui_code_editor::CodeEditor::default()
+                                     .id_source(editor_id)
+                                     .with_syntax(syntax)
+                                     .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
+                                     .with_numlines(true)
+                                     .show(ui, &mut current_content);
+
+                                 if response.response.changed() {
+                                     let payload = format!("{}|{}", editor_id, current_content);
                                      events_to_push.push(payload);
                                  }
                              }

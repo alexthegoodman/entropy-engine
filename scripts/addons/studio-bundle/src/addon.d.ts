@@ -221,6 +221,11 @@ export interface ScopedAPI {
     pickAndImportModel: () => Promise<string>;
     load: () => any;
   };
+  Scripts: {
+    list: () => Promise<string[]>;
+    read: (filename: string) => Promise<string>;
+    write: (filename: string, content: string) => Promise<void>;
+  };
   Buffer: {
     create: (config: { size: number; usage?: BufferUsage }) => string;
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
@@ -346,6 +351,13 @@ export interface CheckboxConfig {
     onChange?: (value: boolean) => void;
 }
 
+export interface CodeEditorConfig {
+    label: string;
+    content: string;
+    language: string;
+    onChange?: (content: string) => void;
+}
+
 // Main Entropy API
 export interface EntropyAPI {
   Addon: {
@@ -364,6 +376,7 @@ export interface EntropyAPI {
       numericInput: (windowId: string, config: NumericInputConfig) => void;
       dropdown: (windowId: string, config: DropdownConfig) => void;
       checkbox: (windowId: string, config: CheckboxConfig) => void;
+      codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       separator: (windowId: string) => void;
     };
   };

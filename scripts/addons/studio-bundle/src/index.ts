@@ -22,6 +22,7 @@ import "./hair_particle_addon";
 import "./fft_water_addon";
 // import "./fft_river_addon"; // not high enough quality yet
 import "./model_viewer_addon";
+import "./game_scripts_addon";
 
 // initialize last (tier 3)
 import "./game_composer_addon";

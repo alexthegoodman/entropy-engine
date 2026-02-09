@@ -238,6 +238,17 @@ globalThis.Entropy = {
                         }
                     }
                 },
+                Scripts: {
+                    list: () => {
+                        return ops.op_script_list();
+                    },
+                    read: (filename) => {
+                        return ops.op_script_read(filename);
+                    },
+                    write: (filename, content) => {
+                        return ops.op_script_write(filename, content);
+                    }
+                },
                 Buffer: {
                     create: (config) => {
                         return ops.op_buffer_create({
@@ -369,6 +380,21 @@ globalThis.Entropy = {
                 globalThis._entropy_widget_counter = count + 1;
 
                 ops.op_ui_widget_checkbox(windowId, label, value, id);
+
+                if (config?.onChange) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = config.onChange;
+                }
+            },
+            codeEditor: (windowId, config) => {
+                const label = config?.label || "";
+                const content = config?.content || "";
+                const language = config?.language || "javascript";
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_" + label + "_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
+                ops.op_ui_widget_code_editor(windowId, label, content, language, id);
 
                 if (config?.onChange) {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
