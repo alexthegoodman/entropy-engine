@@ -10,6 +10,9 @@ declare global {
   }} | undefined;
   
   var onPBRDesignerUpdate: (() => void) | undefined;
+  
+  var onManualRiverMaskUpdate: (() => void) | undefined;
+  var manualRiverMaskId: string | undefined;
 }
 
 export interface Vec3 {
@@ -180,6 +183,7 @@ export interface ScopedAPI {
     create: (width: number, height: number, data: Uint8Array | number[]) => string;
     createStorage: (width: number, height: number, format?: string) => string;
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
+    update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
   };
   Audio: {
@@ -435,6 +439,7 @@ export interface EntropyAPI {
     create: (width: number, height: number, data: Uint8Array | number[]) => string;
     createStorage: (width: number, height: number, format?: string) => string;
     createEx: (config: TextureConfig, data?: Uint8Array | number[] | null) => string;
+    update: (textureId: string, data: Uint8Array | number[] | Float32Array) => void;
     load: (filename: string) => string;
   };
   Particles: {

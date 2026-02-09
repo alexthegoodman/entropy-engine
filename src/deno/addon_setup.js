@@ -180,6 +180,9 @@ globalThis.Entropy = {
                     createEx: (config, data = null) => {
                         return ops.op_texture_create_ex(config, data);
                     },
+                    update: (textureId, data) => {
+                        return ops.op_texture_update(textureId, data);
+                    },
                     load: (filename) => {
                         return ops.op_texture_load(filename);
                     }
@@ -567,6 +570,9 @@ globalThis.Entropy = {
         },
         createEx: (config, data = null) => {
             return ops.op_texture_create_ex(config, data);
+        },
+        update: (textureId, data) => {
+            return ops.op_texture_update(textureId, data);
         },
         load: (filename) => {
             return ops.op_texture_load(filename);

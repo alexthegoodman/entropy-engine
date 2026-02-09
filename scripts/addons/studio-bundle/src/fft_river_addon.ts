@@ -292,7 +292,7 @@ struct FlowParams {
     landscape_y_offset: f32,
     resolution: f32,
     min_flow_threshold: f32,  // Minimum accumulation to show as river
-    padding1: f32,
+    use_manual_rivers: f32,   // 1.0 if using manual drawing
     padding2: f32,
     padding3: f32,
 }
@@ -308,6 +308,9 @@ var output_flow: texture_storage_2d<rgba16float, write>;
 
 @group(0) @binding(3)
 var<uniform> params: FlowParams;
+
+@group(0) @binding(4)
+var manual_river_texture: texture_2d<f32>;
 
 fn sample_height(uv: vec2<f32>) -> f32 {
     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
@@ -327,6 +330,13 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     
     // Check 8 neighboring pixels
     var flow_accumulation = 1.0; // Start with 1 (the pixel itself)
+
+    // Manual drawing influence
+    let manual_mask = textureLoad(manual_river_texture, vec2<i32>(id.xy), 0).r;
+    
+    if (params.use_manual_rivers > 0.5) {
+        flow_accumulation = manual_mask * 50.0; // Significant flow where drawn
+    }
     
     // Offsets for 8-connected neighbors
     let offsets = array<vec2<f32>, 8>(
@@ -344,6 +354,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (neighbor_height > center_height) {
             let height_diff = neighbor_height - center_height;
             let flow_contribution = height_diff * 0.1; // Weight by slope
+            
+            // If manual mode is on, we still want to accumulate flow from neighbors 
+            // if they are also part of the manual path or just generally downhill
             flow_accumulation += flow_contribution;
         }
     }
@@ -826,6 +839,9 @@ interface RiverWaterParams {
     
     foamThreshold: number;
     foamIntensity: number;
+
+    useManualRivers: boolean;
+    brushSize: number;
 }
 
 const addonInfo = {
@@ -867,6 +883,9 @@ let riverParams: RiverWaterParams = {
     
     foamThreshold: 0.85,
     foamIntensity: 0.4,
+
+    useManualRivers: true,
+    brushSize: 5.0,
 };
 
 let addonState: {
@@ -915,6 +934,7 @@ addon.onInit(async () => {
                 { binding: 1, visibility: ["Compute"], resourceType: "Sampler" },
                 { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
                 { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
+                { binding: 4, visibility: ["Compute"], resourceType: "Texture" },
             ]
         }]
     });
@@ -1046,6 +1066,12 @@ addon.onInit(async () => {
     });
     
     setupUI();
+
+    (globalThis as any).onManualRiverMaskUpdate = () => {
+        if (addonState.currentParams.useManualRivers) {
+            computeFlowAccumulation();
+        }
+    };
 
     if (Entropy.Composer) {
         Entropy.Composer.registerEditor(addonInfo.name, renderUI);
@@ -1245,6 +1271,15 @@ function computeFlowAccumulation() {
     
     const flowRes = 512;
     const workgroups = Math.ceil(flowRes / 8);
+
+    // Get manual river mask from global interop
+    let manualMaskId = (globalThis as any).manualRiverMaskId;
+    if (!manualMaskId) {
+        // Create an empty one if not exists
+        const empty = new Uint8Array(512 * 512 * 4).fill(0);
+        manualMaskId = addon.Texture.create(512, 512, empty);
+        (globalThis as any).manualRiverMaskId = manualMaskId;
+    }
     
     const flowParams = new Float32Array([
         4096.0, // landscape_size
@@ -1252,7 +1287,8 @@ function computeFlowAccumulation() {
         -400.0 + 8.0, // landscape_y_offset
         flowRes,
         addonState.currentParams.minFlowThreshold,
-        0, 0, 0
+        addonState.currentParams.useManualRivers ? 1.0 : 0.0,
+        0, 0
     ]);
     
     // Initial flow accumulation pass
@@ -1264,6 +1300,7 @@ function computeFlowAccumulation() {
             { group: 0, binding: 1, resource: { type: "Sampler" } },
             { group: 0, binding: 2, resource: { type: "StorageTextureRgba16", value: { id: textures.flowMap[0]! } } },
             { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(flowParams) } } },
+            { group: 0, binding: 4, resource: { type: "Texture", value: { id: manualMaskId } } },
         ]
     });
     
@@ -1505,6 +1542,15 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "Rivers follow natural flow paths down terrain" });
 
     Entropy.UI.Widget.label(tab, { text: "💧 Flow Detection", bold: true });
+
+    Entropy.UI.Widget.button(tab, {
+        text: addonState.currentParams.useManualRivers ? "✏️ Mode: Manual (Drawn on MiniMap)" : "🤖 Mode: Automatic (Flow Accumulation)",
+        onClick: () => {
+            addonState.currentParams.useManualRivers = !addonState.currentParams.useManualRivers;
+            computeFlowAccumulation();
+            createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
     
     Entropy.UI.Widget.slider(tab, {
         label: "Min Flow Threshold",

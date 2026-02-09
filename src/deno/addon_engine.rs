@@ -367,6 +367,7 @@ pub struct AddonContext {
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
+    pub raw_textures: HashMap<String, Arc<wgpu::Texture>>,
     pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
@@ -695,6 +696,7 @@ fn op_texture_create_ex(
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         ctx.textures.insert(texture_id.clone(), Arc::new(view));
+        ctx.raw_textures.insert(texture_id.clone(), Arc::new(texture));
         
         Ok(texture_id)
     } else {
@@ -748,7 +750,9 @@ fn op_texture_create(
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let shared_texture = Arc::new(texture);
         ctx.textures.insert(texture_id.clone(), Arc::new(view));
+        ctx.raw_textures.insert(texture_id.clone(), shared_texture);
         
         let core_texture = crate::core::Texture::Texture {
             data: rgba_data.to_vec(),
@@ -821,7 +825,9 @@ fn op_texture_load(
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let shared_texture = Arc::new(texture);
         ctx.textures.insert(texture_id.clone(), Arc::new(view));
+        ctx.raw_textures.insert(texture_id.clone(), shared_texture.clone());
 
         let core_texture = crate::core::Texture::Texture {
             data: rgba_data,
@@ -837,6 +843,47 @@ fn op_texture_load(
     }
 }else {
         Err(deno_error::JsErrorBox::generic("Project id not set"))
+    }
+}
+
+#[op2(fast)]
+fn op_texture_update(
+    state: &mut OpState,
+    #[string] texture_id: String,
+    #[buffer] data: &[u8]
+) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let gpu = ctx.gpu_resources.as_ref().ok_or_else(|| deno_error::JsErrorBox::generic("GPU resources not available"))?;
+
+    if let Some(texture) = ctx.raw_textures.get(&texture_id) {
+        let size = texture.size();
+        let format = texture.format();
+        
+        let bytes_per_pixel = match format {
+            wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => 4,
+            wgpu::TextureFormat::Rgba16Float => 8,
+            wgpu::TextureFormat::Rgba32Float => 16,
+            _ => 4,
+        };
+
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(bytes_per_pixel * size.width),
+                rows_per_image: None,
+            },
+            size,
+        );
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic(format!("Texture not found: {}", texture_id)))
     }
 }
 
@@ -2126,6 +2173,7 @@ extension!(
         op_texture_create,
         op_texture_create_ex,
         op_texture_load,
+        op_texture_update,
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_test,
@@ -2204,6 +2252,7 @@ impl AddonEngine {
             render_roles: HashMap::new(),
             project_id: project_id.clone(),
             textures: HashMap::new(),
+            raw_textures: HashMap::new(),
             landscape_texture_view: None,
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),

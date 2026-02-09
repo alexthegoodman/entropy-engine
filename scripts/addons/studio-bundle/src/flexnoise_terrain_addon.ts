@@ -33,6 +33,7 @@ let terrainParams = {
     time: 0.0,
     autoSyncPBR: false,
     rockThreshold: 0.5,
+    brushSize: 5.0,
     pipelineId: null as string | null,
     textureLayers: {
         "Primary": null as string | null,
@@ -55,8 +56,62 @@ let newComponentName = "New Terrain Component";
 
 let interopState = {
     selectedSlot: "Rockmap" as "Primary" | "Rockmap" | "Soil",
-    selectedTextureCompId: ""
+    selectedTextureCompId: "",
+    manualRiverMaskData: new Uint8Array(TEXTURE_RES * TEXTURE_RES).fill(0),
+    manualRiverMaskId: null as string | null
 };
+
+function updateManualRiverMask(x: number, y: number, brushSize: number) {
+    const res = TEXTURE_RES;
+    const centerX = x * res;
+    const centerY = y * res;
+    const radius = brushSize * (res / 100.0); // brushSize is usually 1-100 or similar
+    
+    let changed = false;
+    for (let iy = Math.max(0, Math.floor(centerY - radius)); iy < Math.min(res, Math.ceil(centerY + radius)); iy++) {
+        for (let ix = Math.max(0, Math.floor(centerX - radius)); ix < Math.min(res, Math.ceil(centerX + radius)); ix++) {
+            const dx = ix - centerX;
+            const dy = iy - centerY;
+            if (dx * dx + dy * dy <= radius * radius) {
+                const idx = iy * res + ix;
+                if (interopState.manualRiverMaskData[idx] !== 255) {
+                    interopState.manualRiverMaskData[idx] = 255;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    if (changed || !interopState.manualRiverMaskId) {
+        // Create RGBA data for the texture
+        const res = TEXTURE_RES;
+        const rgbaData = new Uint8Array(res * res * 4);
+        for (let i = 0; i < res * res; i++) {
+            const val = interopState.manualRiverMaskData[i];
+            rgbaData[i * 4] = val;
+            rgbaData[i * 4 + 1] = val;
+            rgbaData[i * 4 + 2] = val;
+            rgbaData[i * 4 + 3] = 255;
+        }
+        
+        // Pick up from global if we don't have it yet
+        if (!interopState.manualRiverMaskId) {
+            interopState.manualRiverMaskId = (globalThis as any).manualRiverMaskId;
+        }
+
+        if (interopState.manualRiverMaskId) {
+            addon.Texture.update(interopState.manualRiverMaskId, rgbaData);
+        } else {
+            interopState.manualRiverMaskId = addon.Texture.create(res, res, rgbaData);
+            (globalThis as any).manualRiverMaskId = interopState.manualRiverMaskId;
+        }
+        
+        // Notify other addons
+        if (typeof (globalThis as any).onManualRiverMaskUpdate === 'function') {
+            (globalThis as any).onManualRiverMaskUpdate();
+        }
+    }
+}
 
 // FBM (Fractional Brownian Motion) implementation using the library
 function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number) {
@@ -318,14 +373,32 @@ addon.onInit(async () => {
         Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
         
+        Entropy.UI.Widget.slider(tab, {
+            label: "River Brush Size",
+            value: addonState.currentParams.brushSize,
+            min: 1.0,
+            max: 50.0,
+            onChange: (v) => {
+                addonState.currentParams.brushSize = parseFloat(v);
+            }
+        });
+
         Entropy.UI.Widget.miniMap(tab, {
             landscapeId: "Global",
-            brushSize: 5.0,
+            brushSize: addonState.currentParams.brushSize,
             markers: [
                 { position: [0.5, 0.5], color: [1, 0, 0, 1], label: "Center" }
             ],
             onDraw: (x, y, brushSize) => {
-                println(`Drawing on MiniMap at ${x}, ${y} with size ${brushSize}`);
+                updateManualRiverMask(x, y, brushSize);
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🗑️ Clear Manual Rivers",
+            onClick: () => {
+                interopState.manualRiverMaskData.fill(0);
+                updateManualRiverMask(0, 0, 0); // Trigger update
             }
         });
 
