@@ -71,6 +71,7 @@ pub enum Tab {
     Manage,
     Citations,
     AddonTab { id: String, label: String },
+    ScriptEditor { path: std::path::PathBuf },
 }
 
 #[cfg(target_os = "windows")]
@@ -135,6 +136,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
     fn title(&mut self, tab: &mut Self::Tab) -> egui::WidgetText {
         match tab {
             Tab::AddonTab { label, .. } => label.as_str().into(),
+            Tab::ScriptEditor { path } => {
+                let filename = path.file_name().and_then(|f| f.to_str()).unwrap_or("Script");
+                filename.into()
+            }
             _ => format!("{:?}", tab).into(),
         }
     }
@@ -736,6 +741,64 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                         }
                                                     }
                                                     utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                                }
+
+                                                ui.separator();
+                                                ui.heading("Script");
+                                                
+                                                let scripts_dir = utilities::get_scripts_dir(&project_id);
+                                                if let Some(scripts_dir) = scripts_dir {
+                                                    let mut scripts = Vec::new();
+                                                    if let Ok(entries) = std::fs::read_dir(&scripts_dir) {
+                                                        for entry in entries.flatten() {
+                                                            if entry.path().is_file() {
+                                                                if let Some(name) = entry.file_name().to_str() {
+                                                                    if name.ends_with(".js") {
+                                                                        scripts.push(name.to_string());
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    let mut current_script = component.js_script_path.clone().unwrap_or_default();
+                                                    egui::ComboBox::from_label("Select Script")
+                                                        .selected_text(if current_script.is_empty() { "None" } else { &current_script })
+                                                        .show_ui(ui, |ui| {
+                                                            ui.selectable_value(&mut current_script, "".to_string(), "None");
+                                                            for script in scripts {
+                                                                ui.selectable_value(&mut current_script, script.clone(), script);
+                                                            }
+                                                        });
+
+                                                    if ui.button("Create New Script").clicked() {
+                                                        let new_script_name = format!("script_{}.js", Uuid::new_v4().to_string()[0..8].to_string());
+                                                        let full_path = scripts_dir.join(&new_script_name);
+                                                        let default_content = "export function on_update(player, system, state) {\n    return state;\n}\n";
+                                                        if let Ok(_) = std::fs::write(&full_path, default_content) {
+                                                            component.js_script_path = Some(new_script_name.clone());
+                                                            utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                                            
+                                                            editor.script_editors.entry(full_path.clone())
+                                                                .or_insert_with(|| crate::core::script_editor::ScriptEditor::new(full_path.clone()));
+                                                            editor.pending_script_tabs.push(full_path);
+                                                        }
+                                                    }
+
+                                                    if current_script != component.js_script_path.clone().unwrap_or_default() {
+                                                        component.js_script_path = if current_script.is_empty() { None } else { Some(current_script) };
+                                                        utilities::update_project_state_component(&project_id, component).expect("Failed to update project state");
+                                                    }
+
+                                                    if let Some(script_path) = &component.js_script_path {
+                                                        if ui.button("Edit Script").clicked() {
+                                                            let full_path = scripts_dir.join(script_path);
+                                                            editor.script_editors.entry(full_path.clone())
+                                                                .or_insert_with(|| crate::core::script_editor::ScriptEditor::new(full_path.clone()));
+                                                            
+                                                            editor.pending_script_tabs.push(full_path);
+                                                        }
+                                                    }
                                                 }
                                             }
                                             Some(ComponentKind::PointLight) => {
@@ -1620,6 +1683,14 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::AddonTab { id, .. } => {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 editor.addon_engine.render_tab(ui, id);
+            }
+            Tab::ScriptEditor { path } => {
+                let editor = self.context.export_editor.as_mut().unwrap();
+                if let Some(script_editor) = editor.script_editors.get_mut(path) {
+                    script_editor.show(ui);
+                } else {
+                    ui.label("Script editor not found for this path.");
+                }
             }
             _ => {
                 ui.label("Not implemented");

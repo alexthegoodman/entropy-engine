@@ -343,6 +343,17 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                 surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
                                 surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
                             }
+
+                            let pending_scripts = std::mem::take(&mut editor.pending_script_tabs);
+                            for script_path in pending_scripts {
+                                if let Workspace::Addon(name) = &pipeline.current_workspace {
+                                    let dock_state = pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
+                                        DockState::new(vec![Tab::Projects])
+                                    });
+                                    let surface = dock_state.main_surface_mut();
+                                    surface.split_right(NodeIndex::root(), 0.5, vec![Tab::ScriptEditor { path: script_path }]);
+                                }
+                            }
                         }
 
                         let active_dock_state = match &pipeline.current_workspace {

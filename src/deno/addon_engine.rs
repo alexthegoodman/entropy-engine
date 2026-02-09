@@ -3458,7 +3458,17 @@ impl AddonEngine {
                                                  }
                                              });
                                          }
-                                     }
+                                         UiWidget::Checkbox { id: check_id, label, value } => {
+                                            let mut current_value = *value;
+                                            if ui.checkbox(&mut current_value, label).changed() {
+                                                let payload = format!("{}|{}", check_id, current_value);
+                                                events_to_push.push(payload);
+                                            }
+                                        }
+                                        UiWidget::Separator => {
+                                            ui.separator();
+                                        }
+                                    }
                                  }
                              }
                         });

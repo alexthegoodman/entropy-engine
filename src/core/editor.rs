@@ -1,6 +1,7 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 #[cfg(target_os = "windows")]
@@ -353,6 +354,8 @@ pub struct Editor {
     pub sophia_app_state: crate::core::sophia::SophiaState,
     pub deno_engine: DenoEngine,
     pub addon_engine: AddonEngine,
+    pub script_editors: HashMap<PathBuf, crate::core::script_editor::ScriptEditor>,
+    pub pending_script_tabs: Vec<PathBuf>,
     
     // resize handles system
     pub selected_object: Option<SelectedObject>,
@@ -685,6 +688,8 @@ impl Editor {
             sophia_app_state: crate::core::sophia::SophiaState::new(),
             deno_engine: DenoEngine::new(project_id.clone()),
             addon_engine: AddonEngine::new(project_id.clone()),
+            script_editors: HashMap::new(),
+            pending_script_tabs: Vec::new(),
             // st_capture,
             // exporter: None,
             // font_manager,
