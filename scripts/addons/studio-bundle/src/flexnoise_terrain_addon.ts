@@ -877,7 +877,7 @@ addon.onInit(async () => {
         }
 
         if (!comp) {
-            return { success: false, error: `Texture component '${args.textureComponentId}' not found.` };
+            return { success: false, error: `Texture component '${args.textureComponentId}' not found. Please alert the user that it was "not found" internally.` };
         }
 
         // Update state in FlexNoise
