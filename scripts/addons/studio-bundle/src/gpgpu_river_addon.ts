@@ -489,7 +489,7 @@ const initialParams: RiverParams = {
     
     landscapeSize: 4096.0,
     landscapeHeight: 600.0,
-    landscapeYOffset: -392.0,
+    landscapeYOffset: 2.0,
 };
 
 const addonInfo = {
