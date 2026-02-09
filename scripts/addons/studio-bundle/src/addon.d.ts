@@ -152,6 +152,23 @@ export interface ScopedAPI {
           pipelineId?: string;
           renderRole?: string;
           physics?: PhysicsConfig;
+          player?: {
+              modelId?: string;
+              defaultWeaponId?: string;
+          };
+          npc?: {
+              modelId: string;
+              behavior: {
+                  aggressiveness: number;
+                  combatType: "Melee" | "Ranged";
+                  wanderRadius: number;
+                  wanderSpeed: number;
+                  detectionRadius: number;
+                  meleeStats?: any;
+                  rangedStats?: any;
+              };
+              squadId?: string;
+          };
       }) => void;
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 

@@ -1993,6 +1993,71 @@ impl RendererState {
         }
     }
 
+    pub fn add_player_character(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_component_id: String,
+        isometry: Isometry3<f32>,
+        scale: Vector3<f32>,
+        camera: &SimpleCamera,
+        player_properties: crate::helpers::saved_data::PlayerProperties
+    ) {
+        use crate::model_components::PlayerCharacter::PlayerCharacter;
+        use crate::helpers::saved_data::ComponentKind;
+
+        // PlayerCharacter::new will handle adding to rigid_body_set and collider_set
+        let mut player_character = PlayerCharacter::new(
+            model_component_id.clone(),
+            &mut self.rigid_body_set,
+            &mut self.collider_set,
+            device,
+            queue,
+            &self.model_bind_group_layout,
+            &self.group_bind_group_layout,
+            &self.regular_texture_render_mode_buffer,
+            camera,
+            isometry,
+            scale,
+            None // default_weapon - we'll handle this via player_properties later if needed
+        );
+
+        player_character.model_id = Some(model_component_id.clone());
+        self.player_character = Some(player_character);
+        self.add_collider(model_component_id, ComponentKind::PlayerCharacter);
+    }
+
+    pub fn add_npc(
+        &mut self,
+        model_component_id: String,
+        npc_properties: crate::helpers::saved_data::NPCProperties
+    ) {
+        use crate::model_components::NPC::NPC;
+        use crate::helpers::saved_data::ComponentKind;
+
+        // Retrieve the rigid_body_handle after the collider has been added
+        let npc_rigid_body_handle = self
+            .models
+            .iter()
+            .chain(self.addon_models.values().flatten())
+            .find(|m| m.id == model_component_id)
+            .and_then(|m| m.meshes.get(0))
+            .and_then(|mesh| mesh.rigid_body_handle)
+            .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
+
+        let squad_id = npc_properties.squad_id.clone();
+
+        self.npcs.push(NPC::new(
+            model_component_id.clone(),
+            model_component_id.clone(),
+            npc_rigid_body_handle,
+            npc_properties.behavior.clone(),
+            squad_id
+        ));
+        
+        self.add_collider(model_component_id, ComponentKind::NPC);
+    }
+
     pub fn add_house(
         &mut self,
         device: &wgpu::Device,

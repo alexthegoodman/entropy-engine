@@ -325,6 +325,8 @@ pub struct ModelConfig {
     pub pipeline_id: Option<String>,
     pub render_role: Option<String>,
     pub physics: Option<PhysicsConfig>,
+    pub player: Option<crate::helpers::saved_data::PlayerProperties>,
+    pub npc: Option<crate::helpers::saved_data::NPCProperties>,
 }
 
 pub struct AddonContext {
@@ -2822,8 +2824,25 @@ impl AddonEngine {
                         None,
                         config.physics
                     );
-                    
-                    renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
+
+                    if let Some(player_props) = config.player {
+                        renderer_state.add_player_character(
+                            &gpu.device,
+                            &gpu.queue,
+                            id.clone(),
+                            isometry,
+                            scale,
+                            camera,
+                            player_props
+                        );
+                    } else if let Some(npc_props) = config.npc {
+                        renderer_state.add_npc(
+                            id.clone(),
+                            npc_props
+                        );
+                    } else {
+                        renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
+                    }
 
                     if let Some(models) = renderer_state.addon_models.get_mut(&addon_name) {
                         if let Some(model) = models.iter_mut().find(|m| m.id == id) {
