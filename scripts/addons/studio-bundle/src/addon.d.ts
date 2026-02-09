@@ -401,7 +401,7 @@ export interface EntropyAPI {
       registerRenderer: (addonName: string, renderFn: (id: string, params: any) => void) => void;
       getRenderer: (addonName: string) => ((id: string, params: any) => void) | undefined;
       registerComponent: (addonName: string, componentId: string, name: string, params: any) => void;
-      getComponents: (addonName: string) => Record<string, { name: string, params: any }>;
+      getComponents: (addonName: string) => Record<string, { id: string, name: string, params: any }>;
       setRolePipeline: (role: string, pipelineId: string) => void;
       initCallbacks: {
         [key: string]: () => void

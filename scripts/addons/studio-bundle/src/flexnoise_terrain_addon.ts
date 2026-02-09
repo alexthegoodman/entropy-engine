@@ -686,39 +686,6 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
-    addon.registerTool({
-        name: "update_terrain_parameters",
-        description: "Update the procedural noise parameters for the terrain generation.",
-        parameters: {
-            type: "object",
-            properties: {
-                seed: { type: "number", description: "Random seed for the noise generator" },
-                frequency: { type: "number", description: "Noise frequency (detail density). Suggested: 0.001 to 0.05" },
-                octaves: { type: "number", description: "Number of noise layers. Suggested: 1 to 8" },
-                persistence: { type: "number", description: "Amplitude reduction per octave. Suggested: 0.0 to 1.0" },
-                lacunarity: { type: "number", description: "Frequency multiplier per octave. Suggested: 1.0 to 4.0" },
-                heightScale: { type: "number", description: "Vertical scaling factor. Suggested: 0.1 to 10.0" }
-            }
-        }
-    }, (args: any) => {
-        Entropy.println("Updating terrain parameters via tool: " + JSON.stringify(args));
-        let changed = false;
-        
-        if (typeof args.seed !== "undefined") { addonState.currentParams.seed = args.seed; changed = true; }
-        if (typeof args.frequency !== "undefined") { addonState.currentParams.frequency = args.frequency; changed = true; }
-        if (typeof args.octaves !== "undefined") { addonState.currentParams.octaves = args.octaves; changed = true; }
-        if (typeof args.persistence !== "undefined") { addonState.currentParams.persistence = args.persistence; changed = true; }
-        if (typeof args.lacunarity !== "undefined") { addonState.currentParams.lacunarity = args.lacunarity; changed = true; }
-        if (typeof args.heightScale !== "undefined") { addonState.currentParams.heightScale = args.heightScale; changed = true; }
-
-        if (changed) {
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-
-            return { success: true, currentParams: addonState.currentParams };
-        }
-        return { success: false, error: "No parameters provided to update." };
-    });
-
     const persistState = (newComponent = false, resetTextures = false) => {
         let id = addonState.activeComponentId;
         
@@ -747,6 +714,40 @@ addon.onInit(async () => {
 
         return id;
     }
+
+    addon.registerTool({
+        name: "update_terrain_parameters",
+        description: "Update the procedural noise parameters for the terrain generation.",
+        parameters: {
+            type: "object",
+            properties: {
+                seed: { type: "number", description: "Random seed for the noise generator" },
+                frequency: { type: "number", description: "Noise frequency (detail density). Suggested: 0.001 to 0.05" },
+                octaves: { type: "number", description: "Number of noise layers. Suggested: 1 to 8" },
+                persistence: { type: "number", description: "Amplitude reduction per octave. Suggested: 0.0 to 1.0" },
+                lacunarity: { type: "number", description: "Frequency multiplier per octave. Suggested: 1.0 to 4.0" },
+                heightScale: { type: "number", description: "Vertical scaling factor. Suggested: 0.1 to 10.0" }
+            }
+        }
+    }, (args: any) => {
+        Entropy.println("Updating terrain parameters via tool: " + JSON.stringify(args));
+        let changed = false;
+        
+        if (typeof args.seed !== "undefined") { addonState.currentParams.seed = args.seed; changed = true; }
+        if (typeof args.frequency !== "undefined") { addonState.currentParams.frequency = args.frequency; changed = true; }
+        if (typeof args.octaves !== "undefined") { addonState.currentParams.octaves = args.octaves; changed = true; }
+        if (typeof args.persistence !== "undefined") { addonState.currentParams.persistence = args.persistence; changed = true; }
+        if (typeof args.lacunarity !== "undefined") { addonState.currentParams.lacunarity = args.lacunarity; changed = true; }
+        if (typeof args.heightScale !== "undefined") { addonState.currentParams.heightScale = args.heightScale; changed = true; }
+
+        if (changed) {
+            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            persistState();
+
+            return { success: true, currentParams: addonState.currentParams };
+        }
+        return { success: false, error: "No parameters provided to update." };
+    });
 
     addon.registerTool({
         name: "set_terrain_resolution",
@@ -869,7 +870,7 @@ addon.onInit(async () => {
         
         // If not found by ID, try finding by Name
         if (!comp) {
-            const foundId = Object.keys(components).find(k => components[k].name === args.textureComponentId);
+            const foundId = Object.keys(components).find(k => components[k].id === args.textureComponentId);
             if (foundId) {
                 compId = foundId;
                 comp = components[foundId];
@@ -893,12 +894,13 @@ addon.onInit(async () => {
         if (renderer) {
             // Render the texture to ensure it's in memory/cache
             // We use a temporary ID for the render pass but with the component's params
-            renderer("temp_interop_tool", comp.params);
+            renderer("temp_interop_gen", comp.params);
             
             // Apply it to the terrain
-            applyPBRToSlot("FlexNoise Terrain", "temp_interop_tool", slot);
+            applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", slot);
+            applyPBRToSlot("Game Composer", "temp_interop_gen", slot);
 
-            let resetTextures = true;
+            let resetTextures = false; // false, done right above
             let newComponent = false;
             persistState(newComponent, resetTextures);
             

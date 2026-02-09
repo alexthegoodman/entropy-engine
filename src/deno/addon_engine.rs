@@ -365,7 +365,7 @@ pub struct AddonContext {
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
-    pub project_id: String,
+    pub project_id: Option<String>,
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
     pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
@@ -461,21 +461,22 @@ fn op_landscape_update_pbr_texture(
 #[op2]
 #[serde]
 fn op_script_list(state: &mut OpState) -> Result<Vec<String>, deno_error::JsErrorBox> {
-    let ctx = state.borrow::<AddonContext>();
-    let project_id = ctx.project_id.clone();
-    
-    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
-        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+        let mut script_files = Vec::new();
 
-    let mut script_files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(scripts_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() {
-                if let Some(ext) = path.extension() {
-                    if ext == "js" {
-                        if let Some(name) = path.file_name() {
-                            script_files.push(name.to_string_lossy().into_owned());
+    let ctx = state.borrow::<AddonContext>();
+    if let Some(project_id) = ctx.project_id.clone() {
+        let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+        if let Ok(entries) = std::fs::read_dir(scripts_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(ext) = path.extension() {
+                        if ext == "js" {
+                            if let Some(name) = path.file_name() {
+                                script_files.push(name.to_string_lossy().into_owned());
+                            }
                         }
                     }
                 }
@@ -490,7 +491,7 @@ fn op_script_list(state: &mut OpState) -> Result<Vec<String>, deno_error::JsErro
 #[string]
 fn op_script_read(state: &mut OpState, #[string] filename: String) -> Result<String, deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
-    let project_id = ctx.project_id.clone();
+    if let Some(project_id) = ctx.project_id.clone() {
     
     let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
@@ -502,12 +503,16 @@ fn op_script_read(state: &mut OpState, #[string] filename: String) -> Result<Str
 
     std::fs::read_to_string(file_path)
         .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to read script: {}", e)))
+
+    } else {
+        Err(deno_error::JsErrorBox::generic("Script file not found"))
+    }
 }
 
 #[op2(fast)]
 fn op_script_write(state: &mut OpState, #[string] filename: String, #[string] content: String) -> Result<(), deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
-    let project_id = ctx.project_id.clone();
+    if let Some(project_id) = ctx.project_id.clone() {
     
     let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
@@ -516,6 +521,10 @@ fn op_script_write(state: &mut OpState, #[string] filename: String, #[string] co
     
     std::fs::write(file_path, content)
         .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to write script: {}", e)))
+
+    } else {
+        Err(deno_error::JsErrorBox::generic("Script file not found"))
+    }
 }
 
 #[op2(fast)]
@@ -535,9 +544,9 @@ fn op_ui_widget_code_editor(
 #[op2(fast)]
 fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[string] data: String) -> Result<(), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        let project_id = &ctx.project_id;
+        if let Some(project_id) = ctx.project_id.clone() {
         
-        let project_dir = get_project_dir(project_id)
+        let project_dir = get_project_dir(&project_id)
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
             
         let addons_dir = project_dir.join("addons");
@@ -551,6 +560,7 @@ fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[strin
         if let Err(e) = std::fs::write(&file_path, data) {
             return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
         }
+    }
         Ok(())
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
@@ -567,9 +577,9 @@ fn op_addon_save_image(
     #[buffer] rgba_data: &[u8]
 ) -> Result<(), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        let project_id = &ctx.project_id;
+        if let Some(project_id) = ctx.project_id.clone() {
         
-        let textures_dir = crate::helpers::utilities::get_textures_dir(project_id)
+        let textures_dir = crate::helpers::utilities::get_textures_dir(&project_id)
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve textures directory"))?;
             
         let file_path = textures_dir.join(filename);
@@ -589,6 +599,7 @@ fn op_addon_save_image(
             height,
             image::ExtendedColorType::Rgba8,
         ).map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to save image: {}", e)))?;
+    }
 
         Ok(())
     } else {
@@ -760,7 +771,7 @@ fn op_texture_load(
     #[string] filename: String
 ) -> Result<String, deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
-    let project_id = ctx.project_id.clone();
+    if let Some(project_id) = ctx.project_id.clone() {
     
     let textures_dir = crate::helpers::utilities::get_textures_dir(&project_id)
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve textures directory"))?;
@@ -824,15 +835,19 @@ fn op_texture_load(
     } else {
         Err(deno_error::JsErrorBox::generic("GPU resources not available"))
     }
+}else {
+        Err(deno_error::JsErrorBox::generic("Project id not set"))
+    }
 }
 
 #[op2]
 #[string]
 fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Result<String, deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        let project_id = &ctx.project_id;
+            if let Some(project_id) = ctx.project_id.clone() {
+
         
-        let project_dir = get_project_dir(project_id)
+        let project_dir = get_project_dir(&project_id)
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
             
         let file_path = project_dir.join("addons").join(format!("{}.json", addon_name));
@@ -845,6 +860,9 @@ fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Resu
             Ok(content) => Ok(content),
             Err(e) => Err(deno_error::JsErrorBox::generic(format!("Failed to read file: {}", e)))
         }
+    }else {
+        Err(deno_error::JsErrorBox::generic("Project id not available"))
+    }
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
     }
@@ -853,13 +871,15 @@ fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Resu
 #[op2]
 #[serde]
 fn op_io_list_models(state: &mut OpState) -> Result<Vec<String>, deno_error::JsErrorBox> {
+     let mut model_files = Vec::new();
+
     let ctx = state.borrow::<AddonContext>();
-    let project_id = ctx.project_id.clone();
+    if let Some(project_id) = ctx.project_id.clone() {
     
     let models_dir = crate::helpers::utilities::get_models_dir(&project_id)
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve models directory"))?;
 
-    let mut model_files = Vec::new();
+   
     if let Ok(entries) = std::fs::read_dir(models_dir) {
         for entry in entries {
             if let Ok(entry) = entry {
@@ -876,6 +896,7 @@ fn op_io_list_models(state: &mut OpState) -> Result<Vec<String>, deno_error::JsE
             }
         }
     }
+}
     
     Ok(model_files)
 }
@@ -884,7 +905,7 @@ fn op_io_list_models(state: &mut OpState) -> Result<Vec<String>, deno_error::JsE
 #[string]
 fn op_io_pick_and_import_model(state: &mut OpState) -> Result<String, deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
-    let project_id = ctx.project_id.clone();
+    if let Some(project_id) = ctx.project_id.clone() {
     
     let models_dir = crate::helpers::utilities::get_models_dir(&project_id)
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve models directory"))?;
@@ -908,6 +929,9 @@ fn op_io_pick_and_import_model(state: &mut OpState) -> Result<String, deno_error
         
         Ok(file_name)
     } else {
+        Ok("".to_string())
+    }
+} else {
         Ok("".to_string())
     }
 }
@@ -2119,14 +2143,14 @@ extension!(
 
 pub struct AddonEngine {
     pub runtime: JsRuntime,
-    pub project_id: String,
+    pub project_id: Option<String>,
     pub dummy_views: Vec<(u32, TextureView)>,  
 }
 
 const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/bundle.js");
 
 impl AddonEngine {
-    pub fn new(project_id: String) -> Self {
+    pub fn new(project_id: Option<String>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_addons::init_ops_and_esm();
         
@@ -2205,14 +2229,14 @@ impl AddonEngine {
     }
 
     pub fn set_project_id(&mut self, renderer_state: &RendererState, project_id: String) {
-        self.project_id = project_id.clone();
+        self.project_id = Some(project_id.clone());
         
         // Update context
         {
             let mut state = self.runtime.op_state();
             let mut state = state.borrow_mut();
             let context = state.borrow_mut::<AddonContext>();
-            context.project_id = project_id.clone();
+            context.project_id = Some(project_id.clone());
         }
         
         // Notify all registered callbacks
@@ -2724,7 +2748,7 @@ impl AddonEngine {
         if !pending_models.is_empty() {
             if let gpu= &gpu_resources {
                 for (addon_name, config) in pending_models {
-                    let project_id = self.project_id.clone();
+                    if let Some(project_id) = self.project_id.clone() {
                     let id = config.id.unwrap_or_else(|| format!("{}_{}", addon_name, uuid::Uuid::new_v4()));
                     
                     let pos = Vector3::new(config.position[0], config.position[1], config.position[2]);
@@ -2759,6 +2783,7 @@ impl AddonEngine {
                             }
                         }
                     }
+                }
                 }
             }
         }

@@ -215,15 +215,18 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 ui.heading("Your Projects");
 
                 // Games
-                if self.context.current_app == AppExperience::OpenWorldStudio && editor.world_state.is_none() {
+                if editor.world_state.is_none() {
                     ui.label("Create New Project");
                     ui.text_edit_singleline(self.context.new_project_name);
                     if ui.button("Create New Project").clicked() {
                         if !self.context.new_project_name.is_empty() {
                             match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
                                 Ok(new_state) => {
-                                    editor.world_state = Some(new_state);
-                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
+                                    if let Some(new_project_id) = new_state.id.clone() {
+                                        editor.world_state = Some(new_state);
+                                        pollster::block_on(load_game_project(editor, &new_project_id));
+                                        *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
+                                    }
                                 }
                                 Err(e) => {
                                     println!("Failed to create project: {}", e);
@@ -250,107 +253,13 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                             *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                         }
                     }
-                } else if self.context.current_app == AppExperience::OpenWorldStudio {
+                } else {
                     ui.label("Project Loaded");
                     if let Some(world_state) = &editor.world_state {
                          ui.label(format!("Project: {}", world_state.project_name));
                     }
                     if ui.button("Close Project").clicked() {
                          editor.world_state = None;
-                    }
-                }
-
-                // Videos
-                if self.context.current_app == AppExperience::Stunts && editor.stunts_state.is_none() {
-                    ui.label("Create New Project");
-                    ui.text_edit_singleline(self.context.new_project_name);
-                    if ui.button("Create New Project").clicked() {
-                        if !self.context.new_project_name.is_empty() {
-                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
-                                Ok(new_state) => {
-                                    editor.stunts_state = Some(new_state);
-                                    editor.sync_stunts_objects();
-                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                                }
-                                Err(e) => {
-                                    println!("Failed to create project: {}", e);
-                                }
-                            }
-                        }
-                    }
-        
-                    ui.separator();
-                    ui.label("Existing Projects");
-        
-                    self.context.projects.clear();
-                    if let Ok(registry) = utilities::load_project_registry() {
-                        for project in registry.projects {
-                            if project.app == self.context.current_app {
-                                self.context.projects.push((project.project_name, project.project_id));
-                            }
-                        }
-                    }
-        
-                    for (project_name, project_id) in self.context.projects.iter() {
-                        if ui.button(project_name).clicked() {
-                            load_video_project(editor, project_id);
-                            editor.sync_stunts_objects();
-                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                        }
-                    }
-                } else if self.context.current_app == AppExperience::Stunts {
-                    ui.label("Project Loaded");
-                    if let Some(stunts_state) = &editor.stunts_state {
-                         ui.label(format!("Project: {}", stunts_state.project_name));
-                    }
-                    if ui.button("Close Project").clicked() {
-                         editor.stunts_state = None;
-                    }
-                }
-
-                // Writing
-                if self.context.current_app == AppExperience::Sophia && editor.sophia_state.is_none() {
-                    ui.label("Create New Project");
-                    ui.text_edit_singleline(self.context.new_project_name);
-                    if ui.button("Create New Project").clicked() {
-                        if !self.context.new_project_name.is_empty() {
-                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
-                                Ok(new_state) => {
-                                    editor.sophia_state = Some(new_state);
-                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                                }
-                                Err(e) => {
-                                    println!("Failed to create project: {}", e);
-                                }
-                            }
-                        }
-                    }
-        
-                    ui.separator();
-                    ui.label("Existing Projects");
-        
-                    self.context.projects.clear();
-                    if let Ok(registry) = utilities::load_project_registry() {
-                        for project in registry.projects {
-                            if project.app == self.context.current_app {
-                                self.context.projects.push((project.project_name, project.project_id));
-                            }
-                        }
-                    }
-        
-                    for (project_name, project_id) in self.context.projects.iter() {
-                        if ui.button(project_name).clicked() {
-                            // pollster::block_on(load_writing_project(editor, project_id));
-                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                        }
-                    }
-                } else if self.context.current_app == AppExperience::Sophia {
-                    ui.label("Project Loaded");
-                    if let Some(sophia_state) = &editor.sophia_state {
-                         ui.label(format!("Project: {}", sophia_state.project_name));
-                    }
-                    if ui.button("Close Project").clicked() {
-                         editor.sophia_state = None;
                     }
                 }
             }

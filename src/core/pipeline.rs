@@ -285,7 +285,7 @@ impl EntropyPipeline {
         video_total_duration_ms: i32,
         video_width: u32,
         video_height: u32,
-        project_id: String,
+        project_id: Option<String>,
         game_mode: bool,
         is_playing: bool,
     ) {

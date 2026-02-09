@@ -647,7 +647,7 @@ globalThis.Entropy.Composer = {
         if (!globalThis.Entropy.Composer.components[addonName]) {
             globalThis.Entropy.Composer.components[addonName] = {};
         }
-        globalThis.Entropy.Composer.components[addonName][componentId] = { name, params };
+        globalThis.Entropy.Composer.components[addonName][componentId] = { id: componentId, name, params };
     },
     getComponents: (addonName) => {
         return globalThis.Entropy.Composer.components[addonName] || {};

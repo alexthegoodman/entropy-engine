@@ -98,7 +98,7 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                     renderer_state,
                     &gpu_resources.device,
                     &gpu_resources.queue,
-                    project_id.clone(),
+                    project_id.as_ref().expect("Couldn't get project id").clone(),
                     item.asset_id.clone(),
                     item_comp.id.clone(),
                     item.asset_id.clone(), // filename assumed to be asset_id for now if not specified? 

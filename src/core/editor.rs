@@ -303,7 +303,7 @@ pub struct SelectedObject {
 // }
 
 pub struct Editor {
-    pub project_id: String, 
+    pub project_id: Option<String>, 
 
     // games
     pub renderer_state: Option<RendererState>,
@@ -444,7 +444,7 @@ pub struct Editor {
 
 
 #[cfg(target_os = "windows")]
-pub fn init_editor_with_model(viewport: Arc<Mutex<Viewport>>, project_id: String) -> Editor {
+pub fn init_editor_with_model(viewport: Arc<Mutex<Viewport>>, project_id: Option<String>) -> Editor {
     // let inference = load_common_motion_2d();
 
     let editor = Editor::new(viewport, project_id.clone());
@@ -666,7 +666,7 @@ impl Editor {
 
     pub fn new(
         viewport: Arc<Mutex<Viewport>>,
-        project_id: String
+        project_id: Option<String>
     ) -> Self {
         let viewport_unwrapped = viewport.lock().unwrap();
         let window_size = WindowSize {

@@ -213,13 +213,13 @@ extension!(
 
 pub struct DenoEngine {
     runtime: JsRuntime,
-    pub project_id: String,
+    pub project_id: Option<String>,
     failed_scripts: HashSet<String>,
     loaded_modules: HashMap<String, ModuleId>,
 }
 
 impl DenoEngine {
-    pub fn new(project_id: String) -> Self {
+    pub fn new(project_id: Option<String>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_engine::init_ops_and_esm();
         // let ext = entropy_engine::init_ops();
@@ -247,7 +247,8 @@ impl DenoEngine {
         script_path: &str,
         hook_name: &str,
     ) -> Option<ComponentChanges> {
-        let scripts_path = get_scripts_dir(&self.project_id);
+        if let Some(project_id) = &self.project_id {
+        let scripts_path = get_scripts_dir(&project_id);
 
         if let Some(scripts_path) = scripts_path {
             let script_path = scripts_path.join(script_path);
@@ -450,6 +451,7 @@ impl DenoEngine {
                 });
             }
         }
+        }
         None
     }
 
@@ -460,7 +462,9 @@ impl DenoEngine {
         script_path: &str,
         hook_name: &str,
     ) {
-         let scripts_path = get_scripts_dir(&self.project_id);
+                if let Some(project_id) = &self.project_id {
+
+         let scripts_path = get_scripts_dir(&project_id);
 
         if let Some(scripts_path) = scripts_path {
             let script_path = scripts_path.join(script_path);
@@ -574,5 +578,6 @@ impl DenoEngine {
                  }
              }
         }
+    }
     }
 }

@@ -44,7 +44,7 @@ impl Exporter {
                 video_total_duration_ms,
                 video_width,
                 video_height,
-                project_id,
+                Some(project_id),
                 false,
                 true
             )

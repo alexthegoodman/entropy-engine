@@ -899,7 +899,7 @@ impl WindowState {
         let window = Arc::new(window);
 
         let mut pipeline = EntropyPipeline::new();
-        let project_id = uuid::Uuid::new_v4().to_string(); // Generate a new UUID for project_id
+        let project_id = None; // Generate a new UUID for project_id
         
         // Use window size for camera initialization
         let window_size = WindowSize { width: 1200, height: 768 };
