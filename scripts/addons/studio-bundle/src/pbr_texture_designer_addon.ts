@@ -460,13 +460,11 @@ function generateTextures(resolution: number) {
     return { diffData, norData, armData };
 }
 
-function updatePreview(params: typeof texParams, id: string = "default") {
-    if (!params.pipelineId) return;
-    const res = params.previewRes;
-    const { diffData, norData, armData } = generateTextures(res);
-    const diffId = addon.Texture.create(res, res, diffData);
-    const norId = addon.Texture.create(res, res, norData);
-    const armId = addon.Texture.create(res, res, armData);
+function generatePBRTextures(id: string, params: typeof texParams, resolution: number) {
+    const { diffData, norData, armData } = generateTextures(resolution);
+    const diffId = addon.Texture.create(resolution, resolution, diffData);
+    const norId = addon.Texture.create(resolution, resolution, norData);
+    const armId = addon.Texture.create(resolution, resolution, armData);
 
     if (!globalThis.lastPBRDesignerTextures) {
         globalThis.lastPBRDesignerTextures = {};
@@ -474,6 +472,14 @@ function updatePreview(params: typeof texParams, id: string = "default") {
 
     globalThis.lastPBRDesignerTextures[id] = { diffId, norId, armId, params: { ...params } };
     if (typeof globalThis.onPBRDesignerUpdate === 'function') globalThis.onPBRDesignerUpdate();
+
+    return { diffId, norId, armId };
+}
+
+function updatePreview(params: typeof texParams, id: string = "default") {
+    if (!params.pipelineId) return;
+    
+    const { diffId, norId, armId } = generatePBRTextures(id, params, params.previewRes);
 
     const { vertices, indices } = generateCubeData();
 
@@ -635,6 +641,11 @@ addon.onInit(async () => {
         if (Entropy.Composer.registerRenderer) {
             Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: any) => {
                 updatePreview(params, id);
+            });
+        }
+        if (Entropy.Composer) {
+            Entropy.Composer.registerTextureGenerator(addonInfo.name, (id: string, params: any, res: number) => {
+                return generatePBRTextures(id, params, res);
             });
         }
     }

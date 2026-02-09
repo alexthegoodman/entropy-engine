@@ -15,6 +15,8 @@ const addonInfo = {
 
 const addon = Entropy.Addon.register(addonInfo);
 
+const TEXTURE_RES = 512;
+
 let terrainParams = {
     seed: 42,
     frequency: 0.005,
@@ -74,7 +76,7 @@ function fbm(noise2D: (x: number, y: number) => number, x: number, y: number, oc
 }
 
 function applyRockmapMask() {
-    const res = addonState.currentParams.width;
+    const res = TEXTURE_RES;
     const maskData = new Uint8Array(res * res * 4);
     
     // Use Alea with the same seed to match the terrain height generation logic
@@ -84,9 +86,16 @@ function applyRockmapMask() {
     for (let y = 0; y < res; y++) {
         for (let x = 0; x < res; x++) {
             const idx = (y * res + x) * 4;
+            // Use normalized coordinates for noise sampling to be resolution-independent
+            const nx = x / res;
+            const ny = y / res;
+            // Scale by terrain dimensions to match height variation
+            const sx = nx * addonState.currentParams.width;
+            const sy = ny * addonState.currentParams.height;
+
             const noiseValue = (fbm(
                 noise2D,
-                x, y,
+                sx, sy,
                 addonState.currentParams.octaves,
                 addonState.currentParams.frequency,
                 addonState.currentParams.persistence,
@@ -116,12 +125,12 @@ function applyPBRToSlot(addonName: string, pbrid: string, slot: PBRMaterialType)
             if (slot === "Rockmap") {
                 applyRockmapMask();
             } else if (slot === "Primary") {
-                const res = addonState.currentParams.width;
+                const res = TEXTURE_RES;
                 const maskData = new Uint8Array(res * res * 4).fill(255);
                 const maskId = addon.Texture.create(res, res, maskData);
                 addon.Landscape.updateTexturePlus(addonName, maskId, "PrimaryMask");
             } else if (slot === "Soil") {
-                const res = addonState.currentParams.width;
+                const res = TEXTURE_RES;
                 const maskData = new Uint8Array(res * res * 4).fill(255);
                 const maskId = addon.Texture.create(res, res, maskData);
                 addon.Landscape.updateTexturePlus(addonName, maskId, "SoilMask");
@@ -154,18 +163,26 @@ function restoreLayerTextures(addonName: string, params: typeof terrainParams) {
 
         Entropy.println(`---PBR Texture Designer Pro restoreLayerTextures for ${addonName}... ` + JSON.stringify(layersMap) + " " + slot + " comp by id " + (compId ? JSON.stringify(components[compId]) : "null compId"));
         
-        if (compId && components[compId]) {
-            const renderer = Entropy.Composer?.getRenderer(texAddonName);
-            if (renderer) {
-                renderer(compId, components[compId].params);
-                
-                // Add a check to see if textures were actually created
-                if (globalThis.lastPBRDesignerTextures && globalThis.lastPBRDesignerTextures[compId]) {
-                    applyPBRToSlot(addonName, compId, slot as "Primary" | "Rockmap" | "Soil");
-                    Entropy.println("✓ Restoration successful for " + slot);
-                } else {
-                    Entropy.println("⚠️ Textures not ready for " + slot + " - available keys: " + 
-                        Object.keys(globalThis.lastPBRDesignerTextures || {}).join(", "));
+        if (Entropy.Composer && compId && components[compId]) {
+            const generator = Entropy.Composer.getTextureGenerator?.(texAddonName);
+            if (generator) {
+                            generator(compId, components[compId].params, TEXTURE_RES);
+                            if (globalThis.lastPBRDesignerTextures && globalThis.lastPBRDesignerTextures[compId]) {
+                                applyPBRToSlot(addonName, compId, slot as "Primary" | "Rockmap" | "Soil");
+                                Entropy.println(`✓ Restoration successful (${TEXTURE_RES} res) for ` + slot);
+                            }
+                        } else {
+                            const renderer = Entropy.Composer?.getRenderer(texAddonName);                if (renderer) {
+                    renderer(compId, components[compId].params);
+                    
+                    // Add a check to see if textures were actually created
+                    if (globalThis.lastPBRDesignerTextures && globalThis.lastPBRDesignerTextures[compId]) {
+                        applyPBRToSlot(addonName, compId, slot as "Primary" | "Rockmap" | "Soil");
+                        Entropy.println("✓ Restoration successful (legacy) for " + slot);
+                    } else {
+                        Entropy.println("⚠️ Textures not ready for " + slot + " - available keys: " + 
+                            Object.keys(globalThis.lastPBRDesignerTextures || {}).join(", "));
+                    }
                 }
             }
         }
@@ -569,16 +586,26 @@ addon.onInit(async () => {
                                 })
                             }
 
-                            const renderer = Entropy.Composer?.getRenderer(texAddonName);
-                            if (renderer) {
-                                // This updates globalThis.lastPBRDesignerTextures
-                                renderer("temp_interop_gen", comp.params);
+                            const generator = (Entropy.Composer as any).getTextureGenerator?.(texAddonName);
+                            if (generator) {
+                                // This updates globalThis.lastPBRDesignerTextures with TEXTURE_RES resolution
+                                generator("temp_interop_gen", comp.params, TEXTURE_RES);
 
                                 applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", interopState.selectedSlot);
                                 applyPBRToSlot("Game Composer", "temp_interop_gen", interopState.selectedSlot);
 
-                                Entropy.println("---PBR Texture Designer Pro applyPBRToSlot!!! " + JSON.stringify(comp.params) + " and.. " + JSON.stringify(addonState.currentParams));
+                                Entropy.println(`---PBR Texture Designer Pro generator applied (${TEXTURE_RES} res)!!! ` + JSON.stringify(comp.params));
+                            } else {
+                                const renderer = Entropy.Composer?.getRenderer(texAddonName);
+                                if (renderer) {
+                                    // This updates globalThis.lastPBRDesignerTextures (legacy 128 res)
+                                    renderer("temp_interop_gen", comp.params);
 
+                                    applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", interopState.selectedSlot);
+                                    applyPBRToSlot("Game Composer", "temp_interop_gen", interopState.selectedSlot);
+
+                                    Entropy.println("---PBR Texture Designer Pro renderer applied (legacy)!!! " + JSON.stringify(comp.params));
+                                }
                             }
                             
                             Entropy.println(`Linked component ${comp.name} to ${interopState.selectedSlot}`);
@@ -890,24 +917,33 @@ addon.onInit(async () => {
         addonState.currentParams.textureLayers[slot] = compId;
 
         // Execute application logic (same as UI button)
-        const renderer = Entropy.Composer.getRenderer(texAddonName);
-        if (renderer) {
-            // Render the texture to ensure it's in memory/cache
-            // We use a temporary ID for the render pass but with the component's params
-            renderer("temp_interop_gen", comp.params);
+        const generator = (Entropy.Composer as any).getTextureGenerator?.(texAddonName);
+        if (generator) {
+            // Generate at TEXTURE_RES resolution for better terrain quality
+            generator("temp_interop_gen", comp.params, TEXTURE_RES);
             
             // Apply it to the terrain
             applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", slot);
             applyPBRToSlot("Game Composer", "temp_interop_gen", slot);
 
-            let resetTextures = false; // false, done right above
+            let resetTextures = false; 
             let newComponent = false;
             persistState(newComponent, resetTextures);
             
-            return { success: true, message: `Applied texture '${comp.name}' to '${slot}' layer.` };
+            return { success: true, message: `Applied high-res texture '${comp.name}' to '${slot}' layer.` };
+        } else {
+            // Fallback to legacy renderer if generator not available
+            const renderer = Entropy.Composer.getRenderer(texAddonName);
+            if (renderer) {
+                renderer("temp_interop_gen", comp.params);
+                applyPBRToSlot("FlexNoise Terrain", "temp_interop_gen", slot);
+                applyPBRToSlot("Game Composer", "temp_interop_gen", slot);
+                persistState(false, false);
+                return { success: true, message: `Applied texture '${comp.name}' to '${slot}' layer (legacy renderer).` };
+            }
         }
 
-        return { success: false, error: "Texture renderer not found." };
+        return { success: false, error: "Texture generator/renderer not found." };
     });
 
     addon.registerTool({
