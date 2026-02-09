@@ -3888,6 +3888,16 @@ impl AddonEngine {
                                          let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
                                          events_to_push.push(payload);
                                      }
+                                 } else if response.hovered() {
+                                    if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+                                        if rect.contains(pointer_pos) {
+                                            let local_pos = pointer_pos - rect.min;
+                                            let x = local_pos.x / rect.width();
+                                            let y = local_pos.y / rect.height();
+                                            let payload = format!("HOVER|{}|{},{},{}", mm_id, x, y, brush_size);
+                                            events_to_push.push(payload);
+                                        }
+                                    }
                                  }
 
                                  // Draw markers

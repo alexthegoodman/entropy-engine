@@ -366,6 +366,7 @@ export interface MiniMapConfig {
     brushSize?: number;
     markers?: MiniMapMarker[];
     onDraw?: (x: number, y: number, brushSize: number) => void;
+    onHover?: (x: number, y: number, brushSize: number) => void;
 }
 
 export interface CodeEditorConfig {

@@ -842,6 +842,8 @@ interface RiverWaterParams {
 
     useManualRivers: boolean;
     brushSize: number;
+    brushDirection: "Forward" | "Backward";
+    manualRiverMaskData?: string; // Base64 encoded
 }
 
 const addonInfo = {
@@ -886,17 +888,131 @@ let riverParams: RiverWaterParams = {
 
     useManualRivers: true,
     brushSize: 5.0,
+    brushDirection: "Forward",
 };
 
 let addonState: {
     currentParams: RiverWaterParams,
     savedComponents: { id: string, name: string, params: RiverWaterParams }[],
-    activeComponentId: string | null
+    activeComponentId: string | null,
+    eraseMode: boolean,
+    manualRiverMaskRaw?: Uint8Array,
+    indicatorPos: [number, number, number] | null
 } = {
     currentParams: { ...riverParams },
     savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+    activeComponentId: Entropy.generateUUID(),
+    eraseMode: false,
+    manualRiverMaskRaw: new Uint8Array(512 * 512).fill(0),
+    indicatorPos: null
 };
+
+function updateIndicatorMesh() {
+    if (!addonState.indicatorPos) {
+        addon.Model.clearMesh("river_brush_indicator");
+        return;
+    }
+
+    const radius = addonState.currentParams.brushSize * (4096.0 / 100.0) / 2.0;
+    const segments = 32;
+    const vertices: number[] = [];
+    const indices: number[] = [];
+
+    // Simple circle on XZ plane
+    vertices.push(0, 0, 0,  0, 1, 0,  0.5, 0.5,  0, 0.5, 1, 1); // Center
+    for (let i = 0; i <= segments; i++) {
+        const angle = (i / segments) * Math.PI * 2;
+        const x = Math.cos(angle) * radius;
+        const z = Math.sin(angle) * radius;
+        vertices.push(x, 0, z,  0, 1, 0,  0.5, 0.5,  0, 0.5, 1, 1);
+        if (i > 0) {
+            indices.push(0, i, i + 1);
+        }
+    }
+
+    addon.Model.createMesh({
+        id: "river_brush_indicator",
+        position: [addonState.indicatorPos[0], addonState.indicatorPos[1] + 2.0, addonState.indicatorPos[2]],
+        vertexData: vertices,
+        indexData: indices,
+        pipelineId: "default", // Use a basic pipeline
+        renderRole: "General"
+    });
+}
+
+function getManualRiverMask(): Uint8Array {
+    if (!addonState.manualRiverMaskRaw) {
+        addonState.manualRiverMaskRaw = new Uint8Array(512 * 512).fill(0);
+    }
+    return addonState.manualRiverMaskRaw;
+}
+
+function updateManualRiverMask(x: number, y: number, brushSize: number) {
+    const res = 512;
+    const centerX = x * res;
+    const centerY = y * res;
+    const radius = brushSize * (res / 100.0);
+    const mask = getManualRiverMask();
+    const val = addonState.eraseMode ? 0 : 255;
+    
+    let changed = false;
+    for (let iy = Math.max(0, Math.floor(centerY - radius)); iy < Math.min(res, Math.ceil(centerY + radius)); iy++) {
+        for (let ix = Math.max(0, Math.floor(centerX - radius)); ix < Math.min(res, Math.ceil(centerX + radius)); ix++) {
+            const dx = ix - centerX;
+            const dy = iy - centerY;
+            if (dx * dx + dy * dy <= radius * radius) {
+                const idx = iy * res + ix;
+                if (mask[idx] !== val) {
+                    mask[idx] = val;
+                    changed = true;
+                }
+            }
+        }
+    }
+
+    if (changed) {
+        let manualMaskId = (globalThis as any).manualRiverMaskId;
+        const rgbaData = new Uint8Array(res * res * 4);
+        for (let i = 0; i < res * res; i++) {
+            const mVal = mask[i];
+            rgbaData[i * 4] = mVal;
+            rgbaData[i * 4 + 1] = mVal;
+            rgbaData[i * 4 + 2] = mVal;
+            rgbaData[i * 4 + 3] = 255;
+        }
+        
+        if (manualMaskId) {
+            addon.Texture.update(manualMaskId, rgbaData);
+        } else {
+            manualMaskId = addon.Texture.create(res, res, rgbaData);
+            (globalThis as any).manualRiverMaskId = manualMaskId;
+        }
+        
+        if (addonState.currentParams.useManualRivers) {
+            computeFlowAccumulation();
+        }
+    }
+}
+
+// Helper for Base64
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+    let binary = '';
+    const len = bytes.byteLength;
+    for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+}
+
+function base64ToUint8Array(base64: string): Uint8Array {
+    const binary_string = atob(base64);
+    const len = binary_string.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binary_string.charCodeAt(i);
+    }
+    return bytes;
+}
 
 let initializer: any = [];
 let projectInitialized = false;
@@ -1067,9 +1183,29 @@ addon.onInit(async () => {
     
     setupUI();
 
-    (globalThis as any).onManualRiverMaskUpdate = () => {
+    (globalThis as any).onManualRiverMaskUpdate = (x: number, y: number, brushSize: number) => {
         if (addonState.currentParams.useManualRivers) {
-            computeFlowAccumulation();
+            updateManualRiverMask(x, y, brushSize);
+            
+            // Also update indicator position during drawing
+            const landscapeSize = 4096.0;
+            const worldX = (x - 0.5) * landscapeSize;
+            const worldZ = (y - 0.5) * landscapeSize;
+            addonState.indicatorPos = [worldX, -400.0, worldZ]; // Approximate height
+            updateIndicatorMesh();
+        }
+    };
+
+    (globalThis as any).onManualRiverMaskHover = (x: number, y: number, brushSize: number) => {
+        if (addonState.currentParams.useManualRivers) {
+            const landscapeSize = 4096.0;
+            const worldX = (x - 0.5) * landscapeSize;
+            const worldZ = (y - 0.5) * landscapeSize;
+            addonState.indicatorPos = [worldX, -400.0, worldZ];
+            updateIndicatorMesh();
+        } else {
+            addonState.indicatorPos = null;
+            updateIndicatorMesh();
         }
     };
 
@@ -1094,6 +1230,32 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             addonState = { ...addonState, ...data };
+            
+            // Restore manual mask from base64
+            if (addonState.currentParams.manualRiverMaskData) {
+                addonState.manualRiverMaskRaw = base64ToUint8Array(addonState.currentParams.manualRiverMaskData);
+                
+                // Trigger texture update
+                const res = 512;
+                const mask = getManualRiverMask();
+                const rgbaData = new Uint8Array(res * res * 4);
+                for (let i = 0; i < res * res; i++) {
+                    const mVal = mask[i];
+                    rgbaData[i * 4] = mVal;
+                    rgbaData[i * 4 + 1] = mVal;
+                    rgbaData[i * 4 + 2] = mVal;
+                    rgbaData[i * 4 + 3] = 255;
+                }
+                
+                let manualMaskId = (globalThis as any).manualRiverMaskId;
+                if (manualMaskId) {
+                    addon.Texture.update(manualMaskId, rgbaData);
+                } else {
+                    manualMaskId = addon.Texture.create(res, res, rgbaData);
+                    (globalThis as any).manualRiverMaskId = manualMaskId;
+                }
+            }
+
             if (Entropy.Composer) {
                 addonState.savedComponents.forEach(comp => {
                     Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
@@ -1514,6 +1676,10 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "🌊 FFT River System", bold: true });
     
     Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
+        // Serialize mask to base64
+        if (addonState.manualRiverMaskRaw) {
+            addonState.currentParams.manualRiverMaskData = uint8ArrayToBase64(addonState.manualRiverMaskRaw);
+        }
         addon.IO.save(addonState);
         if (Entropy.Composer) {
             addonState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params); });
@@ -1549,6 +1715,33 @@ function renderUI(tab: string) {
             addonState.currentParams.useManualRivers = !addonState.currentParams.useManualRivers;
             computeFlowAccumulation();
             createWaterMesh("river_water_preview", addonState.currentParams);
+        }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: addonState.eraseMode ? "🧽 Mode: Erasing" : "🖌️ Mode: Drawing",
+        onClick: () => {
+            addonState.eraseMode = !addonState.eraseMode;
+        }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "River Brush Size",
+        value: addonState.currentParams.brushSize,
+        min: 1,
+        max: 50,
+        onChange: (v) => {
+            addonState.currentParams.brushSize = parseFloat(v);
+        }
+    });
+
+    const directions = ["Forward", "Backward"];
+    Entropy.UI.Widget.dropdown(tab, {
+        label: "Brush Direction",
+        options: directions,
+        selectedIndex: directions.indexOf(addonState.currentParams.brushDirection),
+        onChange: (idx) => {
+            addonState.currentParams.brushDirection = directions[parseInt(idx)] as "Forward" | "Backward";
         }
     });
     

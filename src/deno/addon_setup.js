@@ -425,6 +425,11 @@ globalThis.Entropy = {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = config.onDraw;
                 }
+
+                if (config?.onHover) {
+                    globalThis._entropy_hover_listeners = globalThis._entropy_hover_listeners || {};
+                    globalThis._entropy_hover_listeners[id] = config.onHover;
+                }
             },
             separator: (windowId) => {
                 ops.op_ui_widget_separator(windowId);
@@ -435,32 +440,40 @@ globalThis.Entropy = {
         for (const event of events) {
             let id = event;
             let payload = null;
+            let isHover = false;
 
-            ops.op_println(String("Process Addon Event: " + event));
+            // ops.op_println(String("Process Addon Event: " + event));
 
-            if (event.includes("|")) {
+            if (event.startsWith("HOVER|")) {
+                isHover = true;
+                const parts = event.split("|");
+                id = parts[1];
+                payload = parts[2];
+            } else if (event.includes("|")) {
                 const parts = event.split("|");
                 id = parts[0];
                 payload = parts[1];
             }
 
-            if (globalThis._entropy_event_listeners && globalThis._entropy_event_listeners[id]) {
+            const listener_pool = isHover ? globalThis._entropy_hover_listeners : globalThis._entropy_event_listeners;
+
+            if (listener_pool && listener_pool[id]) {
                 if (payload !== null) {
                     // Try to parse payload if it looks like a color or array or drawing event
                     if (payload.includes(",")) {
                         const values = payload.split(",").map(v => parseFloat(v));
                         
-                        // For minimap draw events: x, y, brushSize
+                        // For minimap draw/hover events: x, y, brushSize
                         if (values.length === 3) {
-                             globalThis._entropy_event_listeners[id](values[0], values[1], values[2]);
+                             listener_pool[id](values[0], values[1], values[2]);
                         } else {
-                             globalThis._entropy_event_listeners[id](values);
+                             listener_pool[id](values);
                         }
                     } else {
-                        globalThis._entropy_event_listeners[id](payload);
+                        listener_pool[id](payload);
                     }
                 } else {
-                    globalThis._entropy_event_listeners[id]();
+                    listener_pool[id]();
                 }
             }
         }
