@@ -235,9 +235,23 @@ interface RiverParams {
     landscapeYOffset: number;
 }
 
+const initialParams: RiverParams = {
+    particleCount: 50000,
+    sourcePos: [0, 0],
+    sourceRadius: 15.0,
+    respawnAge: 20.0,
+    gravity: 25.0,
+    friction: 1.2,
+    speedMultiplier: 2.5,
+    
+    landscapeSize: 4096.0,
+    landscapeHeight: 600.0,
+    landscapeYOffset: -392.0,
+};
+
 const addonInfo = {
     name: "GPGPU River Simulation",
-    version: "1.0.0",
+    version: "1.1.0",
     description: "Real-time particle-based river fluid simulation",
     author: ["Entropy Team"],
     capabilities: {
@@ -249,24 +263,16 @@ const addonInfo = {
 const addon = Entropy.Addon.register(addonInfo);
 
 let riverState: {
-    params: RiverParams,
+    currentParams: RiverParams,
+    savedComponents: { id: string, name: string, params: RiverParams }[],
     activeComponentId: string | null
 } = {
-    params: {
-        particleCount: 50000,
-        sourcePos: [0, 0],
-        sourceRadius: 15.0,
-        respawnAge: 20.0,
-        gravity: 25.0,
-        friction: 1.2,
-        speedMultiplier: 2.5,
-        
-        landscapeSize: 4096.0,
-        landscapeHeight: 600.0,
-        landscapeYOffset: -392.0,
-    },
+    currentParams: { ...initialParams },
+    savedComponents: [],
     activeComponentId: Entropy.generateUUID()
 };
+
+let newComponentName = "New River Component";
 
 let pipelineIds = {
     simulation: null as string | null,
@@ -360,19 +366,28 @@ addon.onInit(async () => {
     if (Entropy.Composer) {
         Entropy.Composer.registerEditor(addonInfo.name, renderUI);
         Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
-            Object.assign(riverState.params, params);
+            // Update params from composer
+            riverState.currentParams = { ...riverState.currentParams, ...params };
             updateBuffers();
             createRiverMesh(id);
-            Entropy.println("✅ [GPGPU River] river mesh created!");
+            Entropy.println(`✅ [GPGPU River] river instance '${id}' created!`);
         });
     }
 
-    // 5. Update Loop
-    // addon.onUpdate((time) => {
-    //     Entropy.println("Running river GPGPU");
-    //     runSimulation(time);
-    // });
+    // 5. Project Loading
+    addon.onProjectChanged((newProjectId) => {
+        const data = addon.IO.load();
+        if (data) {
+            riverState = { ...riverState, ...data };
+            if (Entropy.Composer) {
+                riverState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+                });
+            }
+        }
+    });
 
+    // 6. Update Loop
     addon.onUpdatePlus("Game Composer", (time) => {
         Entropy.Composer?.enableGameComposerOverride();
         runSimulation(time);
@@ -385,21 +400,22 @@ addon.onInit(async () => {
 });
 
 function initResources() {
-    const count = riverState.params.particleCount;
+    const count = riverState.currentParams.particleCount;
     
     // Create particle buffer (8 floats per particle for alignment: pos.x, pos.y, vel.x, vel.y, age, id, pad, pad)
     const initialData = new Float32Array(count * 8); 
     for (let i = 0; i < count; i++) {
         const rng = [Math.random(), Math.random()];
         const angle = rng[0] * 6.28318;
-        const radius = Math.sqrt(rng[1]) * riverState.params.sourceRadius;
+        const radius = Math.sqrt(rng[1]) * riverState.currentParams.sourceRadius;
         
-        initialData[i * 8 + 0] = riverState.params.sourcePos[0] + Math.cos(angle) * radius;
-        initialData[i * 8 + 1] = riverState.params.sourcePos[1] + Math.sin(angle) * radius;
-        initialData[i * 8 + 4] = Math.random() * riverState.params.respawnAge;
+        initialData[i * 8 + 0] = riverState.currentParams.sourcePos[0] + Math.cos(angle) * radius;
+        initialData[i * 8 + 1] = riverState.currentParams.sourcePos[1] + Math.sin(angle) * radius;
+        initialData[i * 8 + 4] = Math.random() * riverState.currentParams.respawnAge;
         initialData[i * 8 + 5] = i;
     }
     
+    // Re-create buffer if size changed
     resources.particleBuffer = Entropy.Buffer.create({
         size: count * 8 * 4,
         usage: "Storage"
@@ -407,10 +423,12 @@ function initResources() {
     Entropy.Buffer.write(resources.particleBuffer!, initialData);
 
     // Uniform buffer for params
-    resources.paramsBuffer = Entropy.Buffer.create({
-        size: 64,
-        usage: "Uniform"
-    });
+    if (!resources.paramsBuffer) {
+        resources.paramsBuffer = Entropy.Buffer.create({
+            size: 64,
+            usage: "Uniform"
+        });
+    }
     updateBuffers();
 }
 
@@ -419,17 +437,17 @@ function updateBuffers() {
     
     const data = new Float32Array([
         0.016, // dt
-        riverState.params.gravity,
-        riverState.params.friction,
-        riverState.params.respawnAge,
-        riverState.params.sourcePos[0],
-        riverState.params.sourcePos[1],
-        riverState.params.sourceRadius,
-        riverState.params.landscapeSize,
-        riverState.params.landscapeHeight,
-        riverState.params.landscapeYOffset,
+        riverState.currentParams.gravity,
+        riverState.currentParams.friction,
+        riverState.currentParams.respawnAge,
+        riverState.currentParams.sourcePos[0],
+        riverState.currentParams.sourcePos[1],
+        riverState.currentParams.sourceRadius,
+        riverState.currentParams.landscapeSize,
+        riverState.currentParams.landscapeHeight,
+        riverState.currentParams.landscapeYOffset,
         Date.now() / 1000,
-        riverState.params.speedMultiplier,
+        riverState.currentParams.speedMultiplier,
     ]);
     Entropy.Buffer.write(resources.paramsBuffer, data);
 }
@@ -438,12 +456,11 @@ function runSimulation(time: number) {
     if (!pipelineIds.simulation || !resources.particleBuffer) return;
 
     try {
-        // Update time in uniform
         updateBuffers();
 
         Entropy.Compute.dispatch({
             pipelineId: pipelineIds.simulation,
-            groups: [Math.ceil(riverState.params.particleCount / 64), 1, 1],
+            groups: [Math.ceil(riverState.currentParams.particleCount / 64), 1, 1],
             bindings: [
                 { group: 0, binding: 0, resource: { type: "Buffer", value: { id: resources.particleBuffer! } } },
                 { group: 1, binding: 0, resource: { type: "Buffer", value: { id: resources.paramsBuffer! } } },
@@ -451,11 +468,8 @@ function runSimulation(time: number) {
                 { group: 2, binding: 1, resource: { type: "Sampler" } }
             ]
         });
-
-        // Entropy.println("Dispatched river");
     } catch (e) {
         // Silently fail if landscape is not yet available
-        Entropy.println("Is landscape available? " + JSON.stringify(e));
     }
 }
 
@@ -477,7 +491,7 @@ function createRiverMesh(id: string) {
         position: [0, 0, 0],
         vertexData: vertices,
         indexData: indices,
-        instanceCount: riverState.params.particleCount,
+        instanceCount: riverState.currentParams.particleCount,
         pipelineId: pipelineIds.rendering,
         renderRole: "Water",
         bindings: [
@@ -497,71 +511,103 @@ function setupUI() {
 }
 
 function renderUI(tab: string) {
-    Entropy.UI.Widget.label(tab, { text: "🌊 GPGPU River Fluid", bold: true });
+    Entropy.UI.Widget.label(tab, { text: "🌊 GPGPU River Fluid Simulation", bold: true });
+
+    Entropy.UI.Widget.button(tab, { text: "💾 Save All to Project", onClick: () => {
+        addon.IO.save(riverState);
+        if (Entropy.Composer) {
+            riverState.savedComponents.forEach(comp => { Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params); });
+        }
+        Entropy.println("✅ [GPGPU River] All state saved to project.");
+    }});
+
+    Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
+    
+    Entropy.UI.Widget.button(tab, { text: "➕ Save Current as Component", onClick: () => {
+        const id = Entropy.generateUUID();
+        riverState.savedComponents.push({ id, name: newComponentName, params: JSON.parse(JSON.stringify(riverState.currentParams)) });
+        if (Entropy.Composer) { Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, riverState.currentParams); }
+        Entropy.println(`✅ [GPGPU River] Saved component: ${newComponentName}`);
+    }});
+    
+    riverState.savedComponents.forEach(comp => {
+        Entropy.UI.Widget.button(tab, { text: `📂 Load & Render: ${comp.name}`, onClick: () => {
+            riverState.currentParams = JSON.parse(JSON.stringify(comp.params));
+            riverState.activeComponentId = comp.id;
+            initResources();
+            createRiverMesh("river_preview");
+            Entropy.println(`✅ [GPGPU River] Loaded: ${comp.name}`);
+        }});
+    });
+
+    Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
     
     Entropy.UI.Widget.slider(tab, {
         label: "Source X",
-        value: riverState.params.sourcePos[0],
+        value: riverState.currentParams.sourcePos[0],
         min: -2048,
         max: 2048,
-        onChange: (v) => { riverState.params.sourcePos[0] = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.sourcePos[0] = parseFloat(v); updateBuffers(); }
     });
     
     Entropy.UI.Widget.slider(tab, {
         label: "Source Z",
-        value: riverState.params.sourcePos[1],
+        value: riverState.currentParams.sourcePos[1],
         min: -2048,
         max: 2048,
-        onChange: (v) => { riverState.params.sourcePos[1] = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.sourcePos[1] = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.slider(tab, {
         label: "Source Radius",
-        value: riverState.params.sourceRadius,
+        value: riverState.currentParams.sourceRadius,
         min: 1,
         max: 100,
-        onChange: (v) => { riverState.params.sourceRadius = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.sourceRadius = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.slider(tab, {
         label: "Flow Speed",
-        value: riverState.params.speedMultiplier,
+        value: riverState.currentParams.speedMultiplier,
         min: 0.1,
         max: 10.0,
-        onChange: (v) => { riverState.params.speedMultiplier = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.speedMultiplier = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.slider(tab, {
         label: "Friction",
-        value: riverState.params.friction,
+        value: riverState.currentParams.friction,
         min: 0,
-        max: 2,
-        onChange: (v) => { riverState.params.friction = parseFloat(v); updateBuffers(); }
+        max: 5,
+        onChange: (v) => { riverState.currentParams.friction = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.slider(tab, {
         label: "Landscape Y Offset",
-        value: riverState.params.landscapeYOffset,
+        value: riverState.currentParams.landscapeYOffset,
         min: -1000,
         max: 1000,
-        onChange: (v) => { riverState.params.landscapeYOffset = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.landscapeYOffset = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.slider(tab, {
         label: "Particle Life",
-        value: riverState.params.respawnAge,
+        value: riverState.currentParams.respawnAge,
         min: 1,
         max: 60,
-        onChange: (v) => { riverState.params.respawnAge = parseFloat(v); updateBuffers(); }
+        onChange: (v) => { riverState.currentParams.respawnAge = parseFloat(v); updateBuffers(); }
+    });
+
+    Entropy.UI.Widget.slider(tab, {
+        label: "Gravity",
+        value: riverState.currentParams.gravity,
+        min: 0,
+        max: 50,
+        onChange: (v) => { riverState.currentParams.gravity = parseFloat(v); updateBuffers(); }
     });
 
     Entropy.UI.Widget.button(tab, {
-        text: "Reset Particles",
+        text: "🔄 Reset Simulation",
         onClick: () => { initResources(); createRiverMesh("river_preview"); }
-    });
-
-    Entropy.UI.Widget.button(tab, {
-        text: "Refresh Render",
-        onClick: () => { createRiverMesh("river_preview"); }
     });
 }

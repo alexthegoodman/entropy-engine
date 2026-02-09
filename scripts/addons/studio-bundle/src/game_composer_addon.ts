@@ -62,7 +62,8 @@ const sourceAddons = [
     "Hair Particles with Ornaments",
     "PBR Texture Designer Pro",
     "Light Hive",
-    "Model Viewer"
+    "Model Viewer",
+    "GPGPU River Simulation"
 ];
 
 function refreshScene() {
