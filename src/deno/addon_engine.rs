@@ -331,6 +331,7 @@ pub struct ModelConfig {
     pub behavior_id: Option<String>,
 }
 
+#[derive(Clone)]
 pub struct BehaviorHooks {
     pub on_update: Option<v8::Global<v8::Function>>,
     pub on_interact: Option<v8::Global<v8::Function>>,
@@ -1295,7 +1296,7 @@ fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serd
 }
 
 #[op2]
-fn op_system_spawn_particles(state: &mut OpState, #[serde] pos: [f32; 3], #[serde] color: [f32; 4], #[serde] gravity: [f32; 3]) {
+fn op_system_spawn_particles(state: &mut OpState, #[serde] pos: Vec<f32>, #[serde] color: Vec<f32>, #[serde] gravity: Vec<f32>) {
     if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
         let start_color = [color[0], color[1], color[2], color[3]];
         let end_color = [color[0], color[1], color[2], 0.0];
@@ -1304,14 +1305,14 @@ fn op_system_spawn_particles(state: &mut OpState, #[serde] pos: [f32; 3], #[serd
             emission_rate: 100.0,
             life_time: 3.0,
             radius: 0.6,
-            gravity,
+            gravity: [gravity[0], gravity[1], gravity[2]],
             initial_speed_min: 2.0,
             initial_speed_max: 5.0,
             start_color,
             end_color,
             size: 0.02,
             mode: 0.0,
-            position: pos,
+            position: [pos[0], pos[1], pos[2]],
         };
         ctx.particle_spawns.push(config);
     }
