@@ -847,8 +847,8 @@ function updateMeshInEngine(meshId: string) {
     const meshData = state.meshes.get(meshId);
     if (!meshData) return;
     
-    // Clear old mesh and recreate
-    addon.Model.clearMesh(meshId);
+    // In our current engine, calling createMesh with an existing ID
+    // will overwrite the previous mesh data.
     createMeshInEngine(meshData);
 }
 
@@ -867,8 +867,11 @@ function clearSelection() {
     state.selectedEdges.clear();
     state.selectedFaces.clear();
     
-    // TODO: Use Entropy.Selection.clear() when available
-    // TODO: Hide gizmo when available
+    Entropy.Selection.clear();
+    if (state.activeGizmoId) {
+        Entropy.Gizmo.hide(state.activeGizmoId);
+        state.activeGizmoId = null;
+    }
 }
 
 function setActiveMesh(meshId: string | null) {
@@ -884,8 +887,10 @@ function selectVertex(meshId: string, vertexIndex: number, addToSelection = fals
     }
     state.selectedVertices.add(vertexIndex);
     
-    // TODO: Use Entropy.Selection.highlightElements() when available
-    Entropy.println(`Selected vertex ${vertexIndex} on mesh ${meshId}`);
+    // Highlight in engine
+    Entropy.Selection.highlightElements(meshId, {
+        vertices: Array.from(state.selectedVertices)
+    });
     
     updateGizmoPosition();
 }
@@ -897,7 +902,6 @@ function selectEdge(meshId: string, v1: number, v2: number, addToSelection = fal
     const edgeKey = `${Math.min(v1, v2)}-${Math.max(v1, v2)}`;
     state.selectedEdges.add(edgeKey);
     
-    Entropy.println(`Selected edge ${edgeKey} on mesh ${meshId}`);
     updateGizmoPosition();
 }
 
@@ -908,7 +912,6 @@ function selectFace(meshId: string, faceVertices: number[], addToSelection = fal
     const faceKey = faceVertices.sort((a, b) => a - b).join("-");
     state.selectedFaces.add(faceKey);
     
-    Entropy.println(`Selected face ${faceKey} on mesh ${meshId}`);
     updateGizmoPosition();
 }
 
@@ -918,13 +921,32 @@ function updateGizmoPosition() {
     const meshData = state.meshes.get(state.activeMeshId);
     if (!meshData) return;
     
-    // Calculate center of selection
     const selectedVerts = Array.from(state.selectedVertices);
     if (selectedVerts.length > 0) {
-        const center = MeshUtils.getSelectionCenter(meshData.vertices, selectedVerts);
+        const localCenter = MeshUtils.getSelectionCenter(meshData.vertices, selectedVerts);
         
-        // TODO: Use Entropy.Gizmo.show() or updatePosition() when available
-        Entropy.println(`Gizmo should be at: [${center[0].toFixed(2)}, ${center[1].toFixed(2)}, ${center[2].toFixed(2)}]`);
+        // Convert to world space for the gizmo
+        const worldCenter: [number, number, number] = [
+            meshData.position[0] + localCenter[0],
+            meshData.position[1] + localCenter[1],
+            meshData.position[2] + localCenter[2]
+        ];
+
+        if (state.activeGizmoId) {
+            Entropy.Gizmo.updatePosition(state.activeGizmoId, worldCenter);
+        } else {
+            state.activeGizmoId = Entropy.Gizmo.show({
+                position: worldCenter,
+                mode: state.gizmoMode,
+                space: state.gizmoSpace,
+                onTransform: (delta) => {
+                    transformSelection(delta);
+                }
+            });
+        }
+    } else if (state.activeGizmoId) {
+        Entropy.Gizmo.hide(state.activeGizmoId);
+        state.activeGizmoId = null;
     }
 }
 
@@ -1055,58 +1077,82 @@ function mergeMeshes(meshIds: string[]): string {
     return newId;
 }
 
-// ===== INPUT HANDLERS (PLACEHOLDER) =====
+// ===== INPUT HANDLERS =====
 
 function setupInputHandlers() {    
-    Entropy.println("⚠️ Inorganic Input handlers");
+    Entropy.println("🔧 Inorganic Modeler: Setting up input handlers...");
         
     Entropy.Input.onMouseDown((button, x, y) => {
         if (button === 0) { // Left click
-            const raycast = Entropy.Selection.raycast(x, y);
-            if (raycast) {
+            // Check if gizmo is being hovered - if so, don't change selection
+            // (Engine handles gizmo interaction before passing event)
+            
+            const hit = Entropy.Selection.raycast(x, y);
+            if (hit && hit.meshId) {
                 const shift = Entropy.Input.isShiftPressed();
                 
+                // If it's a new mesh, set it as active
+                if (hit.meshId !== state.activeMeshId) {
+                    setActiveMesh(hit.meshId);
+                }
+
                 switch (state.selectionMode) {
                     case "vertex":
-                        if (raycast.vertexIndex !== undefined) {
-                            selectVertex(raycast.meshId, raycast.vertexIndex, shift);
+                        if (hit.vertexIndex !== undefined) {
+                            selectVertex(hit.meshId, hit.vertexIndex, shift);
                         }
                         break;
                     case "edge":
-                        if (raycast.edgeIndices) {
-                            selectEdge(raycast.meshId, raycast.edgeIndices[0], raycast.edgeIndices[1], shift);
+                        if (hit.edgeIndices) {
+                            selectEdge(hit.meshId, hit.edgeIndices[0], hit.edgeIndices[1], shift);
                         }
                         break;
                     case "face":
-                        if (raycast.faceIndices) {
-                            selectFace(raycast.meshId, raycast.faceIndices, shift);
+                        if (hit.faceIndices) {
+                            selectFace(hit.meshId, hit.faceIndices, shift);
                         }
                         break;
                     case "object":
-                        setActiveMesh(raycast.meshId);
+                        setActiveMesh(hit.meshId);
                         break;
                 }
+            } else if (!Entropy.Input.isShiftPressed()) {
+                // Clicked empty space without shift - clear selection
+                clearSelection();
             }
         }
     });
     
     Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
-        if (key === "g") { // Grab/Move
+        // Mode switching
+        if (key === "1") state.selectionMode = "object";
+        else if (key === "2") state.selectionMode = "vertex";
+        else if (key === "3") state.selectionMode = "edge";
+        else if (key === "4") state.selectionMode = "face";
+        
+        // Gizmo mode switching
+        if (key === "g") {
             state.gizmoMode = "translate";
-            // Show gizmo
-        } else if (key === "s") { // Scale
-            state.gizmoMode = "scale";
-        } else if (key === "r") { // Rotate
+            updateGizmoPosition();
+        } else if (key === "r") {
             state.gizmoMode = "rotate";
-        } else if (key === "e") { // Extrude
-            if (state.selectionMode === "face") {
+            updateGizmoPosition();
+        } else if (key === "s") {
+            state.gizmoMode = "scale";
+            updateGizmoPosition();
+        }
+        
+        // Modeling ops
+        if (key === "e") {
+            if (state.selectionMode === "face" && state.selectedFaces.size > 0) {
                 extrudeSelectedFaces(1.0);
             }
         } else if (key === "x" || key === "Delete") {
-            // Delete selection
+            if (state.activeMeshId && state.selectedVertices.size === 0) {
+                deleteMesh(state.activeMeshId);
+            }
         }
     });
-    
 }
 
 // ===== UI =====

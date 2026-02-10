@@ -767,7 +767,9 @@ globalThis.Entropy = {
             return ops.op_mesh_get_data(meshId);
         },
         updateVertices: (meshId, vertexIndices, newPositions) => {
-            // op_mesh_update_vertices(meshId, vertexIndices, newPositions)
+            // Check if it's a full update or partial
+            // For now we'll pass it to native, which might just log or do partial buffer write
+            ops.op_mesh_update_vertices(meshId, vertexIndices, newPositions);
         },
         appendGeometry: (meshId, vertices, indices) => {
             // op_mesh_append_geometry(meshId, vertices, indices)

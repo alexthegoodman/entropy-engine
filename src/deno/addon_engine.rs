@@ -354,6 +354,7 @@ pub struct AddonContext {
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
     pub pending_composites: Vec<(String, CompositeConfig)>,
+    pub pending_mesh_updates: Vec<(String, Vec<u32>, Vec<f32>)>, // (mesh_id, indices, positions)
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub pending_game_mode: Option<bool>,
     pub active_gizmo: Option<GizmoState>,
@@ -1210,6 +1211,18 @@ fn op_mesh_get_data(state: &mut OpState, #[string] _mesh_id: String) -> MeshData
         vertices: Vec::new(),
         indices: Vec::new(),
         vertex_stride: 13,
+    }
+}
+
+#[op2]
+fn op_mesh_update_vertices(
+    state: &mut OpState,
+    #[string] mesh_id: String,
+    #[serde] indices: Vec<u32>,
+    #[serde] new_positions: Vec<f32>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_mesh_updates.push((mesh_id, indices, new_positions));
     }
 }
 
@@ -2419,10 +2432,10 @@ impl AddonEngine {
             pending_mesh_clears: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
-                            pending_point_lights: Vec::new(),
-                                                    pending_composites: Vec::new(),
-                                                    pending_sun_config: None,
-                                                    pending_game_mode: None,
+                                        pending_point_lights: Vec::new(),
+                                        pending_composites: Vec::new(),
+                                        pending_mesh_updates: Vec::new(),
+                                        pending_sun_config: None,                                                    pending_game_mode: None,
                                                     active_gizmo: None,
                                                     noise_generators: HashMap::new(),            on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
