@@ -98,7 +98,9 @@ addon.onInit(() => {
   });
 });
 
-addon.onUpdate((time: number, pos: [number, number, number], dir: [number, number, number]) => {
+addon.onUpdatePlus("Game Composer", (time: number, pos: [number, number, number], dir: [number, number, number]) => {
+  Entropy.Composer?.enableGameComposerOverride();
+
   playerPosition = pos;
   playerDirection = dir;
   
@@ -116,6 +118,8 @@ addon.onUpdate((time: number, pos: [number, number, number], dir: [number, numbe
   if (state.waveInProgress && state.waveTimer >= 5.0) {
     state.waveInProgress = false;
   }
+
+  Entropy.Composer?.disableGameComposerOverride();
 });
 
 addon.onCleanup(() => {
