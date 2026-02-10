@@ -3707,7 +3707,7 @@ impl AddonEngine {
         }
 
         if !pending_landscapes.is_empty() {
-            if let Some(gpu) = &renderer_state.gpu_resources {
+            if let gpu = &gpu_resources {
                 for (addon_name, config) in pending_landscapes {
                     let mut heights = config.heights;
 
@@ -3830,6 +3830,8 @@ impl AddonEngine {
                         // we only want 1 landscape to render at any given time
                         renderer_state.addon_landscapes
                             .insert(addon_name, vec![landscape]);
+
+                        renderer_state.add_collider(id.clone(), ComponentKind::Landscape);
                     }
                 }
             }

@@ -1731,23 +1731,28 @@ impl RendererState {
 
                 // should be added as part of terrain manager
                 let landscape = self
-                    .landscapes
+                    .addon_landscapes
                     .iter_mut()
-                    .find(|l| l.id == component_id.clone())
-                    .expect("Couldn't get Renderer Landscape");
+                    .find(|l| l.0 == "Game Composer");
 
-                let rigid_body_handle = self
-                    .rigid_body_set
-                    .insert(landscape.rapier_rigidbody.clone());
-                landscape.rigid_body_handle = Some(rigid_body_handle);
+                if let Some(landscape) = landscape {
+                    let landscape = landscape.1.get_mut(0);
 
-                // now associate rigidbody with collider
-                let collider_handle = self.collider_set.insert_with_parent(
-                    landscape.rapier_heightfield.clone(),
-                    rigid_body_handle,
-                    &mut self.rigid_body_set,
-                );
-                landscape.collider_handle = Some(collider_handle);
+                    if let Some(landscape) = landscape {
+                        let rigid_body_handle = self
+                            .rigid_body_set
+                            .insert(landscape.rapier_rigidbody.clone());
+                        landscape.rigid_body_handle = Some(rigid_body_handle);
+
+                        // now associate rigidbody with collider
+                        let collider_handle = self.collider_set.insert_with_parent(
+                            landscape.rapier_heightfield.clone(),
+                            rigid_body_handle,
+                            &mut self.rigid_body_set,
+                        );
+                        landscape.collider_handle = Some(collider_handle);
+                    }
+                }
             }
             ComponentKind::Model => {
                 let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
