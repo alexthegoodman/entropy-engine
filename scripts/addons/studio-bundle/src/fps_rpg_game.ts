@@ -570,7 +570,7 @@ Entropy.Behavior.register("crimson_soldier", {
         if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 3.5;
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (dx / dist) * speed, 0, (dz / dist) * speed
                 ] as [number, number, number]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
@@ -582,10 +582,12 @@ Entropy.Behavior.register("crimson_soldier", {
             const wdx = state.wanderTarget[0] - entity.position[0];
             const wdz = state.wanderTarget[2] - entity.position[2];
             const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+
+            // Entropy.println("CRIMSON GUARD: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
             
             if (wdist > 1.0) {
                 const speed = 1.5;
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
                 ] as [number, number, number]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
@@ -650,7 +652,7 @@ Entropy.Behavior.register("azure_soldier", {
         if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 3.5;
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (dx / dist) * speed, 0, (dz / dist) * speed
                 ] as [number, number, number]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
@@ -665,7 +667,7 @@ Entropy.Behavior.register("azure_soldier", {
             
             if (wdist > 1.0) {
                 const speed = 1.5;
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
                 ] as [number, number, number]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
@@ -741,7 +743,7 @@ Entropy.Behavior.register("shadow_assassin", {
                 const newZ = playerPos[2] + Math.sin(angle) * 8;
                 system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, 2, 0]);
                 // Teleport via position set if possible, otherwise just use impulse
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (newX - entity.position[0]) * 2, 0, (newZ - entity.position[2]) * 2
                 ] as [number, number, number]);
             }
@@ -753,7 +755,7 @@ Entropy.Behavior.register("shadow_assassin", {
             
             if (wdist > 1.0) {
                 const speed = 2.0; // Assassins are a bit faster
-                Entropy.Entity.applyImpulse(entity.id, [
+                Entropy.Entity.setVelocity(entity.id, [
                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
                 ] as [number, number, number]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");

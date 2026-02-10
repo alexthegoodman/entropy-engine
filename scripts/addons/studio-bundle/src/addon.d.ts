@@ -485,6 +485,7 @@ export interface EntropyAPI {
   };
   Entity: {
     applyImpulse: (id: string, impulse: [number, number, number]) => void;
+    setVelocity: (id: string, impulse: [number, number, number]) => void;
     playAnimation: (id: string, animName: string) => void;
     setStats: (id: string, stats: { health: number, stamina: number }) => void;
   };

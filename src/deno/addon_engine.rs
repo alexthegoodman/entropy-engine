@@ -398,6 +398,7 @@ pub struct AddonContext {
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub pending_game_mode: Option<bool>,
     pub pending_entity_impulses: Vec<(String, [f32; 3])>,
+    pub pending_entity_velocities: Vec<(String, [f32; 3])>,
     pub pending_animation_plays: Vec<(String, String)>,
     pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
     pub active_gizmo: Option<GizmoState>,
@@ -549,6 +550,15 @@ fn op_entity_apply_impulse(state: &mut OpState, #[string] id: String, #[serde] i
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if impulse.len() >= 3 {
             ctx.pending_entity_impulses.push((id, [impulse[0], impulse[1], impulse[2]]));
+        }
+    }
+}
+
+#[op2]
+fn op_entity_set_velocity(state: &mut OpState, #[string] id: String, #[serde] velocity: Vec<f32>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if velocity.len() >= 3 {
+            ctx.pending_entity_velocities.push((id, [velocity[0], velocity[1], velocity[2]]));
         }
     }
 }
@@ -2599,6 +2609,7 @@ extension!(
         op_dialogue_close,
         op_dialogue_get_node,
         op_entity_apply_impulse,
+        op_entity_set_velocity,
         op_entity_play_animation,
         op_entity_set_stats
     ],
@@ -2771,15 +2782,18 @@ impl AddonEngine {
             pending_mesh_clears: Vec::new(),
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
-                                        pending_point_lights: Vec::new(),
-                                        pending_composites: Vec::new(),
-                                        pending_mesh_updates: Vec::new(),
-                                        pending_sun_config: None,                                                    pending_game_mode: None,
-                                        pending_entity_impulses: Vec::new(),
-                                        pending_animation_plays: Vec::new(),
-                                        pending_stat_updates: Vec::new(),
-                                                    active_gizmo: None,
-                                                    noise_generators: HashMap::new(),            on_init_callbacks: Vec::new(),
+            pending_point_lights: Vec::new(),
+            pending_composites: Vec::new(),
+            pending_mesh_updates: Vec::new(),
+            pending_sun_config: None,                                                    
+            pending_game_mode: None,
+            pending_entity_impulses: Vec::new(),
+            pending_animation_plays: Vec::new(),
+            pending_stat_updates: Vec::new(),
+            pending_entity_velocities: Vec::new(),
+            active_gizmo: None,
+            noise_generators: HashMap::new(),            
+            on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
             on_cleanup_callbacks: Vec::new(),
             on_update_callbacks: Vec::new(),
@@ -3353,7 +3367,22 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates, pending_game_mode, pending_impulses, pending_animations, pending_stats) = {
+        let (pending_cubes, 
+            pending_models, 
+            pending_meshes, 
+            pending_clears, 
+            pending_mesh_clears, 
+            pending_landscapes, 
+            pending_grasses, 
+            pending_point_lights, 
+            pending_composites, 
+            pending_landscape_texture_updates, 
+            pending_game_mode, 
+            pending_impulses, 
+            pending_velocities, 
+            pending_animations, 
+            pending_stats
+        ) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -3370,11 +3399,12 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_landscape_texture_updates),
                     ctx.pending_game_mode.take(),
                     std::mem::take(&mut ctx.pending_entity_impulses),
+                    std::mem::take(&mut ctx.pending_entity_velocities),
                     std::mem::take(&mut ctx.pending_animation_plays),
                     std::mem::take(&mut ctx.pending_stat_updates),
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
@@ -3396,6 +3426,25 @@ impl AddonEngine {
                     if let Some(rb_handle) = player.movement_rigid_body_handle {
                         if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
                             rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (id, velocity) in pending_velocities {
+            // Apply to NPC
+            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+                if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
+                    rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+                }
+            } 
+            // Apply to Player
+            else if let Some(player) = &renderer_state.player_character {
+                if player.id == id {
+                    if let Some(rb_handle) = player.movement_rigid_body_handle {
+                        if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                            rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
                         }
                     }
                 }
