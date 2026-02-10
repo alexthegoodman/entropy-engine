@@ -16,6 +16,40 @@ let selectedScript: string | null = null;
 let scriptContent: string = "";
 let isDirty: boolean = false;
 
+interface ScriptComponent {
+    id: string;
+    name: string;
+    scriptName: string;
+    modelPath: string;
+}
+
+let scriptState: {
+    savedComponents: ScriptComponent[];
+} = {
+    savedComponents: []
+};
+
+// Register as a renderer for Game Composer
+if (Entropy.Composer) {
+    Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
+        // When a script component is placed, we spawn a model and (theoretically) attach the script.
+        // For now, we'll spawn a cube as a placeholder for the scripted object.
+        const position = params._transform?.position || [0, 0, 0];
+        const rotation = params._transform?.rotation || [0, 0, 0];
+        const scale = params._transform?.scale || [1, 1, 1];
+
+        addon.Model.load({
+            id: id,
+            path: params.modelPath || "Cube.glb",
+            position: position,
+            rotation: rotation,
+            scale: scale
+        });
+
+        Entropy.println(`[Game Scripts] Rendering scripted component: ${params.name} with script ${params.scriptName}`);
+    });
+}
+
 async function refreshScripts() {
     try {
         scriptList = await addon.Scripts.list();
@@ -51,6 +85,23 @@ async function saveScript() {
 addon.onInit(async () => {
     Entropy.println("Game Scripts Addon Initializing...");
     await refreshScripts();
+
+    const loadData = () => {
+        const saved = addon.IO.load();
+        if (saved && saved.savedComponents) {
+            scriptState.savedComponents = saved.savedComponents;
+            if (Entropy.Composer) {
+                scriptState.savedComponents.forEach(comp => {
+                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, {
+                        scriptName: comp.scriptName,
+                        modelPath: comp.modelPath
+                    });
+                });
+            }
+        }
+    };
+
+    loadData();
 
     addon.UI.createTab({
         title: "Script Manager",
@@ -108,6 +159,31 @@ addon.onInit(async () => {
                     }
                 });
 
+                Entropy.UI.Widget.button(windowId, {
+                    text: "📦 Save as Component",
+                    onClick: () => {
+                        const name = "My Scripted Object";
+                        if (name) {
+                            const id = Entropy.generateUUID();
+                            const newComp: ScriptComponent = {
+                                id,
+                                name,
+                                scriptName: selectedScript!,
+                                modelPath: "Cube.glb" // default
+                            };
+                            scriptState.savedComponents.push(newComp);
+                            if (Entropy.Composer) {
+                                Entropy.Composer.registerComponent(addonInfo.name, id, name, {
+                                    scriptName: newComp.scriptName,
+                                    modelPath: newComp.modelPath
+                                });
+                            }
+                            addon.IO.save(scriptState);
+                            Entropy.println(`[Game Scripts] Saved component: ${name}`);
+                        }
+                    }
+                });
+
                 Entropy.UI.Widget.codeEditor(windowId, {
                     label: "Editor",
                     content: scriptContent,
@@ -118,7 +194,56 @@ addon.onInit(async () => {
                     }
                 });
             }
+
+            if (scriptState.savedComponents.length > 0) {
+                Entropy.UI.Widget.separator(windowId);
+                Entropy.UI.Widget.label(windowId, { text: "📦 Saved Script Components", bold: true });
+                scriptState.savedComponents.forEach(comp => {
+                    Entropy.UI.Widget.label(windowId, { text: `${comp.name} (${comp.scriptName})` });
+                });
+            }
         }
+    });
+
+    // --- Tools Registration ---
+
+    addon.registerTool({
+        name: "list_script_components",
+        description: "List all saved script components available for the Game Composer.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        return { success: true, components: scriptState.savedComponents };
+    });
+
+    addon.registerTool({
+        name: "create_script_component",
+        description: "Create a new script component that can be placed in the scene.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for the component." },
+                scriptName: { type: "string", description: "The .js file to use." },
+                modelPath: { type: "string", description: "Optional .glb model path." }
+            },
+            required: ["name", "scriptName"]
+        }
+    }, (args: any) => {
+        const id = Entropy.generateUUID();
+        const newComp: ScriptComponent = {
+            id,
+            name: args.name,
+            scriptName: args.scriptName,
+            modelPath: args.modelPath || "Cube.glb"
+        };
+        scriptState.savedComponents.push(newComp);
+        if (Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, id, args.name, {
+                scriptName: newComp.scriptName,
+                modelPath: newComp.modelPath
+            });
+        }
+        addon.IO.save(scriptState);
+        return { success: true, id };
     });
 });
 
@@ -127,4 +252,17 @@ addon.onProjectChanged(async () => {
     selectedScript = null;
     scriptContent = "";
     isDirty = false;
+    
+    const saved = addon.IO.load();
+    if (saved && saved.savedComponents) {
+        scriptState.savedComponents = saved.savedComponents;
+        if (Entropy.Composer) {
+            scriptState.savedComponents.forEach(comp => {
+                Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, {
+                    scriptName: comp.scriptName,
+                    modelPath: comp.modelPath
+                });
+            });
+        }
+    }
 });
