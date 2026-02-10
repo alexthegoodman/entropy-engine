@@ -34,8 +34,6 @@ It is recommened to read the Entropy Book to get started:
 
 ### Current Features:
 
-These are mostly hardcoded in Rust, but should ultimately be controllable via the Addon Scripts.
-
 - GLB (gltf) Import
 - GLB (gltf) animations
 - Physics with Rapier
