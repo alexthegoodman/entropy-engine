@@ -169,6 +169,7 @@ export interface ScopedAPI {
               };
               squadId?: string;
           };
+          behaviorId?: string;
       }) => void;
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
@@ -413,11 +414,39 @@ export interface MeshData {
 }
 
 // Main Entropy API
+export interface Entity {
+  id: string;
+  position: [number, number, number];
+  health: number;
+  stamina: number;
+  isDead: boolean;
+}
+
+export interface BehaviorSystem {
+  spawn_particles: (pos: [number, number, number], color: [number, number, number, number], gravity: [number, number, number]) => void;
+  vec3: (x: number, y: number, z: number) => { x: number, y: number, z: number };
+}
+
+export interface DialogueSystem {
+  show: (text: string) => void;
+  add_option: (text: string, next_node: string) => void;
+  start_quest: (id: string) => void;
+  close: () => void;
+  get_node: () => string;
+}
+
 export interface EntropyAPI {
   Addon: {
     register: (metadata: AddonMetadata) => ScopedAPI;
     onCleanup: (callback: CleanupCallback) => void;
     setVisibility: (addonName: string, visible: boolean) => void;
+  };
+  Behavior: {
+    register: (id: string, hooks: {
+      onUpdate?: (entity: Entity, system: BehaviorSystem, state: any) => any;
+      onInteract?: (entity: Entity, dialogue: DialogueSystem) => void;
+      onAttack?: (entity: Entity, system: BehaviorSystem, state: any) => any;
+    }) => void;
   };
   UI: {
     createWindow: (config: WindowConfig) => string;
