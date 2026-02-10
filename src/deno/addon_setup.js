@@ -143,8 +143,8 @@ globalThis.Entropy = {
                             position: config.position,
                             scale: [0.5, 0.5, 0.5],
                             physics: {
-                                body_type: "fixed",
-                                collider_shape: "cuboid"
+                                bodyType: "fixed",
+                                colliderShape: "cuboid"
                             }
                         });
                         

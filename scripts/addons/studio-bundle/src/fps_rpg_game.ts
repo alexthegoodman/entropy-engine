@@ -35,25 +35,25 @@ const factions: Record<Faction, FactionData> = {
     [Faction.CRIMSON_GUARD]: {
         name: "Crimson Guard",
         color: [1, 0.2, 0.2, 1],
-        territory: { x: -1200, z: -1200, radius: 800 },
+        territory: { x: -440, z: -440, radius: 440 },
         reputation: 0
     },
     [Faction.AZURE_ORDER]: {
         name: "Azure Order",
         color: [0.2, 0.4, 1, 1],
-        territory: { x: 1200, z: -1200, radius: 800 },
+        territory: { x: 440, z: -440, radius: 440 },
         reputation: 0
     },
     [Faction.SHADOW_COVENANT]: {
         name: "Shadow Covenant",
         color: [0.5, 0.2, 0.8, 1],
-        territory: { x: 1200, z: 1200, radius: 800 },
+        territory: { x: 440, z: 440, radius: 440 },
         reputation: 0
     },
     [Faction.NEUTRAL]: {
         name: "Neutral",
         color: [0.7, 0.7, 0.7, 1],
-        territory: { x: -1200, z: 1200, radius: 800 },
+        territory: { x: -440, z: 440, radius: 440 },
         reputation: 0
     }
 };
