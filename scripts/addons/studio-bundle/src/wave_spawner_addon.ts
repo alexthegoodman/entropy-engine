@@ -57,6 +57,7 @@ let state: SpawnerState = {
 Entropy.onGameStarted(() => {
   state.isPaused = false;
   state.autoStart = true;
+  spawnPlayer();
   if (state.currentWave === 0) {
     startNextWave();
   }
@@ -69,6 +70,24 @@ Entropy.onGameStopped(() => {
   addon.Model.clearMeshes();
   Entropy.println("[Wave Spawner] Game Stopped via Hook");
 });
+
+function spawnPlayer() {
+  const id = Entropy.generateUUID();
+  addon.Model.load({
+    path: "Friend1b.glb",
+    id: id,
+    position: [0, 2, 0],
+    scale: [1, 1, 1],
+    physics: {
+      bodyType: "dynamic",
+      colliderShape: "capsule",
+      mass: 80
+    },
+    player: {
+      modelId: id
+    }
+  });
+}
 
 let windowId: string;
 let playerPosition: [number, number, number] = [0, 0, 0];
@@ -99,8 +118,6 @@ addon.onInit(() => {
 });
 
 addon.onUpdatePlus("Game Composer", (time: number, pos: [number, number, number], dir: [number, number, number]) => {
-  Entropy.Composer?.enableGameComposerOverride();
-
   playerPosition = pos;
   playerDirection = dir;
   
@@ -118,8 +135,6 @@ addon.onUpdatePlus("Game Composer", (time: number, pos: [number, number, number]
   if (state.waveInProgress && state.waveTimer >= 5.0) {
     state.waveInProgress = false;
   }
-
-  Entropy.Composer?.disableGameComposerOverride();
 });
 
 addon.onCleanup(() => {
@@ -270,6 +285,8 @@ function createUI() {
 }
 
 function startNextWave() {
+  Entropy.Composer?.enableGameComposerOverride();
+
   state.currentWave++;
   state.waveInProgress = true;
   
@@ -288,6 +305,8 @@ function startNextWave() {
   
   // Spawn enemies
   spawnWave(config);
+
+  Entropy.Composer?.disableGameComposerOverride();
 }
 
 function calculateWaveConfig(waveNumber: number): WaveConfig {

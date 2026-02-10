@@ -64,8 +64,27 @@ class HordeManager {
     start() {
         this.isGameActive = true;
         this.waveNumber = 0;
+        this.spawnPlayer();
         this.nextWave();
         Entropy.println("[Horde Mode] Game Started!");
+    }
+
+    spawnPlayer() {
+        const id = Entropy.generateUUID();
+        addon.Model.load({
+            path: "Friend1b.glb",
+            id: id,
+            position: [0, 2, 0],
+            scale: [1, 1, 1],
+            physics: {
+                bodyType: "dynamic",
+                colliderShape: "capsule",
+                mass: 80
+            },
+            player: {
+                modelId: id
+            }
+        });
     }
 
     stop() {
