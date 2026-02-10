@@ -1,10 +1,11 @@
 # Entropy Engine
 
+![Entropy Engine / Chat Value](public/water1.png "Entropy Engine / Chat Value")
+
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-![Entropy Engine / Chat Value](public/image.png "Entropy Engine / Chat Value")
-
-Lightweight, powerful, sophisticated
+Lightweight, powerful, sophisticated. Entropy Engine provides you with a suite of first-class, high-performance addons, tied together by a universal chat.
+Entropy Engine helps you create professional games and creative content with next-generation technology.
 
 - Shift from grunt work to creative leadership
 - Command and coordinate your creative work through a centralized, agentic chat
@@ -24,23 +25,10 @@ Why it matters
 - Continued efficiency gains as your business grows
 - Compounding ROI through automation, reuse, and semantic coherence
 
-## Run
+## Getting Started
 
-Many controls exist in the level editor, while others have not been added, so you may wish to update the saved state json file directly and place files in the project folder directly.
-
-Example Saved State JSON file to get you started:
-<a href="./example_project.json" target="_blank">example_project.json</a>
-
-Generate a Landscape Heightmap via CLI:
-- `cargo run --bin heightmap --release`
-
-Note: For now, if you're just getting started, you can go ahead and use the heightmap.png for the soilmap and rockmap as well. Then for the PBR textures, just fetch them from somewhere like Poly Haven.
-
-Level Editor: 
-- `cargo run --bin editor --release`
-
-Example Game:
-- `cargo run --bin game --release` (needs your game files to run)
+It is recommened to read the Entropy Book to get started: 
+[Entropy Book](./public/entropy-book/src/SUMMARY.md)
 
 ## Features
 
@@ -92,13 +80,6 @@ The default addon bundle is automatically loaded in for all users without any ne
 - Point lighting
 - Heightmap creation CLI (specify features and flat areas too)
 
-### Future Plans
-
-I have been developing a comprehensive addon engine which enables the creation of high performance addons using JavaScript. All the stuff will
-become addons actually. The whole goal is to have an addon for everything, and the Rust is just the engine for that.
-The addons have replicated and enhanced several existing features from water planes to hair particles.
-Next, I will need to make sure addons work for everything, so they are powerful can be quickly iterated on.
-
 ### How to approach addons
 
 This addon will act as the "Source of Truth". It should:
@@ -107,3 +88,5 @@ This addon will act as the "Source of Truth". It should:
 * Register a Renderer: Provide a function that calls addon.Lighting.createPointLight, Model.createMesh, or similar (using the _transform passed by the Composer).
 * Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties, possibly setting uniforms or clearing and recreating meshes.
 * Register your tools: Use addon.registerTool to add a handler for LLMs to use via the universal chat
+
+More info is in the [documentation](./public/entropy-book/src/SUMMARY.md)
