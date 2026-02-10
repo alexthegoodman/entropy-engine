@@ -354,6 +354,7 @@ pub struct AddonContext {
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
     pub pending_composites: Vec<(String, CompositeConfig)>,
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
+    pub pending_game_mode: Option<bool>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub on_all_addons_initialized_callbacks: Vec<v8::Global<v8::Function>>,
@@ -1052,6 +1053,13 @@ fn op_lighting_update_sun(state: &mut OpState, #[serde] config: ProceduralSkyCon
     }
 }
 
+
+#[op2(fast)]
+fn op_set_game_mode(state: &mut OpState, enabled: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_game_mode = Some(enabled);
+    }
+}
 
 #[op2]
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
@@ -2185,7 +2193,8 @@ extension!(
         op_generate_uuid,
         op_register_composite_texture,
         op_addon_register_tool,
-        op_addon_on_all_projects_loaded
+        op_addon_on_all_projects_loaded,
+        op_set_game_mode
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2237,10 +2246,10 @@ impl AddonEngine {
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
                             pending_point_lights: Vec::new(),
-                            pending_composites: Vec::new(),
-                            pending_sun_config: None,
-            
-            noise_generators: HashMap::new(),
+                                        pending_composites: Vec::new(),
+                                        pending_sun_config: None,
+                                        pending_game_mode: None,
+                                        noise_generators: HashMap::new(),
             on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
             on_cleanup_callbacks: Vec::new(),
@@ -2667,7 +2676,7 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates) = {
+        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates, pending_game_mode) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -2681,12 +2690,17 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights),
                     std::mem::take(&mut ctx.pending_composites),
-                    std::mem::take(&mut ctx.pending_landscape_texture_updates)
+                    std::mem::take(&mut ctx.pending_landscape_texture_updates),
+                    ctx.pending_game_mode.take()
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None)
             }
         };
+
+        if let Some(enabled) = pending_game_mode {
+            renderer_state.game_mode = enabled;
+        }
 
         if !pending_clears.is_empty() {
             for addon_name in pending_clears {

@@ -25,6 +25,7 @@ let composerState: {
     roles: Record<string, string>;
     activeInstanceId: string | null;
     components: ComponentInstance[];
+    playMode: boolean;
 } = {
     roles: {
         "Vegetation": "default",
@@ -34,7 +35,8 @@ let composerState: {
         "Lighting": "default"
     },
     activeInstanceId: null,
-    components: []
+    components: [],
+    playMode: false
 };
 
 let activeProjectId: string | null = null;
@@ -189,6 +191,14 @@ addon.onInit(async () => {
              Entropy.UI.Widget.button(tab, {
                  text: "🔄 Refresh Scene",
                  onClick: () => refreshScene()
+             });
+
+             Entropy.UI.Widget.button(tab, {
+                 text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
+                 onClick: () => {
+                     composerState.playMode = !composerState.playMode;
+                     Entropy.setGameMode(composerState.playMode);
+                 }
              });
 
              Entropy.UI.Widget.separator(tab);

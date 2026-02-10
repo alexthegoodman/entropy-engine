@@ -492,6 +492,7 @@ export interface EntropyAPI {
   println: (msg: unknown) => void;
   generateUUID: () => string;
   _process_events: (eventIds: string[]) => void;
+  setGameMode: (enabled) => void;
 }
 
 // Global declarations

@@ -622,6 +622,9 @@ globalThis.Entropy = {
     generateUUID: () => {
         return ops.op_generate_uuid();
     },
+    setGameMode: (enabled) => {
+        ops.op_set_game_mode(enabled);
+    },
     Camera: {
         getTransform: () => {
             return ops.op_camera_get_transform();

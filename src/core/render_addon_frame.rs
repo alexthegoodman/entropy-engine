@@ -123,6 +123,19 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             addon_name = active_name;
         }
 
+        if renderer_state.game_mode {
+            // update rapier collisions
+            renderer_state.update_rapier();
+
+            // step through physics each frame
+            renderer_state.step_physics_pipeline(
+                &gpu_resources.device,
+                &gpu_resources.queue,
+                camera_binding,
+                camera
+            );
+        }
+
         editor.addon_engine.update(renderer_state, camera, current_time, gpu_resources, addon_name.to_string());
 
         // Update procedural sky and directional light from addon or world state
