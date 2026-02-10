@@ -538,7 +538,7 @@ const RIVER_WATER_SHADER = `
 fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     let landscape_size = 4096.0;
     let max_height = 600.0;
-    let landscape_y_offset = -400.0 + 8.0;
+    let landscape_y_offset = -550.0 + 2.0;
     
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
     let clamped_uv = clamp(uv, vec2<f32>(0.0), vec2<f32>(1.0));
@@ -1234,7 +1234,7 @@ addon.onInit(async () => {
             const landscapeSize = 4096.0;
             const worldX = (x - 0.5) * landscapeSize;
             const worldZ = (y - 0.5) * landscapeSize;
-            addonState.indicatorPos = [worldX, -400.0, worldZ]; // Approximate height
+            addonState.indicatorPos = [worldX, -550.0, worldZ]; // Approximate height
             updateIndicatorMesh();
         }
     };
@@ -1244,7 +1244,7 @@ addon.onInit(async () => {
             const landscapeSize = 4096.0;
             const worldX = (x - 0.5) * landscapeSize;
             const worldZ = (y - 0.5) * landscapeSize;
-            addonState.indicatorPos = [worldX, -400.0, worldZ];
+            addonState.indicatorPos = [worldX, -550.0, worldZ];
             updateIndicatorMesh();
         } else {
             addonState.indicatorPos = null;
@@ -1467,7 +1467,7 @@ function computeFlowAccumulation() {
     const flowParams = new Float32Array([
         4096.0, // landscape_size
         600.0,  // max_height
-        -400.0 + 8.0, // landscape_y_offset
+        -550.0 + 2.0, // landscape_y_offset
         flowRes,
         addonState.currentParams.minFlowThreshold,
         addonState.currentParams.useManualRivers ? 1.0 : 0.0,

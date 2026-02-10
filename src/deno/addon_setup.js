@@ -217,7 +217,7 @@ globalThis.Entropy = {
                             render_role: config.renderRole || null,
                             bindings: config.bindings || []
                         };
-                        ops.op_println(String("CreateOrUpdate Hair (2): " + getAddonName() + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
+                        // ops.op_println(String("CreateOrUpdate Hair (2): " + getAddonName() + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
                         ops.op_grass_create(getAddonName(), merged_config);
                     }
                 },
@@ -372,7 +372,7 @@ globalThis.Entropy = {
     },
     Entity: {
         applyImpulse: (id, impulse) => {
-            ops.op_println("Applying impulse");
+            // ops.op_println("Applying impulse");
             ops.op_entity_apply_impulse(id, impulse);
         },
         playAnimation: (id, animName) => {

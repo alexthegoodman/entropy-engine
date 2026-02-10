@@ -2614,7 +2614,7 @@ pub struct AddonEngine {
 
 const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/bundle.js");
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct EntityWrapper {
     pub id: String,
@@ -2638,6 +2638,8 @@ impl AddonEngine {
             let context = state.borrow::<AddonContext>();
             context.behaviors.get(behavior_id).cloned()
         };
+
+        // println!("Execute behavior: {:?} {:?}", hook_name, entity_wrapper);
 
         if let Some(behavior) = behavior {
             let callback = match hook_name {
@@ -3173,62 +3175,42 @@ impl AddonEngine {
         let mut entity_behaviors = Vec::new();
         let mut processed_ids = std::collections::HashSet::new();
 
-        // 0.1 NPCs
-        for npc in &renderer_state.npcs {
-            if let Some(bid) = &npc.behavior_id {
-                let pos = if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
-                    let p = rb.translation();
-                    [p.x, p.y, p.z]
-                } else {
-                    [0.0, 0.0, 0.0]
-                };
+        // 0.2 Models
+        if let Some(addon_models) = renderer_state.addon_models.get("Game Composer") {
+            for model in addon_models {
+                if processed_ids.contains(&model.id) { continue; }
 
-                entity_behaviors.push((
-                    bid.clone(),
-                    EntityWrapper {
-                        id: npc.id.clone(),
-                        position: pos,
-                        health: npc.stats.health,
-                        stamina: npc.stats.stamina,
-                        is_dead: npc.is_dead,
-                    }
-                ));
-                processed_ids.insert(npc.model_id.clone());
-            }
-        }
-
-        // 0.2 Models (standalone or generic)
-        for model in &renderer_state.models {
-            if processed_ids.contains(&model.id) { continue; }
-            if let Some(bid) = &model.behavior_id {
-                let pos = if let Some(mesh) = model.meshes.first() {
-                    if let Some(rb_handle) = mesh.rigid_body_handle {
-                        if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                            let p = rb.translation();
-                            [p.x, p.y, p.z]
+                if let Some(bid) = &model.behavior_id {
+                    let pos = if let Some(mesh) = model.meshes.first() {
+                        if let Some(rb_handle) = mesh.rigid_body_handle {
+                            if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                                let p = rb.translation();
+                                [p.x, p.y, p.z]
+                            } else {
+                                [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
+                            }
                         } else {
                             [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
                         }
                     } else {
-                        [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
-                    }
-                } else {
-                    [0.0, 0.0, 0.0]
-                };
+                        [0.0, 0.0, 0.0]
+                    };
 
-                entity_behaviors.push((
-                    bid.clone(),
-                    EntityWrapper {
-                        id: model.id.clone(),
-                        position: pos,
-                        health: 100.0,
-                        stamina: 100.0,
-                        is_dead: false,
-                    }
-                ));
-                processed_ids.insert(model.id.clone());
+                    entity_behaviors.push((
+                        bid.clone(),
+                        EntityWrapper {
+                            id: model.id.clone(),
+                            position: pos,
+                            health: 100.0,
+                            stamina: 100.0,
+                            is_dead: false,
+                        }
+                    ));
+                    processed_ids.insert(model.id.clone());
+                }
             }
         }
+        
 
         // 0.3 Collectables
         for coll in &renderer_state.collectables {

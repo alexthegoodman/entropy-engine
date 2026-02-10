@@ -89,7 +89,7 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     let max_height = 600.0;
     // let max_height = 900.0; // 1.5 scale?
     // let landscape_y_offset = -450.0;
-    let landscape_y_offset = -400.0 + 8.0; // +10.0 minor gap fix?
+    let landscape_y_offset = -550.0 + 2.0; // +2.0 minor gap fix?
 
     // dynamic terrain sizing
     // let landscape_size = uniforms.landscape_size;
