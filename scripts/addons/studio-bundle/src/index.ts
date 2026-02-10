@@ -8,7 +8,6 @@
 // tier 1
 import "./environment_addon";
 // import "./volumetric_addon";
-
 // import "./volume_dust_addon"; // non-working
 import "./composite_dust_addon"; // dust works
 import "./volumetric_fx_addon"; // fog works, dust doesnt
@@ -21,13 +20,15 @@ import "./flexnoise_terrain_addon";
 import "./hair_particle_addon";
 import "./fft_water_addon";
 // okay, but the automatic flow accumlation is bad
-import "./fft_river_addon"; 
+// import "./fft_river_addon"; 
 // better for flow simulation than for water properties like surface waves and refractions
 // import "./gpgpu_river_addon"; 
 import "./model_viewer_addon";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
-import "./horde_mode_addon";
+
+// game logic tier
+// import "./horde_mode_addon";
 import "./wave_spawner_addon";
 
 // initialize last (tier 3)
