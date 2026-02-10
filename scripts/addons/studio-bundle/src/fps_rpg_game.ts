@@ -642,15 +642,6 @@ Entropy.Behavior.register("shadow_assassin", {
 
 class WorldManager {    
     initialize() {
-        // Create landscape
-        addon.Landscape.create({
-            width: LANDSCAPE_SIZE,
-            height: LANDSCAPE_SIZE,
-            position: [-LANDSCAPE_SIZE/2, 0, -LANDSCAPE_SIZE/2]
-        });
-        
-        Entropy.println("[World] Landscape created");
-        
         this.spawnPlayer();
         this.populateWorld();
     }
@@ -684,10 +675,10 @@ class WorldManager {
         this.spawnNPC("Commander Vex", "commander_vex", "Enemy1b.glb", 
             factions[Faction.CRIMSON_GUARD].territory, "quest_giver_vex");
         
-        this.spawnNPC("Scholar Lyra", "scholar_lyra", "Friend2b.glb",
+        this.spawnNPC("Scholar Lyra", "scholar_lyra", "Player1b.glb",
             factions[Faction.AZURE_ORDER].territory, "quest_giver_lyra");
         
-        this.spawnNPC("Whisper Master", "whisper_master", "Enemy2b.glb",
+        this.spawnNPC("Whisper Master", "whisper_master", "Enemy1b.glb",
             factions[Faction.SHADOW_COVENANT].territory, "quest_giver_whisper");
         
         this.spawnNPC("The Wanderer", "wanderer", "Friend1b.glb",
@@ -835,10 +826,16 @@ const worldManager = new WorldManager();
 // --- Game Lifecycle ---
 
 Entropy.onGameStarted(() => {
+    Entropy.Composer?.enableGameComposerOverride();
+
+    Entropy.println("=== THE FRACTURED REALM ===");
+
     gameState.isGameActive = true;
     worldManager.initialize();
-    Entropy.println("=== THE FRACTURED REALM ===");
+    
     Entropy.println("Choose your path wisely. Every action has consequences.");
+
+    Entropy.Composer?.disableGameComposerOverride();
 });
 
 Entropy.onGameStopped(() => {
@@ -850,8 +847,6 @@ Entropy.onGameStopped(() => {
 // --- UI ---
 
 addon.onInit(() => {
-    Entropy.println("The Fractured Realm initialized");
-    
     const windowId = addon.UI.createTab({
         title: "Fractured Realm",
         onRender: () => {
@@ -931,4 +926,6 @@ addon.onInit(() => {
             }
         }
     });
+
+    Entropy.println("⚔️ THE FRACTURED REALM initialized");
 });

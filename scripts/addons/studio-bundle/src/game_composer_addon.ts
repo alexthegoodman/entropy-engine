@@ -196,13 +196,18 @@ addon.onInit(async () => {
              Entropy.UI.Widget.button(tab, {
                  text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
                  onClick: () => {
-                     composerState.playMode = !composerState.playMode;
-                     Entropy.setGameMode(composerState.playMode);
-                     if (composerState.playMode) {
-                        (Entropy as any)._dispatchGameStarted?.();
-                     } else {
-                        (Entropy as any)._dispatchGameStopped?.();
-                     }
+                    Entropy.println("Starting game...");
+
+                    // composerState.playMode = !composerState.playMode;
+                    // Entropy.setGameMode(composerState.playMode);
+                    
+                    // if (composerState.playMode) {
+                    //     Entropy._dispatchGameStarted();
+                    // } else {
+                    //     Entropy._dispatchGameStopped();
+                    // }
+
+                    // Entropy.println("Game started!");
                  }
              });
 

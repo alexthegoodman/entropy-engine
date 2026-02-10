@@ -350,8 +350,8 @@ addon.onInit(async () => {
         Entropy.UI.Widget.button(tab, {
             text: "🗑️ Clear Manual Rivers",
             onClick: () => {
-                interopState.manualRiverMaskData.fill(0);
-                updateManualRiverMask(0, 0, 0); // Trigger update
+                // interopState.manualRiverMaskData.fill(0);
+                // updateManualRiverMask(0, 0, 0); // Trigger update
             }
         });
 
