@@ -34,7 +34,7 @@ use crate::helpers::saved_data::{CollectableProperties, CollectableType, Compone
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
-use crate::deno::script_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
+// use crate::deno::script_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
 use crate::water_plane::water::WaterPlane;
@@ -284,39 +284,15 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                      let next_node = state.dialogue_state.options[state.dialogue_state.selected_option_index].next_node.clone();
                      state.dialogue_state.current_node = next_node;
                      
-                     // Find script again - TODO: cache script path in dialogue_state
-                     let mut script_path = String::new();
-                     if let Some(world_state) = &state.world_state {
-                         if let Some(levels) = &world_state.levels {
-                             if let Some(level) = levels.get(0) {
-                                 if let Some(components) = &level.components {
-                                     for comp in components {
-                                         if comp.id == state.dialogue_state.current_npc_id {
-                                             if let Some(script) = &comp.js_script_path {
-                                                 script_path = script.clone();
-                                             }
-                                         }
-                                     }
-                                 }
-                             }
-                         }
-                     }
-                     
-                     if !script_path.is_empty() {
+                     if true {
                         if let Some(renderer_state) = state.renderer_state.as_mut() {
-                            state.deno_engine.execute_interaction_script(
-                                renderer_state,
-                                &mut state.dialogue_state,
-                                &script_path,
-                                "interact"
-                            );
+                            // TODO: execute interaction hooks
                         }
                      } else {
                          // Close if no script found? or just close
                          state.dialogue_state.is_open = false;
                          state.dialogue_state.ui_dirty = true;
-                         // Handle cleanup of is_talking manually if script fails? 
-                         // Ideally execute_interaction_script handles it, but if we don't call it...
+
                          if let Some(renderer_state) = state.renderer_state.as_mut() {
                              if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == state.dialogue_state.current_npc_id) {
                                  npc.is_talking = false;
@@ -1512,12 +1488,7 @@ fn handle_npc_interaction(state: &mut Editor) {
     if let Some(script) = target_script_path {
         state.dialogue_state.npc_name = target_npc_name;
         state.dialogue_state.current_npc_id = target_id;
-        state.deno_engine.execute_interaction_script(
-            state.renderer_state.as_mut().unwrap(), // Need to pass renderer_state
-            &mut state.dialogue_state,
-            &script,
-            "interact"
-        );
+        // TODO: execute interaction hook(s)
     }
 }
 

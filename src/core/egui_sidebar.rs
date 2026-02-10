@@ -32,7 +32,7 @@ use serde_json;
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
 use crate::helpers::load_project::{load_game_project, load_video_project};
-use crate::deno::script_engine::{ComponentChanges, DenoEngine};
+// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};

@@ -53,7 +53,7 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
 // use crate::helpers::load_project::load_project;
-use crate::deno::script_engine::{ComponentChanges, DenoEngine};
+// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
@@ -262,64 +262,64 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                     }
 
                     // Execute Rhai on_attack scripts for the player
-                    let mut script_changes = Vec::new();
-                    if let Some(world_state) = &editor.world_state {
-                        if let Some(levels) = &world_state.levels {
-                            if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
-                                for component in components.iter() {
-                                    if component.kind == Some(ComponentKind::PlayerCharacter) {
-                                        if let Some(script_path) = &component.js_script_path {
-                                            if let Some(change) = editor.deno_engine.execute_component_script(
-                                                renderer_state,
-                                                component,
-                                                script_path,
-                                                "on_attack",
-                                            ) {
-                                                script_changes.push(change);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    // let mut script_changes = Vec::new();
+                    // if let Some(world_state) = &editor.world_state {
+                    //     if let Some(levels) = &world_state.levels {
+                    //         if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
+                    //             for component in components.iter() {
+                    //                 if component.kind == Some(ComponentKind::PlayerCharacter) {
+                    //                     if let Some(script_path) = &component.js_script_path {
+                    //                         if let Some(change) = editor.deno_engine.execute_component_script(
+                    //                             renderer_state,
+                    //                             component,
+                    //                             script_path,
+                    //                             "on_attack",
+                    //                         ) {
+                    //                             script_changes.push(change);
+                    //                         }
+                    //                     }
+                    //                 }
+                    //             }
+                    //         }
+                    //     }
+                    // }
 
-                    // Handle particle spawns from on_attack
-                    for change in script_changes {
-                        if let Some(spawns) = change.particle_spawns {
-                            let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
-                            for spawn in spawns {
-                                if let Some((start, end)) = debug_line {
-                                    let uniforms = ParticleUniforms {
-                                        position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
-                                        time: 0.0,
-                                        emission_rate: spawn.emission_rate,
-                                        life_time: spawn.life_time,
-                                        radius: spawn.radius,
-                                        gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
-                                        initial_speed_min: spawn.initial_speed_min,
-                                        initial_speed_max: spawn.initial_speed_max,
-                                        start_color: spawn.start_color,
-                                        end_color: spawn.end_color,
-                                        size: spawn.size,
-                                        mode: spawn.mode,
-                                        target_position: [end.x, end.y, end.z, 0.0],
-                                        _pad2: [0.0; 4],
-                                    };
+                    // // Handle particle spawns from on_attack
+                    // for change in script_changes {
+                    //     if let Some(spawns) = change.particle_spawns {
+                    //         let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
+                    //         for spawn in spawns {
+                    //             if let Some((start, end)) = debug_line {
+                    //                 let uniforms = ParticleUniforms {
+                    //                     position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
+                    //                     time: 0.0,
+                    //                     emission_rate: spawn.emission_rate,
+                    //                     life_time: spawn.life_time,
+                    //                     radius: spawn.radius,
+                    //                     gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
+                    //                     initial_speed_min: spawn.initial_speed_min,
+                    //                     initial_speed_max: spawn.initial_speed_max,
+                    //                     start_color: spawn.start_color,
+                    //                     end_color: spawn.end_color,
+                    //                     size: spawn.size,
+                    //                     mode: spawn.mode,
+                    //                     target_position: [end.x, end.y, end.z, 0.0],
+                    //                     _pad2: [0.0; 4],
+                    //                 };
                                     
-                                    let system = ParticleSystem::new(
-                                        &gpu_resources.device,
-                                        &camera_binding.bind_group_layout,
-                                        uniforms,
-                                        500,
-                                        wgpu::TextureFormat::Rgba8Unorm,
-                                    );
+                    //                 let system = ParticleSystem::new(
+                    //                     &gpu_resources.device,
+                    //                     &camera_binding.bind_group_layout,
+                    //                     uniforms,
+                    //                     500,
+                    //                     wgpu::TextureFormat::Rgba8Unorm,
+                    //                 );
                                     
-                                    renderer_state.particle_systems.push(system);
-                                }
-                            }
-                        }
-                    }
+                    //                 renderer_state.particle_systems.push(system);
+                    //             }
+                    //         }
+                    //     }
+                    // }
 
                     // Handle debug hitscan line
                     if renderer_state.game_settings.show_hitscan_line {
@@ -449,47 +449,47 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
             }
 
             // Execute JS component scripts
-            let mut changes: Vec<ComponentChanges> = Vec::new();
-            if let Some(world_state) = editor.world_state.as_ref() {
-                if let Some(levels) = world_state.levels.as_ref() {
-                    if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
-                        for component in components.iter() {
-                            if let Some(script_path) = &component.js_script_path {
-                                if let Some(change) = editor.deno_engine.execute_component_script(
-                                    renderer_state,
-                                    component,
-                                    script_path,
-                                    "on_update",
-                                ) {
-                                    changes.push(change);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // let mut changes: Vec<ComponentChanges> = Vec::new();
+            // if let Some(world_state) = editor.world_state.as_ref() {
+            //     if let Some(levels) = world_state.levels.as_ref() {
+            //         if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
+            //             for component in components.iter() {
+            //                 if let Some(script_path) = &component.js_script_path {
+            //                     if let Some(change) = editor.deno_engine.execute_component_script(
+            //                         renderer_state,
+            //                         component,
+            //                         script_path,
+            //                         "on_update",
+            //                     ) {
+            //                         changes.push(change);
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
 
-            // Apply collected changes
-            for change in changes {
-                if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == change.component_id) {
-                    if let Some(new_pos) = change.new_position {
-                        let pos_array = [new_pos.x, new_pos.y, new_pos.z];
+            // // Apply collected changes
+            // for change in changes {
+            //     if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == change.component_id) {
+            //         if let Some(new_pos) = change.new_position {
+            //             let pos_array = [new_pos.x, new_pos.y, new_pos.z];
                         
-                        // Update model's transform for rendering
-                        for mesh in &mut model.meshes {
-                            mesh.transform.update_position(pos_array);
-                        }
+            //             // Update model's transform for rendering
+            //             for mesh in &mut model.meshes {
+            //                 mesh.transform.update_position(pos_array);
+            //             }
                         
-                        // Update rigidbody for physics
-                        if let Some(rb_handle) = model.meshes[0].rigid_body_handle {
-                            if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                                let new_isometry = nalgebra::Isometry3::translation(new_pos.x, new_pos.y, new_pos.z);
-                                rb.set_position(new_isometry, true);
-                            }
-                        }
-                    }
-                }
-            }
+            //             // Update rigidbody for physics
+            //             if let Some(rb_handle) = model.meshes[0].rigid_body_handle {
+            //                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+            //                     let new_isometry = nalgebra::Isometry3::translation(new_pos.x, new_pos.y, new_pos.z);
+            //                     rb.set_position(new_isometry, true);
+            //                 }
+            //             }
+            //         }
+            //     }
+            // }
 
             let time = pipeline.start_time.elapsed().as_secs_f32();
             if !renderer_state.particle_systems.is_empty() {

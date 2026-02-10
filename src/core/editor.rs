@@ -30,7 +30,7 @@ use crate::screen_capture::capture::{MousePosition, SourceData};
 use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
-use crate::deno::script_engine::DenoEngine;
+// use crate::deno::script_engine::DenoEngine;
 use crate::deno::addon_engine::AddonEngine;
 use crate::game_ui::dialogue_state::DialogueState;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};
@@ -352,7 +352,7 @@ pub struct Editor {
     pub stunts_state: Option<SavedState>,
     pub sophia_state: Option<SavedState>,
     pub sophia_app_state: crate::core::sophia::SophiaState,
-    pub deno_engine: DenoEngine,
+    // pub deno_engine: DenoEngine,
     pub addon_engine: AddonEngine,
     pub script_editors: HashMap<PathBuf, crate::core::script_editor::ScriptEditor>,
     pub pending_script_tabs: Vec<PathBuf>,
@@ -686,7 +686,7 @@ impl Editor {
             stunts_state: None,
             sophia_state: None,
             sophia_app_state: crate::core::sophia::SophiaState::new(),
-            deno_engine: DenoEngine::new(project_id.clone()),
+            // deno_engine: DenoEngine::new(project_id.clone()),
             addon_engine: AddonEngine::new(project_id.clone()),
             script_editors: HashMap::new(),
             pending_script_tabs: Vec::new(),

@@ -46,7 +46,7 @@ Within /src/, there are several directories:
 /model_components/ has components that are associated with models such as PlayerCharacter, NPC, and Collectables
 /vector_animations/ helps with 2D motion path animations
 /video_export/ leverages Media Foundation to power mp4 video export on Windows
-/deno/ contains the script_engine for things like game scripts, and this folder also contains the addon_engine for full addon capabilities
+/deno/ contains the addon engine for both game logic and rendering logic in JS scripts
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)

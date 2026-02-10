@@ -875,6 +875,8 @@ impl RendererState {
                             mesh.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
                         }
 
+                        println!("Update NPC position {:?}", position);
+
                         mesh.transform
                             .update_position([position.x, position.y, position.z]);
                     });

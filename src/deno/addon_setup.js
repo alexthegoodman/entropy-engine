@@ -372,6 +372,7 @@ globalThis.Entropy = {
     },
     Entity: {
         applyImpulse: (id, impulse) => {
+            ops.op_println("Applying impulse");
             ops.op_entity_apply_impulse(id, impulse);
         },
         playAnimation: (id, animName) => {

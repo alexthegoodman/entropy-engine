@@ -53,7 +53,7 @@ use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
 // use crate::helpers::load_project::load_project;
-use crate::deno::script_engine::{ComponentChanges, DenoEngine};
+// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::game_ui::hud::{Crosshair, AmmoDisplay};

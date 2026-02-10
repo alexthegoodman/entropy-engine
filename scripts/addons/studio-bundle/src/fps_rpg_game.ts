@@ -538,6 +538,8 @@ Entropy.Behavior.register("neutral_wanderer", {
 Entropy.Behavior.register("crimson_soldier", {
     onUpdate: (entity, system, state) => {
         if (entity.isDead) return state;
+
+        Entropy.println("crimson soldier update");
         
         const [playerPos] = Entropy.Camera.getTransform();
         const dx = playerPos[0] - entity.position[0];
