@@ -29,7 +29,7 @@ import "./inorganic_modelling_addon";
 
 // game logic tier
 // import "./horde_mode_addon";
-import "./wave_spawner_addon";
+import "./wave_spawner_game";
 
 // initialize last (tier 3)
 import "./game_composer_addon";
