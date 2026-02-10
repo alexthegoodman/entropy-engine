@@ -304,6 +304,17 @@ globalThis.Entropy = {
             );
         }
     },
+    Entity: {
+        applyImpulse: (id, impulse) => {
+            ops.op_entity_apply_impulse(id, impulse);
+        },
+        playAnimation: (id, animName) => {
+            ops.op_entity_play_animation(id, animName);
+        },
+        setStats: (id, stats) => {
+            ops.op_entity_set_stats(id, stats);
+        }
+    },
     UI: {
         createWindow: (config) => {
             const windowId = ops.op_ui_create_window(config, config.onRender);

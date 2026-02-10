@@ -397,6 +397,9 @@ pub struct AddonContext {
     pub pending_mesh_updates: Vec<(String, Vec<u32>, Vec<f32>)>, // (mesh_id, indices, positions)
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub pending_game_mode: Option<bool>,
+    pub pending_entity_impulses: Vec<(String, [f32; 3])>,
+    pub pending_animation_plays: Vec<(String, String)>,
+    pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
     pub active_gizmo: Option<GizmoState>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
@@ -536,6 +539,29 @@ fn op_landscape_update_pbr_texture(
     // println!("op_landscape_update_pbr_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
+    }
+}
+
+#[op2]
+fn op_entity_apply_impulse(state: &mut OpState, #[string] id: String, #[serde] impulse: Vec<f32>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if impulse.len() >= 3 {
+            ctx.pending_entity_impulses.push((id, [impulse[0], impulse[1], impulse[2]]));
+        }
+    }
+}
+
+#[op2(fast)]
+fn op_entity_play_animation(state: &mut OpState, #[string] id: String, #[string] anim_name: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_animation_plays.push((id, anim_name));
+    }
+}
+
+#[op2]
+fn op_entity_set_stats(state: &mut OpState, #[string] id: String, #[serde] stats: crate::helpers::saved_data::CharacterStats) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_stat_updates.push((id, stats));
     }
 }
 
@@ -2520,7 +2546,10 @@ extension!(
         op_dialogue_add_option,
         op_dialogue_start_quest,
         op_dialogue_close,
-        op_dialogue_get_node
+        op_dialogue_get_node,
+        op_entity_apply_impulse,
+        op_entity_play_animation,
+        op_entity_set_stats
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2693,6 +2722,9 @@ impl AddonEngine {
                                         pending_composites: Vec::new(),
                                         pending_mesh_updates: Vec::new(),
                                         pending_sun_config: None,                                                    pending_game_mode: None,
+                                        pending_entity_impulses: Vec::new(),
+                                        pending_animation_plays: Vec::new(),
+                                        pending_stat_updates: Vec::new(),
                                                     active_gizmo: None,
                                                     noise_generators: HashMap::new(),            on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
@@ -3261,7 +3293,7 @@ impl AddonEngine {
         }
 
         // 2. Process pending resources
-        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates, pending_game_mode) = {
+        let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates, pending_game_mode, pending_impulses, pending_animations, pending_stats) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
@@ -3276,15 +3308,59 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_point_lights),
                     std::mem::take(&mut ctx.pending_composites),
                     std::mem::take(&mut ctx.pending_landscape_texture_updates),
-                    ctx.pending_game_mode.take()
+                    ctx.pending_game_mode.take(),
+                    std::mem::take(&mut ctx.pending_entity_impulses),
+                    std::mem::take(&mut ctx.pending_animation_plays),
+                    std::mem::take(&mut ctx.pending_stat_updates),
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None)
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new())
             }
         };
 
         if let Some(enabled) = pending_game_mode {
             renderer_state.game_mode = enabled;
+        }
+
+        // 2.0.1 Apply Entity Actions
+        for (id, impulse) in pending_impulses {
+            // Apply to NPC
+            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+                if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
+                    rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
+                }
+            } 
+            // Apply to Player
+            else if let Some(player) = &renderer_state.player_character {
+                if player.id == id {
+                    if let Some(rb_handle) = player.movement_rigid_body_handle {
+                        if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+                            rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
+                        }
+                    }
+                }
+            }
+        }
+
+        for (id, anim_name) in pending_animations {
+            // Find NPC and its associated model
+            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+                if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == npc.model_id) {
+                    if let Some(idx) = model.animations.iter().position(|a| a.name.to_lowercase().contains(&anim_name.to_lowercase())) {
+                        npc.animation_state.animation_index = idx;
+                    }
+                }
+            }
+        }
+
+        for (id, stats) in pending_stats {
+            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+                npc.stats = stats;
+            } else if let Some(player) = &mut renderer_state.player_character {
+                if player.id == id {
+                    player.stats = stats;
+                }
+            }
         }
 
         // 2.1 Process Gizmo

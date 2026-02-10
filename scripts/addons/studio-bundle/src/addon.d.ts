@@ -448,6 +448,11 @@ export interface EntropyAPI {
       onAttack?: (entity: Entity, system: BehaviorSystem, state: any) => any;
     }) => void;
   };
+  Entity: {
+    applyImpulse: (id: string, impulse: [number, number, number]) => void;
+    playAnimation: (id: string, animName: string) => void;
+    setStats: (id: string, stats: { health: number, stamina: number }) => void;
+  };
   UI: {
     createWindow: (config: WindowConfig) => string;
     createTab: (config: TabConfig) => string;
