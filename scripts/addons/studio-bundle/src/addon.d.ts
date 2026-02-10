@@ -132,6 +132,14 @@ export interface PhysicsConfig {
   restitution?: number;
 }
 
+export interface AttackStats {
+  damage: number;
+  range: number;
+  cooldown: number;
+  windUpTime: number;
+  recoveryTime: number;
+}
+
 export interface ScopedAPI {
   onInit: (callback: InitCallback) => void;
   onAllAddonsInitialized: (callback: InitCallback) => void;
@@ -164,8 +172,8 @@ export interface ScopedAPI {
                   wanderRadius: number;
                   wanderSpeed: number;
                   detectionRadius: number;
-                  meleeStats?: any;
-                  rangedStats?: any;
+                  meleeStats?: AttackStats;
+                  rangedStats?: AttackStats;
               };
               squadId?: string;
           };

@@ -72,6 +72,7 @@ pub enum LandscapeTextureKinds {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct PhysicsConfig {
     pub body_type: String, // "dynamic", "fixed", "kinematic"
     pub collider_shape: String, // "trimesh", "hull", "cuboid", "capsule", "ball"
@@ -156,6 +157,7 @@ pub struct CollectableProperties {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct NPCProperties {
     pub model_id: String,
     pub behavior: BehaviorConfig,
@@ -163,6 +165,7 @@ pub struct NPCProperties {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct PlayerProperties {
     pub model_id: Option<String>,
     // default weapon is already hidden from the level / world. 
@@ -285,6 +288,7 @@ pub struct VideoSettings {
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default, Copy)]
+#[serde(rename_all = "camelCase")]
 pub struct AttackStats {
     pub damage: f32, // TODO: should be determined be equipped weapon
     pub range: f32,

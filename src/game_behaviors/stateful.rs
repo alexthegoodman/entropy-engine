@@ -25,6 +25,7 @@ pub enum CombatType {
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct BehaviorConfig {
     pub aggressiveness: f32, // 0.0 to 1.0
     pub combat_type: CombatType,

@@ -60,14 +60,14 @@ Entropy.onGameStarted(() => {
   if (state.currentWave === 0) {
     startNextWave();
   }
-  println("[Wave Spawner] Game Started via Hook");
+  Entropy.println("[Wave Spawner] Game Started via Hook");
 });
 
 Entropy.onGameStopped(() => {
   state.isPaused = true;
   state.autoStart = false;
   addon.Model.clearMeshes();
-  println("[Wave Spawner] Game Stopped via Hook");
+  Entropy.println("[Wave Spawner] Game Stopped via Hook");
 });
 
 let windowId: string;
@@ -78,21 +78,24 @@ const MELEE_MODEL_PATH = "Enemy1b.glb";
 const RANGED_MODEL_PATH = "Enemy1b.glb";
 
 addon.onInit(() => {
-  println("[Wave Spawner] Initializing...");
+  Entropy.println("[Wave Spawner] Initializing...");
   
   // Create UI window
   windowId = addon.UI.createTab({
-    title: "Wave Spawner"
+    title: "Wave Spawner",
+    onRender: () => {
+      createUI();
+    }
   });
   
-  createUI();
-  
-  // Load saved state if available
-  const savedState = addon.IO.load();
-  if (savedState) {
-    state = { ...state, ...savedState };
-    println("[Wave Spawner] Loaded saved state");
-  }
+  addon.onProjectChanged(async () => {
+    // Load saved state if available
+    const savedState = addon.IO.load();
+    if (savedState) {
+      state = { ...state, ...savedState };
+      Entropy.println("[Wave Spawner] Loaded saved state");
+    }
+  });
 });
 
 addon.onUpdate((time: number, pos: [number, number, number], dir: [number, number, number]) => {
@@ -116,7 +119,7 @@ addon.onUpdate((time: number, pos: [number, number, number], dir: [number, numbe
 });
 
 addon.onCleanup(() => {
-  println("[Wave Spawner] Cleaning up...");
+  Entropy.println("[Wave Spawner] Cleaning up...");
   addon.IO.save(state);
 });
 
@@ -145,7 +148,7 @@ function createUI() {
     text: state.isPaused ? "▶ Resume Waves" : "⏸ Pause Waves",
     onClick: () => {
       state.isPaused = !state.isPaused;
-      println(`[Wave Spawner] ${state.isPaused ? 'Paused' : 'Resumed'}`);
+      Entropy.println(`[Wave Spawner] ${state.isPaused ? 'Paused' : 'Resumed'}`);
     }
   });
   
@@ -175,7 +178,7 @@ function createUI() {
       state.waveTimer = 0;
       state.healthMultiplier = 1.0;
       state.damageMultiplier = 1.0;
-      println("[Wave Spawner] Reset to wave 0");
+      Entropy.println("[Wave Spawner] Reset to wave 0");
     }
   });
   
@@ -269,11 +272,11 @@ function startNextWave() {
   // Calculate wave configuration with escalating difficulty
   const config = calculateWaveConfig(state.currentWave);
   
-  println(`[Wave Spawner] Starting Wave ${state.currentWave}`);
-  println(`  - Melee enemies: ${config.meleeCount}`);
-  println(`  - Ranged enemies: ${config.rangedCount}`);
-  println(`  - Enemy health: ${config.enemyHealth}`);
-  println(`  - Enemy damage: ${config.enemyDamage}`);
+  Entropy.println(`[Wave Spawner] Starting Wave ${state.currentWave}`);
+  Entropy.println(`  - Melee enemies: ${config.meleeCount}`);
+  Entropy.println(`  - Ranged enemies: ${config.rangedCount}`);
+  Entropy.println(`  - Enemy health: ${config.enemyHealth}`);
+  Entropy.println(`  - Enemy damage: ${config.enemyDamage}`);
   
   // Update difficulty multipliers for UI
   state.healthMultiplier = config.enemyHealth / 100;
@@ -342,7 +345,7 @@ function getRandomSpawnPosition(maxRadius: number, minRadius: number): [number, 
 }
 
 function spawnMeleeEnemy(position: [number, number, number], health: number, damage: number, squadId: string) {
-  const enemyId = `melee_${Entropy.generateUUID()}`;
+  const enemyId = Entropy.generateUUID();
   
   addon.Model.load({
     path: MELEE_MODEL_PATH,
@@ -365,9 +368,11 @@ function spawnMeleeEnemy(position: [number, number, number], health: number, dam
         wanderSpeed: 2.0,
         detectionRadius: 30,
         meleeStats: {
-          damage: damage,
-          attackSpeed: 1.5,
-          attackRange: 2.0
+          damage: damage, // Ranged enemies do slightly less damage
+          range:  2.0,
+          cooldown: 0.2,
+          windUpTime: 0.2,
+          recoveryTime: 0.2,
         }
       },
       squadId: squadId
@@ -382,7 +387,7 @@ function spawnMeleeEnemy(position: [number, number, number], health: number, dam
 }
 
 function spawnRangedEnemy(position: [number, number, number], health: number, damage: number, squadId: string) {
-  const enemyId = `ranged_${Entropy.generateUUID()}`;
+  const enemyId = Entropy.generateUUID();
   
   addon.Model.load({
     path: RANGED_MODEL_PATH,
@@ -406,9 +411,10 @@ function spawnRangedEnemy(position: [number, number, number], health: number, da
         detectionRadius: 40,
         rangedStats: {
           damage: damage * 0.8, // Ranged enemies do slightly less damage
-          attackSpeed: 1.0,
-          attackRange: 25.0,
-          projectileSpeed: 20.0
+          range:  25.0,
+          cooldown: 0.2,
+          windUpTime: 0.2,
+          recoveryTime: 0.2,
         }
       },
       squadId: squadId
@@ -422,4 +428,4 @@ function spawnRangedEnemy(position: [number, number, number], health: number, da
   });
 }
 
-println("[Wave Spawner] Addon loaded successfully!");
+Entropy.println("[Wave Spawner] Addon loaded successfully!");
