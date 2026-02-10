@@ -527,7 +527,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.label(tab, { text: "🖥️ Resolution", bold: true });
         
-        const resolutions = [64, 128, 256, 512];
+        const resolutions = [128, 256, 512, 1024, 2048];
         resolutions.forEach(res => {
             Entropy.UI.Widget.button(tab, {
                 text: `Set Resolution: ${res}x${res}`,
