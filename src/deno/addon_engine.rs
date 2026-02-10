@@ -3147,12 +3147,14 @@ impl AddonEngine {
             context.camera_proj = camera.get_projection().into();
             context.landscape_texture_view = landscape_view.clone();
             
-            if let Some((heights, pos)) = landscape_data {
-                context.landscape_heights = Some(heights);
-                context.landscape_position = pos;
-            } else {
-                context.landscape_heights = None;
-            }
+            // if context.landscape_heights.is_none() { // ideally would not be setting heights in update()...
+                if let Some((heights, pos)) = landscape_data {
+                    context.landscape_heights = Some(heights);
+                    context.landscape_position = pos;
+                } else {
+                    context.landscape_heights = None;
+                }
+            // }
 
             // Update Input State
             if let Some(mouse_pos) = renderer_state.current_mouse_position {
@@ -3318,6 +3320,8 @@ impl AddonEngine {
         };
 
         if !events.is_empty() {
+            // println!("Non empty events {:?}", events);
+
             let scope = &mut self.runtime.handle_scope();
             let global = scope.get_current_context().global(scope);
             let entropy_key = v8::String::new(scope, "Entropy").unwrap();

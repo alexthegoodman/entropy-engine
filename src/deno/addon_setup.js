@@ -527,7 +527,46 @@ globalThis.Entropy = {
         }
     },
     _process_events: (events) => {
-        // ... (existing event processing)
+        for (const event of events) {
+            let id = event;
+            let payload = null;
+            let isHover = false;
+
+            // ops.op_println(String("Process Addon Event: " + event));
+
+            if (event.startsWith("HOVER|")) {
+                isHover = true;
+                const parts = event.split("|");
+                id = parts[1];
+                payload = parts[2];
+            } else if (event.includes("|")) {
+                const parts = event.split("|");
+                id = parts[0];
+                payload = parts[1];
+            }
+
+            const listener_pool = isHover ? globalThis._entropy_hover_listeners : globalThis._entropy_event_listeners;
+
+            if (listener_pool && listener_pool[id]) {
+                if (payload !== null) {
+                    // Try to parse payload if it looks like a color or array or drawing event
+                    if (payload.includes(",")) {
+                        const values = payload.split(",").map(v => parseFloat(v));
+                        
+                        // For minimap draw/hover events: x, y, brushSize
+                        if (values.length === 3) {
+                             listener_pool[id](values[0], values[1], values[2]);
+                        } else {
+                             listener_pool[id](values);
+                        }
+                    } else {
+                        listener_pool[id](payload);
+                    }
+                } else {
+                    listener_pool[id]();
+                }
+            }
+        }
     },
     _process_game_logic: () => {
         if (!globalThis.Entropy.gameMode) return;
