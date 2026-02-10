@@ -478,6 +478,35 @@ globalThis.Entropy = {
             }
         }
     },
+    _process_input_events: (events) => {
+        if (!globalThis._entropy_input_listeners) return;
+        const listeners = globalThis._entropy_input_listeners;
+
+        for (const event of events) {
+            switch (event.type) {
+                case "MouseDown":
+                    if (listeners.onMouseDown) listeners.onMouseDown(event.button, event.x, event.y);
+                    break;
+                case "MouseMove":
+                    if (listeners.onMouseMove) listeners.onMouseMove(event.x, event.y);
+                    break;
+                case "MouseUp":
+                    if (listeners.onMouseUp) listeners.onMouseUp(event.button);
+                    break;
+                case "KeyDown":
+                    // We need modifiers here too if requested by API
+                    // For now keeping it simple as per NEEDED_APIS.md
+                    if (listeners.onKeyDown) {
+                        const state = ops.op_input_get_state();
+                        listeners.onKeyDown(event.key, state.modifiers.ctrl, state.modifiers.shift, state.modifiers.alt);
+                    }
+                    break;
+                case "KeyUp":
+                    if (listeners.onKeyUp) listeners.onKeyUp(event.key);
+                    break;
+            }
+        }
+    },
     _reset_widget_counter: () => {
         globalThis._entropy_widget_counter = 0;
     },
@@ -628,6 +657,130 @@ globalThis.Entropy = {
     Camera: {
         getTransform: () => {
             return ops.op_camera_get_transform();
+        },
+        screenToWorldRay: (screenX, screenY) => {
+            const [pos, dir] = ops.op_camera_get_transform(); // Default fallback
+            try {
+                const [w, h] = ops.op_window_get_size();
+                return ops.op_camera_screen_to_world(screenX, screenY, w, h);
+            } catch (e) {
+                return { origin: pos, direction: dir };
+            }
+        }
+    },
+    Gizmo: {
+        show: (config) => {
+            const id = globalThis.Entropy.generateUUID();
+            ops.op_gizmo_show({
+                id,
+                position: config.position,
+                mode: config.mode,
+                space: config.space || "world"
+            });
+            // We'll store callbacks globally for the engine to trigger
+            globalThis._entropy_gizmo_callbacks = globalThis._entropy_gizmo_callbacks || {};
+            globalThis._entropy_gizmo_callbacks[id] = {
+                onTransform: config.onTransform,
+                onComplete: config.onComplete
+            };
+            return id;
+        },
+        hide: (id) => {
+            ops.op_gizmo_hide();
+            if (globalThis._entropy_gizmo_callbacks) {
+                delete globalThis._entropy_gizmo_callbacks[id];
+            }
+        },
+        updatePosition: (id, position) => {
+            ops.op_gizmo_update(position);
+        },
+        getState: (id) => {
+            // Need op_gizmo_get_state if we want to poll it
+            return null; 
+        }
+    },
+    Input: {
+        onMouseDown: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onMouseDown = callback;
+        },
+        onMouseMove: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onMouseMove = callback;
+        },
+        onMouseUp: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onMouseUp = callback;
+        },
+        onKeyDown: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onKeyDown = callback;
+        },
+        onKeyUp: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onKeyUp = callback;
+        },
+        isKeyPressed: (key) => {
+            const state = ops.op_input_get_state();
+            return state.pressedKeys.includes(key);
+        },
+        isCtrlPressed: () => {
+            const state = ops.op_input_get_state();
+            return state.modifiers.ctrl;
+        },
+        isShiftPressed: () => {
+            const state = ops.op_input_get_state();
+            return state.modifiers.shift;
+        },
+        isAltPressed: () => {
+            const state = ops.op_input_get_state();
+            return state.modifiers.alt;
+        }
+    },
+    Selection: {
+        setMode: (mode) => {
+            // op_selection_set_mode(mode)
+        },
+        getSelected: (meshId) => {
+            const selectedId = ops.op_selection_get_selected();
+            // Basic object selection for now
+            return {
+                vertices: [],
+                edges: [],
+                faces: [],
+                objectId: selectedId
+            };
+        },
+        raycast: (screenX, screenY) => {
+            // Need op_selection_raycast
+            return null;
+        },
+        highlightElements: (meshId, config) => {
+            // op_selection_highlight(meshId, config)
+        },
+        clear: () => {
+            // op_selection_clear()
+        }
+    },
+    Mesh: {
+        getData: (meshId) => {
+            return ops.op_mesh_get_data(meshId);
+        },
+        updateVertices: (meshId, vertexIndices, newPositions) => {
+            // op_mesh_update_vertices(meshId, vertexIndices, newPositions)
+        },
+        appendGeometry: (meshId, vertices, indices) => {
+            // op_mesh_append_geometry(meshId, vertices, indices)
+        },
+        removeGeometry: (meshId, faceIndices) => {
+            // op_mesh_remove_geometry(meshId, faceIndices)
+        },
+        getVertexWorldPosition: (meshId, vertexIndex) => {
+            // Need op_mesh_get_vertex_world_pos
+            return [0, 0, 0];
+        },
+        recalculateNormals: (meshId) => {
+            // op_mesh_recalculate_normals(meshId)
         }
     }
 };

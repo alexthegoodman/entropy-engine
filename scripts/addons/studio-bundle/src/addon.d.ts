@@ -393,6 +393,25 @@ export interface CodeEditorConfig {
     onChange?: (content: string) => void;
 }
 
+export interface GizmoConfig {
+  position: [number, number, number];
+  mode: "translate" | "rotate" | "scale";
+  space?: "world" | "local";
+  onTransform?: (delta: [number, number, number]) => void;
+  onComplete?: () => void;
+}
+
+export interface Ray {
+  origin: [number, number, number];
+  direction: [number, number, number];
+}
+
+export interface MeshData {
+  vertices: Float32Array;
+  indices: Uint32Array;
+  vertexStride: number;
+}
+
 // Main Entropy API
 export interface EntropyAPI {
   Addon: {
@@ -492,7 +511,43 @@ export interface EntropyAPI {
   println: (msg: unknown) => void;
   generateUUID: () => string;
   _process_events: (eventIds: string[]) => void;
-  setGameMode: (enabled) => void;
+  setGameMode: (enabled: boolean) => void;
+  Camera: {
+    getTransform: () => [[number, number, number], [number, number, number]];
+    screenToWorldRay: (screenX: number, screenY: number) => Ray;
+  };
+  Gizmo: {
+    show: (config: GizmoConfig) => string;
+    hide: (gizmoId: string) => void;
+    updatePosition: (gizmoId: string, position: [number, number, number]) => void;
+    getState: (gizmoId: string) => { isActive: boolean; mode: string; position: [number, number, number] } | null;
+  };
+  Input: {
+    onMouseDown: (callback: (button: number, x: number, y: number) => void) => void;
+    onMouseMove: (callback: (x: number, y: number) => void) => void;
+    onMouseUp: (callback: (button: number) => void) => void;
+    onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => void;
+    onKeyUp: (callback: (key: string) => void) => void;
+    isKeyPressed: (key: string) => boolean;
+    isCtrlPressed: () => boolean;
+    isShiftPressed: () => boolean;
+    isAltPressed: () => boolean;
+  };
+  Selection: {
+    setMode: (mode: "vertex" | "edge" | "face" | "object") => void;
+    getSelected: (meshId: string) => { vertices: number[]; edges: [number, number][]; faces: number[][]; objectId: string | null };
+    raycast: (screenX: number, screenY: number) => any;
+    highlightElements: (meshId: string, config: any) => void;
+    clear: () => void;
+  };
+  Mesh: {
+    getData: (meshId: string) => MeshData | null;
+    updateVertices: (meshId: string, vertexIndices: number[], newPositions: number[]) => void;
+    appendGeometry: (meshId: string, vertices: number[], indices: number[]) => void;
+    removeGeometry: (meshId: string, faceIndices: number[]) => void;
+    getVertexWorldPosition: (meshId: string, vertexIndex: number) => [number, number, number];
+    recalculateNormals: (meshId: string) => void;
+  };
 }
 
 // Global declarations

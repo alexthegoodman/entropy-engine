@@ -181,6 +181,22 @@ pub async fn handle_add_player(
 }
 
 pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
+    // Push event to Addons
+    {
+        let mut op_state = state.addon_engine.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+            let key = key_code.to_string();
+            if is_pressed {
+                ctx.pressed_keys.insert(key.clone());
+                ctx.input_events.push(crate::deno::addon_engine::InputEvent::KeyDown { key });
+            } else {
+                ctx.pressed_keys.remove(&key);
+                ctx.input_events.push(crate::deno::addon_engine::InputEvent::KeyUp { key });
+            }
+        }
+    }
+
     if key_code == "i" {
         if is_pressed {
             let game_mode = state.renderer_state.as_ref().map(|r| r.game_mode).unwrap_or(false);
@@ -444,6 +460,33 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
     let camera = state.camera.as_ref().expect("Couldn't get camera");
     let window_size = camera.viewport.window_size;
 
+    // Push event to Addons
+    {
+        let mut op_state = state.addon_engine.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+            let btn_idx = match button {
+                EntropyMouseButton::Left => 0,
+                EntropyMouseButton::Right => 1,
+                EntropyMouseButton::Middle => 2,
+                _ => 0,
+            };
+            if element_state == EntropyElementState::Pressed {
+                if let Some(mouse_pos) = renderer_state.current_mouse_position {
+                    ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseDown { 
+                        button: btn_idx, 
+                        x: mouse_pos.x, 
+                        y: mouse_pos.y 
+                    });
+                }
+            } else {
+                ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseUp { 
+                    button: btn_idx 
+                });
+            }
+        }
+    }
+
     if !renderer_state.game_mode && element_state == EntropyElementState::Pressed {
         // ... (existing code for selection)
         match button {
@@ -623,6 +666,20 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosition>, dx: f32, dy: f32, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
+
+    // Push event to Addons
+    {
+        let mut op_state = state.addon_engine.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+            if let Some(mouse_pos) = currentPosition {
+                ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseMove { 
+                    x: mouse_pos.x, 
+                    y: mouse_pos.y 
+                });
+            }
+        }
+    }
 
     let current_is_dragging = mousePressed;
     let drag_ended = !current_is_dragging && renderer_state.mouse_state.is_dragging;

@@ -458,6 +458,14 @@ impl ApplicationHandler<UserEvent> for Application {
             WindowEvent::ModifiersChanged(modifiers) => {
                 window.modifiers = modifiers.state();
                 info!("Modifiers changed to {:?}", window.modifiers);
+
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    if let Some(rs) = editor.renderer_state.as_mut() {
+                        rs.shift_active = window.modifiers.shift_key();
+                        rs.ctrl_active = window.modifiers.control_key();
+                        rs.alt_active = window.modifiers.alt_key();
+                    }
+                }
             },
             WindowEvent::MouseWheel { delta, .. } => match delta {
                 MouseScrollDelta::LineDelta(x, y) => {
@@ -476,6 +484,14 @@ impl ApplicationHandler<UserEvent> for Application {
                     self.shift_active = true;
                 } else {
                     self.shift_active = false;
+                }
+
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    if let Some(rs) = editor.renderer_state.as_mut() {
+                        rs.shift_active = mods.shift_key();
+                        rs.ctrl_active = mods.control_key();
+                        rs.alt_active = mods.alt_key();
+                    }
                 }
 
                 // Dispatch actions only on press.

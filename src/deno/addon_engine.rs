@@ -355,6 +355,7 @@ pub struct AddonContext {
     pub pending_composites: Vec<(String, CompositeConfig)>,
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
     pub pending_game_mode: Option<bool>,
+    pub active_gizmo: Option<GizmoState>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub on_all_addons_initialized_callbacks: Vec<v8::Global<v8::Function>>,
@@ -380,10 +381,35 @@ pub struct AddonContext {
     pub current_time: f64,
     pub camera_position: [f32; 3],
     pub camera_direction: [f32; 3],
+    pub camera_view: mint::ColumnMatrix4<f32>,
+    pub camera_proj: mint::ColumnMatrix4<f32>,
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
+    pub input_events: Vec<InputEvent>,
+    pub pressed_keys: HashSet<String>,
+    pub mouse_position: [f32; 2],
+    pub modifiers: Modifiers,
+    pub window_size: [u32; 2],
+    pub selected_entity_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type")]
+pub enum InputEvent {
+    MouseDown { button: u32, x: f32, y: f32 },
+    MouseMove { x: f32, y: f32 },
+    MouseUp { button: u32 },
+    KeyDown { key: String },
+    KeyUp { key: String },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+pub struct Modifiers {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
 }
 
 pub struct CompositeInstance {
@@ -411,6 +437,15 @@ pub struct ComputePipelineConfig {
     pub name: String,
     pub shader_source: String,
     pub bind_groups: Vec<BindGroupDef>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GizmoState {
+    pub position: [f32; 3],
+    pub mode: String, // "translate", "rotate", "scale"
+    pub space: String, // "world", "local"
+    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1059,6 +1094,136 @@ fn op_set_game_mode(state: &mut OpState, enabled: bool) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_game_mode = Some(enabled);
     }
+}
+
+#[op2]
+fn op_gizmo_show(state: &mut OpState, #[serde] config: GizmoState) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.active_gizmo = Some(config);
+    }
+}
+
+#[op2(fast)]
+fn op_gizmo_hide(state: &mut OpState) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.active_gizmo = None;
+    }
+}
+
+#[op2]
+fn op_gizmo_update(state: &mut OpState, #[serde] position: [f32; 3]) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(gizmo) = &mut ctx.active_gizmo {
+            gizmo.position = position;
+        }
+    }
+}
+
+#[op2]
+#[serde]
+fn op_input_get_state(state: &mut OpState) -> Result<AddonInputState, deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        Ok(AddonInputState {
+            pressed_keys: ctx.pressed_keys.iter().cloned().collect(),
+            mouse_position: ctx.mouse_position,
+            modifiers: ctx.modifiers.clone(),
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AddonInputState {
+    pub pressed_keys: Vec<String>,
+    pub mouse_position: [f32; 2],
+    pub modifiers: Modifiers,
+}
+
+#[op2]
+#[serde]
+fn op_camera_screen_to_world(
+    state: &mut OpState,
+    x: f32,
+    y: f32,
+    width: u32,
+    height: u32,
+) -> Result<RayData, deno_error::JsErrorBox> {
+    use nalgebra::{Matrix4, Vector4};
+
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        let view: Matrix4<f32> = ctx.camera_view.into();
+        let proj: Matrix4<f32> = ctx.camera_proj.into();
+
+        // Convert screen to NDC
+        let ndc_x = (x / width as f32) * 2.0 - 1.0;
+        let ndc_y = 1.0 - (y / height as f32) * 2.0;
+
+        let inv_view_proj = (proj * view).try_inverse()
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not invert view-projection matrix"))?;
+
+        let near_ndc = Vector4::new(ndc_x, ndc_y, 0.0, 1.0);
+        let far_ndc = Vector4::new(ndc_x, ndc_y, 1.0, 1.0);
+
+        let near_world_h = inv_view_proj * near_ndc;
+        let far_world_h = inv_view_proj * far_ndc;
+
+        let near_world = near_world_h.xyz() / near_world_h.w;
+        let far_world = far_world_h.xyz() / far_world_h.w;
+
+        let direction = (far_world - near_world).normalize();
+
+        Ok(RayData {
+            origin: [near_world.x, near_world.y, near_world.z],
+            direction: [direction.x, direction.y, direction.z],
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
+#[serde]
+fn op_window_get_size(state: &mut OpState) -> Result<(u32, u32), deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        Ok((ctx.window_size[0], ctx.window_size[1]))
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
+#[serde]
+fn op_selection_get_selected(state: &mut OpState) -> Result<Option<String>, deno_error::JsErrorBox> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        Ok(ctx.selected_entity_id.clone())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2]
+#[serde]
+fn op_mesh_get_data(state: &mut OpState, #[string] _mesh_id: String) -> Result<MeshData, deno_error::JsErrorBox> {
+    Ok(MeshData {
+        vertices: Vec::new(),
+        indices: Vec::new(),
+        vertex_stride: 13,
+    })
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeshData {
+    pub vertices: Vec<f32>,
+    pub indices: Vec<u32>,
+    pub vertex_stride: u32,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RayData {
+    pub origin: [f32; 3],
+    pub direction: [f32; 3],
 }
 
 #[op2]
@@ -2194,7 +2359,15 @@ extension!(
         op_register_composite_texture,
         op_addon_register_tool,
         op_addon_on_all_projects_loaded,
-        op_set_game_mode
+        op_set_game_mode,
+        op_gizmo_show,
+        op_gizmo_hide,
+        op_gizmo_update,
+        op_input_get_state,
+        op_camera_screen_to_world,
+        op_window_get_size,
+        op_selection_get_selected,
+        op_mesh_get_data
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2246,11 +2419,11 @@ impl AddonEngine {
             pending_landscapes: Vec::new(),
             pending_grasses: Vec::new(),
                             pending_point_lights: Vec::new(),
-                                        pending_composites: Vec::new(),
-                                        pending_sun_config: None,
-                                        pending_game_mode: None,
-                                        noise_generators: HashMap::new(),
-            on_init_callbacks: Vec::new(),
+                                                    pending_composites: Vec::new(),
+                                                    pending_sun_config: None,
+                                                    pending_game_mode: None,
+                                                    active_gizmo: None,
+                                                    noise_generators: HashMap::new(),            on_init_callbacks: Vec::new(),
             on_all_addons_initialized_callbacks: Vec::new(),
             on_cleanup_callbacks: Vec::new(),
             on_update_callbacks: Vec::new(),
@@ -2273,11 +2446,19 @@ impl AddonEngine {
             current_time: 0.0,
             camera_position: [0.0, 0.0, 0.0],
             camera_direction: [0.0, 0.0, -1.0],
+            camera_view: ColumnMatrix4::from([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+            camera_proj: ColumnMatrix4::from([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
             composite_pipelines: HashMap::new(),
             composites: Vec::new(),
             registered_tools: HashMap::new(),
             op_addon_on_all_projects_loaded_callbacks: Vec::new(),
-            egui_textures: HashMap::new()
+            egui_textures: HashMap::new(),
+            input_events: Vec::new(),
+            pressed_keys: HashSet::new(),
+            mouse_position: [0.0, 0.0],
+            modifiers: Modifiers::default(),
+            window_size: [1920, 1080],
+            selected_entity_id: None,
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -2592,7 +2773,21 @@ impl AddonEngine {
             context.current_time = current_time;
             context.camera_position = [camera.position.x, camera.position.y, camera.position.z];
             context.camera_direction = [camera.direction.x, camera.direction.y, camera.direction.z];
+            context.camera_view = camera.get_view().into();
+            context.camera_proj = camera.get_projection().into();
             context.landscape_texture_view = landscape_view.clone();
+
+            // Update Input State
+            if let Some(mouse_pos) = renderer_state.current_mouse_position {
+                context.mouse_position = [mouse_pos.x, mouse_pos.y];
+            }
+            context.modifiers = Modifiers {
+                shift: renderer_state.shift_active,
+                ctrl: renderer_state.ctrl_active,
+                alt: renderer_state.alt_active,
+            };
+            context.window_size = [camera.viewport.window_size.width, camera.viewport.window_size.height];
+            context.selected_entity_id = renderer_state.selected_entity_id.clone();
         }
 
         // 0. Run onUpdate callbacks
@@ -2675,6 +2870,36 @@ impl AddonEngine {
             }
         }
 
+        // 1.5 Process Input Events
+        let input_events = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                std::mem::take(&mut ctx.input_events)
+            } else {
+                Vec::new()
+            }
+        };
+
+        if !input_events.is_empty() {
+            let scope = &mut self.runtime.handle_scope();
+            let global = scope.get_current_context().global(scope);
+            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                if entropy_val.is_object() {
+                    let entropy_obj = entropy_val.to_object(scope).unwrap();
+                    let process_key = v8::String::new(scope, "_process_input_events").unwrap();
+                    if let Some(process_val) = entropy_obj.get(scope, process_key.into()) {
+                        if process_val.is_function() {
+                            let process_func = v8::Local::<v8::Function>::try_from(process_val).unwrap();
+                            let args_v8 = serde_v8::to_v8(scope, input_events).unwrap();
+                            let _ = process_func.call(scope, entropy_obj.into(), &[args_v8]);
+                        }
+                    }
+                }
+            }
+        }
+
         // 2. Process pending resources
         let (pending_cubes, pending_models, pending_meshes, pending_clears, pending_mesh_clears, pending_landscapes, pending_grasses, pending_point_lights, pending_composites, pending_landscape_texture_updates, pending_game_mode) = {
             let mut op_state = self.runtime.op_state();
@@ -2700,6 +2925,112 @@ impl AddonEngine {
 
         if let Some(enabled) = pending_game_mode {
             renderer_state.game_mode = enabled;
+        }
+
+        // 2.1 Process Gizmo
+        let gizmo_state = {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            let ctx = op_state.try_borrow::<AddonContext>();
+            ctx.and_then(|c| c.active_gizmo.clone())
+        };
+
+        if let Some(gs) = gizmo_state {
+            // Update internal gizmo config
+            let mut config = renderer_state.gizmo.config().clone();
+            config.view_matrix = camera.get_view().into();
+            config.projection_matrix = camera.get_projection().into();
+            config.viewport = transform_gizmo::Rect {
+                min: (0.0, 0.0).into(),
+                max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
+            };
+            
+            config.modes = match gs.mode.as_str() {
+                "translate" => transform_gizmo::GizmoMode::all_translate(),
+                "rotate" => transform_gizmo::GizmoMode::all_rotate(),
+                "scale" => transform_gizmo::GizmoMode::all_scale(),
+                _ => transform_gizmo::GizmoMode::all_translate(),
+            };
+
+            config.orientation = match gs.space.as_str() {
+                "local" => transform_gizmo::GizmoOrientation::Local,
+                _ => transform_gizmo::GizmoOrientation::Global,
+            };
+
+            renderer_state.gizmo.update_config(config);
+
+            // Create target transform for gizmo
+            use transform_gizmo::math::Transform;
+            use transform_gizmo::mint::{Vector3 as MintVector3, Quaternion as MintQuaternion};
+            
+            // For now, we only support single position from addon
+            // Rotation/Scale are identity unless we expand GizmoState
+            let mut transforms = vec![
+                Transform::from_translation_rotation_scale(
+                    MintVector3::from([gs.position[0] as f64, gs.position[1] as f64, gs.position[2] as f64]),
+                    MintQuaternion::from([0.0, 0.0, 0.0, 1.0]),
+                    MintVector3::from([1.0, 1.0, 1.0])
+                )
+            ];
+
+            let interaction = transform_gizmo::GizmoInteraction {
+                cursor_pos: (renderer_state.current_mouse_position.map(|p| p.x).unwrap_or(0.0), renderer_state.current_mouse_position.map(|p| p.y).unwrap_or(0.0)),
+                dragging: renderer_state.mouse_state.is_dragging,
+                drag_started: renderer_state.mouse_state.drag_started,
+                ..Default::default()
+            };
+
+            if let Some((gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
+                renderer_state.mouse_state.hovered_gizmo = true;
+                
+                // If it changed, trigger JS callbacks
+                if let Some(new_transform) = new_transforms.first() {
+                    let delta = [
+                        (new_transform.translation.x as f32 - gs.position[0]),
+                        (new_transform.translation.y as f32 - gs.position[1]),
+                        (new_transform.translation.z as f32 - gs.position[2]),
+                    ];
+
+                    if delta[0].abs() > 0.0001 || delta[1].abs() > 0.0001 || delta[2].abs() > 0.0001 {
+                        // Call JS onTransform
+                        let scope = &mut self.runtime.handle_scope();
+                        let global = scope.get_current_context().global(scope);
+                        let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+                        if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                            let entropy_obj = entropy_val.to_object(scope).unwrap();
+                            let gizmo_callbacks_key = v8::String::new(scope, "_entropy_gizmo_callbacks").unwrap();
+                            if let Some(callbacks_val) = global.get(scope, gizmo_callbacks_key.into()) {
+                                if callbacks_val.is_object() {
+                                    let callbacks_obj = callbacks_val.to_object(scope).unwrap();
+                                    let gizmo_id_key = v8::String::new(scope, &gs.id).unwrap();
+                                    if let Some(callback_entry_val) = callbacks_obj.get(scope, gizmo_id_key.into()) {
+                                        if callback_entry_val.is_object() {
+                                            let callback_entry = callback_entry_val.to_object(scope).unwrap();
+                                            let on_transform_key = v8::String::new(scope, "onTransform").unwrap();
+                                            if let Some(on_transform_val) = callback_entry.get(scope, on_transform_key.into()) {
+                                                if on_transform_val.is_function() {
+                                                    let on_transform_func = v8::Local::<v8::Function>::try_from(on_transform_val).unwrap();
+                                                    let delta_v8 = serde_v8::to_v8(scope, delta).unwrap();
+                                                    let _ = on_transform_func.call(scope, entropy_obj.into(), &[delta_v8]);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // If drag ended, call onComplete
+                if !renderer_state.mouse_state.is_dragging && renderer_state.last_frame_time.is_some() {
+                    // We need a better way to detect drag end here, renderer_state might not have enough info
+                    // but we can check if it WAS dragging in previous frame.
+                    // Actually transform_gizmo result might have it.
+                }
+            } else {
+                renderer_state.mouse_state.hovered_gizmo = false;
+            }
         }
 
         if !pending_clears.is_empty() {

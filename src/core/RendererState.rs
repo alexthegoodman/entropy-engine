@@ -200,6 +200,10 @@ pub struct RendererState {
     pub last_mouse_position: Option<EntropyPosition>,
     pub last_mouse_delta: (f32, f32),
 
+    pub shift_active: bool,
+    pub ctrl_active: bool,
+    pub alt_active: bool,
+
     pub navigation_speed: f32,
     pub game_mode: bool,
     pub game_settings: GameSettings,
@@ -418,6 +422,9 @@ impl RendererState {
             display_debug_spheres: true,
             quest_state: QuestState::new(),
             last_mouse_delta: (0.0, 0.0),
+            shift_active: false,
+            ctrl_active: false,
+            alt_active: false,
             pending_loot_drops: Vec::new(),
         }
     }
