@@ -23,6 +23,7 @@ interface SpawnerState {
   spawnRadius: number;
   minSpawnDistance: number;
   autoStart: boolean;
+  isPaused: boolean;
   landscapeSize: number;
 }
 
@@ -43,7 +44,8 @@ let state: SpawnerState = {
   meleeRatio: 0.6, // 60% melee, 40% ranged by default
   spawnRadius: 50, // spawn within this radius
   minSpawnDistance: 20, // minimum distance from player
-  autoStart: true,
+  autoStart: false,
+  isPaused: true,
   landscapeSize: 512 // adjust based on your landscape
 };
 
@@ -51,9 +53,8 @@ let windowId: string;
 let playerPosition: [number, number, number] = [0, 0, 0];
 let playerDirection: [number, number, number] = [0, 0, 1];
 
-// Model paths - UPDATE THESE WITH YOUR ACTUAL MODEL PATHS
-const MELEE_MODEL_PATH = "Enemy1b.glb"; // Replace with your melee enemy model
-const RANGED_MODEL_PATH = "Enemy1b.glb"; // Replace with your ranged enemy model
+const MELEE_MODEL_PATH = "Enemy1b.glb";
+const RANGED_MODEL_PATH = "Enemy1b.glb";
 
 addon.onInit(() => {
   println("[Wave Spawner] Initializing...");
@@ -77,7 +78,7 @@ addon.onUpdate((time: number, pos: [number, number, number], dir: [number, numbe
   playerPosition = pos;
   playerDirection = dir;
   
-  if (!state.autoStart) return;
+  if (!state.autoStart || state.isPaused) return;
   
   // Update wave timer
   state.waveTimer += 1/60; // Assuming 60 FPS
@@ -119,6 +120,14 @@ function createUI() {
   Entropy.UI.Widget.separator(windowId);
   
   // Controls
+  Entropy.UI.Widget.button(windowId, {
+    text: state.isPaused ? "▶ Resume Waves" : "⏸ Pause Waves",
+    onClick: () => {
+      state.isPaused = !state.isPaused;
+      println(`[Wave Spawner] ${state.isPaused ? 'Paused' : 'Resumed'}`);
+    }
+  });
+  
   Entropy.UI.Widget.checkbox(windowId, {
     label: "Auto Start Waves",
     value: state.autoStart,
@@ -391,3 +400,5 @@ function spawnRangedEnemy(position: [number, number, number], health: number, da
     stamina: 100
   });
 }
+
+println("[Wave Spawner] Addon loaded successfully!");
