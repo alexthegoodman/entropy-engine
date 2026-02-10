@@ -827,9 +827,11 @@ impl RendererState {
         // Now process all updates without borrowing rigid_body_set
         let mut alert_positions = Vec::new();
         for (component_id, position, euler) in physics_updates {
+            if let Some(models) = self
+                .addon_models.get_mut("Game Composer") {
+
             // Update models
-            if let Some(instance_model_data) = self
-                .models
+            if let Some(instance_model_data) = models
                 .iter_mut()
                 .find(|m| m.id == component_id.to_string())
             {
@@ -1219,6 +1221,7 @@ impl RendererState {
                 }
             }
 
+            }
             // Update landscapes
             // just helps knowing terrain is where the physics are
             // this may break setting physics up where terrain is when we try to do the reverse
@@ -1241,24 +1244,27 @@ impl RendererState {
             self.alert_nearby_npcs(alert_pos, radius);
         }
 
-        // Collect matching indices only
-        let mut matching_pairs: Vec<(usize, usize)> = Vec::new();
-        for (model_idx, model) in self.models.iter().enumerate() {
-            if let Some(npc_idx) = self.npcs.iter().position(|n| n.model_id == model.id) {
-                matching_pairs.push((model_idx, npc_idx));
-            }
-        }
+        if let Some(models) = self
+                .addon_models.get_mut("Game Composer") {
 
-        // Pass the whole collections and indices to the animation system
-        crate::core::animation_system::update_animations(
-            &mut self.models,
-            &mut self.npcs,
-            &mut self.collectables,
-            &mut self.player_character,
-            &matching_pairs,
-            dt,
-            queue,
-        );
+            let mut matching_pairs: Vec<(usize, usize)> = Vec::new();
+            for (model_idx, model) in models.iter().enumerate() {
+                if let Some(npc_idx) = self.npcs.iter().position(|n| n.model_id == model.id) {
+                    matching_pairs.push((model_idx, npc_idx));
+                }
+            }
+
+            // Pass the whole collections and indices to the animation system
+            crate::core::animation_system::update_animations(
+                models,
+                &mut self.npcs,
+                &mut self.collectables,
+                &mut self.player_character,
+                &matching_pairs,
+                dt,
+                queue,
+            );
+        }
     }
 
     // Usage in your main update/render loop:
