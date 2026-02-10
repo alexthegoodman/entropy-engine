@@ -692,7 +692,7 @@ globalThis.Entropy = {
             }
         },
         updatePosition: (id, position) => {
-            ops.op_gizmo_update(position);
+            ops.op_gizmo_update(position[0], position[1], position[2]);
         },
         getState: (id) => {
             // Need op_gizmo_get_state if we want to poll it
@@ -748,7 +748,7 @@ globalThis.Entropy = {
                 vertices: [],
                 edges: [],
                 faces: [],
-                objectId: selectedId
+                objectId: selectedId === "" ? null : selectedId
             };
         },
         raycast: (screenX, screenY) => {

@@ -13,6 +13,7 @@ use deno_core::{
     FsModuleLoader,
     ModuleId,
 };
+use mint::ColumnMatrix4;
 use nalgebra::{Isometry3, UnitQuaternion, Vector3};
 use uuid::Uuid;
 use std::rc::Rc;
@@ -1110,11 +1111,11 @@ fn op_gizmo_hide(state: &mut OpState) {
     }
 }
 
-#[op2]
-fn op_gizmo_update(state: &mut OpState, #[serde] position: [f32; 3]) {
+#[op2(fast)]
+fn op_gizmo_update(state: &mut OpState, x: f32, y: f32, z: f32) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if let Some(gizmo) = &mut ctx.active_gizmo {
-            gizmo.position = position;
+            gizmo.position = [x, y, z];
         }
     }
 }
@@ -1193,23 +1194,23 @@ fn op_window_get_size(state: &mut OpState) -> Result<(u32, u32), deno_error::JsE
 }
 
 #[op2]
-#[serde]
-fn op_selection_get_selected(state: &mut OpState) -> Result<Option<String>, deno_error::JsErrorBox> {
+#[string]
+fn op_selection_get_selected(state: &mut OpState) -> String {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
-        Ok(ctx.selected_entity_id.clone())
+        ctx.selected_entity_id.clone().unwrap_or_default()
     } else {
-        Err(deno_error::JsErrorBox::generic("Context not available"))
+        String::new()
     }
 }
 
 #[op2]
 #[serde]
-fn op_mesh_get_data(state: &mut OpState, #[string] _mesh_id: String) -> Result<MeshData, deno_error::JsErrorBox> {
-    Ok(MeshData {
+fn op_mesh_get_data(state: &mut OpState, #[string] _mesh_id: String) -> MeshData {
+    MeshData {
         vertices: Vec::new(),
         indices: Vec::new(),
         vertex_stride: 13,
-    })
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -2938,8 +2939,8 @@ impl AddonEngine {
         if let Some(gs) = gizmo_state {
             // Update internal gizmo config
             let mut config = renderer_state.gizmo.config().clone();
-            config.view_matrix = camera.get_view().into();
-            config.projection_matrix = camera.get_projection().into();
+            config.view_matrix = crate::core::SimpleCamera::to_row_major_f64(&camera.get_view());
+            config.projection_matrix = crate::core::SimpleCamera::to_row_major_f64(&camera.get_projection());
             config.viewport = transform_gizmo::Rect {
                 min: (0.0, 0.0).into(),
                 max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
@@ -2966,10 +2967,10 @@ impl AddonEngine {
             // For now, we only support single position from addon
             // Rotation/Scale are identity unless we expand GizmoState
             let mut transforms = vec![
-                Transform::from_translation_rotation_scale(
-                    MintVector3::from([gs.position[0] as f64, gs.position[1] as f64, gs.position[2] as f64]),
+                Transform::from_scale_rotation_translation(
+                    MintVector3::from([1.0, 1.0, 1.0]),
                     MintQuaternion::from([0.0, 0.0, 0.0, 1.0]),
-                    MintVector3::from([1.0, 1.0, 1.0])
+                    MintVector3::from([gs.position[0] as f64, gs.position[1] as f64, gs.position[2] as f64])
                 )
             ];
 

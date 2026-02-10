@@ -1189,6 +1189,55 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 }
             }
 
+            // Gizmo Render Pass
+            let gizmo_draw_data = renderer_state.gizmo.draw();
+            if !renderer_state.game_mode && !gizmo_draw_data.vertices.is_empty() {
+                let gizmo_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Addon Gizmo Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let gizmo_color_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Addon Gizmo Color Buffer"),
+                    contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+                let gizmo_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Addon Gizmo Index Buffer"),
+                    contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+
+                let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Addon Gizmo Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None, // Gizmo usually draws on top without depth
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                });
+
+                if let Some(rect) = viewport_rect {
+                    gizmo_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                }
+
+                gizmo_pass.set_pipeline(pipeline.gizmo_pipeline.as_ref().unwrap());
+                gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
+                gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
+                gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
+                gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
+            }
+
         if pipeline.frame_buffer.is_some() {
             let frame_buffer = pipeline
                 .frame_buffer
