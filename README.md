@@ -15,7 +15,7 @@ What’s included
 
 - End-to-end game creation tools
 - Video capture and editing tools
-- Pre-built functionality with no plugins required
+- Pre-built functionality with no extra plugins required
 - Native integration across tools for a unified workflow
 
 Why it matters
