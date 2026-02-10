@@ -71,10 +71,11 @@ class HordeManager {
 
     spawnPlayer() {
         const id = Entropy.generateUUID();
+        const y = addon.Landscape.getHeightAt(0, 0);
         addon.Model.load({
             path: "Friend1b.glb",
             id: id,
-            position: [0, 2, 0],
+            position: [0, y + 2, 0],
             scale: [1, 1, 1],
             physics: {
                 bodyType: "dynamic",

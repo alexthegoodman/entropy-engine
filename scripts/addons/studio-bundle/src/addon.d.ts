@@ -201,9 +201,35 @@ export interface ScopedAPI {
     updatePbrTexture: (textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
     updateTexturePlus: (addonName:string, textureId: string, kind: LandscapeTextureKind) => void;
     updatePbrTexturePlus: (addonName: string, textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
+    getHeightAt: (x: number, z: number) => number;
   };
   Noise: {
     create: (config: NoiseConfig) => string;
+  };
+  Collectable: {
+    create: (config: {
+      position: [number, number, number];
+      modelPath?: string;
+      type: "health" | "ammo" | "quest_item" | "currency";
+      value?: number;
+      questId?: string;
+      onCollect?: (playerId: string) => void;
+    }) => string;
+    remove: (id: string) => void;
+  };
+  Quest: {
+    create: (id: string, config: { title: string; objectives: string[] }) => void;
+    updateObjective: (questId: string, index: number, completed: boolean) => void;
+    getStatus: (questId: string) => any;
+  };
+  Inventory: {
+    addItem: (playerId: string, itemId: string, quantity: number) => void;
+    removeItem: (playerId: string, itemId: string, quantity: number) => void;
+    hasItem: (playerId: string, itemId: string) => boolean;
+  };
+  GameState: {
+    save: (key: string, data: any) => void;
+    load: (key: string) => any;
   };
   Texture: {
     create: (width: number, height: number, data: Uint8Array | number[]) => string;

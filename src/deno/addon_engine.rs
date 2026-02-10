@@ -418,6 +418,8 @@ pub struct AddonContext {
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
     pub raw_textures: HashMap<String, Arc<wgpu::Texture>>,
     pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
+    pub landscape_heights: Option<Arc<nalgebra::DMatrix<f32>>>,
+    pub landscape_position: [f32; 3],
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
@@ -1394,6 +1396,54 @@ fn op_dialogue_get_node(state: &mut OpState) -> String {
         }
     }
     "".to_string()
+}
+
+#[op2(fast)]
+fn op_landscape_get_height(state: &mut OpState, x: f32, z: f32) -> f32 {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        if let Some(heights) = &ctx.landscape_heights {
+            let square_size = 1024.0 * 4.0;
+            let num_cols = heights.ncols();
+            let num_rows = heights.nrows();
+
+            let land_origin_x = ctx.landscape_position[0] - (square_size / 2.0);
+            let land_origin_z = ctx.landscape_position[2] - (square_size / 2.0);
+
+            let local_x = x - land_origin_x;
+            let local_z = z - land_origin_z;
+
+            let norm_x = local_x / square_size;
+            let norm_z = local_z / square_size;
+
+            if norm_x < 0.0 || norm_x >= 1.0 || norm_z < 0.0 || norm_z >= 1.0 {
+                return ctx.landscape_position[1];
+            }
+
+            let grid_x = norm_x * (num_cols as f32 - 1.0);
+            let grid_z = norm_z * (num_rows as f32 - 1.0);
+
+            let x0 = grid_x.floor() as usize;
+            let z0 = grid_z.floor() as usize;
+            let x1 = (x0 + 1).min(num_cols - 1);
+            let z1 = (z0 + 1).min(num_rows - 1);
+
+            let h00 = heights[(z0, x0)];
+            let h10 = heights[(z0, x1)];
+            let h01 = heights[(z1, x0)];
+            let h11 = heights[(z1, x1)];
+
+            let tx = grid_x - x0 as f32;
+            let tz = grid_z - z0 as f32;
+
+            let h_top = h00 * (1.0 - tx) + h10 * tx;
+            let h_bottom = h01 * (1.0 - tx) + h11 * tx;
+
+            let final_height = h_top * (1.0 - tz) + h_bottom * tz;
+            
+            return final_height + ctx.landscape_position[1];
+        }
+    }
+    0.0
 }
 
 #[op2]
@@ -2490,6 +2540,7 @@ extension!(
         op_mesh_clear,
         op_meshes_clear,
         op_landscape_create,
+        op_landscape_get_height,
         op_landscape_update_texture,
         op_landscape_update_pbr_texture,
         op_grass_create,
@@ -2741,6 +2792,8 @@ impl AddonEngine {
             textures: HashMap::new(),
             raw_textures: HashMap::new(),
             landscape_texture_view: None,
+            landscape_heights: None,
+            landscape_position: [0.0, 0.0, 0.0],
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
@@ -3068,6 +3121,20 @@ impl AddonEngine {
                                                                 .get(&current_addon_name)
                                                                 .and_then(|al| al.first().and_then(|l| l.particle_texture_view.clone()));
 
+        let mut landscape_data = renderer_state.addon_landscapes
+                                                                .get(&current_addon_name)
+                                                                .and_then(|al| al.first().map(|l| (l.heights.clone(), [l.transform.position.x, l.transform.position.y, l.transform.position.z])));
+
+        if landscape_data.is_none() {
+            landscape_data = renderer_state.addon_landscapes
+                                                                    .get("Game Composer")
+                                                                    .and_then(|al| al.first().map(|l| (l.heights.clone(), [l.transform.position.x, l.transform.position.y, l.transform.position.z])));
+        }
+
+        if landscape_data.is_none() {
+            landscape_data = renderer_state.addon_landscapes.values().flatten().next().map(|l| (l.heights.clone(), [l.transform.position.x, l.transform.position.y, l.transform.position.z]));
+        }
+
         // Update current time in context
         {
             let mut state = self.runtime.op_state();
@@ -3079,6 +3146,13 @@ impl AddonEngine {
             context.camera_view = camera.get_view().into();
             context.camera_proj = camera.get_projection().into();
             context.landscape_texture_view = landscape_view.clone();
+            
+            if let Some((heights, pos)) = landscape_data {
+                context.landscape_heights = Some(heights);
+                context.landscape_position = pos;
+            } else {
+                context.landscape_heights = None;
+            }
 
             // Update Input State
             if let Some(mouse_pos) = renderer_state.current_mouse_position {

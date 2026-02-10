@@ -250,7 +250,7 @@ class GameState {
     
     addItem(itemId: string, quantity: number = 1) {
         this.inventory[itemId] = (this.inventory[itemId] || 0) + quantity;
-        Entropy.Inventory.addItem(this.playerId!, itemId, quantity);
+        addon.Inventory.addItem(this.playerId!, itemId, quantity);
         Entropy.println(`[Inventory] +${quantity} ${itemId}`);
     }
     
@@ -270,7 +270,7 @@ class GameState {
         
         quest.isActive = true;
         this.activeQuests.push(questId);
-        Entropy.Quest.create(questId, {
+        addon.Quest.create(questId, {
             title: quest.title,
             objectives: quest.objectives
         });
@@ -282,7 +282,7 @@ class GameState {
         if (!quest || !quest.isActive || quest.completedObjectives[objectiveIndex]) return;
         
         quest.completedObjectives[objectiveIndex] = true;
-        Entropy.Quest.updateObjective(questId, objectiveIndex, true);
+        addon.Quest.updateObjective(questId, objectiveIndex, true);
         Entropy.println(`[Objective Complete] ${quest.objectives[objectiveIndex]}`);
         
         // Check if quest is fully complete
@@ -314,7 +314,7 @@ class GameState {
     }
     
     save() {
-        Entropy.GameState.save("fractured_realm_save", {
+        addon.GameState.save("fractured_realm_save", {
             inventory: this.inventory,
             activeQuests: this.activeQuests,
             quests: quests,
@@ -326,7 +326,7 @@ class GameState {
     }
     
     load() {
-        const data = Entropy.GameState.load("fractured_realm_save");
+        const data = addon.GameState.load("fractured_realm_save");
         if (data) {
             this.inventory = data.inventory || {};
             this.activeQuests = data.activeQuests || [];
@@ -543,8 +543,8 @@ Entropy.Behavior.register("crimson_soldier", {
         gameState.enemyKills.crimson++;
         
         // Drop insignia
-        const y = Entropy.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        Entropy.Collectable.create({
+        const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
+        addon.Collectable.create({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
             value: 1,
@@ -587,8 +587,8 @@ Entropy.Behavior.register("azure_soldier", {
         system.spawn_particles(entity.position, [0.2, 0.4, 1, 1], [0, -2, 0]);
         gameState.enemyKills.azure++;
         
-        const y = Entropy.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        Entropy.Collectable.create({
+        const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
+        addon.Collectable.create({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
             value: 1,
@@ -640,12 +640,10 @@ Entropy.Behavior.register("shadow_assassin", {
 
 // --- World Manager ---
 
-class WorldManager {
-    landscapeId: string | null = null;
-    
+class WorldManager {    
     initialize() {
         // Create landscape
-        this.landscapeId = Entropy.Landscape.create({
+        addon.Landscape.create({
             width: LANDSCAPE_SIZE,
             height: LANDSCAPE_SIZE,
             position: [-LANDSCAPE_SIZE/2, 0, -LANDSCAPE_SIZE/2]
@@ -660,7 +658,7 @@ class WorldManager {
     spawnPlayer() {
         const spawnX = 0;
         const spawnZ = 0;
-        const y = Entropy.Landscape.getHeightAt(spawnX, spawnZ);
+        const y = addon.Landscape.getHeightAt(spawnX, spawnZ);
         
         gameState.playerId = Entropy.generateUUID();
         addon.Model.load({
@@ -711,7 +709,7 @@ class WorldManager {
         const dist = Math.random() * territory.radius * 0.3; // Keep near center
         const x = territory.x + Math.cos(angle) * dist;
         const z = territory.z + Math.sin(angle) * dist;
-        const y = Entropy.Landscape.getHeightAt(x, z);
+        const y = addon.Landscape.getHeightAt(x, z);
         
         addon.Model.load({
             path: model,
@@ -733,7 +731,7 @@ class WorldManager {
             const dist = territory.radius * (0.5 + Math.random() * 0.4);
             const x = territory.x + Math.cos(angle) * dist;
             const z = territory.z + Math.sin(angle) * dist;
-            const y = Entropy.Landscape.getHeightAt(x, z);
+            const y = addon.Landscape.getHeightAt(x, z);
             
             addon.Model.load({
                 path: model,
@@ -752,9 +750,9 @@ class WorldManager {
         for (let i = 0; i < 3; i++) {
             const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.8;
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.8;
-            const y = Entropy.Landscape.getHeightAt(x, z);
+            const y = addon.Landscape.getHeightAt(x, z);
             
-            Entropy.Collectable.create({
+            addon.Collectable.create({
                 position: [x, y + 1, z],
                 type: "quest_item",
                 questId: "ancient_scroll",
@@ -770,8 +768,8 @@ class WorldManager {
         
         // Crimson Relic in Shadow territory
         const shadowTerr = factions[Faction.SHADOW_COVENANT].territory;
-        const relicY = Entropy.Landscape.getHeightAt(shadowTerr.x, shadowTerr.z);
-        Entropy.Collectable.create({
+        const relicY = addon.Landscape.getHeightAt(shadowTerr.x, shadowTerr.z);
+        addon.Collectable.create({
             position: [shadowTerr.x, relicY + 1, shadowTerr.z],
             type: "quest_item",
             questId: "crimson_relic",
@@ -788,9 +786,9 @@ class WorldManager {
         for (let i = 0; i < 5; i++) {
             const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
-            const y = Entropy.Landscape.getHeightAt(x, z);
+            const y = addon.Landscape.getHeightAt(x, z);
             
-            Entropy.Collectable.create({
+            addon.Collectable.create({
                 position: [x, y + 1, z],
                 type: "quest_item",
                 questId: "ancient_artifact",
@@ -810,9 +808,9 @@ class WorldManager {
         for (let i = 0; i < 15; i++) {
             const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
-            const y = Entropy.Landscape.getHeightAt(x, z);
+            const y = addon.Landscape.getHeightAt(x, z);
             
-            Entropy.Collectable.create({
+            addon.Collectable.create({
                 position: [x, y + 0.5, z],
                 type: "health",
                 value: 25,
@@ -829,7 +827,6 @@ class WorldManager {
     
     cleanup() {
         addon.Model.clearMeshes();
-        this.landscapeId = null;
     }
 }
 
@@ -855,11 +852,9 @@ Entropy.onGameStopped(() => {
 addon.onInit(() => {
     Entropy.println("The Fractured Realm initialized");
     
-    addon.UI.createTab({
+    const windowId = addon.UI.createTab({
         title: "Fractured Realm",
         onRender: () => {
-            const windowId = "FracturedRealmTab";
-            
             Entropy.UI.Widget.label(windowId, { text: "⚔️ THE FRACTURED REALM", bold: true });
             Entropy.UI.Widget.separator(windowId);
             

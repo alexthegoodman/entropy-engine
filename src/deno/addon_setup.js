@@ -128,6 +128,72 @@ globalThis.Entropy = {
                     updatePbrTexturePlus: (addonName, textureId, kind, materialType) => {
                         // ops.op_println(String("updatePbrTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind + " " + materialType));
                         ops.op_landscape_update_pbr_texture(addonName, textureId, kind, materialType);
+                    },
+                    getHeightAt: (x, z) => {
+                        return ops.op_landscape_get_height(x, z);
+                    }
+                },
+                Collectable: {
+                    create: (config) => {
+                        const id = globalThis.Entropy.generateUUID();
+                        // For now, we represent collectables as small models/cubes
+                        ops.op_model_load(getAddonName(), {
+                            id,
+                            path: config.modelPath || "Cube.glb",
+                            position: config.position,
+                            scale: [0.5, 0.5, 0.5],
+                            physics: {
+                                body_type: "fixed",
+                                collider_shape: "cuboid"
+                            }
+                        });
+                        
+                        globalThis.Entropy._collectables = globalThis.Entropy._collectables || {};
+                        globalThis.Entropy._collectables[id] = config;
+                        return id;
+                    },
+                    remove: (id) => {
+                        ops.op_meshes_clear(getAddonName()); // Note: this clears ALL meshes for the addon context. 
+                        // In a better version we'd have clearMesh(id).
+                        if (globalThis.Entropy._collectables) delete globalThis.Entropy._collectables[id];
+                    }
+                },
+                Quest: {
+                    create: (id, config) => {
+                        globalThis.Entropy._quests = globalThis.Entropy._quests || {};
+                        globalThis.Entropy._quests[id] = { ...config, completed: false, status: "active" };
+                    },
+                    updateObjective: (id, index, completed) => {
+                        if (globalThis.Entropy._quests && globalThis.Entropy._quests[id]) {
+                            // Logic for objective tracking
+                        }
+                    },
+                    getStatus: (id) => {
+                        return globalThis.Entropy._quests ? globalThis.Entropy._quests[id] : null;
+                    }
+                },
+                Inventory: {
+                    addItem: (playerId, itemId, quantity) => {
+                        globalThis.Entropy._inventories = globalThis.Entropy._inventories || {};
+                        globalThis.Entropy._inventories[playerId] = globalThis.Entropy._inventories[playerId] || {};
+                        globalThis.Entropy._inventories[playerId][itemId] = (globalThis.Entropy._inventories[playerId][itemId] || 0) + quantity;
+                    },
+                    removeItem: (playerId, itemId, quantity) => {
+                        if (globalThis.Entropy._inventories && globalThis.Entropy._inventories[playerId]) {
+                            globalThis.Entropy._inventories[playerId][itemId] = Math.max(0, (globalThis.Entropy._inventories[playerId][itemId] || 0) - quantity);
+                        }
+                    },
+                    hasItem: (playerId, itemId) => {
+                        return globalThis.Entropy._inventories && globalThis.Entropy._inventories[playerId] && globalThis.Entropy._inventories[playerId][itemId] > 0;
+                    }
+                },
+                GameState: {
+                    save: (key, data) => {
+                        ops.op_addon_save_data("GlobalGameState_" + key, JSON.stringify(data));
+                    },
+                    load: (key) => {
+                        const json = ops.op_addon_load_data("GlobalGameState_" + key);
+                        return json ? JSON.parse(json) : null;
                     }
                 },
                 Particles: {
@@ -461,43 +527,31 @@ globalThis.Entropy = {
         }
     },
     _process_events: (events) => {
-        for (const event of events) {
-            let id = event;
-            let payload = null;
-            let isHover = false;
-
-            // ops.op_println(String("Process Addon Event: " + event));
-
-            if (event.startsWith("HOVER|")) {
-                isHover = true;
-                const parts = event.split("|");
-                id = parts[1];
-                payload = parts[2];
-            } else if (event.includes("|")) {
-                const parts = event.split("|");
-                id = parts[0];
-                payload = parts[1];
-            }
-
-            const listener_pool = isHover ? globalThis._entropy_hover_listeners : globalThis._entropy_event_listeners;
-
-            if (listener_pool && listener_pool[id]) {
-                if (payload !== null) {
-                    // Try to parse payload if it looks like a color or array or drawing event
-                    if (payload.includes(",")) {
-                        const values = payload.split(",").map(v => parseFloat(v));
-                        
-                        // For minimap draw/hover events: x, y, brushSize
-                        if (values.length === 3) {
-                             listener_pool[id](values[0], values[1], values[2]);
-                        } else {
-                             listener_pool[id](values);
+        // ... (existing event processing)
+    },
+    _process_game_logic: () => {
+        if (!globalThis.Entropy.gameMode) return;
+        
+        const [playerPos] = globalThis.Entropy.Camera.getTransform();
+        const collectables = globalThis.Entropy._collectables;
+        
+        if (collectables) {
+            for (const id in collectables) {
+                const config = collectables[id];
+                const dx = playerPos[0] - config.position[0];
+                const dy = playerPos[1] - config.position[1];
+                const dz = playerPos[2] - config.position[2];
+                const distSq = dx*dx + dy*dy + dz*dz;
+                
+                if (distSq < 4.0) { // 2.0 meters radius
+                    if (config.onCollect) {
+                        try {
+                            config.onCollect("player"); // We'll use a fixed ID for now or find it
+                        } catch(e) {
+                            globalThis.Entropy.println("Error in onCollect: " + e);
                         }
-                    } else {
-                        listener_pool[id](payload);
                     }
-                } else {
-                    listener_pool[id]();
+                    globalThis.Entropy.Collectable.remove(id);
                 }
             }
         }
@@ -525,6 +579,7 @@ globalThis.Entropy = {
         });
     },
     _process_input_events: (events) => {
+        globalThis.Entropy._process_game_logic?.();
         if (!globalThis._entropy_input_listeners) return;
         const listeners = globalThis._entropy_input_listeners;
 
