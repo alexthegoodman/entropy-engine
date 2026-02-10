@@ -17,10 +17,13 @@ With the addon studio bundle there is:
 - Beautiful FFT Water
 - JS-generated Terrain (flexnoise)
 - Hair Particles (grass)
-- Light Management
+- Light Management (light hive)
 - Rust-generated Terrain (megaworlds)
 - Procedural PBR Texture Generator (designer)
-- Based Water Plane
+- Basic water plane
+- Fog (volumetric fx)
+- Model Import (+ Player and NPC creation) (model viewer)
+- A couple rivers attempts (neither good yet)
 
 Within /src/, there are several directories:
 
