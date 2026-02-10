@@ -35,25 +35,25 @@ const factions: Record<Faction, FactionData> = {
     [Faction.CRIMSON_GUARD]: {
         name: "Crimson Guard",
         color: [1, 0.2, 0.2, 1],
-        territory: { x: -60, z: -60, radius: 40 },
+        territory: { x: -1200, z: -1200, radius: 800 },
         reputation: 0
     },
     [Faction.AZURE_ORDER]: {
         name: "Azure Order",
         color: [0.2, 0.4, 1, 1],
-        territory: { x: 60, z: -60, radius: 40 },
+        territory: { x: 1200, z: -1200, radius: 800 },
         reputation: 0
     },
     [Faction.SHADOW_COVENANT]: {
         name: "Shadow Covenant",
         color: [0.5, 0.2, 0.8, 1],
-        territory: { x: 0, z: 60, radius: 40 },
+        territory: { x: 1200, z: 1200, radius: 800 },
         reputation: 0
     },
     [Faction.NEUTRAL]: {
         name: "Neutral",
         color: [0.7, 0.7, 0.7, 1],
-        territory: { x: 0, z: 0, radius: 20 },
+        territory: { x: -1200, z: 1200, radius: 800 },
         reputation: 0
     }
 };
@@ -344,6 +344,21 @@ const gameState = new GameState();
 // --- NPC Behaviors ---
 
 Entropy.Behavior.register("quest_giver_vex", {
+    onUpdate: (entity, system, state) => {
+        const [playerPos] = Entropy.Camera.getTransform();
+        const dx = playerPos[0] - entity.position[0];
+        const dz = playerPos[2] - entity.position[2];
+        const dist = Math.sqrt(dx * dx + dz * dz);
+        
+        if (dist < 10) {
+            // Face player
+            const targetRotation = Math.atan2(dx, dz);
+            // Entropy.Entity.setRotation(entity.id, [0, targetRotation, 0]);
+            // If setRotation isn't available, we can use small impulses to rotate if supported, 
+            // but usually quest givers are stationary.
+        }
+        return state;
+    },
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.CRIMSON_GUARD].reputation;
         
@@ -399,6 +414,9 @@ Entropy.Behavior.register("quest_giver_vex", {
 });
 
 Entropy.Behavior.register("quest_giver_lyra", {
+    onUpdate: (entity, system, state) => {
+        return state;
+    },
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.AZURE_ORDER].reputation;
         
@@ -443,6 +461,9 @@ Entropy.Behavior.register("quest_giver_lyra", {
 });
 
 Entropy.Behavior.register("quest_giver_whisper", {
+    onUpdate: (entity, system, state) => {
+        return state;
+    },
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.SHADOW_COVENANT].reputation;
         
@@ -486,6 +507,9 @@ Entropy.Behavior.register("quest_giver_whisper", {
 });
 
 Entropy.Behavior.register("neutral_wanderer", {
+    onUpdate: (entity, system, state) => {
+        return state;
+    },
     onInteract: (entity, dialogue) => {
         dialogue.show("I've traveled far and wide. The old ruins hold many secrets, if you're brave enough to seek them.");
         dialogue.add_option("Tell me about the ruins", "ruins_info");
@@ -520,6 +544,26 @@ Entropy.Behavior.register("crimson_soldier", {
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
         
+        // Initialize wander state
+        if (!state.wanderTarget || state.waitTime > 0) {
+            state.waitTime = state.waitTime || 0;
+            if (state.waitTime > 0) {
+                state.waitTime--;
+                Entropy.Entity.playAnimation(entity.id, "Idle");
+                return state;
+            }
+            
+            // Pick a random point in territory
+            const territory = factions[Faction.CRIMSON_GUARD].territory;
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * territory.radius;
+            state.wanderTarget = [
+                territory.x + Math.cos(angle) * r,
+                0,
+                territory.z + Math.sin(angle) * r
+            ];
+        }
+
         // Only aggressive if player has negative reputation
         if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
@@ -532,8 +576,22 @@ Entropy.Behavior.register("crimson_soldier", {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
             }
         } else {
-            // Patrol behavior
-            Entropy.Entity.playAnimation(entity.id, "Idle");
+            // Wander behavior
+            const wdx = state.wanderTarget[0] - entity.position[0];
+            const wdz = state.wanderTarget[2] - entity.position[2];
+            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+            
+            if (wdist > 1.0) {
+                const speed = 1.5;
+                Entropy.Entity.applyImpulse(entity.id, [
+                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+                ] as [number, number, number]);
+                Entropy.Entity.playAnimation(entity.id, "Walking");
+            } else {
+                state.wanderTarget = null;
+                state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+                Entropy.Entity.playAnimation(entity.id, "Idle");
+            }
         }
         
         return state;
@@ -567,6 +625,26 @@ Entropy.Behavior.register("azure_soldier", {
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
         
+        // Initialize wander state
+        if (!state.wanderTarget || state.waitTime > 0) {
+            state.waitTime = state.waitTime || 0;
+            if (state.waitTime > 0) {
+                state.waitTime--;
+                Entropy.Entity.playAnimation(entity.id, "Idle");
+                return state;
+            }
+            
+            // Pick a random point in territory
+            const territory = factions[Faction.AZURE_ORDER].territory;
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * territory.radius;
+            state.wanderTarget = [
+                territory.x + Math.cos(angle) * r,
+                0,
+                territory.z + Math.sin(angle) * r
+            ];
+        }
+
         if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 3.5;
@@ -578,7 +656,22 @@ Entropy.Behavior.register("azure_soldier", {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
             }
         } else {
-            Entropy.Entity.playAnimation(entity.id, "Idle");
+            // Wander behavior
+            const wdx = state.wanderTarget[0] - entity.position[0];
+            const wdz = state.wanderTarget[2] - entity.position[2];
+            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+            
+            if (wdist > 1.0) {
+                const speed = 1.5;
+                Entropy.Entity.applyImpulse(entity.id, [
+                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+                ] as [number, number, number]);
+                Entropy.Entity.playAnimation(entity.id, "Walking");
+            } else {
+                state.wanderTarget = null;
+                state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+                Entropy.Entity.playAnimation(entity.id, "Idle");
+            }
         }
         
         return state;
@@ -616,6 +709,26 @@ Entropy.Behavior.register("shadow_assassin", {
         const dx = playerPos[0] - entity.position[0];
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
+
+        // Initialize wander state
+        if (!state.wanderTarget || state.waitTime > 0) {
+            state.waitTime = state.waitTime || 0;
+            if (state.waitTime > 0) {
+                state.waitTime--;
+                Entropy.Entity.playAnimation(entity.id, "Idle");
+                return state;
+            }
+            
+            // Pick a random point in territory
+            const territory = factions[Faction.SHADOW_COVENANT].territory;
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * territory.radius;
+            state.wanderTarget = [
+                territory.x + Math.cos(angle) * r,
+                0,
+                territory.z + Math.sin(angle) * r
+            ];
+        }
         
         // Shadows are always neutral unless attacked
         if (dist < 5) {
@@ -625,7 +738,27 @@ Entropy.Behavior.register("shadow_assassin", {
                 const newX = playerPos[0] + Math.cos(angle) * 8;
                 const newZ = playerPos[2] + Math.sin(angle) * 8;
                 system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, 2, 0]);
-                // Note: Would need teleport API, using impulse as approximation
+                // Teleport via position set if possible, otherwise just use impulse
+                Entropy.Entity.applyImpulse(entity.id, [
+                    (newX - entity.position[0]) * 2, 0, (newZ - entity.position[2]) * 2
+                ] as [number, number, number]);
+            }
+        } else {
+            // Wander behavior
+            const wdx = state.wanderTarget[0] - entity.position[0];
+            const wdz = state.wanderTarget[2] - entity.position[2];
+            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+            
+            if (wdist > 1.0) {
+                const speed = 2.0; // Assassins are a bit faster
+                Entropy.Entity.applyImpulse(entity.id, [
+                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+                ] as [number, number, number]);
+                Entropy.Entity.playAnimation(entity.id, "Walking");
+            } else {
+                state.wanderTarget = null;
+                state.waitTime = 30 + Math.random() * 60; // Wait 0.5-1.5 seconds
+                Entropy.Entity.playAnimation(entity.id, "Idle");
             }
         }
         
@@ -685,9 +818,9 @@ class WorldManager {
             { x: 0, z: 0, radius: 5 }, "neutral_wanderer");
         
         // Spawn faction soldiers
-        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", "crimson_soldier", 8);
-        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", "azure_soldier", 8);
-        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", "shadow_assassin", 6);
+        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", "crimson_soldier", 25);
+        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", "azure_soldier", 25);
+        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", "shadow_assassin", 20);
         
         // Spawn collectables
         this.spawnCollectables();
@@ -708,8 +841,9 @@ class WorldManager {
             position: [x, y + 1, z],
             behaviorId: behaviorId,
             physics: {
-                bodyType: "fixed",
-                colliderShape: "capsule"
+                bodyType: "dynamic",
+                colliderShape: "capsule",
+                mass: 100
             }
         });
     }
