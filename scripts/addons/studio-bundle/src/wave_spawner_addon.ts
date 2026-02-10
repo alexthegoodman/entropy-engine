@@ -30,7 +30,12 @@ interface SpawnerState {
 const addon = Entropy.Addon.register({
   name: "Wave Spawner",
   version: "1.0.0",
-  description: "Spawns waves of enemies with escalating difficulty and quantity"
+  description: "Spawns waves of enemies with escalating difficulty and quantity",
+  author: ["Entropy AI"],
+  capabilities: {
+      ui: true,
+      scripts: true
+  }
 });
 
 let state: SpawnerState = {
