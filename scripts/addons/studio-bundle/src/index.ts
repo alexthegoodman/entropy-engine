@@ -27,6 +27,7 @@ import "./fft_river_addon";
 import "./model_viewer_addon";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
+import "./horde_mode_addon";
 
 // initialize last (tier 3)
 import "./game_composer_addon";
