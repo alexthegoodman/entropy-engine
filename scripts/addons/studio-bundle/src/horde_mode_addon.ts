@@ -68,6 +68,12 @@ class HordeManager {
         Entropy.println("[Horde Mode] Game Started!");
     }
 
+    stop() {
+        this.isGameActive = false;
+        addon.Model.clearMeshes();
+        Entropy.println("[Horde Mode] Game Stopped!");
+    }
+
     nextWave() {
         this.waveNumber++;
         const count = 3 + (this.waveNumber * 2);
@@ -107,6 +113,14 @@ class HordeManager {
 
 const manager = new HordeManager();
 
+(Entropy as any).onGameStarted?.(() => {
+    manager.start();
+});
+
+(Entropy as any).onGameStopped?.(() => {
+    manager.stop();
+});
+
 addon.onInit(() => {
     Entropy.println("Horde Mode Addon Initialized");
 
@@ -133,8 +147,7 @@ addon.onInit(() => {
                 Entropy.UI.Widget.button(windowId, {
                     text: "🛑 Stop Game",
                     onClick: () => {
-                        manager.isGameActive = false;
-                        addon.Model.clearMeshes();
+                        manager.stop();
                     }
                 });
             }

@@ -198,6 +198,11 @@ addon.onInit(async () => {
                  onClick: () => {
                      composerState.playMode = !composerState.playMode;
                      Entropy.setGameMode(composerState.playMode);
+                     if (composerState.playMode) {
+                        (Entropy as any)._dispatchGameStarted?.();
+                     } else {
+                        (Entropy as any)._dispatchGameStopped?.();
+                     }
                  }
              });
 

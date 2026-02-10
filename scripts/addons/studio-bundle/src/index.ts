@@ -3,6 +3,7 @@
 // import "./water_plane_addon";
 
 // initialize first (tier 0)
+import "./game_hooks";
 // import "./daw_synth_addon";
 
 // tier 1
@@ -28,6 +29,7 @@ import "./model_viewer_addon";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
 import "./horde_mode_addon";
+import "./wave_spawner_addon";
 
 // initialize last (tier 3)
 import "./game_composer_addon";
