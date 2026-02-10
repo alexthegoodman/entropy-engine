@@ -3607,6 +3607,8 @@ impl AddonEngine {
                         config.behavior_id.clone()
                     );
 
+                    renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
+
                     if let Some(player_props) = config.player {
                         renderer_state.add_player_character(
                             &gpu.device,
@@ -3623,8 +3625,6 @@ impl AddonEngine {
                             npc_props,
                             config.behavior_id
                         );
-                    } else {
-                        renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
                     }
 
                     if let Some(models) = renderer_state.addon_models.get_mut(&addon_name) {
