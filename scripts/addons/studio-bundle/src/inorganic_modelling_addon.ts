@@ -16,8 +16,15 @@ interface ModelerState {
     activeGizmoId: string | null;
     meshes: Map<string, MeshData>;
     primitiveLibrary: Map<string, PrimitiveTemplate>;
+    savedComponents: Map<string, ComponentDefinition>;
     history: HistoryState[];
     historyIndex: number;
+}
+
+interface ComponentDefinition {
+    id: string;
+    name: string;
+    meshes: MeshData[];
 }
 
 interface MeshData {
@@ -650,9 +657,43 @@ let state: ModelerState = {
     activeGizmoId: null,
     meshes: new Map(),
     primitiveLibrary: new Map(),
+    savedComponents: new Map(),
     history: [],
     historyIndex: -1
 };
+
+// Register as a renderer for Game Composer
+if (Entropy.Composer) {
+    Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
+        if (params && params.componentId) {
+            const component = state.savedComponents.get(params.componentId);
+            if (component) {
+                // Render each mesh in the component
+                component.meshes.forEach((mesh, index) => {
+                    const subId = `${id}_mesh_${index}`;
+                    
+                    // Apply composer's transform to the mesh's base position
+                    const worldPos: [number, number, number] = [
+                        params._transform.position[0] + mesh.position[0],
+                        params._transform.position[1] + mesh.position[1],
+                        params._transform.position[2] + mesh.position[2]
+                    ];
+
+                    addon.Model.createMesh({
+                        id: subId,
+                        position: worldPos,
+                        rotation: mesh.rotation,
+                        scale: mesh.scale,
+                        vertexData: mesh.vertices,
+                        indexData: mesh.indices,
+                        pipelineId: mesh.pipelineId || defaultPipelineId!,
+                        renderRole: mesh.renderRole || "Opaque"
+                    });
+                });
+            }
+        }
+    });
+}
 
 let defaultPipelineId: string | null = null;
 let wireframePipelineId: string | null = null;
@@ -692,6 +733,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     return in.color;
 }
 `;
+
+// ===== COMPONENT MANAGEMENT =====
+
+function saveAsComponent(name: string) {
+    if (state.meshes.size === 0) {
+        Entropy.println("⚠️ No meshes to save as component");
+        return;
+    }
+
+    const componentId = Entropy.generateUUID();
+    const meshes = Array.from(state.meshes.values()).map(m => ({...m}));
+    
+    const component: ComponentDefinition = {
+        id: componentId,
+        name,
+        meshes
+    };
+
+    state.savedComponents.set(componentId, component);
+    
+    // Register with Game Composer
+    if (Entropy.Composer) {
+        Entropy.Composer.registerComponent(addonInfo.name, componentId, name, {
+            componentId
+        });
+    }
+
+    Entropy.println(`✅ Saved component "${name}" (${meshes.length} meshes)`);
+}
 
 // ===== INITIALIZATION =====
 
@@ -780,9 +850,26 @@ addon.onInit(async () => {
     if (savedState) {
         // Restore meshes
         if (savedState.meshes) {
-            for (const [id, meshData] of Object.entries(savedState.meshes as any)) {
+            const meshesObj = savedState.meshes;
+            for (const [id, meshData] of Object.entries(meshesObj)) {
                 state.meshes.set(id, meshData as MeshData);
                 createMeshInEngine(meshData as MeshData);
+            }
+        }
+
+        // Restore components
+        if (savedState.savedComponents) {
+            const componentsObj = savedState.savedComponents;
+            for (const [id, component] of Object.entries(componentsObj)) {
+                const comp = component as ComponentDefinition;
+                state.savedComponents.set(id, comp);
+                
+                // Re-register with Composer
+                if (Entropy.Composer) {
+                    Entropy.Composer.registerComponent(addonInfo.name, comp.id, comp.name, {
+                        componentId: comp.id
+                    });
+                }
             }
         }
     }
@@ -793,7 +880,7 @@ addon.onInit(async () => {
     // Register tools for AI interaction
     registerTools();
     
-    // Setup input handlers (placeholder until API is ready)
+    // Setup input handlers
     setupInputHandlers();
     
     Entropy.println("✅ Inorganic Modeler: Ready!");
@@ -1307,11 +1394,23 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.label(tab, { text: "Project", bold: true });
     
     Entropy.UI.Widget.button(tab, {
+        text: "📦 Save as Component",
+        onClick: () => {
+            const name = "New Inorganic Model";
+            if (name) saveAsComponent(name);
+        }
+    });
+
+    Entropy.UI.Widget.button(tab, {
         text: "💾 Save All Meshes",
         onClick: () => {
             const meshesData = Object.fromEntries(state.meshes);
-            addon.IO.save({ meshes: meshesData });
-            Entropy.println("✅ Saved all meshes to project");
+            const componentsData = Object.fromEntries(state.savedComponents);
+            addon.IO.save({ 
+                meshes: meshesData,
+                savedComponents: componentsData
+            });
+            Entropy.println("✅ Saved all meshes and components to project");
         }
     });
     
@@ -1447,5 +1546,20 @@ function registerTools() {
         state.selectionMode = args.mode;
         clearSelection();
         return { success: true, mode: args.mode };
+    });
+
+    addon.registerTool({
+        name: "save_as_component",
+        description: "Save the current scene meshes as a reusable component for the Game Composer.",
+        parameters: {
+            type: "object",
+            properties: {
+                name: { type: "string", description: "Name for the component" }
+            },
+            required: ["name"]
+        }
+    }, (args: any) => {
+        saveAsComponent(args.name);
+        return { success: true };
     });
 }
