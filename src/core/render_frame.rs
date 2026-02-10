@@ -111,7 +111,8 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                     item.collectable_properties.as_ref().expect("No collectable properties"),
                     related_stat,
                     false, // hide_in_world
-                    item.script_state.clone()
+                    item.script_state.clone(),
+                    None // behavior_id
                 ));
             }
         }

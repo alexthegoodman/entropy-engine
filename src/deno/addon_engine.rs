@@ -328,10 +328,49 @@ pub struct ModelConfig {
     pub physics: Option<PhysicsConfig>,
     pub player: Option<crate::helpers::saved_data::PlayerProperties>,
     pub npc: Option<crate::helpers::saved_data::NPCProperties>,
+    pub behavior_id: Option<String>,
+}
+
+pub struct BehaviorHooks {
+    pub on_update: Option<v8::Global<v8::Function>>,
+    pub on_interact: Option<v8::Global<v8::Function>>,
+    pub on_attack: Option<v8::Global<v8::Function>>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct DialogueWrapper {
+    pub text: String,
+    pub options: Vec<crate::game_ui::dialogue_state::DialogueOption>,
+    pub changed: bool,
+    pub is_open: bool,
+    pub npc_name: String,
+    pub current_node: String,
+    pub started_quest: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ScriptParticleConfig {
+    pub emission_rate: f32,
+    pub life_time: f32,
+    pub radius: f32,
+    pub gravity: [f32; 3],
+    pub initial_speed_min: f32,
+    pub initial_speed_max: f32,
+    pub start_color: [f32; 4],
+    pub end_color: [f32; 4],
+    pub size: f32,
+    pub mode: f32,
+    pub position: [f32; 3],
+}
+
+pub struct EngineContext {
+    pub particle_spawns: Vec<ScriptParticleConfig>,
+    pub dialogue_wrapper: Option<DialogueWrapper>,
 }
 
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
+    pub behaviors: HashMap<String, BehaviorHooks>,
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub audio_engine: Arc<AudioEngine>,
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
@@ -1252,6 +1291,98 @@ fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] c
 fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: LandscapeConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscapes.push((addon_name, config));
+    }
+}
+
+#[op2]
+fn op_system_spawn_particles(state: &mut OpState, #[serde] pos: [f32; 3], #[serde] color: [f32; 4], #[serde] gravity: [f32; 3]) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+        let start_color = [color[0], color[1], color[2], color[3]];
+        let end_color = [color[0], color[1], color[2], 0.0];
+        
+        let config = ScriptParticleConfig {
+            emission_rate: 100.0,
+            life_time: 3.0,
+            radius: 0.6,
+            gravity,
+            initial_speed_min: 2.0,
+            initial_speed_max: 5.0,
+            start_color,
+            end_color,
+            size: 0.02,
+            mode: 0.0,
+            position: pos,
+        };
+        ctx.particle_spawns.push(config);
+    }
+}
+
+#[op2(fast)]
+fn op_dialogue_show(state: &mut OpState, #[string] text: String) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+        if let Some(d) = &mut ctx.dialogue_wrapper {
+            d.text = text;
+            d.options.clear();
+            d.changed = true;
+            d.is_open = true;
+        }
+    }
+}
+
+#[op2(fast)]
+fn op_dialogue_add_option(state: &mut OpState, #[string] text: String, #[string] next_node: String) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+         if let Some(d) = &mut ctx.dialogue_wrapper {
+            d.options.push(crate::game_ui::dialogue_state::DialogueOption { text, next_node });
+            d.changed = true;
+        }
+    }
+}
+
+#[op2(fast)]
+fn op_dialogue_start_quest(state: &mut OpState, #[string] quest_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+         if let Some(d) = &mut ctx.dialogue_wrapper {
+            d.started_quest = Some(quest_id);
+        }
+    }
+}
+
+#[op2(fast)]
+fn op_dialogue_close(state: &mut OpState) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+         if let Some(d) = &mut ctx.dialogue_wrapper {
+            d.is_open = false;
+            d.changed = true;
+        }
+    }
+}
+
+#[op2]
+#[string]
+fn op_dialogue_get_node(state: &mut OpState) -> String {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+         if let Some(d) = &ctx.dialogue_wrapper {
+            return d.current_node.clone();
+        }
+    }
+    "".to_string()
+}
+
+#[op2]
+fn op_behavior_register(
+    state: &mut OpState,
+    #[string] id: String,
+    #[global] on_update: Option<v8::Global<v8::Function>>,
+    #[global] on_interact: Option<v8::Global<v8::Function>>,
+    #[global] on_attack: Option<v8::Global<v8::Function>>,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.behaviors.insert(id, BehaviorHooks {
+            on_update,
+            on_interact,
+            on_attack,
+        });
     }
 }
 
@@ -2381,7 +2512,14 @@ extension!(
         op_camera_screen_to_world,
         op_window_get_size,
         op_selection_get_selected,
-        op_mesh_get_data
+        op_mesh_get_data,
+        op_behavior_register,
+        op_system_spawn_particles,
+        op_dialogue_show,
+        op_dialogue_add_option,
+        op_dialogue_start_quest,
+        op_dialogue_close,
+        op_dialogue_get_node
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2395,7 +2533,124 @@ pub struct AddonEngine {
 
 const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/bundle.js");
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EntityWrapper {
+    pub id: String,
+    pub position: [f32; 3],
+    pub health: f32,
+    pub stamina: f32,
+    pub is_dead: bool,
+}
+
 impl AddonEngine {
+    pub fn execute_behavior(
+        &mut self,
+        renderer_state: &mut RendererState,
+        behavior_id: &str,
+        entity_wrapper: EntityWrapper,
+        hook_name: &str,
+    ) {
+        let behavior = {
+            let state = self.runtime.op_state();
+            let state = state.borrow();
+            let context = state.borrow::<AddonContext>();
+            context.behaviors.get(behavior_id).cloned()
+        };
+
+        if let Some(behavior) = behavior {
+            let callback = match hook_name {
+                "on_update" => behavior.on_update,
+                "on_interact" => behavior.on_interact,
+                "on_attack" => behavior.on_attack,
+                _ => None,
+            };
+
+            if let Some(callback) = callback {
+                // Prepare context for ops
+                let context = EngineContext {
+                    particle_spawns: Vec::new(),
+                    dialogue_wrapper: None, // TODO: set if interact
+                };
+                self.runtime.op_state().borrow_mut().put(context);
+
+                {
+                    let scope = &mut self.runtime.handle_scope();
+                    let local_callback = v8::Local::new(scope, callback);
+                    let this = v8::undefined(scope);
+                    let global = scope.get_current_context().global(scope);
+
+                    // 1. Entity Arg
+                    let entity_v8 = serde_v8::to_v8(scope, entity_wrapper).unwrap();
+
+                    // 2. System Arg
+                    let create_system_key = v8::String::new(scope, "_createSystem").unwrap();
+                    let create_system_val = global.get(scope, create_system_key.into()).unwrap();
+                    let create_system_func = v8::Local::<v8::Function>::try_from(create_system_val)
+                        .expect("addon_setup.js should define _createSystem");
+                    let system_arg = create_system_func.call(scope, global.into(), &[]).unwrap();
+
+                    // 3. State Arg (for now just empty map or component script state)
+                    let state_arg = serde_v8::to_v8(scope, HashMap::<String, String>::new()).unwrap();
+
+                    let args = [entity_v8, system_arg, state_arg];
+                    
+                    let tc = &mut v8::TryCatch::new(scope);
+                    local_callback.call(tc, this.into(), &args);
+
+                    if tc.has_caught() {
+                        if let Some(exception) = tc.exception() {
+                            let msg = exception.to_rust_string_lossy(tc);
+                            println!("[BEHAVIOR ERROR in {}] {}", behavior_id, msg);
+                        }
+                    }
+                }
+
+                // Process results (particles, etc.)
+                let particle_spawns = {
+                    let mut op_state = self.runtime.op_state();
+                    let mut op_state = op_state.borrow_mut();
+                    if let Some(ctx) = op_state.try_borrow_mut::<EngineContext>() {
+                        std::mem::take(&mut ctx.particle_spawns)
+                    } else {
+                        Vec::new()
+                    }
+                };
+
+                for spawn in particle_spawns {
+                    let gpu_resources = self.runtime.op_state().borrow().borrow::<AddonContext>().gpu_resources.as_ref().unwrap().clone();
+                    
+                    let uniforms = crate::procedural_particles::particle_system::ParticleUniforms {
+                        position: [spawn.position[0], spawn.position[1], spawn.position[2], 0.0],
+                        time: 0.0,
+                        emission_rate: spawn.emission_rate,
+                        life_time: spawn.life_time,
+                        radius: spawn.radius,
+                        gravity: [spawn.gravity[0], spawn.gravity[1], spawn.gravity[2], 0.0],
+                        initial_speed_min: spawn.initial_speed_min,
+                        initial_speed_max: spawn.initial_speed_max,
+                        start_color: spawn.start_color,
+                        end_color: spawn.end_color,
+                        size: spawn.size,
+                        mode: spawn.mode,
+                        target_position: [0.0, 0.0, 0.0, 0.0],
+                        _pad2: [0.0; 4],
+                    };
+                    
+                    let system = crate::procedural_particles::particle_system::ParticleSystem::new(
+                        &gpu_resources.device,
+                        &renderer_state.model_bind_group_layout, // Assuming model layout is compatible or use camera layout
+                        uniforms,
+                        500,
+                        wgpu::TextureFormat::Rgba8Unorm,
+                    );
+                    
+                    renderer_state.particle_systems.push(system);
+                }
+            }
+        }
+    }
+
     pub fn new(project_id: Option<String>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_addons::init_ops_and_esm();
@@ -2412,6 +2667,7 @@ impl AddonEngine {
 
         let context = AddonContext {
             registered_addons: HashMap::new(),
+            behaviors: HashMap::new(),
             gpu_resources: None,
             audio_engine,
             pipelines: HashMap::new(),
@@ -2804,6 +3060,95 @@ impl AddonEngine {
             context.selected_entity_id = renderer_state.selected_entity_id.clone();
         }
 
+        // 0. Execute Entity Behaviors
+        let mut entity_behaviors = Vec::new();
+        let mut processed_ids = std::collections::HashSet::new();
+
+        // 0.1 NPCs
+        for npc in &renderer_state.npcs {
+            if let Some(bid) = &npc.behavior_id {
+                let pos = if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+                    let p = rb.translation();
+                    [p.x, p.y, p.z]
+                } else {
+                    [0.0, 0.0, 0.0]
+                };
+
+                entity_behaviors.push((
+                    bid.clone(),
+                    EntityWrapper {
+                        id: npc.id.clone(),
+                        position: pos,
+                        health: npc.stats.health,
+                        stamina: npc.stats.stamina,
+                        is_dead: npc.is_dead,
+                    }
+                ));
+                processed_ids.insert(npc.model_id.clone());
+            }
+        }
+
+        // 0.2 Models (standalone or generic)
+        for model in &renderer_state.models {
+            if processed_ids.contains(&model.id) { continue; }
+            if let Some(bid) = &model.behavior_id {
+                let pos = if let Some(mesh) = model.meshes.first() {
+                    if let Some(rb_handle) = mesh.rigid_body_handle {
+                        if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                            let p = rb.translation();
+                            [p.x, p.y, p.z]
+                        } else {
+                            [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
+                        }
+                    } else {
+                        [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
+                    }
+                } else {
+                    [0.0, 0.0, 0.0]
+                };
+
+                entity_behaviors.push((
+                    bid.clone(),
+                    EntityWrapper {
+                        id: model.id.clone(),
+                        position: pos,
+                        health: 100.0,
+                        stamina: 100.0,
+                        is_dead: false,
+                    }
+                ));
+                processed_ids.insert(model.id.clone());
+            }
+        }
+
+        // 0.3 Collectables
+        for coll in &renderer_state.collectables {
+            if processed_ids.contains(&coll.id) { continue; }
+            if let Some(bid) = &coll.behavior_id {
+                let pos = if let Some(rb) = renderer_state.rigid_body_set.get(coll.rigid_body_handle) {
+                    let p = rb.translation();
+                    [p.x, p.y, p.z]
+                } else {
+                    [0.0, 0.0, 0.0]
+                };
+
+                entity_behaviors.push((
+                    bid.clone(),
+                    EntityWrapper {
+                        id: coll.id.clone(),
+                        position: pos,
+                        health: 100.0,
+                        stamina: 100.0,
+                        is_dead: false,
+                    }
+                ));
+            }
+        }
+
+        for (bid, wrapper) in entity_behaviors {
+            self.execute_behavior(renderer_state, &bid, wrapper, "on_update");
+        }
+
         // 0. Run onUpdate callbacks
         // let callbacks = {
         //     let state = self.runtime.op_state();
@@ -3181,7 +3526,8 @@ impl AddonEngine {
                         camera,
                         false,
                         None,
-                        config.physics
+                        config.physics,
+                        config.behavior_id.clone()
                     );
 
                     if let Some(player_props) = config.player {
@@ -3197,7 +3543,8 @@ impl AddonEngine {
                     } else if let Some(npc_props) = config.npc {
                         renderer_state.add_npc(
                             id.clone(),
-                            npc_props
+                            npc_props,
+                            config.behavior_id
                         );
                     } else {
                         renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);

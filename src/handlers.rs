@@ -148,6 +148,7 @@ pub async fn handle_add_player(
     camera: &SimpleCamera,
     default_weapon: Option<ComponentData>,
     script_state: Option<HashMap<String, String>>,
+    behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -155,7 +156,7 @@ pub async fn handle_add_player(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
 
     state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter);
 
@@ -961,6 +962,7 @@ pub async fn handle_add_model(
     scale: Vector3<f32>,
     camera: &SimpleCamera,
     script_state: Option<HashMap<String, String>>,
+    behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -968,7 +970,7 @@ pub async fn handle_add_model(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None);
+    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
     state.add_collider(modelComponentId, ComponentKind::Model);
 }
 
@@ -1023,7 +1025,8 @@ pub async fn handle_add_npc(
     scale: Vector3<f32>,
     camera: &SimpleCamera,
     script_state: Option<HashMap<String, String>>,
-    npc_properties: &crate::helpers::saved_data::NPCProperties
+    npc_properties: &crate::helpers::saved_data::NPCProperties,
+    behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -1031,7 +1034,7 @@ pub async fn handle_add_npc(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None);
+    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id.clone());
 
     state.add_collider(npcComponentId.clone(), ComponentKind::NPC);
 
@@ -1046,7 +1049,9 @@ pub async fn handle_add_npc(
 
     let squad_id = npc_properties.squad_id.clone();
 
-    state.npcs.push(NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle, npc_properties.behavior.clone(), squad_id));
+    let mut npc = NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle, npc_properties.behavior.clone(), squad_id);
+    npc.behavior_id = behavior_id;
+    state.npcs.push(npc);
 }
 
 pub async fn handle_add_collectable(
@@ -1064,6 +1069,7 @@ pub async fn handle_add_collectable(
     related_stat: &StatData,
     hide_in_world: bool,
     script_state: Option<HashMap<String, String>>,
+    behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
     let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
@@ -1071,7 +1077,7 @@ pub async fn handle_add_collectable(
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None);
+    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None, behavior_id.clone());
 
     state.add_collider(modelAssetId.clone(), ComponentKind::Collectable);
 
@@ -1086,7 +1092,9 @@ pub async fn handle_add_collectable(
 
     let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
 
-    state.collectables.push(Collectable::new(modelComponentId.clone(), modelAssetId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle));
+    let mut collectable = Collectable::new(modelComponentId.clone(), modelAssetId.clone(), collectable_type.clone(), related_stat.clone(), npc_rigid_body_handle);
+    collectable.behavior_id = behavior_id;
+    state.collectables.push(collectable);
 }
 
 #[derive(Serialize, Deserialize)]

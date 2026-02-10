@@ -103,6 +103,7 @@ pub struct PlayerCharacter {
 
     pub recoil_offset: Vector3<f32>, // (pitch, yaw, 0)
     pub recoil_velocity: Vector3<f32>,
+    pub behavior_id: Option<String>,
 }
 
 impl PlayerCharacter {
@@ -223,6 +224,7 @@ impl PlayerCharacter {
             aim_factor: 0.0,
             recoil_offset: Vector3::zeros(),
             recoil_velocity: Vector3::zeros(),
+            behavior_id: None,
         }
     }
 

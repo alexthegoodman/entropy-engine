@@ -99,6 +99,7 @@ pub struct Model {
     pub skin_bind_group: Option<wgpu::BindGroup>,
     pub hide_from_world: bool,
     pub script_state: Option<HashMap<String, String>>,
+    pub behavior_id: Option<String>,
 }
 
 impl Model {
@@ -866,7 +867,8 @@ impl Model {
             joint_matrices_buffer: None,
             skin_bind_group: None,
             hide_from_world: false,
-            script_state: None
+            script_state: None,
+            behavior_id: None
         }
     }
 }

@@ -1882,7 +1882,8 @@ impl RendererState {
         camera: &SimpleCamera,
         hide_in_world: bool,
         script_state: Option<HashMap<String, String>>,
-        physics_config: Option<PhysicsConfig>
+        physics_config: Option<PhysicsConfig>,
+        behavior_id: Option<String>
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1902,6 +1903,7 @@ impl RendererState {
         model.hide_from_world = hide_in_world;
 
         model.script_state = script_state;
+        model.behavior_id = behavior_id;
 
         // Check if the model has skins and create the necessary GPU resources
         if !model.skins.is_empty() {
@@ -1947,7 +1949,8 @@ impl RendererState {
         camera: &SimpleCamera,
         hide_in_world: bool,
         script_state: Option<HashMap<String, String>>,
-        physics_config: Option<PhysicsConfig>
+        physics_config: Option<PhysicsConfig>,
+        behavior_id: Option<String>
     ) {
         let mut model = Model::from_glb(
             model_component_id,
@@ -1966,6 +1969,7 @@ impl RendererState {
 
         model.hide_from_world = hide_in_world;
         model.script_state = script_state;
+        model.behavior_id = behavior_id;
 
         if !model.skins.is_empty() {
             const MAX_JOINTS: usize = 256; 
@@ -2037,7 +2041,8 @@ impl RendererState {
     pub fn add_npc(
         &mut self,
         model_component_id: String,
-        npc_properties: crate::helpers::saved_data::NPCProperties
+        npc_properties: crate::helpers::saved_data::NPCProperties,
+        behavior_id: Option<String>
     ) {
         use crate::model_components::NPC::NPC;
         use crate::helpers::saved_data::ComponentKind;
@@ -2054,13 +2059,15 @@ impl RendererState {
 
         let squad_id = npc_properties.squad_id.clone();
 
-        self.npcs.push(NPC::new(
+        let mut npc = NPC::new(
             model_component_id.clone(),
             model_component_id.clone(),
             npc_rigid_body_handle,
             npc_properties.behavior.clone(),
             squad_id
-        ));
+        );
+        npc.behavior_id = behavior_id;
+        self.npcs.push(npc);
         
         self.add_collider(model_component_id, ComponentKind::NPC);
     }

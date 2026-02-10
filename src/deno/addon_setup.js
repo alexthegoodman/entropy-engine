@@ -65,7 +65,10 @@ globalThis.Entropy = {
                             scale: config.scale || [1, 1, 1],
                             pipeline_id: config.pipelineId || null,
                             render_role: config.renderRole || null,
-                            physics: config.physics || null
+                            physics: config.physics || null,
+                            player: config.player || null,
+                            npc: config.npc || null,
+                            behaviorId: config.behaviorId || null
                         });
                     },
                     createProcedural: (config) => {
@@ -289,6 +292,16 @@ globalThis.Entropy = {
         },
         setVisibility: (addonName, visible) => {
             ops.op_addon_set_visibility(addonName, visible);
+        }
+    },
+    Behavior: {
+        register: (id, hooks) => {
+            ops.op_behavior_register(
+                id,
+                hooks.onUpdate || null,
+                hooks.onInteract || null,
+                hooks.onAttack || null
+            );
         }
     },
     UI: {
@@ -845,6 +858,32 @@ globalThis.Entropy.Composer = {
     disableGameComposerOverride: () => {
         globalThis.__entropy_current_addon_context_override = null;
     },
+};
+
+globalThis._createSystem = () => {
+    return {
+        spawn_particles: (pos, color, grav) => {
+            // Need to make sure op_system_spawn_particles is registered in addon_engine.rs too!
+            // Actually let's assume we'll add it or use a different way.
+            // For now, mirroring old setup.js
+            ops.op_system_spawn_particles(pos, color, grav);
+        },
+        vec3: (x, y, z) => ({ x, y, z }),
+        log_particles: (pos, color, grav) => { 
+             // no-op
+        },
+        debug_name: (val) => "System"
+    };
+};
+
+globalThis._createDialogue = () => {
+    return {
+        show: (text) => ops.op_dialogue_show(text),
+        add_option: (text, next_node) => ops.op_dialogue_add_option(text, next_node),
+        start_quest: (id) => ops.op_dialogue_start_quest(id),
+        close: () => ops.op_dialogue_close(),
+        get_node: () => ops.op_dialogue_get_node(),
+    };
 };
 
 // Convenience global

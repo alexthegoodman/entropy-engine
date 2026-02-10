@@ -9,6 +9,7 @@ pub struct Collectable {
     pub collectable_type: CollectableType,
     pub collectable_stats: StatData,
     pub rigid_body_handle: RigidBodyHandle,
+    pub behavior_id: Option<String>,
 }
 
 impl Collectable {
@@ -19,6 +20,7 @@ impl Collectable {
             collectable_stats,
             model_id,
             rigid_body_handle,
+            behavior_id: None,
         }
     }
 }

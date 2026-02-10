@@ -132,6 +132,7 @@ pub struct NPC {
     pub is_squad_leader: bool,
     pub forward_axis: Vector3<f32>,
     pub debug_sphere: Option<Sphere>,
+    pub behavior_id: Option<String>,
 }
 
 impl NPC {
@@ -162,6 +163,7 @@ impl NPC {
             // forward_axis: Vector3::z(),
             forward_axis: Vector3::x(),
             debug_sphere: None,
+            behavior_id: None,
         }
     }
 }

@@ -195,6 +195,7 @@ pub struct ComponentData {
     pub procedural_grass_properties: Option<ProceduralGrassProperties>,
     pub scatter: Option<ScatterSettings>,
     pub js_script_path: Option<String>,
+    pub behavior_id: Option<String>,
     pub script_state: Option<HashMap<String, String>>,
 }
 

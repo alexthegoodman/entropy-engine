@@ -646,6 +646,7 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                                                     scale,
                                                                     camera,
                                                                     component.script_state.clone(),
+                                                                    component.behavior_id.clone()
                                                                 ));
                                                             }
                                                         }
