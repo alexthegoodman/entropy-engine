@@ -441,6 +441,7 @@ export interface EntropyAPI {
     onCleanup: (callback: CleanupCallback) => void;
     setVisibility: (addonName: string, visible: boolean) => void;
   };
+  // Register Behaviors with reusable IDs, then set those IDs on Models, if desired
   Behavior: {
     register: (id: string, hooks: {
       onUpdate?: (entity: Entity, system: BehaviorSystem, state: any) => any;
