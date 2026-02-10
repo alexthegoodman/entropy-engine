@@ -606,13 +606,13 @@ globalThis.Entropy = {
         globalThis.Entropy._game_events.stopped.push(cb);
     },
     _dispatchGameStarted: () => {
-        globalThis.Entropy.println("[Game Hooks] Dispatching Game Started");
+        globalThis.Entropy.println("[Game Hooks] Dispatching Game Started. Event Count: " + globalThis.Entropy._game_events.started.length);
         globalThis.Entropy._game_events.started.forEach(cb => {
             try { cb(); } catch(e) { globalThis.Entropy.println("Error in onGameStarted callback: " + e); }
         });
     },
     _dispatchGameStopped: () => {
-        globalThis.Entropy.println("[Game Hooks] Dispatching Game Stopped");
+        globalThis.Entropy.println("[Game Hooks] Dispatching Game Stopped. Event Count: " + globalThis.Entropy._game_events.stopped.length);
         globalThis.Entropy._game_events.stopped.forEach(cb => {
             try { cb(); } catch(e) { globalThis.Entropy.println("Error in onGameStopped callback: " + e); }
         });

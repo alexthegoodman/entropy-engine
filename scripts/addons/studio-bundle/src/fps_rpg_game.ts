@@ -672,22 +672,22 @@ class WorldManager {
     
     populateWorld() {
         // Spawn faction leaders (quest givers)
-        this.spawnNPC("Commander Vex", "commander_vex", "Enemy1b.glb", 
+        this.spawnNPC("Commander Vex", Entropy.generateUUID(), "Enemy1b.glb", 
             factions[Faction.CRIMSON_GUARD].territory, "quest_giver_vex");
         
-        this.spawnNPC("Scholar Lyra", "scholar_lyra", "Player1b.glb",
+        this.spawnNPC("Scholar Lyra", Entropy.generateUUID(), "Player1b.glb",
             factions[Faction.AZURE_ORDER].territory, "quest_giver_lyra");
         
-        this.spawnNPC("Whisper Master", "whisper_master", "Enemy1b.glb",
+        this.spawnNPC("Whisper Master", Entropy.generateUUID(), "Enemy1b.glb",
             factions[Faction.SHADOW_COVENANT].territory, "quest_giver_whisper");
         
-        this.spawnNPC("The Wanderer", "wanderer", "Friend1b.glb",
+        this.spawnNPC("The Wanderer", Entropy.generateUUID(), "Friend1b.glb",
             { x: 0, z: 0, radius: 5 }, "neutral_wanderer");
         
         // Spawn faction soldiers
         this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", "crimson_soldier", 8);
-        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend2b.glb", "azure_soldier", 8);
-        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy2b.glb", "shadow_assassin", 6);
+        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", "azure_soldier", 8);
+        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", "shadow_assassin", 6);
         
         // Spawn collectables
         this.spawnCollectables();
@@ -744,6 +744,7 @@ class WorldManager {
             const y = addon.Landscape.getHeightAt(x, z);
             
             addon.Collectable.create({
+                modelPath: "Barrel1large.glb",
                 position: [x, y + 1, z],
                 type: "quest_item",
                 questId: "ancient_scroll",
@@ -761,6 +762,7 @@ class WorldManager {
         const shadowTerr = factions[Faction.SHADOW_COVENANT].territory;
         const relicY = addon.Landscape.getHeightAt(shadowTerr.x, shadowTerr.z);
         addon.Collectable.create({
+            modelPath: "Barrel1medium.glb",
             position: [shadowTerr.x, relicY + 1, shadowTerr.z],
             type: "quest_item",
             questId: "crimson_relic",
@@ -780,6 +782,7 @@ class WorldManager {
             const y = addon.Landscape.getHeightAt(x, z);
             
             addon.Collectable.create({
+                modelPath: "Barrel1small.glb",
                 position: [x, y + 1, z],
                 type: "quest_item",
                 questId: "ancient_artifact",
@@ -802,6 +805,7 @@ class WorldManager {
             const y = addon.Landscape.getHeightAt(x, z);
             
             addon.Collectable.create({
+                modelPath: "Barrel1small.glb",
                 position: [x, y + 0.5, z],
                 type: "health",
                 value: 25,

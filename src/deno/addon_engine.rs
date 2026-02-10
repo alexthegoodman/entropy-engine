@@ -3659,7 +3659,7 @@ impl AddonEngine {
             if let gpu= &gpu_resources {
                 for (addon_name, config) in pending_models {
                     if let Some(project_id) = self.project_id.clone() {
-                    let id = config.id.unwrap_or_else(|| format!("{}_{}", addon_name, uuid::Uuid::new_v4()));
+                    let id = config.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                     
                     let pos = Vector3::new(config.position[0], config.position[1], config.position[2]);
                     let rot = config.rotation.unwrap_or([0.0, 0.0, 0.0]);
@@ -3667,6 +3667,8 @@ impl AddonEngine {
                     let isometry = Isometry3::from_parts(pos.into(), rot_quat);
                     let scale_val = config.scale.unwrap_or([1.0, 1.0, 1.0]);
                     let scale = Vector3::new(scale_val[0], scale_val[1], scale_val[2]);
+
+                    println!("Reading in model: {:?}", config.path);
 
                     let bytes = crate::art_assets::Model::read_model(project_id, config.path).expect("Couldn't get model bytes");
 
