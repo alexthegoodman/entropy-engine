@@ -545,6 +545,10 @@ export interface EntropyAPI {
   };
   println: (msg: unknown) => void;
   generateUUID: () => string;
+  onGameStarted: (callback: () => void) => void;
+  onGameStopped: (callback: () => void) => void;
+  _dispatchGameStarted: () => void;
+  _dispatchGameStopped: () => void;
   _process_events: (eventIds: string[]) => void;
   setGameMode: (enabled: boolean) => void;
   Camera: {

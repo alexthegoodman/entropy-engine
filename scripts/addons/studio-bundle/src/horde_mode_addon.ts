@@ -113,11 +113,11 @@ class HordeManager {
 
 const manager = new HordeManager();
 
-(Entropy as any).onGameStarted?.(() => {
+Entropy.onGameStarted(() => {
     manager.start();
 });
 
-(Entropy as any).onGameStopped?.(() => {
+Entropy.onGameStopped(() => {
     manager.stop();
 });
 

@@ -3,7 +3,6 @@
 // import "./water_plane_addon";
 
 // initialize first (tier 0)
-import "./game_hooks";
 // import "./daw_synth_addon";
 
 // tier 1

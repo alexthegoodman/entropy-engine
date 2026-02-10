@@ -49,7 +49,7 @@ let state: SpawnerState = {
   landscapeSize: 512 // adjust based on your landscape
 };
 
-(Entropy as any).onGameStarted?.(() => {
+Entropy.onGameStarted(() => {
   state.isPaused = false;
   state.autoStart = true;
   if (state.currentWave === 0) {
@@ -58,7 +58,7 @@ let state: SpawnerState = {
   println("[Wave Spawner] Game Started via Hook");
 });
 
-(Entropy as any).onGameStopped?.(() => {
+Entropy.onGameStopped(() => {
   state.isPaused = true;
   state.autoStart = false;
   addon.Model.clearMeshes();
