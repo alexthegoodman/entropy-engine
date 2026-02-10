@@ -42,9 +42,9 @@ let composerState: {
 let activeProjectId: string | null = null;
 
 let sectionsOpen = {
-    hierarchy: true,
-    inspector: true,
-    library: true
+    hierarchy: false,
+    inspector: false,
+    library: false
 };
 
 const availablePipelines = [
