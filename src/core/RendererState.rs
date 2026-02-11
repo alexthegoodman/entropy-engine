@@ -890,7 +890,7 @@ impl RendererState {
                             mesh.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
                         }
 
-                        println!("Update NPC position {:?}", position);
+                        // println!("Update NPC position {:?}", position);
 
                         mesh.transform
                             .update_position([position.x, position.y, position.z]);
@@ -1786,118 +1786,114 @@ impl RendererState {
                 }
             }
             ComponentKind::Model => {
-                let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
-                    .expect("Couldn't get Renderer Model");
+                if let Some(models) = self.addon_models.get_mut("Game Composer") {
+                    if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
+                        renderer_model.meshes.iter_mut().for_each(|mesh| {
+                            let rigid_body_handle =
+                                self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                            mesh.rigid_body_handle = Some(rigid_body_handle);
 
-                renderer_model.meshes.iter_mut().for_each(|mesh| {
-                    let rigid_body_handle =
-                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
-                    mesh.rigid_body_handle = Some(rigid_body_handle);
-
-                    // now associate rigidbody with collider
-                    let collider_handle = self.collider_set.insert_with_parent(
-                        mesh.rapier_collider.clone(),
-                        rigid_body_handle,
-                        &mut self.rigid_body_set,
-                    );
-                    mesh.collider_handle = Some(collider_handle);
-                });
+                            let collider_handle = self.collider_set.insert_with_parent(
+                                mesh.rapier_collider.clone(),
+                                rigid_body_handle,
+                                &mut self.rigid_body_set,
+                            );
+                            mesh.collider_handle = Some(collider_handle);
+                        });
+                    }
+                }
             },
             ComponentKind::Collectable => {
-                 let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
-                    .expect("Couldn't get Renderer Model");
+                if let Some(models) = self.addon_models.get_mut("Game Composer") {
+                    if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
+                        renderer_model.meshes.iter_mut().for_each(|mesh| {
+                            let existing_iso = mesh.rapier_rigidbody.position().clone();
 
-                renderer_model.meshes.iter_mut().for_each(|mesh| {
-                    let existing_iso = mesh.rapier_rigidbody.position().clone();
+                            if let Ok(uuid) = Uuid::from_str(&component_id) {
+                                let rapier_collider = ColliderBuilder::ball(0.5)
+                                    .sensor(true)
+                                    .friction(0.7)
+                                    .restitution(0.0)
+                                    .density(1.0)
+                                    .user_data(uuid.as_u128())
+                                    .build();
 
-                    let rapier_collider = ColliderBuilder::ball(0.5)
-                        // .expect("Couldn't create trimesh")
-                        .sensor(true)
-                        .friction(0.7)
-                        .restitution(0.0)
-                        .density(1.0)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
+                                let dynamic_body = RigidBodyBuilder::fixed()
+                                    .additional_mass(70.0)
+                                    .linear_damping(0.1)
+                                    .position(existing_iso)
+                                    .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                                    .user_data(uuid.as_u128())
+                                    .build();
 
-                    let dynamic_body = RigidBodyBuilder::fixed()
-                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
-                        .linear_damping(0.1)
-                        .position(existing_iso)
-                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
+                                mesh.rapier_collider = rapier_collider;
+                                mesh.rapier_rigidbody = dynamic_body;
 
-                    mesh.rapier_collider = rapier_collider;
-                    mesh.rapier_rigidbody = dynamic_body;
+                                let rigid_body_handle =
+                                    self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                                mesh.rigid_body_handle = Some(rigid_body_handle);
 
-                    let rigid_body_handle =
-                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
-                    mesh.rigid_body_handle = Some(rigid_body_handle);
-
-                    // now associate rigidbody with collider
-                    let collider_handle = self.collider_set.insert_with_parent(
-                        mesh.rapier_collider.clone(),
-                        rigid_body_handle,
-                        &mut self.rigid_body_set,
-                    );
-                    mesh.collider_handle = Some(collider_handle);
-                });
+                                let collider_handle = self.collider_set.insert_with_parent(
+                                    mesh.rapier_collider.clone(),
+                                    rigid_body_handle,
+                                    &mut self.rigid_body_set,
+                                );
+                                mesh.collider_handle = Some(collider_handle);
+                            }
+                        });
+                    }
+                }
             },
             ComponentKind::NPC => {
-                let renderer_model = find_model_mut(&mut self.models, &mut self.addon_models, &component_id)
-                    .expect("Couldn't get Renderer Model");
+//                 let npc = self.npcs.iter().find(|npc| npc.model_id == component_id);
 
-                renderer_model.meshes.iter_mut().for_each(|mesh| {
-                    let existing_iso = mesh.rapier_rigidbody.position().clone();
+//                 println!("Trying to add NPC Collider {:?}", self.npcs.len());
 
-                    let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
-                        // .expect("Couldn't create trimesh")
-                        .friction(0.7)
-                        .restitution(0.0)
-                        .density(1.0)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
+//                 if let Some(npc) = npc {
+// println!("Adding... {:?} {:?}", npc.id, npc.behavior_id);
+                
+                if let Some(models) = self.addon_models.get_mut("Game Composer") {
+                    if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
+                        renderer_model.meshes.iter_mut().for_each(|mesh| {
+                            let existing_iso = mesh.rapier_rigidbody.position().clone();
 
-                    let dynamic_body = RigidBodyBuilder::dynamic()
-                        .additional_mass(70.0) // Explicitly set mass (e.g., 70kg for a person)
-                        .linear_damping(0.1)
-                        .position(existing_iso)
-                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
-                        .user_data(
-                            Uuid::from_str(&component_id.clone())
-                                .expect("Couldn't extract uuid")
-                                .as_u128(),
-                        )
-                        .build();
+                            if let Ok(uuid) = Uuid::from_str(&component_id) {
+                                let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+                                    .friction(0.7)
+                                    .restitution(0.0)
+                                    .density(1.0)
+                                    .user_data(uuid.as_u128())
+                                    .build();
 
-                    mesh.rapier_collider = rapier_collider;
-                    mesh.rapier_rigidbody = dynamic_body;
+                                let dynamic_body = RigidBodyBuilder::dynamic()
+                                    .additional_mass(70.0)
+                                    .linear_damping(0.1)
+                                    .position(existing_iso)
+                                    .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                                    .user_data(uuid.as_u128())
+                                    .build();
 
-                    let rigid_body_handle =
-                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
-                    mesh.rigid_body_handle = Some(rigid_body_handle);
+                                mesh.rapier_collider = rapier_collider;
+                                mesh.rapier_rigidbody = dynamic_body;
 
-                    // now associate rigidbody with collider
-                    let collider_handle = self.collider_set.insert_with_parent(
-                        mesh.rapier_collider.clone(),
-                        rigid_body_handle,
-                        &mut self.rigid_body_set,
-                    );
-                    mesh.collider_handle = Some(collider_handle);
-                });
-            },
+                                let rigid_body_handle =
+                                    self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                                mesh.rigid_body_handle = Some(rigid_body_handle);
+
+                                let collider_handle = self.collider_set.insert_with_parent(
+                                    mesh.rapier_collider.clone(),
+                                    rigid_body_handle,
+                                    &mut self.rigid_body_set,
+                                );
+                                mesh.collider_handle = Some(collider_handle);
+
+                                println!("NPC Collider added {:?} {:?}", renderer_model.id, renderer_model.behavior_id);
+                            }
+                        });
+                    }
+                }
+            }
+,
             ComponentKind::PlayerCharacter => {
                 // NOTE: PlayerCharacter already inserted into sets in PlayerCharacter.rs!
             },
@@ -2083,6 +2079,8 @@ impl RendererState {
         use crate::model_components::NPC::NPC;
         use crate::helpers::saved_data::ComponentKind;
 
+        self.add_collider(model_component_id.clone(), ComponentKind::NPC);
+
         // Retrieve the rigid_body_handle after the collider has been added
         let npc_rigid_body_handle = self
             .models
@@ -2104,8 +2102,6 @@ impl RendererState {
         );
         npc.behavior_id = behavior_id;
         self.npcs.push(npc);
-        
-        self.add_collider(model_component_id, ComponentKind::NPC);
     }
 
     pub fn add_house(

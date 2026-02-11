@@ -164,7 +164,8 @@ export interface ScopedAPI {
               modelId?: string;
               defaultWeaponId?: string;
           };
-          npc?: {
+          isNpc?: boolean; // for those JS-side game logic scenarios
+          npc?: { // for those Rust-side game logic scenarios
               modelId: string;
               behavior: {
                   aggressiveness: number;

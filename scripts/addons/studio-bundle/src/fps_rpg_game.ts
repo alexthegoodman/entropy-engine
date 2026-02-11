@@ -419,6 +419,8 @@ Entropy.Behavior.register("quest_giver_lyra", {
     },
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.AZURE_ORDER].reputation;
+
+        Entropy.println("Interaction with quest giver");
         
         if (rep < -30) {
             dialogue.show("Your violent reputation precedes you. The Azure Order seeks peace, not chaos.");
@@ -466,6 +468,8 @@ Entropy.Behavior.register("quest_giver_whisper", {
     },
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.SHADOW_COVENANT].reputation;
+
+        Entropy.println("Interaction with quest giver");
         
         if (!quests["shadow_welcome"].isActive && !quests["shadow_welcome"].isCompleted) {
             dialogue.show("*A hooded figure emerges from darkness* Information is power. Are you clever enough to serve us?");
@@ -511,6 +515,8 @@ Entropy.Behavior.register("neutral_wanderer", {
         return state;
     },
     onInteract: (entity, dialogue) => {
+        Entropy.println("Interaction with quest giver");
+
         dialogue.show("I've traveled far and wide. The old ruins hold many secrets, if you're brave enough to seek them.");
         dialogue.add_option("Tell me about the ruins", "ruins_info");
         dialogue.add_option("Farewell", "exit");
@@ -535,245 +541,245 @@ Entropy.Behavior.register("neutral_wanderer", {
 
 // --- Enemy Behaviors ---
 
-Entropy.Behavior.register("crimson_soldier", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+// Entropy.Behavior.register("crimson_soldier", {
+//     onUpdate: (entity, system, state) => {
+//         if (entity.isDead) return state;
 
-        // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
+//         // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
         
-        const [playerPos] = Entropy.Camera.getTransform();
-        const dx = playerPos[0] - entity.position[0];
-        const dz = playerPos[2] - entity.position[2];
-        const dist = Math.sqrt(dx * dx + dz * dz);
+//         const [playerPos] = Entropy.Camera.getTransform();
+//         const dx = playerPos[0] - entity.position[0];
+//         const dz = playerPos[2] - entity.position[2];
+//         const dist = Math.sqrt(dx * dx + dz * dz);
         
-        // Initialize wander state
-        if (!state.wanderTarget || state.waitTime > 0) {
-            state.waitTime = state.waitTime || 0;
-            if (state.waitTime > 0) {
-                state.waitTime--;
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-                return state;
-            }
+//         // Initialize wander state
+//         if (!state.wanderTarget || state.waitTime > 0) {
+//             state.waitTime = state.waitTime || 0;
+//             if (state.waitTime > 0) {
+//                 state.waitTime--;
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//                 return state;
+//             }
             
-            // Pick a random point in territory
-            const territory = factions[Faction.CRIMSON_GUARD].territory;
-            const angle = Math.random() * Math.PI * 2;
-            const r = Math.random() * territory.radius;
-            state.wanderTarget = [
-                territory.x + Math.cos(angle) * r,
-                0,
-                territory.z + Math.sin(angle) * r
-            ];
-        }
+//             // Pick a random point in territory
+//             const territory = factions[Faction.CRIMSON_GUARD].territory;
+//             const angle = Math.random() * Math.PI * 2;
+//             const r = Math.random() * territory.radius;
+//             state.wanderTarget = [
+//                 territory.x + Math.cos(angle) * r,
+//                 0,
+//                 territory.z + Math.sin(angle) * r
+//             ];
+//         }
 
-        // Only aggressive if player has negative reputation
-        if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
-            if (dist > 2.5) {
-                const speed = 3.5;
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (dx / dist) * speed, 0, (dz / dist) * speed
-                ] as [number, number, number]);
-                Entropy.Entity.playAnimation(entity.id, "Walking");
-            } else {
-                Entropy.Entity.playAnimation(entity.id, "Attack");
-            }
-        } else {
-            // Wander behavior
-            const wdx = state.wanderTarget[0] - entity.position[0];
-            const wdz = state.wanderTarget[2] - entity.position[2];
-            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+//         // Only aggressive if player has negative reputation
+//         if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
+//             if (dist > 2.5) {
+//                 const speed = 3.5;
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (dx / dist) * speed, 0, (dz / dist) * speed
+//                 ] as [number, number, number]);
+//                 Entropy.Entity.playAnimation(entity.id, "Walking");
+//             } else {
+//                 Entropy.Entity.playAnimation(entity.id, "Attack");
+//             }
+//         } else {
+//             // Wander behavior
+//             const wdx = state.wanderTarget[0] - entity.position[0];
+//             const wdz = state.wanderTarget[2] - entity.position[2];
+//             const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
 
-            // Entropy.println("CRIMSON GUARD: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
+//             // Entropy.println("CRIMSON GUARD: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
             
-            if (wdist > 1.0) {
-                const speed = 1.5;
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
-                Entropy.Entity.playAnimation(entity.id, "Walking");
-            } else {
-                state.wanderTarget = null;
-                state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-            }
-        }
+//             if (wdist > 1.0) {
+//                 const speed = 1.5;
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+//                 ] as [number, number, number]);
+//                 Entropy.Entity.playAnimation(entity.id, "Walking");
+//             } else {
+//                 state.wanderTarget = null;
+//                 state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//             }
+//         }
         
-        return state;
-    },
-    onAttack: (entity, system, state) => {
-        system.spawn_particles(entity.position, [1, 0.2, 0.2, 1], [0, -2, 0]);
-        gameState.enemyKills.crimson++;
+//         return state;
+//     },
+//     onAttack: (entity, system, state) => {
+//         system.spawn_particles(entity.position, [1, 0.2, 0.2, 1], [0, -2, 0]);
+//         gameState.enemyKills.crimson++;
         
-        // Drop insignia
-        const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        addon.Collectable.create({
-            position: [entity.position[0], y + 1, entity.position[2]],
-            type: "quest_item",
-            value: 1,
-            questId: "crimson_insignia",
-            onCollect: () => {
-                gameState.addItem("crimson_insignia", 1);
-            }
-        });
+//         // Drop insignia
+//         const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
+//         addon.Collectable.create({
+//             position: [entity.position[0], y + 1, entity.position[2]],
+//             type: "quest_item",
+//             value: 1,
+//             questId: "crimson_insignia",
+//             onCollect: () => {
+//                 gameState.addItem("crimson_insignia", 1);
+//             }
+//         });
         
-        return state;
-    }
-});
+//         return state;
+//     }
+// });
 
-Entropy.Behavior.register("azure_soldier", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+// Entropy.Behavior.register("azure_soldier", {
+//     onUpdate: (entity, system, state) => {
+//         if (entity.isDead) return state;
         
-        const [playerPos] = Entropy.Camera.getTransform();
-        const dx = playerPos[0] - entity.position[0];
-        const dz = playerPos[2] - entity.position[2];
-        const dist = Math.sqrt(dx * dx + dz * dz);
+//         const [playerPos] = Entropy.Camera.getTransform();
+//         const dx = playerPos[0] - entity.position[0];
+//         const dz = playerPos[2] - entity.position[2];
+//         const dist = Math.sqrt(dx * dx + dz * dz);
         
-        // Initialize wander state
-        if (!state.wanderTarget || state.waitTime > 0) {
-            state.waitTime = state.waitTime || 0;
-            if (state.waitTime > 0) {
-                state.waitTime--;
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-                return state;
-            }
+//         // Initialize wander state
+//         if (!state.wanderTarget || state.waitTime > 0) {
+//             state.waitTime = state.waitTime || 0;
+//             if (state.waitTime > 0) {
+//                 state.waitTime--;
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//                 return state;
+//             }
             
-            // Pick a random point in territory
-            const territory = factions[Faction.AZURE_ORDER].territory;
-            const angle = Math.random() * Math.PI * 2;
-            const r = Math.random() * territory.radius;
-            state.wanderTarget = [
-                territory.x + Math.cos(angle) * r,
-                0,
-                territory.z + Math.sin(angle) * r
-            ];
-        }
+//             // Pick a random point in territory
+//             const territory = factions[Faction.AZURE_ORDER].territory;
+//             const angle = Math.random() * Math.PI * 2;
+//             const r = Math.random() * territory.radius;
+//             state.wanderTarget = [
+//                 territory.x + Math.cos(angle) * r,
+//                 0,
+//                 territory.z + Math.sin(angle) * r
+//             ];
+//         }
 
-        if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
-            if (dist > 2.5) {
-                const speed = 3.5;
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (dx / dist) * speed, 0, (dz / dist) * speed
-                ] as [number, number, number]);
-                Entropy.Entity.playAnimation(entity.id, "Walking");
-            } else {
-                Entropy.Entity.playAnimation(entity.id, "Attack");
-            }
-        } else {
-            // Wander behavior
-            const wdx = state.wanderTarget[0] - entity.position[0];
-            const wdz = state.wanderTarget[2] - entity.position[2];
-            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+//         if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
+//             if (dist > 2.5) {
+//                 const speed = 3.5;
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (dx / dist) * speed, 0, (dz / dist) * speed
+//                 ] as [number, number, number]);
+//                 Entropy.Entity.playAnimation(entity.id, "Walking");
+//             } else {
+//                 Entropy.Entity.playAnimation(entity.id, "Attack");
+//             }
+//         } else {
+//             // Wander behavior
+//             const wdx = state.wanderTarget[0] - entity.position[0];
+//             const wdz = state.wanderTarget[2] - entity.position[2];
+//             const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
             
-            if (wdist > 1.0) {
-                const speed = 1.5;
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
-                Entropy.Entity.playAnimation(entity.id, "Walking");
-            } else {
-                state.wanderTarget = null;
-                state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-            }
-        }
+//             if (wdist > 1.0) {
+//                 const speed = 1.5;
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+//                 ] as [number, number, number]);
+//                 Entropy.Entity.playAnimation(entity.id, "Walking");
+//             } else {
+//                 state.wanderTarget = null;
+//                 state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//             }
+//         }
         
-        return state;
-    },
-    onAttack: (entity, system, state) => {
-        system.spawn_particles(entity.position, [0.2, 0.4, 1, 1], [0, -2, 0]);
-        gameState.enemyKills.azure++;
+//         return state;
+//     },
+//     onAttack: (entity, system, state) => {
+//         system.spawn_particles(entity.position, [0.2, 0.4, 1, 1], [0, -2, 0]);
+//         gameState.enemyKills.azure++;
         
-        const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        addon.Collectable.create({
-            position: [entity.position[0], y + 1, entity.position[2]],
-            type: "quest_item",
-            value: 1,
-            questId: "azure_insignia",
-            onCollect: () => {
-                gameState.addItem("azure_insignia", 1);
+//         const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
+//         addon.Collectable.create({
+//             position: [entity.position[0], y + 1, entity.position[2]],
+//             type: "quest_item",
+//             value: 1,
+//             questId: "azure_insignia",
+//             onCollect: () => {
+//                 gameState.addItem("azure_insignia", 1);
                 
-                // Check quest progress
-                if (quests["crimson_welcome"].isActive && gameState.enemyKills.azure >= 5 && gameState.hasItem("azure_insignia", 5)) {
-                    gameState.completeObjective("crimson_welcome", 0);
-                    gameState.completeObjective("crimson_welcome", 1);
-                }
-            }
-        });
+//                 // Check quest progress
+//                 if (quests["crimson_welcome"].isActive && gameState.enemyKills.azure >= 5 && gameState.hasItem("azure_insignia", 5)) {
+//                     gameState.completeObjective("crimson_welcome", 0);
+//                     gameState.completeObjective("crimson_welcome", 1);
+//                 }
+//             }
+//         });
         
-        return state;
-    }
-});
+//         return state;
+//     }
+// });
 
-Entropy.Behavior.register("shadow_assassin", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+// Entropy.Behavior.register("shadow_assassin", {
+//     onUpdate: (entity, system, state) => {
+//         if (entity.isDead) return state;
         
-        const [playerPos] = Entropy.Camera.getTransform();
-        const dx = playerPos[0] - entity.position[0];
-        const dz = playerPos[2] - entity.position[2];
-        const dist = Math.sqrt(dx * dx + dz * dz);
+//         const [playerPos] = Entropy.Camera.getTransform();
+//         const dx = playerPos[0] - entity.position[0];
+//         const dz = playerPos[2] - entity.position[2];
+//         const dist = Math.sqrt(dx * dx + dz * dz);
 
-        // Initialize wander state
-        if (!state.wanderTarget || state.waitTime > 0) {
-            state.waitTime = state.waitTime || 0;
-            if (state.waitTime > 0) {
-                state.waitTime--;
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-                return state;
-            }
+//         // Initialize wander state
+//         if (!state.wanderTarget || state.waitTime > 0) {
+//             state.waitTime = state.waitTime || 0;
+//             if (state.waitTime > 0) {
+//                 state.waitTime--;
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//                 return state;
+//             }
             
-            // Pick a random point in territory
-            const territory = factions[Faction.SHADOW_COVENANT].territory;
-            const angle = Math.random() * Math.PI * 2;
-            const r = Math.random() * territory.radius;
-            state.wanderTarget = [
-                territory.x + Math.cos(angle) * r,
-                0,
-                territory.z + Math.sin(angle) * r
-            ];
-        }
+//             // Pick a random point in territory
+//             const territory = factions[Faction.SHADOW_COVENANT].territory;
+//             const angle = Math.random() * Math.PI * 2;
+//             const r = Math.random() * territory.radius;
+//             state.wanderTarget = [
+//                 territory.x + Math.cos(angle) * r,
+//                 0,
+//                 territory.z + Math.sin(angle) * r
+//             ];
+//         }
         
-        // Shadows are always neutral unless attacked
-        if (dist < 5) {
-            // Stealth - disappear and reappear
-            if (Math.random() > 0.98) {
-                const angle = Math.random() * Math.PI * 2;
-                const newX = playerPos[0] + Math.cos(angle) * 8;
-                const newZ = playerPos[2] + Math.sin(angle) * 8;
-                system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, 2, 0]);
-                // Teleport via position set if possible, otherwise just use impulse
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (newX - entity.position[0]) * 2, 0, (newZ - entity.position[2]) * 2
-                ] as [number, number, number]);
-            }
-        } else {
-            // Wander behavior
-            const wdx = state.wanderTarget[0] - entity.position[0];
-            const wdz = state.wanderTarget[2] - entity.position[2];
-            const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+//         // Shadows are always neutral unless attacked
+//         if (dist < 5) {
+//             // Stealth - disappear and reappear
+//             if (Math.random() > 0.98) {
+//                 const angle = Math.random() * Math.PI * 2;
+//                 const newX = playerPos[0] + Math.cos(angle) * 8;
+//                 const newZ = playerPos[2] + Math.sin(angle) * 8;
+//                 system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, 2, 0]);
+//                 // Teleport via position set if possible, otherwise just use impulse
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (newX - entity.position[0]) * 2, 0, (newZ - entity.position[2]) * 2
+//                 ] as [number, number, number]);
+//             }
+//         } else {
+//             // Wander behavior
+//             const wdx = state.wanderTarget[0] - entity.position[0];
+//             const wdz = state.wanderTarget[2] - entity.position[2];
+//             const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
             
-            if (wdist > 1.0) {
-                const speed = 2.0; // Assassins are a bit faster
-                Entropy.Entity.applyImpulse(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
-                Entropy.Entity.playAnimation(entity.id, "Walking");
-            } else {
-                state.wanderTarget = null;
-                state.waitTime = 30 + Math.random() * 60; // Wait 0.5-1.5 seconds
-                Entropy.Entity.playAnimation(entity.id, "Idle");
-            }
-        }
+//             if (wdist > 1.0) {
+//                 const speed = 2.0; // Assassins are a bit faster
+//                 Entropy.Entity.applyImpulse(entity.id, [
+//                     (wdx / wdist) * speed, 0, (wdz / wdist) * speed
+//                 ] as [number, number, number]);
+//                 Entropy.Entity.playAnimation(entity.id, "Walking");
+//             } else {
+//                 state.wanderTarget = null;
+//                 state.waitTime = 30 + Math.random() * 60; // Wait 0.5-1.5 seconds
+//                 Entropy.Entity.playAnimation(entity.id, "Idle");
+//             }
+//         }
         
-        return state;
-    },
-    onAttack: (entity, system, state) => {
-        system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, -2, 0]);
-        gameState.enemyKills.shadow++;
-        return state;
-    }
-});
+//         return state;
+//     },
+//     onAttack: (entity, system, state) => {
+//         system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, -2, 0]);
+//         gameState.enemyKills.shadow++;
+//         return state;
+//     }
+// });
 
 // --- World Manager ---
 
@@ -844,6 +850,7 @@ class WorldManager {
             id: id,
             position: [x, y + 1, z],
             behaviorId: behaviorId,
+            isNpc: true,
             physics: {
                 bodyType: "dynamic",
                 colliderShape: "capsule",
@@ -866,6 +873,7 @@ class WorldManager {
                 path: model,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
+                isNpc: true,
                 physics: {
                     bodyType: "dynamic",
                     colliderShape: "capsule"

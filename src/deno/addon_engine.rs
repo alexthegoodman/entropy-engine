@@ -29,7 +29,7 @@ use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::game_ui::hud::{AmmoDisplay, Crosshair};
-use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, PhysicsConfig};
+use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig};
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -330,6 +330,7 @@ pub struct ModelConfig {
     pub render_role: Option<String>,
     pub physics: Option<PhysicsConfig>,
     pub player: Option<crate::helpers::saved_data::PlayerProperties>,
+    pub is_npc: Option<bool>,
     pub npc: Option<crate::helpers::saved_data::NPCProperties>,
     pub behavior_id: Option<String>,
 }
@@ -2645,7 +2646,8 @@ impl AddonEngine {
         behavior_id: &str,
         entity_wrapper: EntityWrapper,
         hook_name: &str,
-    ) {
+        current_node: Option<String>,
+    ) -> Option<DialogueWrapper> {
         let behavior = {
             let state = self.runtime.op_state();
             let state = state.borrow();
@@ -2654,6 +2656,8 @@ impl AddonEngine {
         };
 
         // println!("Execute behavior: {:?} {:?}", hook_name, entity_wrapper);
+
+        let mut dialogue_result = None;
 
         if let Some(behavior) = behavior {
             let callback = match hook_name {
@@ -2667,7 +2671,19 @@ impl AddonEngine {
                 // Prepare context for ops
                 let context = EngineContext {
                     particle_spawns: Vec::new(),
-                    dialogue_wrapper: None, // TODO: set if interact
+                    dialogue_wrapper: if hook_name == "on_interact" {
+                        Some(DialogueWrapper {
+                            text: String::new(),
+                            options: Vec::new(),
+                            changed: false,
+                            is_open: false,
+                            npc_name: String::new(),
+                            current_node: current_node.unwrap_or_else(|| "start".to_string()),
+                            started_quest: None,
+                        })
+                    } else {
+                        None
+                    },
                 };
                 self.runtime.op_state().borrow_mut().put(context);
 
@@ -2680,17 +2696,26 @@ impl AddonEngine {
                     // 1. Entity Arg
                     let entity_v8 = serde_v8::to_v8(scope, entity_wrapper).unwrap();
 
-                    // 2. System Arg
-                    let create_system_key = v8::String::new(scope, "_createSystem").unwrap();
-                    let create_system_val = global.get(scope, create_system_key.into()).unwrap();
-                    let create_system_func = v8::Local::<v8::Function>::try_from(create_system_val)
-                        .expect("addon_setup.js should define _createSystem");
-                    let system_arg = create_system_func.call(scope, global.into(), &[]).unwrap();
+                    let args: Vec<v8::Local<v8::Value>> = if hook_name == "on_interact" {
+                        let create_dialogue_key = v8::String::new(scope, "_createDialogue").unwrap();
+                        let create_dialogue_val = global.get(scope, create_dialogue_key.into()).unwrap();
+                        let create_dialogue_func = v8::Local::<v8::Function>::try_from(create_dialogue_val)
+                            .expect("addon_setup.js should define _createDialogue");
+                        let dialogue_arg = create_dialogue_func.call(scope, global.into(), &[]).unwrap();
+                        vec![entity_v8, dialogue_arg]
+                    } else {
+                        // 2. System Arg
+                        let create_system_key = v8::String::new(scope, "_createSystem").unwrap();
+                        let create_system_val = global.get(scope, create_system_key.into()).unwrap();
+                        let create_system_func = v8::Local::<v8::Function>::try_from(create_system_val)
+                            .expect("addon_setup.js should define _createSystem");
+                        let system_arg = create_system_func.call(scope, global.into(), &[]).unwrap();
 
-                    // 3. State Arg (for now just empty map or component script state)
-                    let state_arg = serde_v8::to_v8(scope, HashMap::<String, String>::new()).unwrap();
+                        // 3. State Arg (for now just empty map or component script state)
+                        let state_arg = serde_v8::to_v8(scope, HashMap::<String, String>::new()).unwrap();
 
-                    let args = [entity_v8, system_arg, state_arg];
+                        vec![entity_v8, system_arg, state_arg]
+                    };
                     
                     let tc = &mut v8::TryCatch::new(scope);
                     local_callback.call(tc, this.into(), &args);
@@ -2704,15 +2729,16 @@ impl AddonEngine {
                 }
 
                 // Process results (particles, etc.)
-                let particle_spawns = {
+                let (particle_spawns, d_res) = {
                     let mut op_state = self.runtime.op_state();
                     let mut op_state = op_state.borrow_mut();
                     if let Some(ctx) = op_state.try_borrow_mut::<EngineContext>() {
-                        std::mem::take(&mut ctx.particle_spawns)
+                        (std::mem::take(&mut ctx.particle_spawns), ctx.dialogue_wrapper.take())
                     } else {
-                        Vec::new()
+                        (Vec::new(), None)
                     }
                 };
+                dialogue_result = d_res;
 
                 for spawn in particle_spawns {
                     let gpu_resources = self.runtime.op_state().borrow().borrow::<AddonContext>().gpu_resources.as_ref().unwrap().clone();
@@ -2746,6 +2772,7 @@ impl AddonEngine {
                 }
             }
         }
+        dialogue_result
     }
 
     pub fn new(project_id: Option<String>) -> Self {
@@ -3255,7 +3282,7 @@ impl AddonEngine {
         }
 
         for (bid, wrapper) in entity_behaviors {
-            self.execute_behavior(renderer_state, &bid, wrapper, "on_update");
+            self.execute_behavior(renderer_state, &bid, wrapper, "on_update", None);
         }
 
         // 0. Run onUpdate callbacks
@@ -3732,12 +3759,23 @@ impl AddonEngine {
                             camera,
                             player_props
                         );
-                    } else if let Some(npc_props) = config.npc {
-                        renderer_state.add_npc(
-                            id.clone(),
-                            npc_props,
-                            config.behavior_id
-                        );
+                    } else if let Some(is_npc) = config.is_npc {
+                        if is_npc {
+                            if let Some(npc_props) = config.npc {
+                                renderer_state.add_npc(
+                                    id.clone(),
+                                    npc_props,
+                                    config.behavior_id
+                                );
+                            } else {
+                                renderer_state.add_npc(
+                                    id.clone(),
+                                    NPCProperties::default(),
+                                    config.behavior_id
+                                );
+                            }
+                        }
+                        
                     } else {
                         renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
                     }

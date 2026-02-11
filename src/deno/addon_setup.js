@@ -68,7 +68,8 @@ globalThis.Entropy = {
                             physics: config.physics || null,
                             player: config.player || null,
                             npc: config.npc || null,
-                            behaviorId: config.behaviorId || null
+                            behaviorId: config.behaviorId || null,
+                            isNpc: config.isNpc || null
                         });
                     },
                     createProcedural: (config) => {
