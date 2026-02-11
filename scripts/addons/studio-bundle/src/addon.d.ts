@@ -64,13 +64,15 @@ export interface ProceduralModelConfig {
 
 export interface LandscapeConfig {
   id?: string | null;
-  width: number;
-  height: number;
-  heights?: number[] | null;
+  width: number; // this is actually resoluion (x)
+  height: number; // actually resolution (z)
+  heights?: number[] | null; // raw, unscaled heights (y)
   noiseId?: string | null;
   position?: Position;
   pipelineId?: string | null;
   renderRole?: string | null;
+  size: number; // this is the real width and height (x/z)
+  scale: number; // scale (y)
 }
 
 export type LandscapeTextureKind = 
@@ -321,6 +323,16 @@ export type UpdateCallback = (time: number, pos: [number, number, number], dir: 
 export type CleanupCallback = () => void | void;
 export type ProjectChangedCallback = (newProjectId: string) => void | void;
 
+export interface GlobalLandscapeSettings {
+  size: number; // x/z
+  height: number; // y
+  yOffset: number; // y
+}
+
+export interface GlobalSettings {
+  landscapeSettings: GlobalLandscapeSettings
+}
+
 // UI Types
 export interface WindowConfig {
   title?: string;
@@ -522,6 +534,8 @@ export interface EntropyAPI {
       }
       enableGameComposerOverride: () => void,
       disableGameComposerOverride: () => void,
+      setGlobalSettings: (settings: GlobalSettings) => void,
+      getGlobalSettings: () => GlobalSettings,
   };
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;

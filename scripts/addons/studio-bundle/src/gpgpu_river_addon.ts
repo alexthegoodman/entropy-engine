@@ -486,10 +486,11 @@ const initialParams: RiverParams = {
     gravity: 25.0,
     friction: 1.2,
     speedMultiplier: 2.5,
-    
-    landscapeSize: 4096.0,
-    landscapeHeight: 600.0,
-    landscapeYOffset: 2.0,
+
+    // should overwrite with global settings
+    landscapeSize: 1024.0,
+    landscapeHeight: 150.0,
+    landscapeYOffset: 2.0, // offset from landscape rather than same as landscape's?
 };
 
 const addonInfo = {
@@ -680,6 +681,8 @@ function initResources() {
 
 function updateBuffers() {
     if (!resources.paramsBuffer) return;
+
+    let globalSettings = Entropy.Composer?.getGlobalSettings();
     
     const data = new Float32Array([
         0.016, // dt
@@ -689,9 +692,9 @@ function updateBuffers() {
         riverState.currentParams.sourcePos[0],
         riverState.currentParams.sourcePos[1],
         riverState.currentParams.sourceRadius,
-        riverState.currentParams.landscapeSize,
-        riverState.currentParams.landscapeHeight,
-        riverState.currentParams.landscapeYOffset,
+        globalSettings?.landscapeSettings.size || 1024,
+        globalSettings?.landscapeSettings.height || 150,
+        globalSettings?.landscapeSettings.yOffset || 0,
         Date.now() / 1000,
         riverState.currentParams.speedMultiplier,
     ]);

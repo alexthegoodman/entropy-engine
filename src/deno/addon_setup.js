@@ -113,7 +113,9 @@ globalThis.Entropy = {
                             noiseId: config.noiseId || null,
                             position: config.position || [0, 0, 0],
                             pipelineId: config.pipelineId || null,
-                            render_role: config.renderRole || null
+                            render_role: config.renderRole || null,
+                            size: config.size,
+                            scale: config.scale
                         });
                     },
                     updateTexture: (textureId, kind) => {
@@ -955,6 +957,7 @@ globalThis.Entropy.Composer = {
     textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
     components: {}, // addonName -> { componentId -> { name, params } }
     initCallbacks: {}, // addonName -> initCallback()
+    globalSettings: {},
     registerEditor: (addonName, renderFn) => {
         globalThis.Entropy.Composer.editors[addonName] = renderFn;
     },
@@ -991,6 +994,12 @@ globalThis.Entropy.Composer = {
     disableGameComposerOverride: () => {
         globalThis.__entropy_current_addon_context_override = null;
     },
+    setGlobalSettings: (settings) => {
+        globalThis.Entropy.Composer.globalSettings = settings;
+    },
+    getGlobalSettings: () => {
+        return globalThis.Entropy.Composer.globalSettings;
+    }
 };
 
 globalThis._createSystem = () => {

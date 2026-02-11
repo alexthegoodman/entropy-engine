@@ -1,3 +1,5 @@
+import type { GlobalSettings } from "./addon";
+
 const addonInfo = {
     name: "Game Composer",
     version: "2.0.0",
@@ -26,6 +28,7 @@ let composerState: {
     activeInstanceId: string | null;
     components: ComponentInstance[];
     playMode: boolean;
+    globalSettings?: GlobalSettings
 } = {
     roles: {
         "Vegetation": "default",
@@ -36,7 +39,14 @@ let composerState: {
     },
     activeInstanceId: null,
     components: [],
-    playMode: false
+    playMode: false,
+    globalSettings: {
+        landscapeSettings: {
+            size: 4096,
+            height: 600,
+            yOffset: -500
+        }
+    }
 };
 
 let activeProjectId: string | null = null;
@@ -114,6 +124,11 @@ addon.onAllProjectsLoaded(() => {
     const data = addon.IO.load();
     if (data) {
         composerState = { ...composerState, ...data };
+
+        if (composerState.globalSettings) {
+            Entropy.Composer?.setGlobalSettings(composerState.globalSettings);
+        }
+
         refreshScene(); // until we clear, lets avoid this?
     }
 });

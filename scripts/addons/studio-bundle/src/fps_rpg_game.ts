@@ -13,8 +13,8 @@ const addonInfo = {
 const addon = Entropy.Addon.register(addonInfo);
 
 // --- Game Configuration ---
-const LANDSCAPE_SIZE = 4096; // Configurable
-const LANDSCAPE_HEIGHT = 50;
+// const LANDSCAPE_SIZE = 4096; // Configurable
+// const LANDSCAPE_HEIGHT = 50;
 
 // --- Faction System ---
 enum Faction {
@@ -884,6 +884,10 @@ class WorldManager {
     
     spawnCollectables() {
         // Ancient scrolls for Azure quest
+            let globalSettings = Entropy.Composer?.getGlobalSettings();
+
+            let LANDSCAPE_SIZE = globalSettings?.landscapeSettings.size || 1024;
+
         for (let i = 0; i < 3; i++) {
             const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.8;
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.8;

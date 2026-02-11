@@ -256,9 +256,11 @@ pub struct NoiseConfig {
 #[serde(rename_all = "camelCase")]
 pub struct LandscapeConfig {
     pub id: Option<String>,
-    pub width: usize,
-    pub height: usize,
-    pub heights: Option<Vec<f32>>,
+    pub scale: usize, // scale (y)
+    pub size: usize, // actual size
+    pub width: usize, // resolution (x)
+    pub height: usize, // resolution (z)
+    pub heights: Option<Vec<f32>>, // raw unscaled heights (y)
     pub noise_id: Option<String>,
     pub position: [f32; 3],
     pub pipeline_id: Option<String>,
@@ -3922,9 +3924,9 @@ impl AddonEngine {
                             config.height,
                             // heights,
                             scaled_like_image,
-                            1024.0 * 4.0, // square_size
-                            1024.0 * 4.0, // square_size
-                            150.0 * 4.0,  // square_height
+                            config.size as f32, // square_size
+                            config.size as f32, // square_size
+                            config.scale as f32,  // square_height
                         );
 
                         let id = config.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());

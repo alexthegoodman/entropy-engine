@@ -22,8 +22,8 @@ let hairParams: any = {
     brownianStrength: 0.03,
     bladeHeightVariability: 0.6,
     bladeDensity: 15.0,
-    landscapeSize: 4096.0,
-    landscapeHeight: 600.0,
+    landscapeSize: 1024.0,
+    landscapeHeight: 150.0,
     landscapeYOffset: 0.0,
     baseColor: [0.1, 0.3, 0.35, 1.0],
     tipColor: [0.2, 0.7, 0.8, 1.0],
@@ -794,6 +794,15 @@ const ornamentFragShader = `
 function updateHair(params: typeof hairParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = Entropy.generateUUID()) {
     const pos = params._transform?.position || [0, 0, 0];
     // Scale might need to be applied to blade dimensions or grid size, but for now let's just assume position.
+
+    let globalSettings = Entropy.Composer?.getGlobalSettings();
+
+    hairParams = {
+        ...hairParams,
+        landscapeSize: globalSettings?.landscapeSettings.size || 1024,
+        landscapeHeight: globalSettings?.landscapeSettings.height || 150,
+        landscapeYOffset: globalSettings?.landscapeSettings.yOffset || 0
+    }
     
     addon.Particles.createHair({
         ...params,
@@ -853,6 +862,15 @@ let ornamentPipelineId: string | null = null;
 function updateOrnaments(params: typeof hairParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = Entropy.generateUUID()) {
     if (!params.ornamentsEnabled) {
         return;
+    }
+
+    let globalSettings = Entropy.Composer?.getGlobalSettings();
+
+    hairParams = {
+        ...hairParams,
+        landscapeSize: globalSettings?.landscapeSettings.size || 1024,
+        landscapeHeight: globalSettings?.landscapeSettings.height || 150,
+        landscapeYOffset: globalSettings?.landscapeSettings.yOffset || 0
     }
 
     // Create a simple sphere mesh for the orbs

@@ -25,9 +25,9 @@ let terrainParams = {
     lacunarity: 2.0,
     usePBR: true,
     width: 128, // not very accurate for height sampling and vegetation or scattering
-    height: 128,
-    heightScale: 1.5,
-    positionY: -400.0,
+    height: 128, // actually resolution, real width and height determined via global settings
+    heightScale: 1, // actually alterde Rust-side so set to 1
+    positionY: 0.0, // altered via global settings so set to 0
     terrainColor: [0.3, 0.5, 0.2, 1.0],
     use3D: false,
     time: 0.0,
@@ -255,16 +255,20 @@ async function generateTerrain(params: typeof terrainParams & { _transform?: { p
         const posY = (params._transform?.position?.[1] || 0) + params.positionY;
         const posZ = params._transform?.position?.[2] || 0;
 
+        const globalSettings = Entropy.Composer?.getGlobalSettings();
+
         addon.Landscape.create({
             id: id,
             width: params.width,
             height: params.height,
             heights: heights,
             noiseId: null,
-            position: [posX, posY, posZ],
+            position: [posX, globalSettings?.landscapeSettings.yOffset || 0, posZ],
             pipelineId: pipelineId,
-            renderRole: "Terrain"
-        } as any);
+            renderRole: "Terrain",
+            size: globalSettings?.landscapeSettings.size || 512,
+            scale: globalSettings?.landscapeSettings.height || 150,
+        });
 
         // const addonName = (globalThis as any).__entropy_current_addon_context_override || addonInfo.name;
         // if (params.usePBR) {
@@ -514,16 +518,16 @@ addon.onInit(async () => {
             }
         });
 
-        Entropy.UI.Widget.slider(tab, {
-            label: "Y Position",
-            value: addonState.currentParams.positionY,
-            min: -500.0,
-            max: 500.0,
-            onChange: (val: string) => {
-                addonState.currentParams.positionY = parseFloat(val);
-                generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-            }
-        });
+        // Entropy.UI.Widget.slider(tab, {
+        //     label: "Y Position",
+        //     value: addonState.currentParams.positionY,
+        //     min: -500.0,
+        //     max: 500.0,
+        //     onChange: (val: string) => {
+        //         addonState.currentParams.positionY = parseFloat(val);
+        //         generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+        //     }
+        // });
 
         Entropy.UI.Widget.label(tab, { text: "🖥️ Resolution", bold: true });
         
@@ -674,7 +678,7 @@ addon.onInit(async () => {
                 addonState.currentParams.octaves = 3;
                 addonState.currentParams.persistence = 0.4;
                 addonState.currentParams.heightScale = 1.25;
-                addonState.currentParams.positionY = -15.0;
+                // addonState.currentParams.positionY = -15.0;
                 generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
@@ -829,26 +833,26 @@ addon.onInit(async () => {
         return { success: false, error: "Resolution parameter missing." };
     });
 
-    addon.registerTool({
-        name: "set_terrain_position",
-        description: "Set the vertical (Y) position of the terrain.",
-        parameters: {
-            type: "object",
-            properties: {
-                y: { type: "number", description: "The Y coordinate for the terrain base." }
-            },
-            required: ["y"]
-        }
-    }, (args: any) => {
-        Entropy.println("Setting terrain position via tool: " + JSON.stringify(args));
-        if (typeof args.y !== "undefined") {
-            addonState.currentParams.positionY = args.y;
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-            persistState();
-            return { success: true, positionY: args.y };
-        }
-        return { success: false, error: "Y parameter missing." };
-    });
+    // addon.registerTool({
+    //     name: "set_terrain_position",
+    //     description: "Set the vertical (Y) position of the terrain.",
+    //     parameters: {
+    //         type: "object",
+    //         properties: {
+    //             y: { type: "number", description: "The Y coordinate for the terrain base." }
+    //         },
+    //         required: ["y"]
+    //     }
+    // }, (args: any) => {
+    //     Entropy.println("Setting terrain position via tool: " + JSON.stringify(args));
+    //     if (typeof args.y !== "undefined") {
+    //         addonState.currentParams.positionY = args.y;
+    //         generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+    //         persistState();
+    //         return { success: true, positionY: args.y };
+    //     }
+    //     return { success: false, error: "Y parameter missing." };
+    // });
 
     addon.registerTool({
         name: "set_terrain_visuals",

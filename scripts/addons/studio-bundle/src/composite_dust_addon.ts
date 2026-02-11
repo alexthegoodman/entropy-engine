@@ -56,6 +56,8 @@ class ComputeDustSystem {
   
   constructor(api: ScopedAPI) {
     this.api = api;
+
+    let globalSettings = Entropy.Composer?.getGlobalSettings();
     
     this.config = {
       particleCount: 256, // Good for compute (power of 2)
@@ -64,7 +66,7 @@ class ComputeDustSystem {
       turbulenceStrength: 2.35,
       windSpeed: [0.5, -0.2, 0.3],
       gravity: -0.1,
-      bounds: 4096,
+      bounds: globalSettings?.landscapeSettings.size || 1024,
       
       renderWidth: 1920,
       renderHeight: 1080,
