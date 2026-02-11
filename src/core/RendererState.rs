@@ -1114,23 +1114,27 @@ impl RendererState {
                                     None
                                 };
 
-                                let (result, just_spotted) = instance_npc_data.test_behavior.update(
-                                    &mut self.rigid_body_set,
-                                    &self.collider_set,
-                                    &self.query_pipeline,
-                                    first_mesh
-                                        .rigid_body_handle
-                                        .expect("Couldn't get rigid body handle"),
-                                    player_character
-                                        .movement_rigid_body_handle
-                                        .expect("Couldn't get rigid body handle"),
-                                    &first_mesh.rapier_collider,
-                                    &mut first_mesh.transform,
-                                    instance_npc_data.stats.stamina, // Use NPC's actual stamina
-                                    dt,
-                                    instance_npc_data.forward_axis,
-                                    squad_leader_pos,
-                                );
+                                let (result, just_spotted) = if instance_npc_data.behavior_id.is_none() {
+                                    instance_npc_data.test_behavior.update(
+                                        &mut self.rigid_body_set,
+                                        &self.collider_set,
+                                        &self.query_pipeline,
+                                        first_mesh
+                                            .rigid_body_handle
+                                            .expect("Couldn't get rigid body handle"),
+                                        player_character
+                                            .movement_rigid_body_handle
+                                            .expect("Couldn't get rigid body handle"),
+                                        &first_mesh.rapier_collider,
+                                        &mut first_mesh.transform,
+                                        instance_npc_data.stats.stamina, // Use NPC's actual stamina
+                                        dt,
+                                        instance_npc_data.forward_axis,
+                                        squad_leader_pos,
+                                    )
+                                } else {
+                                    (None, false)
+                                };
 
                                 if just_spotted {
                                     let npc_pos = Vector3::new(position.x, position.y, position.z);
@@ -1180,17 +1184,21 @@ impl RendererState {
                             }
 
                             let desired_animation_name = if instance_npc_data.is_dead {
-                                "Death"
+                                Some("Death".to_string())
+                            } else if instance_npc_data.behavior_id.is_none() {
+                                Some(instance_npc_data.test_behavior.get_animation_name().to_string())
                             } else {
-                                instance_npc_data.test_behavior.get_animation_name()
+                                None
                             };
 
                             // Find the animation index in the model
-                            if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.to_lowercase().contains(&desired_animation_name.to_lowercase())) {
-                                // If the animation is not already playing, switch to it
-                                if instance_npc_data.animation_state.animation_index != animation_index {
-                                    instance_npc_data.animation_state.animation_index = animation_index;
-                                    instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                            if let Some(anim_name) = desired_animation_name {
+                                if let Some(animation_index) = instance_model_data.animations.iter().position(|anim| anim.name.to_lowercase().contains(&anim_name.to_lowercase())) {
+                                    // If the animation is not already playing, switch to it
+                                    if instance_npc_data.animation_state.animation_index != animation_index {
+                                        instance_npc_data.animation_state.animation_index = animation_index;
+                                        instance_npc_data.animation_state.current_time = 0.0; // Reset time
+                                    }
                                 }
                             }
 
