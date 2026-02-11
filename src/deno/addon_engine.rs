@@ -23,9 +23,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::art_assets::Model::read_model;
+use crate::core::HealthBar::HealthBar;
 use crate::core::Texture::Texture;
+use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
+use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, PhysicsConfig};
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
@@ -3132,6 +3135,7 @@ impl AddonEngine {
     }
 
     pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>, current_addon_name: String) {
+        // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
         let mut landscape_view = renderer_state.addon_landscapes
                                                                 .get(&current_addon_name)

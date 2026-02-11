@@ -123,10 +123,61 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             addon_name = active_name;
         }
 
-        if renderer_state.game_mode {
-            // update rapier collisions
-            renderer_state.update_rapier();
+        // Sync enemy health to UI
+        if let Some(target_id) = &editor.current_enemy_target {
+            if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
+                 if let Some(health_bar) = &mut editor.enemy_health_bar {
+                    health_bar.update_health(queue, npc.stats.health);
+                }
+            }
+        }
 
+        // Sync player health to UI
+        if let Some(player) = &mut renderer_state.player_character {
+            if let Some(health_bar) = &mut editor.health_bar {
+                health_bar.update_health(queue, player.stats.health);
+            }
+
+            // Update Aim
+            player.update_aim(0.016);
+            let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
+            camera.fovy = target_fov;
+            // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
+            // Better call it here to be safe, but update() is called in step_physics_pipeline?
+            // step_physics_pipeline calls camera.update()
+            
+            // Update Ammo UI
+            if let Some(ammo_display) = &mut editor.ammo_display {
+                 let mut ammo = None;
+                 let mut max = None;
+                 if let Some(weapon) = &player.inventory.equipped_weapon {
+                     if let Some(props) = &weapon.collectable_properties {
+                         ammo = props.ammo;
+                         max = props.max_ammo;
+                     }
+                 }
+                 
+                 ammo_display.update(device, queue, ammo, max);
+            }
+
+            if let Some(mini_map) = &mut editor.mini_map {
+                if let Some(rb_handle) = player.movement_rigid_body_handle {
+                     if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let position = rb.translation();
+                        let yaw = renderer_state.camera_yaw;
+                        let landscape_center = Vector3::new(0.0, 0.0, 0.0);
+                        let landscape_size = 4096.0; // Matches grid size for now
+
+                        mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
+                     }
+                }
+            }
+        }
+
+        // update rapier collisions
+        renderer_state.update_rapier(); // always update for the sake of raycast
+
+        if renderer_state.game_mode {
             // step through physics each frame
             renderer_state.step_physics_pipeline(
                 &gpu_resources.device,
@@ -1238,6 +1289,98 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
             }
 
+            {
+                if let Some(pipeline) = &pipeline.debug_sphere_pipeline {
+                    let mut debug_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Debug Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    if let Some(rect) = viewport_rect {
+                        // debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        debug_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+
+                    debug_pass.set_pipeline(pipeline);
+                    debug_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    
+                    for npc in &renderer_state.npcs {
+                        if let Some(sphere) = &npc.debug_sphere {
+                            sphere.transform.update_uniform_buffer(queue);
+                            debug_pass.set_bind_group(1, &sphere.bind_group, &[]);
+                            debug_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+                            debug_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                            debug_pass.draw_indexed(0..sphere.index_count, 0, 0..1);
+                        }
+                    }
+                }
+            }
+
+            // UI Render Pass
+            {
+                if let Some(ui_pipeline) = pipeline.ui_pipeline.as_ref() {
+                    let camera_binding = editor.camera_binding.as_ref().unwrap();
+                    let window_size_bind_group = pipeline
+                        .window_size_bind_group
+                        .as_ref()
+                        .expect("Couldn't get window size bind group");
+
+                    let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("UI Pass"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                            view: &depth_view,
+                            depth_ops: Some(wgpu::Operations {
+                                load: wgpu::LoadOp::Load,
+                                store: wgpu::StoreOp::Store,
+                            }),
+                            stencil_ops: None,
+                        }),
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                    });
+
+                    if let Some(rect) = viewport_rect {
+                        // ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+                        ui_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+                    }
+
+                    ui_pipeline.render(
+                        &mut ui_pass,
+                        editor,
+                        &camera_binding.bind_group,
+                        window_size_bind_group,
+                        queue,
+                    );
+                }
+            }
+
         if pipeline.frame_buffer.is_some() {
             let frame_buffer = pipeline
                 .frame_buffer
@@ -1245,6 +1388,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 .expect("Couldn't get frame buffer");
             frame_buffer.capture_frame(device, queue, texture, &mut encoder);
         }
+
+        // Update Dialogue UI
+        dialogue_ui::update_dialogue_ui(editor, device, queue);
+        quest_ui::update_quest_ui(editor, device, queue);
 
         let command_buffer = encoder.finish();
         queue.submit(std::iter::once(command_buffer));

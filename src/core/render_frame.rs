@@ -172,210 +172,210 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
         // let camera = pipeline.camera.as_ref().expect("Couldn't get camera"); // careful, we have a camera on editor and on pipeline
         let texture = pipeline.texture.as_ref().expect("Couldn't get texture");
         
-        // Sync player health to UI
-        if let Some(player) = &mut renderer_state.player_character {
-            if let Some(health_bar) = &mut editor.health_bar {
-                health_bar.update_health(queue, player.stats.health);
-            }
+        // // Sync player health to UI
+        // if let Some(player) = &mut renderer_state.player_character {
+        //     if let Some(health_bar) = &mut editor.health_bar {
+        //         health_bar.update_health(queue, player.stats.health);
+        //     }
 
-            // Update Aim
-            player.update_aim(0.016);
-            let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
-            camera.fovy = target_fov;
-            // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
-            // Better call it here to be safe, but update() is called in step_physics_pipeline?
-            // step_physics_pipeline calls camera.update()
+        //     // Update Aim
+        //     player.update_aim(0.016);
+        //     let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
+        //     camera.fovy = target_fov;
+        //     // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
+        //     // Better call it here to be safe, but update() is called in step_physics_pipeline?
+        //     // step_physics_pipeline calls camera.update()
             
-            // Update Ammo UI
-            if let Some(ammo_display) = &mut editor.ammo_display {
-                 let mut ammo = None;
-                 let mut max = None;
-                 if let Some(weapon) = &player.inventory.equipped_weapon {
-                     if let Some(props) = &weapon.collectable_properties {
-                         ammo = props.ammo;
-                         max = props.max_ammo;
-                     }
-                 }
+        //     // Update Ammo UI
+        //     if let Some(ammo_display) = &mut editor.ammo_display {
+        //          let mut ammo = None;
+        //          let mut max = None;
+        //          if let Some(weapon) = &player.inventory.equipped_weapon {
+        //              if let Some(props) = &weapon.collectable_properties {
+        //                  ammo = props.ammo;
+        //                  max = props.max_ammo;
+        //              }
+        //          }
                  
-                 ammo_display.update(device, queue, ammo, max);
-            }
+        //          ammo_display.update(device, queue, ammo, max);
+        //     }
 
-            if let Some(mini_map) = &mut editor.mini_map {
-                if let Some(rb_handle) = player.movement_rigid_body_handle {
-                     if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                        let position = rb.translation();
-                        let yaw = renderer_state.camera_yaw;
-                        let landscape_center = Vector3::new(0.0, 0.0, 0.0);
-                        let landscape_size = 4096.0; // Matches grid size for now
+        //     if let Some(mini_map) = &mut editor.mini_map {
+        //         if let Some(rb_handle) = player.movement_rigid_body_handle {
+        //              if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+        //                 let position = rb.translation();
+        //                 let yaw = renderer_state.camera_yaw;
+        //                 let landscape_center = Vector3::new(0.0, 0.0, 0.0);
+        //                 let landscape_size = 4096.0; // Matches grid size for now
 
-                        mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
-                     }
-                }
-            }
+        //                 mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
+        //              }
+        //         }
+        //     }
 
-            // Handle Firing
-            if player.is_firing {
-                let mut fire_type = saved_data::FireType::Manual;
-                if let Some(weapon) = &player.inventory.equipped_weapon {
-                    if let Some(props) = &weapon.collectable_properties {
-                        if let Some(ft) = &props.fire_type {
-                            fire_type = ft.clone();
-                        }
-                    }
-                }
+        //     // Handle Firing
+        //     if player.is_firing {
+        //         let mut fire_type = saved_data::FireType::Manual;
+        //         if let Some(weapon) = &player.inventory.equipped_weapon {
+        //             if let Some(props) = &weapon.collectable_properties {
+        //                 if let Some(ft) = &props.fire_type {
+        //                     fire_type = ft.clone();
+        //                 }
+        //             }
+        //         }
 
-                let mut should_attack = false;
-                match fire_type {
-                    saved_data::FireType::Automatic => {
-                        should_attack = true;
-                    }
-                    saved_data::FireType::SemiAutomatic | saved_data::FireType::Manual => {
-                        if !player.has_fired_this_press {
-                            should_attack = true;
-                            player.has_fired_this_press = true;
-                        }
-                    }
-                }
+        //         let mut should_attack = false;
+        //         match fire_type {
+        //             saved_data::FireType::Automatic => {
+        //                 should_attack = true;
+        //             }
+        //             saved_data::FireType::SemiAutomatic | saved_data::FireType::Manual => {
+        //                 if !player.has_fired_this_press {
+        //                     should_attack = true;
+        //                     player.has_fired_this_press = true;
+        //                 }
+        //             }
+        //         }
 
-                if should_attack {
-                    let (attacked_npc_id, debug_line) = player.attack(
-                        &renderer_state.rigid_body_set,
-                        &renderer_state.collider_set,
-                        &mut renderer_state.query_pipeline,
-                        &mut renderer_state.npcs,
-                        camera,
-                    );
+        //         if should_attack {
+        //             let (attacked_npc_id, debug_line) = player.attack(
+        //                 &renderer_state.rigid_body_set,
+        //                 &renderer_state.collider_set,
+        //                 &mut renderer_state.query_pipeline,
+        //                 &mut renderer_state.npcs,
+        //                 camera,
+        //             );
                     
-                    if let Some(id) = attacked_npc_id {
-                        editor.current_enemy_target = Some(id.clone());
-                        println!("Updated enemy target: {:?}", id);
+        //             if let Some(id) = attacked_npc_id {
+        //                 editor.current_enemy_target = Some(id.clone());
+        //                 println!("Updated enemy target: {:?}", id);
 
-                        // Alert nearby NPCs when one is hit
-                        if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                            if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
-                                let alert_pos = rb.translation();
-                                let alert_pos = Vector3::new(alert_pos.x, alert_pos.y, alert_pos.z);
+        //                 // Alert nearby NPCs when one is hit
+        //                 if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+        //                     if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+        //                         let alert_pos = rb.translation();
+        //                         let alert_pos = Vector3::new(alert_pos.x, alert_pos.y, alert_pos.z);
 
-                                renderer_state.alert_nearby_npcs(alert_pos, 40.0); // Slightly larger radius for being hit
-                            }
-                        }
-                    }
+        //                         renderer_state.alert_nearby_npcs(alert_pos, 40.0); // Slightly larger radius for being hit
+        //                     }
+        //                 }
+        //             }
 
-                    // Execute Rhai on_attack scripts for the player
-                    // let mut script_changes = Vec::new();
-                    // if let Some(world_state) = &editor.world_state {
-                    //     if let Some(levels) = &world_state.levels {
-                    //         if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
-                    //             for component in components.iter() {
-                    //                 if component.kind == Some(ComponentKind::PlayerCharacter) {
-                    //                     if let Some(script_path) = &component.js_script_path {
-                    //                         if let Some(change) = editor.deno_engine.execute_component_script(
-                    //                             renderer_state,
-                    //                             component,
-                    //                             script_path,
-                    //                             "on_attack",
-                    //                         ) {
-                    //                             script_changes.push(change);
-                    //                         }
-                    //                     }
-                    //                 }
-                    //             }
-                    //         }
-                    //     }
-                    // }
+        //             // Execute Rhai on_attack scripts for the player
+        //             // let mut script_changes = Vec::new();
+        //             // if let Some(world_state) = &editor.world_state {
+        //             //     if let Some(levels) = &world_state.levels {
+        //             //         if let Some(components) = levels.get(0).and_then(|l| l.components.as_ref()) {
+        //             //             for component in components.iter() {
+        //             //                 if component.kind == Some(ComponentKind::PlayerCharacter) {
+        //             //                     if let Some(script_path) = &component.js_script_path {
+        //             //                         if let Some(change) = editor.deno_engine.execute_component_script(
+        //             //                             renderer_state,
+        //             //                             component,
+        //             //                             script_path,
+        //             //                             "on_attack",
+        //             //                         ) {
+        //             //                             script_changes.push(change);
+        //             //                         }
+        //             //                     }
+        //             //                 }
+        //             //             }
+        //             //         }
+        //             //     }
+        //             // }
 
-                    // // Handle particle spawns from on_attack
-                    // for change in script_changes {
-                    //     if let Some(spawns) = change.particle_spawns {
-                    //         let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
-                    //         for spawn in spawns {
-                    //             if let Some((start, end)) = debug_line {
-                    //                 let uniforms = ParticleUniforms {
-                    //                     position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
-                    //                     time: 0.0,
-                    //                     emission_rate: spawn.emission_rate,
-                    //                     life_time: spawn.life_time,
-                    //                     radius: spawn.radius,
-                    //                     gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
-                    //                     initial_speed_min: spawn.initial_speed_min,
-                    //                     initial_speed_max: spawn.initial_speed_max,
-                    //                     start_color: spawn.start_color,
-                    //                     end_color: spawn.end_color,
-                    //                     size: spawn.size,
-                    //                     mode: spawn.mode,
-                    //                     target_position: [end.x, end.y, end.z, 0.0],
-                    //                     _pad2: [0.0; 4],
-                    //                 };
+        //             // // Handle particle spawns from on_attack
+        //             // for change in script_changes {
+        //             //     if let Some(spawns) = change.particle_spawns {
+        //             //         let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
+        //             //         for spawn in spawns {
+        //             //             if let Some((start, end)) = debug_line {
+        //             //                 let uniforms = ParticleUniforms {
+        //             //                     position: [spawn.position.x, spawn.position.y, spawn.position.z, 0.0],
+        //             //                     time: 0.0,
+        //             //                     emission_rate: spawn.emission_rate,
+        //             //                     life_time: spawn.life_time,
+        //             //                     radius: spawn.radius,
+        //             //                     gravity: [spawn.gravity.x, spawn.gravity.y, spawn.gravity.z, 0.0],
+        //             //                     initial_speed_min: spawn.initial_speed_min,
+        //             //                     initial_speed_max: spawn.initial_speed_max,
+        //             //                     start_color: spawn.start_color,
+        //             //                     end_color: spawn.end_color,
+        //             //                     size: spawn.size,
+        //             //                     mode: spawn.mode,
+        //             //                     target_position: [end.x, end.y, end.z, 0.0],
+        //             //                     _pad2: [0.0; 4],
+        //             //                 };
                                     
-                    //                 let system = ParticleSystem::new(
-                    //                     &gpu_resources.device,
-                    //                     &camera_binding.bind_group_layout,
-                    //                     uniforms,
-                    //                     500,
-                    //                     wgpu::TextureFormat::Rgba8Unorm,
-                    //                 );
+        //             //                 let system = ParticleSystem::new(
+        //             //                     &gpu_resources.device,
+        //             //                     &camera_binding.bind_group_layout,
+        //             //                     uniforms,
+        //             //                     500,
+        //             //                     wgpu::TextureFormat::Rgba8Unorm,
+        //             //                 );
                                     
-                    //                 renderer_state.particle_systems.push(system);
-                    //             }
-                    //         }
-                    //     }
-                    // }
+        //             //                 renderer_state.particle_systems.push(system);
+        //             //             }
+        //             //         }
+        //             //     }
+        //             // }
 
-                    // Handle debug hitscan line
-                    if renderer_state.game_settings.show_hitscan_line {
-                        if let Some((start, end)) = debug_line {
-                            let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
-                            let mut debug_cube = Cube::new(
-                                &gpu_resources.device,
-                                &gpu_resources.queue,
-                                &renderer_state.model_bind_group_layout,
-                                &renderer_state.group_bind_group_layout,
-                                &renderer_state.texture_render_mode_buffer,
-                                camera,
-                            );
+        //             // Handle debug hitscan line
+        //             if renderer_state.game_settings.show_hitscan_line {
+        //                 if let Some((start, end)) = debug_line {
+        //                     let gpu_resources = editor.gpu_resources.as_ref().expect("GPU resources missing");
+        //                     let mut debug_cube = Cube::new(
+        //                         &gpu_resources.device,
+        //                         &gpu_resources.queue,
+        //                         &renderer_state.model_bind_group_layout,
+        //                         &renderer_state.group_bind_group_layout,
+        //                         &renderer_state.texture_render_mode_buffer,
+        //                         camera,
+        //                     );
 
-                            let dir = (end - start).normalize();
-                            let offset_start = start + dir * 0.5;
-                            let length = nalgebra::distance(&offset_start, &end);
+        //                     let dir = (end - start).normalize();
+        //                     let offset_start = start + dir * 0.5;
+        //                     let length = nalgebra::distance(&offset_start, &end);
                             
-                            if length > 0.0 && (end - start).dot(&dir) > 0.5 {
-                                let scale = 0.02;
-                                let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
-                                let center_offset = rotation * Vector3::new(scale * 0.5, scale * 0.5, 0.0);
-                                let draw_pos = offset_start - center_offset;
+        //                     if length > 0.0 && (end - start).dot(&dir) > 0.5 {
+        //                         let scale = 0.02;
+        //                         let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
+        //                         let center_offset = rotation * Vector3::new(scale * 0.5, scale * 0.5, 0.0);
+        //                         let draw_pos = offset_start - center_offset;
 
-                                debug_cube.transform.update_position([draw_pos.x, draw_pos.y, draw_pos.z]);
-                                debug_cube.transform.update_scale([scale, scale, length]);
-                                debug_cube.transform.update_rotation_quat([
-                                    rotation.coords.x,
-                                    rotation.coords.y,
-                                    rotation.coords.z,
-                                    rotation.coords.w,
-                                ]);
+        //                         debug_cube.transform.update_position([draw_pos.x, draw_pos.y, draw_pos.z]);
+        //                         debug_cube.transform.update_scale([scale, scale, length]);
+        //                         debug_cube.transform.update_rotation_quat([
+        //                             rotation.coords.x,
+        //                             rotation.coords.y,
+        //                             rotation.coords.z,
+        //                             rotation.coords.w,
+        //                         ]);
                                 
-                                debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
+        //                         debug_cube.transform.update_uniform_buffer(&gpu_resources.queue);
                                 
-                                renderer_state.debug_rays.push(crate::core::RendererState::DebugRay {
-                                    cube: debug_cube,
-                                    expires_at: Instant::now() + Duration::from_millis(500),
-                                });
-                            }
-                        }
-                    }
-                }
-            } else {
-                player.has_fired_this_press = false;
-            }
-        }
+        //                         renderer_state.debug_rays.push(crate::core::RendererState::DebugRay {
+        //                             cube: debug_cube,
+        //                             expires_at: Instant::now() + Duration::from_millis(500),
+        //                         });
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     } else {
+        //         player.has_fired_this_press = false;
+        //     }
+        // }
 
-        // Sync enemy health to UI
-        if let Some(target_id) = &editor.current_enemy_target {
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
-                 if let Some(health_bar) = &mut editor.enemy_health_bar {
-                    health_bar.update_health(queue, npc.stats.health);
-                }
-            }
-        }
+        // // Sync enemy health to UI
+        // if let Some(target_id) = &editor.current_enemy_target {
+        //     if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
+        //          if let Some(health_bar) = &mut editor.enemy_health_bar {
+        //             health_bar.update_health(queue, npc.stats.health);
+        //         }
+        //     }
+        // }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
         {
@@ -433,20 +433,20 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                 );
             }
 
-            // update rapier collisions
-            renderer_state.update_rapier();
+            // // update rapier collisions
+            // renderer_state.update_rapier();
 
-            // perhaps counterproductive to avoid physics in the preview
-            // but sometimes you dont want to mix physics when doing design (make this a setting)
-            if game_mode {
-                // step through physics each frame
-                renderer_state.step_physics_pipeline(
-                    &gpu_resources.device,
-                    &gpu_resources.queue,
-                    camera_binding,
-                    camera
-                );
-            }
+            // // perhaps counterproductive to avoid physics in the preview
+            // // but sometimes you dont want to mix physics when doing design (make this a setting)
+            // if game_mode {
+            //     // step through physics each frame
+            //     renderer_state.step_physics_pipeline(
+            //         &gpu_resources.device,
+            //         &gpu_resources.queue,
+            //         camera_binding,
+            //         camera
+            //     );
+            // }
 
             // Execute JS component scripts
             // let mut changes: Vec<ComponentChanges> = Vec::new();
@@ -565,21 +565,21 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
             render_pass.set_bind_group(2, window_size_bind_group, &[]);
 
             // // draw cubes
-            for (poly_index, cube) in renderer_state.cubes.iter().enumerate() {
-                // if !polygon.hidden {
-                    cube
-                        .transform
-                        .update_uniform_buffer(&queue);
-                    render_pass.set_bind_group(1, &cube.bind_group, &[]);
-                    render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        cube.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
-                // }
-            }
+            // for (poly_index, cube) in renderer_state.cubes.iter().enumerate() {
+            //     // if !polygon.hidden {
+            //         cube
+            //             .transform
+            //             .update_uniform_buffer(&queue);
+            //         render_pass.set_bind_group(1, &cube.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &cube.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             cube.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+            //     // }
+            // }
 
             // draw spheres
             for sphere in &renderer_state.spheres {
@@ -624,44 +624,44 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                 // }
             }
 
-            for model in &renderer_state.models {
-                for mesh in &model.meshes {
-                    // Conditional rendering based on skinning
-                    if let Some(skin_bind_group) = &model.skin_bind_group {
-                        // Use the skinned pipeline and bind its specific bind group
-                        if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
-                            render_pass.set_pipeline(&pipeline_instance.render_pipeline);
-                            // Bind skin uniform at group 2 (as defined in skinned_pipeline.rs)
-                            render_pass.set_bind_group(2, skin_bind_group, &[]);
-                        } else {
-                             // Fallback to geometry_pipeline if skinned_pipeline is None (should not happen if initialized correctly)
-                            render_pass.set_pipeline(&geometry_pipeline);
-                        }
-                    } else {
-                        // Use the regular geometry pipeline for non-skinned meshes
-                        render_pass.set_pipeline(&geometry_pipeline);
-                    }
+            // for model in &renderer_state.models {
+            //     for mesh in &model.meshes {
+            //         // Conditional rendering based on skinning
+            //         if let Some(skin_bind_group) = &model.skin_bind_group {
+            //             // Use the skinned pipeline and bind its specific bind group
+            //             if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
+            //                 render_pass.set_pipeline(&pipeline_instance.render_pipeline);
+            //                 // Bind skin uniform at group 2 (as defined in skinned_pipeline.rs)
+            //                 render_pass.set_bind_group(2, skin_bind_group, &[]);
+            //             } else {
+            //                  // Fallback to geometry_pipeline if skinned_pipeline is None (should not happen if initialized correctly)
+            //                 render_pass.set_pipeline(&geometry_pipeline);
+            //             }
+            //         } else {
+            //             // Use the regular geometry pipeline for non-skinned meshes
+            //             render_pass.set_pipeline(&geometry_pipeline);
+            //         }
 
-                    // if model.hide_from_world {
-                    //     println!("Render mesh uniform {:?}", mesh.transform.position);
-                    // }
+            //         // if model.hide_from_world {
+            //         //     println!("Render mesh uniform {:?}", mesh.transform.position);
+            //         // }
 
-                    mesh.transform.update_uniform_buffer(&gpu_resources.queue);
+            //         mesh.transform.update_uniform_buffer(&gpu_resources.queue);
 
-                    render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
-                    render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
-                    // render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size is not needed for skinned shader
-                    render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
+            //         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]); // Camera
+            //         render_pass.set_bind_group(1, &mesh.bind_group, &[]); // Model transform + textures
+            //         // render_pass.set_bind_group(2, window_size_bind_group, &[]); // Window size is not needed for skinned shader
+            //         render_pass.set_bind_group(3, &mesh.group_bind_group, &[]); // Group transform (if any)
 
-                    // Need to use the regular vertex buffer with regular Vertex if using geometry pipeline
-                    render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        mesh.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
-                }
-            }
+            //         // Need to use the regular vertex buffer with regular Vertex if using geometry pipeline
+            //         render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             mesh.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+            //     }
+            // }
 
             for house in &renderer_state.procedural_houses {
                 for mesh in &house.meshes {
@@ -731,60 +731,60 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                 }
             }
 
-            for (poly_index, landscape) in renderer_state.landscapes.iter().enumerate() {
-                // if !polygon.hidden {
-                    render_pass.set_pipeline(&geometry_pipeline);
-                    landscape
-                        .transform
-                        .update_uniform_buffer(&queue); // probably unnecessary
-                    render_pass.set_bind_group(1, &landscape.bind_group, &[]);
-                    render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
-                    render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
-                    render_pass.set_index_buffer(
-                        landscape.index_buffer.slice(..),
-                        wgpu::IndexFormat::Uint32,
-                    );
-                    render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
-                // }
-            }
+            // for (poly_index, landscape) in renderer_state.landscapes.iter().enumerate() {
+            //     // if !polygon.hidden {
+            //         render_pass.set_pipeline(&geometry_pipeline);
+            //         landscape
+            //             .transform
+            //             .update_uniform_buffer(&queue); // probably unnecessary
+            //         render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+            //         render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+            //         render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+            //         render_pass.set_index_buffer(
+            //             landscape.index_buffer.slice(..),
+            //             wgpu::IndexFormat::Uint32,
+            //         );
+            //         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+            //     // }
+            // }
 
             // draw grass
 
-            for grass in &mut renderer_state.grasses {
-                if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(model_id) = &player_character.model_id {
-                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                        let player_model = player_model.as_ref().expect("Couldn't find related model");
-                        let model_mesh = player_model.meshes.get(0);
-                        let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
-                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
-                    } else if let Some(sphere) = &player_character.sphere {
-                        grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                    } else {
-                        grass.update_uniforms(&queue, time as f32, camera.position);
-                    }
-                } else {
-                    grass.update_uniforms(&queue, time as f32, camera.position);
-                }
+            // for grass in &mut renderer_state.grasses {
+            //     if let Some(player_character) = &renderer_state.player_character {
+            //         if let Some(model_id) = &player_character.model_id {
+            //             let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+            //             let player_model = player_model.as_ref().expect("Couldn't find related model");
+            //             let model_mesh = player_model.meshes.get(0);
+            //             let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
+            //             grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+            //         } else if let Some(sphere) = &player_character.sphere {
+            //             grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+            //         } else {
+            //             grass.update_uniforms(&queue, time as f32, camera.position);
+            //         }
+            //     } else {
+            //         grass.update_uniforms(&queue, time as f32, camera.position);
+            //     }
 
-                render_pass.set_pipeline(&grass.render_pipeline);
-                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
-                render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
+            //     render_pass.set_pipeline(&grass.render_pipeline);
+            //     render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+            //     render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
+            //     render_pass.set_bind_group(2, &grass.landscape_bind_group, &[]);
 
-                for (i, bind_group) in grass.bind_groups.iter().enumerate() {
-                    render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
-                }
+            //     for (i, bind_group) in grass.bind_groups.iter().enumerate() {
+            //         render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+            //     }
 
-                render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            //     render_pass.set_vertex_buffer(0, grass.blade.vertex_buffer.slice(..));
+            //     render_pass.set_index_buffer(grass.blade.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-                let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
-                let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
+            //     let grid_cells = ((grass.config.render_distance * 2.0) / grass.config.grid_size).ceil() as u32;
+            //     let total_instances = grid_cells * grid_cells * grass.config.blade_density as u32;
 
-                render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
-                render_pass.set_pipeline(&geometry_pipeline);
-            }
+            //     render_pass.draw_indexed(0..grass.blade.index_count, 0, 0..total_instances);
+            //     render_pass.set_pipeline(&geometry_pipeline);
+            // }
 
             // draw trees
             for trees in &renderer_state.procedural_trees {
@@ -796,23 +796,23 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                 render_pass.set_pipeline(&geometry_pipeline);
             }
 
-            // draw water
-            for water_plane in &mut renderer_state.water_planes {
-                if let Some(player_character) = &renderer_state.player_character {
-                    if let Some(model_id) = &player_character.model_id {
-                        let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                        let player_model = player_model.as_ref().expect("Couldn't find related model");
-                        let model_mesh = player_model.meshes.get(0);
-                        let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
-                        water_plane.update_uniforms(queue, time as f32, [model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z]);
-                        render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
-                    } else if let Some(sphere) = &player_character.sphere {
-                        let player_pos = sphere.transform.position;
-                        water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
-                        render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
-                    }
-                }
-            }
+            // // draw water
+            // for water_plane in &mut renderer_state.water_planes {
+            //     if let Some(player_character) = &renderer_state.player_character {
+            //         if let Some(model_id) = &player_character.model_id {
+            //             let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+            //             let player_model = player_model.as_ref().expect("Couldn't find related model");
+            //             let model_mesh = player_model.meshes.get(0);
+            //             let model_mesh = model_mesh.as_ref().expect("Couldn't get first mesh");
+            //             water_plane.update_uniforms(queue, time as f32, [model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z]);
+            //             render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
+            //         } else if let Some(sphere) = &player_character.sphere {
+            //             let player_pos = sphere.transform.position;
+            //             water_plane.update_uniforms(queue, time as f32, [player_pos.x, player_pos.y, player_pos.z]);
+            //             render_pass.draw_water(water_plane, &camera_binding.bind_group, &water_plane.time_bind_group, &water_plane.landscape_bind_group, &water_plane.config_bind_group);
+            //         }
+            //     }
+            // }
 
             if !renderer_state.particle_systems.is_empty() {                
                 for system in &renderer_state.particle_systems {
@@ -828,341 +828,341 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
             drop(render_pass);
 
             // obviously, no good reason to set this on every frame
-            let mut collected_lights = if pipeline.current_workspace == Workspace::GameEngine {
-                renderer_state.point_lights.clone()
-            } else {
-                Vec::new()
-            };
+            // let mut collected_lights = if pipeline.current_workspace == Workspace::GameEngine {
+            //     renderer_state.point_lights.clone()
+            // } else {
+            //     Vec::new()
+            // };
 
-            for (addon_name, lights) in &renderer_state.addon_point_lights {
-                if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                    if addon_name == active_name || addon_name == "Global" {
-                        collected_lights.extend(lights.clone());
-                    }
-                } else if addon_name == "Global" {
-                    collected_lights.extend(lights.clone());
-                }
-            }
+            // for (addon_name, lights) in &renderer_state.addon_point_lights {
+            //     if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+            //         if addon_name == active_name || addon_name == "Global" {
+            //             collected_lights.extend(lights.clone());
+            //         }
+            //     } else if addon_name == "Global" {
+            //         collected_lights.extend(lights.clone());
+            //     }
+            // }
 
-            let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
-                point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
-                num_point_lights: collected_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
-                _padding: [0; 3],
-            };
+            // let mut point_lights_uniform_data = crate::core::editor::PointLightsUniform {
+            //     point_lights: [[0.0; 12]; crate::core::editor::MAX_POINT_LIGHTS], // Initialize with zeros
+            //     num_point_lights: collected_lights.len().min(crate::core::editor::MAX_POINT_LIGHTS) as u32,
+            //     _padding: [0; 3],
+            // };
 
-            for (i, pl) in collected_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
-                // point_lights_uniform_data.point_lights[i] = *pl;
-                 point_lights_uniform_data.point_lights[i] = [
-                    pl.position[0], pl.position[1], pl.position[2],0.0,  // position + padding
-                    pl.color[0], pl.color[1], pl.color[2],0.0, pl.intensity, pl.max_distance, // color + intensity
-                     0.0, 0.0
-                ];
-            }
+            // for (i, pl) in collected_lights.iter().take(crate::core::editor::MAX_POINT_LIGHTS).enumerate() {
+            //     // point_lights_uniform_data.point_lights[i] = *pl;
+            //      point_lights_uniform_data.point_lights[i] = [
+            //         pl.position[0], pl.position[1], pl.position[2],0.0,  // position + padding
+            //         pl.color[0], pl.color[1], pl.color[2],0.0, pl.intensity, pl.max_distance, // color + intensity
+            //          0.0, 0.0
+            //     ];
+            // }
             
-            // Update point lights buffer
-            queue.write_buffer(
-                pipeline.point_lights_buffer.as_ref().unwrap(),
-                0,
-                bytemuck::cast_slice(&[point_lights_uniform_data]),
-            );
+            // // Update point lights buffer
+            // queue.write_buffer(
+            //     pipeline.point_lights_buffer.as_ref().unwrap(),
+            //     0,
+            //     bytemuck::cast_slice(&[point_lights_uniform_data]),
+            // );
 
             // Lighting pass
-            {
-                let lighting_pipeline = pipeline.lighting_pipeline.as_ref().unwrap();
-                let lighting_bind_group = pipeline.lighting_bind_group.as_ref().unwrap();
-                let g_buffer_bind_group = pipeline.g_buffer_bind_group.as_ref().unwrap();
-                let shadow_pipeline_data = pipeline.shadow_pipeline_data.as_ref().unwrap();
-                // let camera_binding = editor.camera_binding.as_ref().unwrap();
-                let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
+            // {
+            //     let lighting_pipeline = pipeline.lighting_pipeline.as_ref().unwrap();
+            //     let lighting_bind_group = pipeline.lighting_bind_group.as_ref().unwrap();
+            //     let g_buffer_bind_group = pipeline.g_buffer_bind_group.as_ref().unwrap();
+            //     let shadow_pipeline_data = pipeline.shadow_pipeline_data.as_ref().unwrap();
+            //     // let camera_binding = editor.camera_binding.as_ref().unwrap();
+            //     let shadow_bind_group = &shadow_pipeline_data.shadow_bind_group;
 
-                let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Lighting Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+            //     let mut lighting_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //         label: Some("Lighting Pass"),
+            //         color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //             view: &view,
+            //             resolve_target: None,
+            //             ops: wgpu::Operations {
+            //                 load: wgpu::LoadOp::Load,
+            //                 store: wgpu::StoreOp::Store,
+            //             },
+            //             depth_slice: None,
+            //         })],
+            //         depth_stencil_attachment: None,
+            //         timestamp_writes: None,
+            //         occlusion_query_set: None,
+            //     });
 
-                if let Some(rect) = viewport_rect {
-                    // lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                    lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                }
+            //     if let Some(rect) = viewport_rect {
+            //         // lighting_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+            //         lighting_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            //     }
 
-                lighting_pass.set_pipeline(lighting_pipeline);
-                lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
-                lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
-                // lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
-                lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
-                // lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
-                lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
-                lighting_pass.draw(0..3, 0..1);
-            }
+            //     lighting_pass.set_pipeline(lighting_pipeline);
+            //     lighting_pass.set_bind_group(0, lighting_bind_group, &[]);
+            //     lighting_pass.set_bind_group(1, g_buffer_bind_group, &[]);
+            //     // lighting_pass.set_bind_group(2, window_size_bind_group, &[]);
+            //     lighting_pass.set_bind_group(3, shadow_bind_group, &[]);
+            //     // lighting_pass.set_bind_group(4, &camera_binding.bind_group, &[]);
+            //     lighting_pass.set_bind_group(2, &camera_binding.bind_group, &[]);
+            //     lighting_pass.draw(0..3, 0..1);
+            // }
 
             // Procedural Sky Render Pass
-            {
-                if let Some(procedural_sky_pipeline) = pipeline.procedural_sky_pipeline.as_ref() {
-                    if let Some(procedural_sky_bind_group) = pipeline.procedural_sky_bind_group.as_ref() {
-                        let mut sky_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("Procedural Sky Pass"),
-                            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                                view: &view,
-                                resolve_target: None,
-                                ops: wgpu::Operations {
-                                    load: wgpu::LoadOp::Load, // Load existing color (from lighting pass)
-                                    store: wgpu::StoreOp::Store,
-                                },
-                                depth_slice: None,
-                            })],
-                            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                                view: &depth_view, // Use the same depth view as geometry pass
-                                depth_ops: Some(wgpu::Operations {
-                                    load: wgpu::LoadOp::Load, // Load existing depth values
-                                    store: wgpu::StoreOp::Store,
-                                }),
-                                stencil_ops: None,
-                            }),
-                            timestamp_writes: None,
-                            occlusion_query_set: None,
-                        });
+            // {
+            //     if let Some(procedural_sky_pipeline) = pipeline.procedural_sky_pipeline.as_ref() {
+            //         if let Some(procedural_sky_bind_group) = pipeline.procedural_sky_bind_group.as_ref() {
+            //             let mut sky_render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //                 label: Some("Procedural Sky Pass"),
+            //                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //                     view: &view,
+            //                     resolve_target: None,
+            //                     ops: wgpu::Operations {
+            //                         load: wgpu::LoadOp::Load, // Load existing color (from lighting pass)
+            //                         store: wgpu::StoreOp::Store,
+            //                     },
+            //                     depth_slice: None,
+            //                 })],
+            //                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            //                     view: &depth_view, // Use the same depth view as geometry pass
+            //                     depth_ops: Some(wgpu::Operations {
+            //                         load: wgpu::LoadOp::Load, // Load existing depth values
+            //                         store: wgpu::StoreOp::Store,
+            //                     }),
+            //                     stencil_ops: None,
+            //                 }),
+            //                 timestamp_writes: None,
+            //                 occlusion_query_set: None,
+            //             });
 
-                        if let Some(rect) = viewport_rect {
-                            // sky_render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                            sky_render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                        }
+            //             if let Some(rect) = viewport_rect {
+            //                 // sky_render_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+            //                 sky_render_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            //             }
 
-                        sky_render_pass.set_pipeline(procedural_sky_pipeline);
-                        sky_render_pass.set_bind_group(0, procedural_sky_bind_group, &[]);
-                        sky_render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
-                    }
-                }
-            }
+            //             sky_render_pass.set_pipeline(procedural_sky_pipeline);
+            //             sky_render_pass.set_bind_group(0, procedural_sky_bind_group, &[]);
+            //             sky_render_pass.draw(0..3, 0..1); // Draw the full-screen triangle
+            //         }
+            //     }
+            // }
 
-            {
-                if let Some(pipeline) = &pipeline.debug_sphere_pipeline {
-                    let mut debug_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("Debug Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+            // {
+            //     if let Some(pipeline) = &pipeline.debug_sphere_pipeline {
+            //         let mut debug_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //             label: Some("Debug Pass"),
+            //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //                 view: view,
+            //                 resolve_target: None,
+            //                 ops: wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 },
+            //                 depth_slice: None
+            //             })],
+            //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            //                 view: depth_view,
+            //                 depth_ops: Some(wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 }),
+            //                 stencil_ops: None,
+            //             }),
+            //             timestamp_writes: None,
+            //             occlusion_query_set: None,
+            //         });
 
-                    if let Some(rect) = viewport_rect {
-                        // debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                        debug_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                    }
+            //         if let Some(rect) = viewport_rect {
+            //             // debug_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+            //             debug_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            //         }
 
-                    debug_pass.set_pipeline(pipeline);
-                    debug_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+            //         debug_pass.set_pipeline(pipeline);
+            //         debug_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                     
-                    for npc in &renderer_state.npcs {
-                        if let Some(sphere) = &npc.debug_sphere {
-                            sphere.transform.update_uniform_buffer(queue);
-                            debug_pass.set_bind_group(1, &sphere.bind_group, &[]);
-                            debug_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
-                            debug_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                            debug_pass.draw_indexed(0..sphere.index_count, 0, 0..1);
-                        }
-                    }
-                }
-            }
+            //         for npc in &renderer_state.npcs {
+            //             if let Some(sphere) = &npc.debug_sphere {
+            //                 sphere.transform.update_uniform_buffer(queue);
+            //                 debug_pass.set_bind_group(1, &sphere.bind_group, &[]);
+            //                 debug_pass.set_vertex_buffer(0, sphere.vertex_buffer.slice(..));
+            //                 debug_pass.set_index_buffer(sphere.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            //                 debug_pass.draw_indexed(0..sphere.index_count, 0, 0..1);
+            //             }
+            //         }
+            //     }
+            // }
 
             
-            renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {
-                view_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_view()),
-                projection_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_projection()),
-                viewport: transform_gizmo::Rect {
-                    min: (0.0, 0.0).into(),
-                    max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
-                },
-                modes: GizmoMode::all_translate(),
-                ..renderer_state.gizmo.config().clone()
-            });
+//             renderer_state.gizmo.update_config(transform_gizmo::GizmoConfig {
+//                 view_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_view()),
+//                 projection_matrix: crate::core::SimpleCamera::to_row_major_f64(&camera.get_projection()),
+//                 viewport: transform_gizmo::Rect {
+//                     min: (0.0, 0.0).into(),
+//                     max: (camera.viewport.window_size.width as f32, camera.viewport.window_size.height as f32).into(),
+//                 },
+//                 modes: GizmoMode::all_translate(),
+//                 ..renderer_state.gizmo.config().clone()
+//             });
 
-            // println!("gizmo {:?}", renderer_state.gizmo.config().clone());
+//             // println!("gizmo {:?}", renderer_state.gizmo.config().clone());
 
-// DEBUG:
-// let gizmo_draw_data = renderer_state.gizmo.draw();
-// if !gizmo_draw_data.vertices.is_empty() {
+// // DEBUG:
+// // let gizmo_draw_data = renderer_state.gizmo.draw();
+// // if !gizmo_draw_data.vertices.is_empty() {
     
-// // let player_world_pos = DVec3::new(0.0, 0.0, 0.0); // or get from your transform
+// // // let player_world_pos = DVec3::new(0.0, 0.0, 0.0); // or get from your transform
 
-// // Manually calculate what screen position (0,0,0) should be at
-// let viewx = DMat4::from(renderer_state.gizmo.config().view_matrix);
-// let proj = DMat4::from(renderer_state.gizmo.config().projection_matrix);
-// let vp = proj * viewx;
+// // // Manually calculate what screen position (0,0,0) should be at
+// // let viewx = DMat4::from(renderer_state.gizmo.config().view_matrix);
+// // let proj = DMat4::from(renderer_state.gizmo.config().projection_matrix);
+// // let vp = proj * viewx;
 
-// // Project to clip space
-// let clip = vp * DVec4::new(0.0, 0.0, 0.0, 1.0);
-// let ndc = clip.xyz() / clip.w;
+// // // Project to clip space
+// // let clip = vp * DVec4::new(0.0, 0.0, 0.0, 1.0);
+// // let ndc = clip.xyz() / clip.w;
 
-// // Convert to screen space (matching transform-gizmo's logic)
-// let viewport = renderer_state.gizmo.config().viewport;
-// let screen_x = (ndc.x + 1.0) * 0.5 * viewport.width() as f64;
-// let screen_y = (1.0 - ndc.y) * 0.5 * viewport.height() as f64;
+// // // Convert to screen space (matching transform-gizmo's logic)
+// // let viewport = renderer_state.gizmo.config().viewport;
+// // let screen_x = (ndc.x + 1.0) * 0.5 * viewport.width() as f64;
+// // let screen_y = (1.0 - ndc.y) * 0.5 * viewport.height() as f64;
 
-// println!("=== GIZMO POSITION DEBUG ===");
-// println!("Player world position: (0, 0, 0)");
-// println!("View matrix first row: {:?}", [viewx.x_axis.x, viewx.x_axis.y, viewx.x_axis.z, viewx.x_axis.w]);
-// println!("Projection matrix first row: {:?}", [proj.x_axis.x, proj.x_axis.y, proj.x_axis.z, proj.x_axis.w]);
-// println!("Clip space: {:?}", clip);
-// println!("NDC: {:?}", ndc);
-// println!("Screen position: ({:.1}, {:.1})", screen_x, screen_y);
-// println!("Viewport: min=({:.1}, {:.1}), max=({:.1}, {:.1})", 
-//     viewport.min.x, viewport.min.y, viewport.max.x, viewport.max.y);
+// // println!("=== GIZMO POSITION DEBUG ===");
+// // println!("Player world position: (0, 0, 0)");
+// // println!("View matrix first row: {:?}", [viewx.x_axis.x, viewx.x_axis.y, viewx.x_axis.z, viewx.x_axis.w]);
+// // println!("Projection matrix first row: {:?}", [proj.x_axis.x, proj.x_axis.y, proj.x_axis.z, proj.x_axis.w]);
+// // println!("Clip space: {:?}", clip);
+// // println!("NDC: {:?}", ndc);
+// // println!("Screen position: ({:.1}, {:.1})", screen_x, screen_y);
+// // println!("Viewport: min=({:.1}, {:.1}), max=({:.1}, {:.1})", 
+// //     viewport.min.x, viewport.min.y, viewport.max.x, viewport.max.y);
 
-//     println!("First gizmo vertex: ({:.1}, {:.1})", 
-//         gizmo_draw_data.vertices[0][0], 
-//         gizmo_draw_data.vertices[0][1]);
+// //     println!("First gizmo vertex: ({:.1}, {:.1})", 
+// //         gizmo_draw_data.vertices[0][0], 
+// //         gizmo_draw_data.vertices[0][1]);
     
-//     // Calculate center of all vertices to see where gizmo thinks it is
-//     let mut sum_x = 0.0;
-//     let mut sum_y = 0.0;
-//     for v in &gizmo_draw_data.vertices {
-//         sum_x += v[0];
-//         sum_y += v[1];
-//     }
-//     let center_x = sum_x / gizmo_draw_data.vertices.len() as f32;
-//     let center_y = sum_y / gizmo_draw_data.vertices.len() as f32;
-//     println!("Gizmo vertex center: ({:.1}, {:.1})", center_x, center_y);
-//     println!("===========================");
-// }
+// //     // Calculate center of all vertices to see where gizmo thinks it is
+// //     let mut sum_x = 0.0;
+// //     let mut sum_y = 0.0;
+// //     for v in &gizmo_draw_data.vertices {
+// //         sum_x += v[0];
+// //         sum_y += v[1];
+// //     }
+// //     let center_x = sum_x / gizmo_draw_data.vertices.len() as f32;
+// //     let center_y = sum_y / gizmo_draw_data.vertices.len() as f32;
+// //     println!("Gizmo vertex center: ({:.1}, {:.1})", center_x, center_y);
+// //     println!("===========================");
+// // }
 
 
-            let gizmo_draw_data = renderer_state.gizmo.draw();
-            if !game_mode && !gizmo_draw_data.vertices.is_empty() {
-                // DEBUG: Print first few vertices and viewport info
-                // println!("=== GIZMO DEBUG ===");
-                // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
-                // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
-                // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
-                // println!("First 5 vertices:");
-                // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
-                //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
-                // }
-                // println!("Index count: {}", gizmo_draw_data.indices.len());
-                // println!("==================");
+//             let gizmo_draw_data = renderer_state.gizmo.draw();
+//             if !game_mode && !gizmo_draw_data.vertices.is_empty() {
+//                 // DEBUG: Print first few vertices and viewport info
+//                 // println!("=== GIZMO DEBUG ===");
+//                 // println!("Viewport: {:?}", renderer_state.gizmo.config().viewport);
+//                 // println!("Window size: {}x{}", camera.viewport.window_size.width, camera.viewport.window_size.height);
+//                 // println!("Vertex count: {}", gizmo_draw_data.vertices.len());
+//                 // println!("First 5 vertices:");
+//                 // for (i, v) in gizmo_draw_data.vertices.iter().take(5).enumerate() {
+//                 //     println!("  [{}]: ({}, {})", i, v[0], v[1]);
+//                 // }
+//                 // println!("Index count: {}", gizmo_draw_data.indices.len());
+//                 // println!("==================");
 
-                // println!("Rendering gizmo");
-                let gizmo_vertex_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Vertex Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+//                 // println!("Rendering gizmo");
+//                 let gizmo_vertex_buffer =
+//                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+//                         label: Some("Gizmo Vertex Buffer"),
+//                         contents: bytemuck::cast_slice(&gizmo_draw_data.vertices),
+//                         usage: wgpu::BufferUsages::VERTEX,
+//                     });
 
-                let gizmo_color_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Color Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
-                        usage: wgpu::BufferUsages::VERTEX,
-                    });
+//                 let gizmo_color_buffer =
+//                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+//                         label: Some("Gizmo Color Buffer"),
+//                         contents: bytemuck::cast_slice(&gizmo_draw_data.colors),
+//                         usage: wgpu::BufferUsages::VERTEX,
+//                     });
 
-                let gizmo_index_buffer =
-                    device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some("Gizmo Index Buffer"),
-                        contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
-                        usage: wgpu::BufferUsages::INDEX,
-                    });
+//                 let gizmo_index_buffer =
+//                     device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+//                         label: Some("Gizmo Index Buffer"),
+//                         contents: bytemuck::cast_slice(&gizmo_draw_data.indices),
+//                         usage: wgpu::BufferUsages::INDEX,
+//                     });
 
-            let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Gizmo Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+//             let mut gizmo_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+//                     label: Some("Gizmo Pass"),
+//                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+//                         view: &view,
+//                         resolve_target: None,
+//                         ops: wgpu::Operations {
+//                             load: wgpu::LoadOp::Load,
+//                             store: wgpu::StoreOp::Store,
+//                         },
+//                         depth_slice: None,
+//                     })],
+//                     depth_stencil_attachment: None,
+//                     timestamp_writes: None,
+//                     occlusion_query_set: None,
+//                 });
 
-                if let Some(rect) = viewport_rect {
-                    // gizmo_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                    gizmo_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                }
+//                 if let Some(rect) = viewport_rect {
+//                     // gizmo_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+//                     gizmo_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+//                 }
 
-                gizmo_pass.set_pipeline(pipeline.gizmo_pipeline.as_ref().unwrap());
-                gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
-                gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
-                gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
-                gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
-            }
+//                 gizmo_pass.set_pipeline(pipeline.gizmo_pipeline.as_ref().unwrap());
+//                 gizmo_pass.set_bind_group(0, window_size_bind_group, &[]);
+//                 gizmo_pass.set_vertex_buffer(0, gizmo_vertex_buffer.slice(..));
+//                 gizmo_pass.set_vertex_buffer(1, gizmo_color_buffer.slice(..));
+//                 gizmo_pass.set_index_buffer(gizmo_index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+//                 gizmo_pass.draw_indexed(0..gizmo_draw_data.indices.len() as u32, 0, 0..1);
+//             }
 
-            // UI Render Pass
-            {
-                if let Some(ui_pipeline) = pipeline.ui_pipeline.as_ref() {
-                    let camera_binding = editor.camera_binding.as_ref().unwrap();
-                    let window_size_bind_group = pipeline
-                        .window_size_bind_group
-                        .as_ref()
-                        .expect("Couldn't get window size bind group");
+            // // UI Render Pass
+            // {
+            //     if let Some(ui_pipeline) = pipeline.ui_pipeline.as_ref() {
+            //         let camera_binding = editor.camera_binding.as_ref().unwrap();
+            //         let window_size_bind_group = pipeline
+            //             .window_size_bind_group
+            //             .as_ref()
+            //             .expect("Couldn't get window size bind group");
 
-                    let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        label: Some("UI Pass"),
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                            view: &depth_view,
-                            depth_ops: Some(wgpu::Operations {
-                                load: wgpu::LoadOp::Load,
-                                store: wgpu::StoreOp::Store,
-                            }),
-                            stencil_ops: None,
-                        }),
-                        timestamp_writes: None,
-                        occlusion_query_set: None,
-                    });
+            //         let mut ui_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            //             label: Some("UI Pass"),
+            //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            //                 view: &view,
+            //                 resolve_target: None,
+            //                 ops: wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 },
+            //                 depth_slice: None,
+            //             })],
+            //             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+            //                 view: &depth_view,
+            //                 depth_ops: Some(wgpu::Operations {
+            //                     load: wgpu::LoadOp::Load,
+            //                     store: wgpu::StoreOp::Store,
+            //                 }),
+            //                 stencil_ops: None,
+            //             }),
+            //             timestamp_writes: None,
+            //             occlusion_query_set: None,
+            //         });
 
-                    if let Some(rect) = viewport_rect {
-                        // ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                        ui_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                    }
+            //         if let Some(rect) = viewport_rect {
+            //             // ui_pass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
+            //             ui_pass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
+            //         }
 
-                    ui_pipeline.render(
-                        &mut ui_pass,
-                        editor,
-                        &camera_binding.bind_group,
-                        window_size_bind_group,
-                        queue,
-                    );
-                }
-            }
+            //         ui_pipeline.render(
+            //             &mut ui_pass,
+            //             editor,
+            //             &camera_binding.bind_group,
+            //             window_size_bind_group,
+            //             queue,
+            //         );
+            //     }
+            // }
 
             if pipeline.frame_buffer.is_some() {
                 let frame_buffer = pipeline
@@ -1172,9 +1172,9 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
                 frame_buffer.capture_frame(device, queue, texture, &mut encoder);
             }
 
-            // Update Dialogue UI
-            dialogue_ui::update_dialogue_ui(editor, device, queue);
-            quest_ui::update_quest_ui(editor, device, queue);
+            // // Update Dialogue UI
+            // dialogue_ui::update_dialogue_ui(editor, device, queue);
+            // quest_ui::update_quest_ui(editor, device, queue);
 
             let command_buffer = encoder.finish();
             queue.submit(std::iter::once(command_buffer));

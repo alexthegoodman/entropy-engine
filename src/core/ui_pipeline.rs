@@ -86,6 +86,8 @@ impl UiPipeline {
         window_size_bind_group: &'rp wgpu::BindGroup,
         queue: &wgpu::Queue,
     ) {
+        let renderer_state = editor.renderer_state.as_ref().expect("Couldn't get renderer state");
+
         render_pass.set_pipeline(&self.pipeline);
         render_pass.set_bind_group(0, camera_bind_group, &[]);
         render_pass.set_bind_group(2, window_size_bind_group, &[]);

@@ -10,11 +10,13 @@ use wgpu::{BindGroupLayout, TextureView};
 
 use crate::art_assets::ScatteredModel::ScatteredModel;
 use crate::core::AnimationState::AnimationState;
+use crate::core::HealthBar::HealthBar;
 use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::game_behaviors::stateful::BehaviorState;
+use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::{GameSettings, ScatterSettings, PhysicsConfig};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
@@ -151,6 +153,7 @@ pub struct RendererState {
     // wgpu
     pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+    pub ui_model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
     pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
     pub color_render_mode_buffer: Arc<wgpu::Buffer>,
@@ -218,6 +221,11 @@ pub struct RendererState {
 
     pub quest_state: QuestState,
     pub pending_loot_drops: Vec<(Vector3<f32>, ComponentData)>,
+
+    // pub health_bar: Option<HealthBar>,
+    // pub enemy_health_bar: Option<HealthBar>,
+    // pub crosshair: Option<Crosshair>,
+    // pub ammo_display: Option<AmmoDisplay>,
 }
 
 // impl<'a> RendererState<'a> {
@@ -230,6 +238,7 @@ impl RendererState {
         queue: &wgpu::Queue,
         model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
+        ui_model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         camera: &SimpleCamera,
         // texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
         // reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
@@ -425,7 +434,13 @@ impl RendererState {
             shift_active: false,
             ctrl_active: false,
             alt_active: false,
+            ui_model_bind_group_layout,
             pending_loot_drops: Vec::new(),
+
+            // health_bar: None,
+            // enemy_health_bar: None,
+            // crosshair: None,
+            // ammo_display: None,
         }
     }
 

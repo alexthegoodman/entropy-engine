@@ -278,7 +278,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
                 }
                 return;
             },
-            "Enter" => {
+            "e" | "Enter" => {
                  // Trigger option
                  if !state.dialogue_state.options.is_empty() {
                      let next_node = state.dialogue_state.options[state.dialogue_state.selected_option_index].next_node.clone();

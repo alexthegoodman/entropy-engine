@@ -1305,6 +1305,7 @@ impl EntropyPipeline {
             &queue, 
             model_bind_group_layout.clone(), 
             group_bind_group_layout.clone(), 
+            ui_model_bind_group_layout.clone(),
             &camera,
             texture_render_mode_buffer.clone(),
             color_render_mode_buffer,
@@ -1314,14 +1315,14 @@ impl EntropyPipeline {
             // scattered_model_pipeline,
         );
 
-        if game_mode {
+        // if game_mode {
             export_editor.health_bar = Some(HealthBar::new(
                 &device,
                 &queue,
                 &ui_model_bind_group_layout,
                 &group_bind_group_layout,
                 &camera,
-                &WindowSize { width: video_width, height: video_height },
+                &camera.viewport.window_size,
                 Point { x: 150.0, y: 50.0 }, // Top-left area
                 200.0,
                 30.0,
@@ -1334,7 +1335,7 @@ impl EntropyPipeline {
                 &ui_model_bind_group_layout,
                 &group_bind_group_layout,
                 &camera,
-                &WindowSize { width: video_width, height: video_height },
+                &camera.viewport.window_size,
                 Point { x: video_width as f32 - 150.0, y: 50.0 }, // Top-right area
                 200.0,
                 30.0,
@@ -1347,7 +1348,7 @@ impl EntropyPipeline {
                 &ui_model_bind_group_layout,
                 &group_bind_group_layout,
                 &camera,
-                &WindowSize { width: video_width, height: video_height },
+                &camera.viewport.window_size,
             ));
 
             // Load Basic font for AmmoDisplay
@@ -1360,10 +1361,10 @@ impl EntropyPipeline {
                 &ui_model_bind_group_layout,
                 &group_bind_group_layout,
                 &camera,
-                &WindowSize { width: video_width, height: video_height },
+                &camera.viewport.window_size,
                 font_bytes,
             ));
-        }
+        // }
 
         let mut grids = Vec::new();
 
@@ -1693,6 +1694,7 @@ impl EntropyPipeline {
 
             // resize ui elements
             let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+            let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get editor");
             // if editor.viewport_tab_rect.is_none() {
                 let window_size = WindowSize { width: new_size.width, height: new_size.height };
 
