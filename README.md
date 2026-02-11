@@ -77,7 +77,7 @@ The default addon bundle is automatically loaded in for all users without any ne
 - Interactive, windy, hair particles (grass)
 - Deferred rendering / lighting
 - PBR Materials and Creation
-- Water Planes
+- FFT Water Planes
 - Quadtree landscapes with texture maps
 - Skybox Pipeline
 - Point lighting
