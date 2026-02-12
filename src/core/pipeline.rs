@@ -143,6 +143,7 @@ pub struct EntropyPipeline {
     pub current_workspace: Workspace,
     pub show_central_chat_overlay: bool,
     pub show_addon_manager: bool,
+    pub focus_mode: bool,
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
@@ -233,6 +234,7 @@ impl EntropyPipeline {
             current_workspace: Workspace::GameEngine,
             show_central_chat_overlay: false,
             show_addon_manager: false,
+            focus_mode: false,
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
@@ -1917,6 +1919,14 @@ impl EntropyPipeline {
     }
     
     fn ui(&mut self, gui: &mut Gui) {
+        // egui::TopBottomPanel::top("power_bar").resizable(false)
+        //     .default_width(48.0)
+        //     .show(ctx, |ui| {
+        //         ui.vertical_centered(|ui| {
+        //             ui.add_space(6.0);
+        //         });
+        //     });
+
         render_egui(self, gui);
     }
 }

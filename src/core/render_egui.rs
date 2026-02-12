@@ -141,6 +141,12 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                             if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
                                 pipeline.show_addon_manager = !pipeline.show_addon_manager;
                             }
+                            ui.add_space(6.0);
+                            ui.separator();
+                            ui.add_space(6.0);
+                            if ui.selectable_label(pipeline.focus_mode, "F").on_hover_text("Focus Mode").clicked() {
+                                pipeline.focus_mode = !pipeline.focus_mode;
+                            }
                         });
                     });
 
@@ -229,8 +235,11 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                     ds
                                 });
                                 let surface = dock_state.main_surface_mut();
-                                surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
-                                surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
+
+                                if !pipeline.focus_mode {
+                                    surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                                    surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                                }
                             }
 
                             let pending_scripts = std::mem::take(&mut editor.pending_script_tabs);

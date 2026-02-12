@@ -78,6 +78,10 @@ const sourceAddons = [
     "GPGPU River Simulation"
 ];
 
+const gameAddons = [
+    "The Fractured Realm"
+];
+
 function refreshScene() {
     // Use context override so everything spawned belongs to "Game Composer" bucket in Rust
     (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
@@ -225,6 +229,28 @@ addon.onInit(async () => {
                     }
                  }
              });
+
+             // in liue of a register system dedicated to the composer
+            // actually, registerGame, then let the user seslect one to restore, bingo
+            gameAddons.forEach((addon) => {
+                Entropy.UI.Widget.button(tab, {
+                    text: "🔄 Add Game: " + addon,
+                    onClick: () => {    
+                        (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+
+                        Entropy.println("Adding game: " + addon);
+
+                        const renderer = Entropy.Composer?.getGame(addon);
+
+                        if (renderer) {
+                            Entropy.println("Game Composer Game render ... ");
+                            renderer(addon, {});
+                        }
+
+                        (globalThis as any).__entropy_current_addon_context_override = null;
+                    }
+                });
+            });
 
              Entropy.UI.Widget.separator(tab);
 

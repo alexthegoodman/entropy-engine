@@ -957,6 +957,7 @@ globalThis.Entropy.Composite = {
 globalThis.Entropy.Composer = {
     editors: {},
     renderers: {}, // addonName -> renderFn(id, params)
+    games: {}, // addonName -> renderFn(id, params)
     textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
     components: {}, // addonName -> { componentId -> { name, params } }
     initCallbacks: {}, // addonName -> initCallback()
@@ -984,6 +985,12 @@ globalThis.Entropy.Composer = {
     },
     getTextureGenerator: (addonName) => {
         return globalThis.Entropy.Composer.textureGenerators[addonName];
+    },
+    getGame: (gameName) => {
+        return globalThis.Entropy.Composer.games[gameName];
+    },
+    registerGame: (gameName, renderFn) => {
+        globalThis.Entropy.Composer.games[gameName] = renderFn;
     },
     registerComponent: (addonName, componentId, name, params) => {
         if (!globalThis.Entropy.Composer.components[addonName]) {

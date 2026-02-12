@@ -1031,7 +1031,7 @@ class EnvironmentDecorator {
             const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
             const y = addon.Landscape.getHeightAt(x, z);
-            const scale = 0.8 + Math.random() * 0.4; // Vary tree sizes
+            const scale = 2.8 + Math.random() * 0.4; // Vary tree sizes
             
             addon.Model.load({
                 path: "Tree1b.glb",
@@ -1063,7 +1063,7 @@ class EnvironmentDecorator {
                 path: Math.random() > 0.5 ? "Foliage1.glb" : "Plant_02_Art.glb",
                 position: [x, y, z],
                 rotation: [0, rotation, 0],
-                scale: [0.5 + Math.random() * 0.5, 0.5 + Math.random() * 0.5, 0.5 + Math.random() * 0.5]
+                scale: [1.5 + Math.random() * 0.5, 1.5 + Math.random() * 0.5, 1.5 + Math.random() * 0.5]
             });
         }
         Entropy.println(`[Environment] Spawned ${count} foliage patches`);
@@ -1274,7 +1274,7 @@ Entropy.onGameStarted(() => {
     Entropy.println("=== THE FRACTURED REALM ===");
 
     gameState.isGameActive = true;
-    worldManager.initialize();
+    // worldManager.initialize();
     
     Entropy.println("Choose your path wisely. Every action has consequences.");
 
@@ -1369,6 +1369,15 @@ addon.onInit(() => {
             }
         }
     });
+
+    if (Entropy.Composer) {
+        // Entropy.Composer.registerEditor("Hair Particles with Ornaments", renderHairUI);
+        if (Entropy.Composer.registerGame) {
+            Entropy.Composer.registerGame(addonInfo.name, (id: string, params: any) => {                
+                worldManager.initialize();
+            });
+        }
+    }
 
     Entropy.println("⚔️ THE FRACTURED REALM initialized");
 });

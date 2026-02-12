@@ -524,6 +524,8 @@ export interface EntropyAPI {
       getEditor: (addonName: string) => ((windowId: string) => void) | undefined;
       registerRenderer: (addonName: string, renderFn: (id: string, params: any) => void) => void;
       getRenderer: (addonName: string) => ((id: string, params: any) => void) | undefined;
+      registerGame: (gameName: string, renderFn: (id: string, params: any) => void) => void;
+      getGame: (gameName: string) => ((id: string, params: any) => void) | undefined;
       registerTextureGenerator: (addonName: string, generatorFn: (id: string, params: any, res: number) => { diffId: string, norId: string, armId: string }) => void;
       getTextureGenerator: (addonName: string) => ((id: string, params: any, res: number) => { diffId: string, norId: string, armId: string }) | undefined;
       registerComponent: (addonName: string, componentId: string, name: string, params: any) => void;
