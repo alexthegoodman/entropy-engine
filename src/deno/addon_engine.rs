@@ -441,6 +441,7 @@ pub struct AddonContext {
     pub camera_proj: mint::ColumnMatrix4<f32>,
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
+    pub model_cache: HashMap<String, Vec<u8>>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
     pub input_events: Vec<InputEvent>,
@@ -2872,6 +2873,7 @@ impl AddonEngine {
             camera_proj: ColumnMatrix4::from([1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
             composite_pipelines: HashMap::new(),
             composites: Vec::new(),
+            model_cache: HashMap::new(),
             registered_tools: HashMap::new(),
             op_addon_on_all_projects_loaded_callbacks: Vec::new(),
             egui_textures: HashMap::new(),
@@ -3775,9 +3777,20 @@ impl AddonEngine {
                     let scale_val = config.scale.unwrap_or([1.0, 1.0, 1.0]);
                     let scale = Vector3::new(scale_val[0], scale_val[1], scale_val[2]);
 
-                    println!("Reading in model: {:?}", config.path);
-
-                    let bytes = crate::art_assets::Model::read_model(project_id, config.path).expect("Couldn't get model bytes");
+                    let bytes = {
+                        let mut op_state = self.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        let ctx = op_state.try_borrow_mut::<AddonContext>().expect("Failed to borrow AddonContext");
+                        
+                        if let Some(cached_bytes) = ctx.model_cache.get(&config.path) {
+                            cached_bytes.clone()
+                        } else {
+                            println!("Reading in model: {:?}", config.path);
+                            let bytes = crate::art_assets::Model::read_model(project_id.clone(), config.path.clone()).expect("Couldn't get model bytes");
+                            ctx.model_cache.insert(config.path.clone(), bytes.clone());
+                            bytes
+                        }
+                    };
 
                     renderer_state.add_addon_model(
                         &addon_name,
