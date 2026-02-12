@@ -4,7 +4,7 @@ import type { PBRMaterialType } from './addon';
 
 const addonInfo = {
     name: "FlexNoise Terrain",
-    version: "3.2.0",
+    version: "1.2.0",
     description: "Highly customizable procedural terrain using simplex-noise and alea",
     author: ["Entropy Team"],
     capabilities: {

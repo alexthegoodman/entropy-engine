@@ -199,6 +199,13 @@ export abstract class ComponentAddon<TParams = any> extends EntropyAddon<{
         if (data) {
             if (data.savedComponents) this.state.savedComponents = data.savedComponents;
             if (data.activeComponentId) this.state.activeComponentId = data.activeComponentId;
+
+            if (Entropy.Composer) {
+              data.savedComponents.forEach((comp: any) => {
+                  Entropy.Composer!.registerComponent(this.name, comp.id, comp.name, comp.params);
+              });
+            }
+
             return true;
         }
         return false;

@@ -98,7 +98,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     constructor() {
         super({
             name: "FlexNoise Terrain",
-            version: "3.4.0",
+            version: "2.4.0",
             description: "Highly customizable procedural terrain with paintable paths",
             author: ["Entropy Team"],
             capabilities: { graphics: true, ui: true }
@@ -693,7 +693,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                 label: "Path Width",
                 value: selectedPath.width,
                 min: 1,
-                max: 50,
+                max: 25,
                 onChange: (v) => {
                     selectedPath.width = parseFloat(v);
                     this.generateTerrain(this.currentParams, this.state.activeComponentId);
@@ -701,10 +701,10 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
             });
 
             Entropy.UI.Widget.slider(tab, {
-                label: "Smoothness",
+                label: "Smoothness (Radius)",
                 value: selectedPath.smoothness,
                 min: 0,
-                max: 10,
+                max: 100,
                 onChange: (v) => {
                     selectedPath.smoothness = parseFloat(v);
                     this.generateTerrain(this.currentParams, this.state.activeComponentId);
