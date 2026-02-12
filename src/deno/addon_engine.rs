@@ -427,6 +427,7 @@ pub struct AddonContext {
     pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
     pub landscape_heights: Option<Arc<nalgebra::DMatrix<f32>>>,
     pub landscape_position: [f32; 3],
+    pub landscape_config: Option<[f32; 3]>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
@@ -1418,7 +1419,8 @@ fn op_dialogue_get_node(state: &mut OpState) -> String {
 fn op_landscape_get_height(state: &mut OpState, x: f32, z: f32) -> f32 {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         if let Some(heights) = &ctx.landscape_heights {
-            let square_size = 1024.0 * 4.0;
+            if let Some(sizing) = &ctx.landscape_config {
+            let square_size = sizing[0]; // x/z
             let num_cols = heights.ncols();
             let num_rows = heights.nrows();
 
@@ -1457,6 +1459,7 @@ fn op_landscape_get_height(state: &mut OpState, x: f32, z: f32) -> f32 {
             let final_height = h_top * (1.0 - tz) + h_bottom * tz;
             
             return final_height + ctx.landscape_position[1];
+        }
         }
     }
     0.0
@@ -2842,6 +2845,7 @@ impl AddonEngine {
             landscape_texture_view: None,
             landscape_heights: None,
             landscape_position: [0.0, 0.0, 0.0],
+            landscape_config: None,
             addon_textures: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
@@ -3470,6 +3474,7 @@ impl AddonEngine {
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
                     rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+                    // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
                 }
             } 
             // Apply to Player
@@ -3478,6 +3483,7 @@ impl AddonEngine {
                     if let Some(rb_handle) = player.movement_rigid_body_handle {
                         if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
                             rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+                            // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
                         }
                     }
                 }
@@ -3890,6 +3896,14 @@ impl AddonEngine {
                                     heights = Some(generated_heights);
                                 }
                             }
+                        }
+                    }
+
+                    {
+                        let mut op_state = self.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                            ctx.landscape_config = Some([config.size as f32, config.scale as f32, config.size as f32]);
                         }
                     }
 
