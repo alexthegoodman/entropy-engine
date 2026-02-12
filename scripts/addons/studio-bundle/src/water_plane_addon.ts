@@ -390,15 +390,17 @@ let waterParams: any = {
     pipelineId: null as string | null
 };
 
-let addonState: {
-    currentParams: typeof waterParams,
-    savedComponents: { id: string, name: string, params: typeof waterParams }[],
-    activeComponentId: string | null
-} = {
-    currentParams: { ...waterParams },
-    savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+let addonState = {
+    savedComponents: [
+        { id: Entropy.generateUUID(), name: "Default Water", params: JSON.parse(JSON.stringify(waterParams)) }
+    ] as { id: string, name: string, params: typeof waterParams }[],
+    activeComponentId: "",
+    get currentParams(): typeof waterParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    }
 };
+addonState.activeComponentId = addonState.savedComponents[0].id;
 
 let newComponentName = "New Water Component";
 
@@ -521,7 +523,6 @@ addon.onInit(async () => {
             Entropy.UI.Widget.button(tab, {
                 text: `📂 Load & Render: ${comp.name}`,
                 onClick: () => {
-                    addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
                     addonState.activeComponentId = comp.id;
                     updateWater(addonState.currentParams, comp.id);
                 }
@@ -572,8 +573,9 @@ addon.onInit(async () => {
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            addonState = { ...addonState, ...data };
-            updateWater(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            if (data.savedComponents) addonState.savedComponents = data.savedComponents;
+            if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
+            updateWater(addonState.currentParams, addonState.activeComponentId);
         }
     });
 

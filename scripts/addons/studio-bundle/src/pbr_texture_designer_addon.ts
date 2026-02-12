@@ -153,15 +153,25 @@ let texParams = {
     pipelineId: null as string | null
 };
 
-let addonState: {
-    currentParams: typeof texParams,
-    savedComponents: { id: string, name: string, params: typeof texParams }[],
-    activeComponentId: string | null
-} = {
-    currentParams: { ...texParams },
-    savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+let addonState = {
+    savedComponents: [
+        { id: Entropy.generateUUID(), name: "Default Texture", params: JSON.parse(JSON.stringify(texParams)) }
+    ] as { id: string, name: string, params: typeof texParams }[],
+    activeComponentId: "",
+    get currentParams(): typeof texParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    },
+    set currentParams(val: typeof texParams) {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        if (found) {
+            found.params = val;
+        } else {
+            this.savedComponents[0].params = val;
+        }
+    }
 };
+addonState.activeComponentId = addonState.savedComponents[0].id;
 
 let newComponentName = "New Texture Component";
 
@@ -568,7 +578,6 @@ addon.onInit(async () => {
         }});
         addonState.savedComponents.forEach(comp => {
             Entropy.UI.Widget.button(tab, { text: `📂 Load & Render: ${comp.name}`, onClick: () => {
-                addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
                 addonState.activeComponentId = comp.id;
                 updatePreview(addonState.currentParams, comp.id);
             }});
@@ -653,7 +662,8 @@ addon.onInit(async () => {
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            addonState = { ...addonState, ...data };
+            if (data.savedComponents) addonState.savedComponents = data.savedComponents;
+            if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
 
             // Register components with the composer
             if (Entropy.Composer) {
@@ -662,7 +672,7 @@ addon.onInit(async () => {
                 });
             }
 
-            updatePreview(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            updatePreview(addonState.currentParams, addonState.activeComponentId);
         }
     });
 

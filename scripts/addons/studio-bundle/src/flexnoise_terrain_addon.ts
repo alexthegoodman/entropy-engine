@@ -42,15 +42,25 @@ let terrainParams = {
     }
 };
 
-let addonState: {
-    currentParams: typeof terrainParams,
-    savedComponents: { id: string, name: string, params: typeof terrainParams }[],
-    activeComponentId: string | null
-} = {
-    currentParams: { ...terrainParams },
-    savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+let addonState = {
+    savedComponents: [
+        { id: Entropy.generateUUID(), name: "Default Terrain", params: JSON.parse(JSON.stringify(terrainParams)) }
+    ] as { id: string, name: string, params: typeof terrainParams }[],
+    activeComponentId: "",
+    get currentParams(): typeof terrainParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    },
+    set currentParams(val: typeof terrainParams) {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        if (found) {
+            found.params = val;
+        } else {
+            this.savedComponents[0].params = val;
+        }
+    }
 };
+addonState.activeComponentId = addonState.savedComponents[0].id;
 
 let newComponentName = "New Terrain Component";
 
@@ -417,12 +427,11 @@ addon.onInit(async () => {
             Entropy.UI.Widget.button(tab, {
                 text: `📂 Load & Render: ${comp.name}`,
                 onClick: () => {
-                    addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
+                    addonState.activeComponentId = comp.id;
                     // Ensure textureLayers exists on load
                     if (!addonState.currentParams.textureLayers) {
                         addonState.currentParams.textureLayers = { "Primary": null, "Rockmap": null, "Soil": null };
                     }
-                    addonState.activeComponentId = comp.id;
                     generateTerrain(addonState.currentParams, comp.id);
                 }
             });
@@ -696,7 +705,8 @@ addon.onInit(async () => {
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            addonState = { ...addonState, ...data };
+            if (data.savedComponents) addonState.savedComponents = data.savedComponents;
+            if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
 
             // Register components with the composer
             if (Entropy.Composer) {
@@ -705,7 +715,7 @@ addon.onInit(async () => {
                 });
             }
 
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
+            generateTerrain(addonState.currentParams, addonState.activeComponentId);
 
             restoreLayerTextures("FlexNoise Terrain", addonState.currentParams);
             restoreLayerTextures("Game Composer", addonState.currentParams);

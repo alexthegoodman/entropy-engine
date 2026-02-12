@@ -20,16 +20,23 @@ interface LightParams {
     maxDistance: number;
 }
 
-let lightState: {
-    currentParams: LightParams;
-    savedComponents: { id: string, name: string, params: LightParams }[];
-} = {
-    currentParams: {
-        color: [1.0, 1.0, 1.0],
-        intensity: 5.0,
-        maxDistance: 50.0
-    },
-    savedComponents: []
+let lightState = {
+    savedComponents: [
+        { 
+            id: "basic_light", 
+            name: "Basic Point Light", 
+            params: {
+                color: [1.0, 1.0, 1.0],
+                intensity: 5.0,
+                maxDistance: 50.0
+            } as LightParams
+        }
+    ],
+    activeComponentId: "basic_light",
+    get currentParams(): LightParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    }
 };
 
 // Track camera position for "Spawn at Camera"
@@ -157,7 +164,8 @@ addon.onInit(async () => {
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            lightState = { ...lightState, ...data };
+            if (data.savedComponents) lightState.savedComponents = data.savedComponents;
+            if (data.activeComponentId) lightState.activeComponentId = data.activeComponentId;
 
             // Register components with the composer
             if (Entropy.Composer) {
@@ -205,7 +213,7 @@ addon.onInit(async () => {
                     Entropy.UI.Widget.button(tab, {
                         text: `📂 Load ${comp.name}`,
                         onClick: () => {
-                            lightState.currentParams = JSON.parse(JSON.stringify(comp.params));
+                            lightState.activeComponentId = comp.id;
                             refreshPreview();
                         }
                     });

@@ -20,15 +20,17 @@ let terrainParams = {
     usePBR: true
 };
 
-let addonState: {
-    currentParams: typeof terrainParams,
-    savedComponents: { id: string, name: string, params: typeof terrainParams }[],
-    activeComponentId: string | null
-} = {
-    currentParams: { ...terrainParams },
-    savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+let addonState = {
+    savedComponents: [
+        { id: Entropy.generateUUID(), name: "Default Terrain", params: JSON.parse(JSON.stringify(terrainParams)) }
+    ] as { id: string, name: string, params: typeof terrainParams }[],
+    activeComponentId: "",
+    get currentParams(): typeof terrainParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    }
 };
+addonState.activeComponentId = addonState.savedComponents[0].id;
 
 let newComponentName = "New Rust Terrain Component";
 
@@ -107,7 +109,6 @@ const renderTerrainUI = (windowId: string) => {
         Entropy.UI.Widget.button(windowId, {
             text: `📂 Load & Render: ${comp.name}`,
             onClick: () => {
-                addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
                 addonState.activeComponentId = comp.id;
                 generateTerrain(addonState.currentParams, comp.id);
             }

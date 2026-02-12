@@ -35,7 +35,21 @@ interface VolumetricConfig {
 
 class VolumetricFX {
   private api: ScopedAPI;
-  public config: VolumetricConfig; // changed to public for tool access
+  private _config: VolumetricConfig;
+  
+  public get config(): VolumetricConfig {
+    const comp = this.savedComponents.find(c => c.id === this.activeComponentId);
+    return comp ? comp.config : this._config;
+  }
+
+  public set config(val: VolumetricConfig) {
+    const comp = this.savedComponents.find(c => c.id === this.activeComponentId);
+    if (comp) {
+        comp.config = val;
+    } else {
+        this._config = val;
+    }
+  }
   
   private noise3D = createNoise3D();
   private noise4D = createNoise4D();
@@ -786,7 +800,6 @@ class VolumetricFX {
         Entropy.UI.Widget.button(this.tabId!, {
             text: `📂 Load: ${comp.name}`,
             onClick: () => {
-                this.config = JSON.parse(JSON.stringify(comp.config));
                 this.activeComponentId = comp.id;
                 this.saveConfig();
             }

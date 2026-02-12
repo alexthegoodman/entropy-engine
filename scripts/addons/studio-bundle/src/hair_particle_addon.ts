@@ -64,15 +64,25 @@ let hairParams: any = {
     ornamentInertia: 0.7
 };
 
-let addonState: {
-    currentParams: typeof hairParams,
-    savedComponents: { id: string, name: string, params: typeof hairParams }[],
-    activeComponentId: string | null
-} = {
-    currentParams: { ...hairParams },
-    savedComponents: [],
-    activeComponentId: Entropy.generateUUID()
+let addonState = {
+    savedComponents: [
+        { id: Entropy.generateUUID(), name: "Default Hair", params: JSON.parse(JSON.stringify(hairParams)) }
+    ] as { id: string, name: string, params: typeof hairParams }[],
+    activeComponentId: "",
+    get currentParams(): typeof hairParams {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        return found ? found.params : this.savedComponents[0].params;
+    },
+    set currentParams(val: typeof hairParams) {
+        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
+        if (found) {
+            found.params = val;
+        } else {
+            this.savedComponents[0].params = val;
+        }
+    }
 };
+addonState.activeComponentId = addonState.savedComponents[0].id;
 
 let newComponentName = "New Hair Component";
 
@@ -1125,7 +1135,6 @@ addon.onInit(async () => {
             Entropy.UI.Widget.button(tab, {
                 text: `📂 Load & Render: ${comp.name}`,
                 onClick: () => {
-                    addonState.currentParams = JSON.parse(JSON.stringify(comp.params));
                     addonState.activeComponentId = comp.id;
                     updateHair(addonState.currentParams, comp.id);
                     updateOrnaments(addonState.currentParams, comp.id);
@@ -1840,10 +1849,9 @@ addon.onInit(async () => {
     addon.onProjectChanged((newProjectId) => {
         const data = addon.IO.load();
         if (data) {
-            addonState = { ...addonState, ...data };
+            if (data.savedComponents) addonState.savedComponents = data.savedComponents;
+            if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
         }
-        // updateHair({ ...addonState.currentParams, pipelineId: customPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
-        // updateOrnaments({ ...addonState.currentParams, pipelineId: ornamentPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
     });
 
     // if (Entropy.Composer) {
