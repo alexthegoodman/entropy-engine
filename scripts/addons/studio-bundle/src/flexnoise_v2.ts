@@ -17,6 +17,7 @@ interface PathConfig {
     smoothness: number;
     flattenStrength: number;
     blend: number;
+    color?: [number, number, number, number]; // For minimap visualization
 }
 
 interface TerrainParams {
@@ -76,14 +77,29 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         selectedSlot: "Rockmap" as "Primary" | "Rockmap" | "Soil",
         selectedTextureCompId: "",
         selectedPathId: "",
-        newPathName: "New Path"
+        newPathName: "New Path",
+        paintingMode: false,
+        currentPaintPath: null as PathConfig | null,
+        lastPaintTime: 0,
+        paintDebounceMs: 100, // Configurable debounce
+        pendingRegenerateFrames: 0 // Frame counter for debouncing
     };
+
+    // Path color palette
+    private pathColors = [
+        [1.0, 0.3, 0.3, 1.0], // Red
+        [0.3, 0.6, 1.0, 1.0], // Blue
+        [0.3, 1.0, 0.3, 1.0], // Green
+        [1.0, 0.8, 0.2, 1.0], // Yellow
+        [1.0, 0.5, 0.0, 1.0], // Orange
+        [0.8, 0.3, 1.0, 1.0], // Purple
+    ];
 
     constructor() {
         super({
             name: "FlexNoise Terrain",
-            version: "3.3.0",
-            description: "Highly customizable procedural terrain with paths using simplex-noise and alea",
+            version: "3.4.0",
+            description: "Highly customizable procedural terrain with paintable paths",
             author: ["Entropy Team"],
             capabilities: { graphics: true, ui: true }
         });
@@ -95,18 +111,22 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         this.setupUI();
         this.setupProjectHandlers();
         this.setupLighting();
+        this.setupUpdateLoop();
     }
 
     // ==================== PATH SYSTEM ====================
 
     private createPath(points: PathPoint[], width: number = 5, smoothness: number = 2, flattenStrength: number = 0.8, blend: number = 2): PathConfig {
+        // Assign a color from the palette
+        const colorIndex = this.currentParams.paths.length % this.pathColors.length;
         return {
             id: Entropy.generateUUID(),
             points,
             width,
             smoothness,
             flattenStrength,
-            blend
+            blend,
+            color: this.pathColors[colorIndex] as [number, number, number, number]
         };
     }
 
@@ -115,18 +135,15 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
 
         let minDist = Infinity;
 
-        // Check distance to all path segments
         for (let i = 0; i < path.points.length - 1; i++) {
             const p1 = path.points[i];
             const p2 = path.points[i + 1];
 
-            // Convert normalized coordinates to terrain coordinates
             const x1 = p1.x * terrainWidth;
             const z1 = p1.z * terrainHeight;
             const x2 = p2.x * terrainWidth;
             const z2 = p2.z * terrainHeight;
 
-            // Distance to line segment
             const dx = x2 - x1;
             const dz = z2 - z1;
             const lenSq = dx * dx + dz * dz;
@@ -143,9 +160,8 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
             minDist = Math.min(minDist, dist);
         }
 
-        // Smooth falloff based on distance
         const influence = Math.max(0, 1 - (minDist / path.width));
-        return Math.pow(influence, path.blend); // Smooth blend
+        return Math.pow(influence, path.blend);
     }
 
     private applyPathsToHeights(heights: number[], terrainWidth: number, terrainHeight: number, paths: PathConfig[]): number[] {
@@ -158,14 +174,12 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                 const idx = y * terrainWidth + x;
                 const originalHeight = heights[idx];
 
-                // Get combined influence from all paths
                 let totalInfluence = 0;
                 let targetHeight = 0;
 
                 paths.forEach(path => {
                     const influence = this.getPathInfluence(x, y, path, terrainWidth, terrainHeight);
                     if (influence > 0) {
-                        // Sample nearby heights for smooth flattening
                         const localHeight = this.getAverageHeightAround(heights, x, y, terrainWidth, terrainHeight, path.smoothness);
                         targetHeight += localHeight * influence * path.flattenStrength;
                         totalInfluence += influence;
@@ -173,7 +187,6 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                 });
 
                 if (totalInfluence > 0) {
-                    // Blend between original and flattened
                     const flattenedHeight = targetHeight / totalInfluence;
                     modifiedHeights[idx] = originalHeight * (1 - totalInfluence) + flattenedHeight * totalInfluence;
                 }
@@ -200,6 +213,150 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         }
 
         return count > 0 ? sum / count : 0;
+    }
+
+    // ==================== PATH PAINTING ====================
+
+    private startPathPainting(): void {
+        this.interopState.paintingMode = true;
+        const path = this.createPath([], 8, 3, 0.9, 2);
+        this.interopState.currentPaintPath = path;
+        Entropy.println("🎨 Path painting started! Click on minimap to draw path.");
+    }
+
+    private stopPathPainting(): void {
+        if (this.interopState.currentPaintPath && this.interopState.currentPaintPath.points.length >= 2) {
+            this.currentParams.paths.push(this.interopState.currentPaintPath);
+            this.interopState.selectedPathId = this.interopState.currentPaintPath.id;
+            Entropy.println(`✓ Path saved with ${this.interopState.currentPaintPath.points.length} points`);
+            
+            // Final regeneration
+            this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            this.saveToProject();
+        } else {
+            Entropy.println("⚠️ Path cancelled (needs at least 2 points)");
+        }
+        
+        this.interopState.paintingMode = false;
+        this.interopState.currentPaintPath = null;
+    }
+
+    private addPointToCurrentPath(x: number, y: number): void {
+        if (!this.interopState.currentPaintPath) return;
+
+        // Add point in normalized coordinates
+        this.interopState.currentPaintPath.points.push({ x, z: y });
+        
+        // Schedule debounced regeneration
+        this.interopState.pendingRegenerateFrames = Math.floor(this.interopState.paintDebounceMs / 16); // ~16ms per frame
+    }
+
+    private simplifyPath(path: PathConfig, tolerance: number = 0.02): void {
+        // Douglas-Peucker algorithm for path simplification
+        if (path.points.length <= 2) return;
+
+        const simplified = this.douglasPeucker(path.points, tolerance);
+        path.points = simplified;
+    }
+
+    private douglasPeucker(points: PathPoint[], tolerance: number): PathPoint[] {
+        if (points.length <= 2) return points;
+
+        let maxDist = 0;
+        let maxIndex = 0;
+        const end = points.length - 1;
+
+        for (let i = 1; i < end; i++) {
+            const dist = this.perpendicularDistance(points[i], points[0], points[end]);
+            if (dist > maxDist) {
+                maxDist = dist;
+                maxIndex = i;
+            }
+        }
+
+        if (maxDist > tolerance) {
+            const left = this.douglasPeucker(points.slice(0, maxIndex + 1), tolerance);
+            const right = this.douglasPeucker(points.slice(maxIndex), tolerance);
+            return [...left.slice(0, -1), ...right];
+        } else {
+            return [points[0], points[end]];
+        }
+    }
+
+    private perpendicularDistance(point: PathPoint, lineStart: PathPoint, lineEnd: PathPoint): number {
+        const dx = lineEnd.x - lineStart.x;
+        const dz = lineEnd.z - lineStart.z;
+        const lenSq = dx * dx + dz * dz;
+        
+        if (lenSq === 0) {
+            return Math.sqrt((point.x - lineStart.x) ** 2 + (point.z - lineStart.z) ** 2);
+        }
+
+        const t = ((point.x - lineStart.x) * dx + (point.z - lineStart.z) * dz) / lenSq;
+        const clampedT = Math.max(0, Math.min(1, t));
+        
+        const projX = lineStart.x + clampedT * dx;
+        const projZ = lineStart.z + clampedT * dz;
+        
+        return Math.sqrt((point.x - projX) ** 2 + (point.z - projZ) ** 2);
+    }
+
+    // ==================== MINIMAP VISUALIZATION ====================
+
+    private getMinimapMarkers() {
+        const markers: any[] = [];
+
+        // Add markers for all path points
+        this.currentParams.paths.forEach(path => {
+            const isSelected = path.id === this.interopState.selectedPathId;
+            path.points.forEach((point, idx) => {
+                markers.push({
+                    position: [point.x, point.z],
+                    color: isSelected ? [1, 1, 0, 1] : path.color || [0.5, 0.5, 0.5, 0.8],
+                    label: isSelected ? `P${idx}` : undefined
+                });
+            });
+        });
+
+        // Add markers for current painting path
+        if (this.interopState.currentPaintPath) {
+            this.interopState.currentPaintPath.points.forEach((point, idx) => {
+                markers.push({
+                    position: [point.x, point.z],
+                    color: [1, 0.5, 0, 1], // Orange for active painting
+                    label: `${idx}`
+                });
+            });
+        }
+
+        return markers;
+    }
+
+    private getMinimapPolylines() {
+        const polylines: any[] = [];
+
+        // Add polylines for all paths
+        this.currentParams.paths.forEach(path => {
+            if (path.points.length >= 2) {
+                const isSelected = path.id === this.interopState.selectedPathId;
+                polylines.push({
+                    points: path.points.map(p => [p.x, p.z]),
+                    color: isSelected ? [1, 1, 0, 1] : path.color || [0.5, 0.5, 0.5, 0.8],
+                    width: isSelected ? 3 : 2
+                });
+            }
+        });
+
+        // Add polyline for current painting path
+        if (this.interopState.currentPaintPath && this.interopState.currentPaintPath.points.length >= 2) {
+            polylines.push({
+                points: this.interopState.currentPaintPath.points.map(p => [p.x, p.z]),
+                color: [1, 0.5, 0, 1],
+                width: 3
+            });
+        }
+
+        return polylines;
     }
 
     // ==================== TERRAIN GENERATION ====================
@@ -360,7 +517,6 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
             }
         }
 
-        // Apply paths to flatten terrain
         const modifiedHeights = this.applyPathsToHeights(heights, params.width, params.height, params.paths);
         
         let pipelineId = "default";
@@ -403,33 +559,42 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         this.restoreLayerTextures("Game Composer", params);
     }
 
+    // ==================== UPDATE LOOP ====================
+
+    private setupUpdateLoop(): void {
+        this.api.onUpdate((time, pos, dir) => {
+            // Handle debounced regeneration
+            if (this.interopState.pendingRegenerateFrames > 0) {
+                this.interopState.pendingRegenerateFrames--;
+                if (this.interopState.pendingRegenerateFrames === 0) {
+                    // Include current painting path for preview
+                    const previewParams = { ...this.currentParams };
+                    if (this.interopState.currentPaintPath && this.interopState.currentPaintPath.points.length >= 2) {
+                        previewParams.paths = [...this.currentParams.paths, this.interopState.currentPaintPath];
+                    }
+                    this.generateTerrain(previewParams, this.state.activeComponentId);
+                }
+            }
+        });
+    }
+
     // ==================== UI SETUP ====================
 
     private setupUI(): void {
         const renderUI = (tab: string) => {
             Entropy.Addon.setVisibility(this.name, true);
             
-            // Header
             Entropy.UI.Widget.label(tab, { text: "⛰️ FlexNoise Terrain Settings", bold: true });
             
-            // Component Management (from ComponentAddon)
             this.renderComponentUI(tab, () => {
                 this.generateTerrain(this.currentParams, this.state.activeComponentId);
             });
 
-            // Path Management
             this.renderPathUI(tab);
-
-            // Terrain Parameters
             this.renderTerrainParamsUI(tab);
-
-            // Texture Interop
             this.renderTextureInteropUI(tab);
-
-            // Presets
             this.renderPresetsUI(tab);
 
-            // Save Button
             Entropy.UI.Widget.button(tab, {
                 text: "💾 Save All to Project",
                 onClick: () => {
@@ -457,8 +622,57 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     private renderPathUI(tab: string): void {
         Entropy.UI.Widget.label(tab, { text: "🛤️ Procedural Paths", bold: true });
 
+        // Paint mode toggle
+        Entropy.UI.Widget.button(tab, {
+            text: this.interopState.paintingMode ? "✓ Finish Path Painting" : "🎨 Start Path Painting",
+            onClick: () => {
+                if (this.interopState.paintingMode) {
+                    this.stopPathPainting();
+                } else {
+                    this.startPathPainting();
+                }
+            }
+        });
+
+        if (this.interopState.paintingMode) {
+            Entropy.UI.Widget.label(tab, { 
+                text: `Drawing... (${this.interopState.currentPaintPath?.points.length || 0} points)` 
+            });
+            
+            Entropy.UI.Widget.button(tab, {
+                text: "❌ Cancel",
+                onClick: () => {
+                    this.interopState.paintingMode = false;
+                    this.interopState.currentPaintPath = null;
+                }
+            });
+        }
+
+        Entropy.UI.Widget.separator(tab);
+
+        // Minimap with path visualization
+        Entropy.UI.Widget.miniMap(tab, {
+            landscapeId: "Global",
+            brushSize: this.currentParams.brushSize,
+            markers: this.getMinimapMarkers(),
+            polylines: this.getMinimapPolylines(), // NEW: Polyline support needed
+            onDraw: (x, y, brushSize) => {
+                if (this.interopState.paintingMode) {
+                    this.addPointToCurrentPath(x, y);
+                }
+            },
+            onClick: (x, y) => { // NEW: Single click support needed
+                if (this.interopState.paintingMode) {
+                    this.addPointToCurrentPath(x, y);
+                }
+            }
+        });
+
+        Entropy.UI.Widget.separator(tab);
+
         // Path list
         if (this.currentParams.paths.length > 0) {
+            Entropy.UI.Widget.label(tab, { text: "Saved Paths:", bold: true });
             this.currentParams.paths.forEach((path, idx) => {
                 Entropy.UI.Widget.button(tab, {
                     text: `${this.interopState.selectedPathId === path.id ? "✓ " : ""}Path ${idx + 1} (${path.points.length} pts)`,
@@ -467,8 +681,6 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                     }
                 });
             });
-        } else {
-            Entropy.UI.Widget.label(tab, { text: "(No paths created yet)" });
         }
 
         // Selected path controls
@@ -522,6 +734,15 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
             });
 
             Entropy.UI.Widget.button(tab, {
+                text: "🔧 Simplify Path",
+                onClick: () => {
+                    this.simplifyPath(selectedPath, 0.02);
+                    this.generateTerrain(this.currentParams, this.state.activeComponentId);
+                    this.saveToProject();
+                }
+            });
+
+            Entropy.UI.Widget.button(tab, {
                 text: "🗑️ Delete Path",
                 onClick: () => {
                     this.currentParams.paths = this.currentParams.paths.filter(p => p.id !== selectedPath.id);
@@ -533,9 +754,24 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
 
         Entropy.UI.Widget.separator(tab);
 
+        // Debounce settings
+        Entropy.UI.Widget.slider(tab, {
+            label: "Paint Update Delay (ms)",
+            value: this.interopState.paintDebounceMs,
+            min: 50,
+            max: 500,
+            onChange: (v) => {
+                this.interopState.paintDebounceMs = parseFloat(v);
+            }
+        });
+
+        Entropy.UI.Widget.separator(tab);
+
         // Quick path presets
+        Entropy.UI.Widget.label(tab, { text: "Quick Add:", bold: true });
+        
         Entropy.UI.Widget.button(tab, {
-            text: "➕ Add Straight Path",
+            text: "➕ Straight Path",
             onClick: () => {
                 const path = this.createPath([
                     { x: 0.3, z: 0.3 },
@@ -548,7 +784,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "➕ Add Curved Path",
+            text: "➕ Curved Path",
             onClick: () => {
                 const path = this.createPath([
                     { x: 0.2, z: 0.2 },
@@ -563,7 +799,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "➕ Add River Path",
+            text: "➕ River Path",
             onClick: () => {
                 const path = this.createPath([
                     { x: 0.1, z: 0.5 },

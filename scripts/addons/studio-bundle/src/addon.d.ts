@@ -431,12 +431,21 @@ export interface MiniMapMarker {
     label?: string;
 }
 
+export interface MiniMapPolyline {
+    points: [number, number][]; // Array of [x, y] coordinates in 0-1 range
+    color?: [number, number, number, number];
+    width?: number;
+}
+
 export interface MiniMapConfig {
+    id?: string;
     landscapeId?: string;
     brushSize?: number;
     markers?: MiniMapMarker[];
+    polylines?: MiniMapPolyline[];
     onDraw?: (x: number, y: number, brushSize: number) => void;
     onHover?: (x: number, y: number, brushSize: number) => void;
+    onClick?: (x: number, y: number, brushSize: number) => void;
 }
 
 export interface CodeEditorConfig {

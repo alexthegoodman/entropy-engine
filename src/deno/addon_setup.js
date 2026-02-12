@@ -516,11 +516,12 @@ globalThis.Entropy = {
                 const landscapeId = config?.landscapeId || "Global";
                 const brushSize = config?.brushSize || 5.0;
                 const markers = config?.markers || [];
+                const polylines = config?.polylines || [];
                 const count = (globalThis._entropy_widget_counter || 0);
                 const id = config?.id || (windowId + "_minimap_" + count);
                 globalThis._entropy_widget_counter = count + 1;
 
-                ops.op_ui_widget_mini_map(windowId, landscapeId, brushSize, markers, id);
+                ops.op_ui_widget_mini_map(windowId, landscapeId, brushSize, markers, polylines, id);
 
                 if (config?.onDraw) {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
@@ -530,6 +531,11 @@ globalThis.Entropy = {
                 if (config?.onHover) {
                     globalThis._entropy_hover_listeners = globalThis._entropy_hover_listeners || {};
                     globalThis._entropy_hover_listeners[id] = config.onHover;
+                }
+
+                if (config?.onClick) {
+                    globalThis._entropy_click_listeners = globalThis._entropy_click_listeners || {};
+                    globalThis._entropy_click_listeners[id] = config.onClick;
                 }
             },
             separator: (windowId) => {
@@ -542,11 +548,17 @@ globalThis.Entropy = {
             let id = event;
             let payload = null;
             let isHover = false;
+            let isClick = false;
 
             // ops.op_println(String("Process Addon Event: " + event));
 
             if (event.startsWith("HOVER|")) {
                 isHover = true;
+                const parts = event.split("|");
+                id = parts[1];
+                payload = parts[2];
+            } else if (event.startsWith("CLICK|")) {
+                isClick = true;
                 const parts = event.split("|");
                 id = parts[1];
                 payload = parts[2];
@@ -556,7 +568,9 @@ globalThis.Entropy = {
                 payload = parts[1];
             }
 
-            const listener_pool = isHover ? globalThis._entropy_hover_listeners : globalThis._entropy_event_listeners;
+            const listener_pool = isHover ? globalThis._entropy_hover_listeners : 
+                                 isClick ? globalThis._entropy_click_listeners :
+                                 globalThis._entropy_event_listeners;
 
             if (listener_pool && listener_pool[id]) {
                 if (payload !== null) {

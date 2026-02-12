@@ -202,6 +202,13 @@ pub struct MiniMapMarker {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct MiniMapPolyline {
+    pub points: Vec<[f32; 2]>, // 0-1 range
+    pub color: Option<[f32; 4]>,
+    pub width: Option<f32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
     Label { text: String, bold: Option<bool> },
@@ -212,7 +219,13 @@ pub enum UiWidget {
     Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
     Checkbox { id: String, label: String, value: bool },
     CodeEditor { id: String, label: String, content: String, language: String },
-    MiniMap { id: String, landscape_id: Option<String>, brush_size: f32, markers: Vec<MiniMapMarker> },
+    MiniMap { 
+        id: String, 
+        landscape_id: Option<String>, 
+        brush_size: f32, 
+        markers: Vec<MiniMapMarker>,
+        polylines: Option<Vec<MiniMapPolyline>>,
+    },
     Separator,
 }
 
@@ -1679,6 +1692,7 @@ fn op_ui_widget_mini_map(
     #[string] landscape_id: String,
     brush_size: f32,
     #[serde] markers: Vec<MiniMapMarker>,
+    #[serde] polylines: Vec<MiniMapPolyline>,
     #[string] id: String,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -1686,7 +1700,8 @@ fn op_ui_widget_mini_map(
             id, 
             landscape_id: Some(landscape_id), 
             brush_size, 
-            markers 
+            markers,
+            polylines: Some(polylines),
         });
     }
 }
@@ -4660,7 +4675,7 @@ impl AddonEngine {
                                                 events_to_push.push(payload);
                                             }
                                         }
-                                        UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers } => {
+                                        UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers, polylines } => {
                                             let texture_id = if let Some(view) = &context.landscape_texture_view {
                                                 let key = format!("landscape_{}", mm_id);
                                                 if let Some(tid) = context.egui_textures.get(&key) {
@@ -4683,7 +4698,7 @@ impl AddonEngine {
                                             ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
            
                                             // Interaction: Drawing
-                                            if response.dragged() || response.clicked() {
+                                            if response.dragged() {
                                                 if let Some(pointer_pos) = response.interact_pointer_pos() {
                                                     let local_pos = pointer_pos - rect.min;
                                                     let x = local_pos.x / rect.width();
@@ -4691,8 +4706,34 @@ impl AddonEngine {
                                                     let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
                                                     events_to_push.push(payload);
                                                 }
+                                            } else if response.clicked() {
+                                                if let Some(pointer_pos) = response.interact_pointer_pos() {
+                                                    let local_pos = pointer_pos - rect.min;
+                                                    let x = local_pos.x / rect.width();
+                                                    let y = local_pos.y / rect.height();
+                                                    let payload = format!("CLICK|{}|{},{},{}", mm_id, x, y, brush_size);
+                                                    events_to_push.push(payload);
+                                                }
                                             }
            
+                                            // Draw polylines
+                                            if let Some(polylines) = polylines {
+                                                for polyline in polylines {
+                                                    if polyline.points.len() >= 2 {
+                                                        let points: Vec<egui::Pos2> = polyline.points.iter().map(|p| {
+                                                            rect.min + egui::vec2(p[0] * rect.width(), p[1] * rect.height())
+                                                        }).collect();
+                                                        
+                                                        let color = polyline.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::WHITE);
+                                                        let stroke_width = polyline.width.unwrap_or(2.0);
+                                                        
+                                                        for i in 0..points.len() - 1 {
+                                                            ui.painter().line_segment([points[i], points[i+1]], egui::Stroke::new(stroke_width, color));
+                                                        }
+                                                    }
+                                                }
+                                            }
+
                                             // Draw markers
                                             for marker in markers {
                                                 let m_pos = rect.min + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
@@ -4880,7 +4921,7 @@ impl AddonEngine {
                                      events_to_push.push(payload);
                                  }
                              }
-                             UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers } => {
+                             UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers, polylines } => {
                                  let texture_id = if let Some(view) = &context.landscape_texture_view {
                                      let key = format!("landscape_{}", mm_id);
                                      if let Some(tid) = context.egui_textures.get(&key) {
@@ -4903,7 +4944,7 @@ impl AddonEngine {
                                  ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
 
                                  // Interaction: Drawing
-                                 if response.dragged() || response.clicked() {
+                                 if response.dragged() {
                                      if let Some(pointer_pos) = response.interact_pointer_pos() {
                                          let local_pos = pointer_pos - rect.min;
                                          let x = local_pos.x / rect.width();
@@ -4911,6 +4952,14 @@ impl AddonEngine {
                                          let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
                                          events_to_push.push(payload);
                                      }
+                                 } else if response.clicked() {
+                                    if let Some(pointer_pos) = response.interact_pointer_pos() {
+                                        let local_pos = pointer_pos - rect.min;
+                                        let x = local_pos.x / rect.width();
+                                        let y = local_pos.y / rect.height();
+                                        let payload = format!("CLICK|{}|{},{},{}", mm_id, x, y, brush_size);
+                                        events_to_push.push(payload);
+                                    }
                                  } else if response.hovered() {
                                     if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
                                         if rect.contains(pointer_pos) {
@@ -4921,6 +4970,24 @@ impl AddonEngine {
                                             events_to_push.push(payload);
                                         }
                                     }
+                                 }
+
+                                 // Draw polylines
+                                 if let Some(polylines) = polylines {
+                                     for polyline in polylines {
+                                         if polyline.points.len() >= 2 {
+                                             let points: Vec<egui::Pos2> = polyline.points.iter().map(|p| {
+                                                 rect.min + egui::vec2(p[0] * rect.width(), p[1] * rect.height())
+                                             }).collect();
+                                             
+                                             let color = polyline.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::WHITE);
+                                             let stroke_width = polyline.width.unwrap_or(2.0);
+                                             
+                                             for i in 0..points.len() - 1 {
+                                                 ui.painter().line_segment([points[i], points[i+1]], egui::Stroke::new(stroke_width, color));
+                                             }
+                                         }
+                                     }
                                  }
 
                                  // Draw markers
