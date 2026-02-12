@@ -4,28 +4,17 @@
 
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-Lightweight, powerful, sophisticated. Entropy is a "Unified Semantic Engine" for creating with high-performance apps via chat.
-End-to-end game creation suite. Texture creation, audio creation, model creation - not to mention level design. 
-Entropy Engine provides you with a suite of first-class, high-performance addons, tied together by a universal chat.
-Entropy Engine helps you create professional games and creative content with next-generation technology.
+**Lightweight, powerful, sophisticated.**
 
-- Shift from grunt work to creative leadership
-- Command and coordinate your creative work through a centralized, agentic chat
-- Built for the modern LLM-powered era with a semantic-first architecture
+Entropy is an end-to-end solution for making games. It includes everything you need with no extra plugins required. All the tools in Entropy are tied to a universal chat experience. This includes all kinds of mechanics and game logic,
+as well as all kinds of visuals from textures to models to animations, and anything else you need such as audio.
 
-What’s included
+Thanks to being a complete solution, you do not need to switch tools or import content. You can create your first game with Entropy
+in as little as 5 minutes or as long as 5 years, depending on your needs.
 
-- End-to-end game creation tools
-- Video capture and editing tools
-- Pre-built functionality with no extra plugins required
-- Native integration across tools for a unified workflow
-
-Why it matters
-
-- Replace fragmented tools with a single intelligent system
-- Instant cost savings upon adoption
-- Continued efficiency gains as your business grows
-- Compounding ROI through automation, reuse, and semantic coherence
+- Avoid difficulties associated with other engine MCP approaches
+- Use smart defaults and build only your novel mechanics
+- Avoid heavyweight engines with insane GPU requirements
 
 ## Getting Started
 
