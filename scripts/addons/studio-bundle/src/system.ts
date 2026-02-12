@@ -88,6 +88,8 @@ export abstract class EntropyAddon<TState = any> {
   readonly name: string;
   readonly version: string;
   readonly description: string;
+  readonly author: string[];
+  readonly capabilities: any;
   
   protected api!: ScopedAPI;
   protected state!: TState;
@@ -96,6 +98,8 @@ export abstract class EntropyAddon<TState = any> {
     this.name = metadata.name;
     this.version = metadata.version || "1.0.0";
     this.description = metadata.description || "";
+    this.author = metadata.author || [];
+    this.capabilities = metadata.capabilities || {};
   }
   
   protected tool(name: string): ToolBuilder { return new ToolBuilder(this.name, name); }
@@ -109,7 +113,7 @@ export abstract class EntropyAddon<TState = any> {
 
   register() {
     AddonContext.register(this);
-    this.api = Entropy.Addon.register({ name: this.name, version: this.version, description: this.description });
+    this.api = Entropy.Addon.register({ name: this.name, version: this.version, description: this.description, author: this.author, capabilities: this.capabilities });
     
     this.setup();
 

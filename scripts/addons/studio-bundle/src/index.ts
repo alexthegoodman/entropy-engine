@@ -16,7 +16,8 @@ import "./light_hive_addon";
 import "./pbr_texture_designer_addon";
 
 // // tier 2
-import "./flexnoise_terrain_addon";
+// import "./flexnoise_terrain_addon";
+import "./flexnoise_v2";
 import "./hair_particle_addon";
 import "./fft_water_addon";
 // okay, but the automatic flow accumlation is bad

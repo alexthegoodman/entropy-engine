@@ -30,6 +30,11 @@ export interface AddonMetadata {
   name: string;
   version?: string;
   description?: string;
+  author?: string[];
+  capabilities?: {
+    graphics?: boolean;
+    ui?: boolean;
+  }
   [key: string]: unknown;
 }
 
