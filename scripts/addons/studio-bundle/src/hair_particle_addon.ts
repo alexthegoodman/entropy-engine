@@ -95,16 +95,16 @@ fn sample_landscape_height(world_pos: vec2<f32>) -> f32 {
     // default terrain sizing
     // square_size = 1024.0 * 4.0 = 4096.0
     // square_height = 150.0 * 4.0 = 600.0
-    let landscape_size = 4096.0;
-    let max_height = 600.0;
-    // let max_height = 900.0; // 1.5 scale?
-    // let landscape_y_offset = -450.0;
-    let landscape_y_offset = -550.0 + 2.0; // +2.0 minor gap fix?
+    // let landscape_size = 4096.0;
+    // let max_height = 600.0;
+    // // let max_height = 900.0; // 1.5 scale?
+    // // let landscape_y_offset = -450.0;
+    // let landscape_y_offset = -550.0 + 2.0; // +2.0 minor gap fix?
 
     // dynamic terrain sizing
-    // let landscape_size = uniforms.landscape_size;
-    // let max_height = uniforms.landscape_height;
-    // let landscape_y_offset = uniforms.landscape_y_offset;
+    let landscape_size = uniforms.landscape_size;
+    let max_height = uniforms.landscape_height;
+    let landscape_y_offset = uniforms.landscape_y_offset;
     
     // World coordinates are centered, so normalize to 0-1 UV space
     let uv = (world_pos + landscape_size * 0.5) / landscape_size;
@@ -807,8 +807,8 @@ function updateHair(params: typeof hairParams & { _transform?: { position: [numb
 
     let globalSettings = Entropy.Composer?.getGlobalSettings();
 
-    hairParams = {
-        ...hairParams,
+    params = {
+        ...params,
         landscapeSize: globalSettings?.landscapeSettings.size || 1024,
         landscapeHeight: globalSettings?.landscapeSettings.height || 150,
         landscapeYOffset: globalSettings?.landscapeSettings.yOffset || 0
@@ -876,8 +876,8 @@ function updateOrnaments(params: typeof hairParams & { _transform?: { position: 
 
     let globalSettings = Entropy.Composer?.getGlobalSettings();
 
-    hairParams = {
-        ...hairParams,
+    params = {
+        ...params,
         landscapeSize: globalSettings?.landscapeSettings.size || 1024,
         landscapeHeight: globalSettings?.landscapeSettings.height || 150,
         landscapeYOffset: globalSettings?.landscapeSettings.yOffset || 0

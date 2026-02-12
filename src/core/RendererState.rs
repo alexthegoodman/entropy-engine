@@ -1887,7 +1887,7 @@ impl RendererState {
                                 );
                                 mesh.collider_handle = Some(collider_handle);
 
-                                println!("NPC Collider added {:?} {:?}", renderer_model.id, renderer_model.behavior_id);
+                                // println!("NPC Collider added {:?} {:?}", renderer_model.id, renderer_model.behavior_id);
                             }
                         });
                     }
