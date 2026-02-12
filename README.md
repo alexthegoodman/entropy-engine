@@ -61,7 +61,7 @@ You can really use Entropy how you want. You can, for example, add NPCs via chat
 
 ### Current Mechanics
 
-These are hardcoded in Rust currently but should be enabled by Game Scripts (not Addon Scripts).
+There are several configurable mechanics included in the engine, but you can easily write your own in an addon script.
 
 - Basic game behaviors (melee, chase, inventory, quests, etc)
 - Sprinting/Stamina
@@ -87,11 +87,11 @@ The default addon bundle is automatically loaded in for all users without any ne
 
 ### How to approach addons
 
-This addon will act as the "Source of Truth". It should:
+Addons will act as the "Source of Truth". They should:
 
-* Register a Component: Use Entropy.Composer.registerComponent so point lights show up in the Game Composer's library.
-* Register a Renderer: Provide a function that calls addon.Lighting.createPointLight, Model.createMesh, or similar (using the _transform passed by the Composer).
-* Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties, possibly setting uniforms or clearing and recreating meshes.
-* Register your tools: Use addon.registerTool to add a handler for LLMs to use via the universal chat
+* Register a Component: Use Entropy.Composer.registerComponent so their saved data show up in the Game Composer's library.
+* Register a Renderer: Provide a render function (for a mesh, model, or whatever you render) so that it can be rendered in the Game Composer.
+* Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties.
+* Register your tools: Use addon.registerTool to add a handler for LLMs to use via the universal chat.
 
 More info is in the [documentation](./public/entropy-book/src/SUMMARY.md)
