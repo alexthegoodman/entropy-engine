@@ -365,7 +365,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "add_to_scene",
-        description: "Add a specific component (e.g., a specific Terrain or Texture) to the scene.",
+        description: "Add a specific component (e.g., a specific Terrain or NPC) to the scene. The y position will auto-set to the terrain height.",
         parameters: {
             type: "object",
             properties: {
@@ -379,12 +379,13 @@ addon.onInit(async () => {
         }
     }, (args: any) => {
         Entropy.println("Adding component to scene via tool: " + args.componentId);
+        const y = addon.Landscape.getHeightAt(args.position[0], args.position[2]);
         const newInst: ComponentInstance = {
             id: Entropy.generateUUID(),
             name: args.name || `${args.componentId} Instance`,
             addon: args.addonName,
             componentId: args.componentId,
-            position: args.position || [0, 0, 0],
+            position: [args.position[0] || 0, y || 0, args.position[2] || 0],
             scale: args.scale || [1, 1, 1],
             visible: true
         };

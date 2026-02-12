@@ -1430,46 +1430,48 @@ fn op_landscape_get_height(state: &mut OpState, x: f32, z: f32) -> f32 {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         if let Some(heights) = &ctx.landscape_heights {
             if let Some(sizing) = &ctx.landscape_config {
-            let square_size = sizing[0]; // x/z
-            let num_cols = heights.ncols();
-            let num_rows = heights.nrows();
+                let square_size = sizing[0];
+                let num_cols = heights.ncols();  // This is width (x direction)
+                let num_rows = heights.nrows();  // This is height (z direction)
 
-            let land_origin_x = ctx.landscape_position[0] - (square_size / 2.0);
-            let land_origin_z = ctx.landscape_position[2] - (square_size / 2.0);
+                let land_origin_x = ctx.landscape_position[0] - (square_size / 2.0);
+                let land_origin_z = ctx.landscape_position[2] - (square_size / 2.0);
 
-            let local_x = x - land_origin_x;
-            let local_z = z - land_origin_z;
+                let local_x = x - land_origin_x;
+                let local_z = z - land_origin_z;
 
-            let norm_x = local_x / square_size;
-            let norm_z = local_z / square_size;
+                let norm_x = local_x / square_size;
+                let norm_z = local_z / square_size;
 
-            if norm_x < 0.0 || norm_x >= 1.0 || norm_z < 0.0 || norm_z >= 1.0 {
-                return ctx.landscape_position[1];
+                if norm_x < 0.0 || norm_x > 1.0 || norm_z < 0.0 || norm_z > 1.0 {
+                    return ctx.landscape_position[1];
+                }
+
+                // Map to grid indices - CRITICAL: make sure these match your generation
+                let grid_col = norm_x * (num_cols as f32 - 1.0);  // x maps to columns
+                let grid_row = norm_z * (num_rows as f32 - 1.0);  // z maps to rows
+
+                let col0 = grid_col.floor() as usize;
+                let row0 = grid_row.floor() as usize;
+                let col1 = (col0 + 1).min(num_cols - 1);
+                let row1 = (row0 + 1).min(num_rows - 1);
+
+                // Access as heights[(row, col)] to match how you stored them
+                let h00 = heights[(row0, col0)];
+                let h10 = heights[(row0, col1)];
+                let h01 = heights[(row1, col0)];
+                let h11 = heights[(row1, col1)];
+
+                let tx = grid_col - col0 as f32;
+                let tz = grid_row - row0 as f32;
+
+                let h_top = h00 * (1.0 - tx) + h10 * tx;
+                let h_bottom = h01 * (1.0 - tx) + h11 * tx;
+
+                let final_height = h_top * (1.0 - tz) + h_bottom * tz;
+                
+                return final_height + ctx.landscape_position[1];
             }
-
-            let grid_x = norm_x * (num_cols as f32 - 1.0);
-            let grid_z = norm_z * (num_rows as f32 - 1.0);
-
-            let x0 = grid_x.floor() as usize;
-            let z0 = grid_z.floor() as usize;
-            let x1 = (x0 + 1).min(num_cols - 1);
-            let z1 = (z0 + 1).min(num_rows - 1);
-
-            let h00 = heights[(z0, x0)];
-            let h10 = heights[(z0, x1)];
-            let h01 = heights[(z1, x0)];
-            let h11 = heights[(z1, x1)];
-
-            let tx = grid_x - x0 as f32;
-            let tz = grid_z - z0 as f32;
-
-            let h_top = h00 * (1.0 - tx) + h10 * tx;
-            let h_bottom = h01 * (1.0 - tx) + h11 * tx;
-
-            let final_height = h_top * (1.0 - tz) + h_bottom * tz;
-            
-            return final_height + ctx.landscape_position[1];
-        }
         }
     }
     0.0

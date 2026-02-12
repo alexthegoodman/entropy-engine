@@ -35,6 +35,8 @@ There is an [example FPS-RPG game](./scripts/addons/studio-bundle/src/fps_rpg_ga
 
 You can supply the [Rust-powered JavaScript addon API](./scripts/addons/studio-bundle/src/addon.d.ts) to an LLM to generate games and addons for this engine with incredible ease. Although to load an addon, it will need to be a bundle JavaScript file.
 
+You can really use Entropy how you want. You can, for example, add NPCs via chat, via UI, or via JavaScript / TypeScript. You could even fork the engine, if you wish, to evolve the Rust core.
+
 ## Features
 
 ### Current Features:
