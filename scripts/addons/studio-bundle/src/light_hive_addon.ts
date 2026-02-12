@@ -126,23 +126,38 @@ const renderLightUI = (tab: string) => {
         }
     });
 
+    Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
+    
+    const activeComp = lightState.savedComponents.find(c => c.id === lightState.activeComponentId);
+    if (activeComp) {
+        Entropy.UI.Widget.button(tab, {
+            text: `💾 Update "${activeComp.name}"`,
+            onClick: () => {
+                addon.IO.save(lightState);
+                if (Entropy.Composer) {
+                    Entropy.Composer.registerComponent(addonInfo.name, activeComp.id, activeComp.name, activeComp.params);
+                }
+                Entropy.println(`Updated component: ${activeComp.name}`);
+            }
+        });
+    }
+
     Entropy.UI.Widget.button(tab, {
-        text: "💾 Save Light Preset",
+        text: "➕ Save Current as New Component",
         onClick: () => {
             const id = Entropy.generateUUID();
-            const name = `Light ${lightState.savedComponents.length + 1}`;
-            const newComp = {
+            const name = `New Light ${lightState.savedComponents.length + 1}`;
+            lightState.savedComponents.push({
                 id,
-                name,
+                name: name,
                 params: JSON.parse(JSON.stringify(lightState.currentParams))
-            };
-            lightState.savedComponents.push(newComp);
-            
+            });
+            lightState.activeComponentId = id;
             if (Entropy.Composer) {
-                Entropy.Composer.registerComponent(addonInfo.name, id, name, newComp.params);
+                Entropy.Composer!.registerComponent(addonInfo.name, id, name, lightState.currentParams);
             }
             addon.IO.save(lightState);
-            Entropy.println(`Saved light preset: ${name}`);
+            Entropy.println(`Saved new component: ${name}`);
         }
     });
 };

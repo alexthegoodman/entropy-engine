@@ -784,15 +784,39 @@ class VolumetricFX {
     });
 
     Entropy.UI.Widget.label(this.tabId, { text: "📦 Components", bold: true });
+
+    const activeComp = this.savedComponents.find(c => c.id === this.activeComponentId);
+    if (activeComp) {
+        Entropy.UI.Widget.button(this.tabId, {
+            text: `💾 Update "${activeComp.name}"`,
+            onClick: () => {
+                this.api.IO.save({
+                    savedComponents: this.savedComponents,
+                    activeComponentId: this.activeComponentId
+                });
+                if (Entropy.Composer) {
+                    Entropy.Composer.registerComponent("VolumetricFX", activeComp.id, activeComp.name, activeComp.config);
+                }
+                Entropy.println(`Updated component: ${activeComp.name}`);
+            }
+        });
+    }
+
     Entropy.UI.Widget.button(this.tabId, {
-        text: "➕ Save Current as Component",
+        text: "➕ Save Current as New Component",
         onClick: () => {
             const id = Entropy.generateUUID();
-            const name = "New Atmosphere";
+            const name = `New Atmosphere ${this.savedComponents.length + 1}`;
             this.savedComponents.push({ id, name, config: JSON.parse(JSON.stringify(this.config)) });
+            this.activeComponentId = id;
             if (Entropy.Composer) {
                 Entropy.Composer!.registerComponent("VolumetricFX", id, name, this.config);
             }
+            this.api.IO.save({
+                savedComponents: this.savedComponents,
+                activeComponentId: this.activeComponentId
+            });
+            Entropy.println(`Saved new component: ${name}`);
         }
     });
 

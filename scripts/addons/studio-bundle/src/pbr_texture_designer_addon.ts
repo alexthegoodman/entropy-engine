@@ -571,10 +571,29 @@ addon.onInit(async () => {
         }});
         Entropy.UI.Widget.button(tab, { text: "🚀 GENERATE & SAVE PNGs", onClick: () => saveTextures(addonState.currentParams) });
         Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
-        Entropy.UI.Widget.button(tab, { text: "➕ Save Current as Component", onClick: () => {
+        
+        const activeComp = addonState.savedComponents.find(c => c.id === addonState.activeComponentId);
+        if (activeComp) {
+            Entropy.UI.Widget.button(tab, {
+                text: `💾 Update "${activeComp.name}"`,
+                onClick: () => {
+                    addon.IO.save(addonState);
+                    if (Entropy.Composer) {
+                        Entropy.Composer.registerComponent(addonInfo.name, activeComp.id, activeComp.name, activeComp.params);
+                    }
+                    Entropy.println(`Updated component: ${activeComp.name}`);
+                }
+            });
+        }
+
+        Entropy.UI.Widget.button(tab, { text: "➕ Save Current as New Component", onClick: () => {
             const id = Math.random().toString(36).substr(2, 9);
-            addonState.savedComponents.push({ id, name: newComponentName, params: JSON.parse(JSON.stringify(addonState.currentParams)) });
-            if (Entropy.Composer) { Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams); }
+            const name = `New Texture ${addonState.savedComponents.length + 1}`;
+            addonState.savedComponents.push({ id, name: name, params: JSON.parse(JSON.stringify(addonState.currentParams)) });
+            addonState.activeComponentId = id;
+            if (Entropy.Composer) { Entropy.Composer!.registerComponent(addonInfo.name, id, name, addonState.currentParams); }
+            addon.IO.save(addonState);
+            Entropy.println(`Saved new component: ${name}`);
         }});
         addonState.savedComponents.forEach(comp => {
             Entropy.UI.Widget.button(tab, { text: `📂 Load & Render: ${comp.name}`, onClick: () => {

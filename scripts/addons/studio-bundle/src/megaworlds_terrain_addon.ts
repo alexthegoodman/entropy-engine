@@ -1,170 +1,115 @@
-// Terrain Generation Addon
-// Demonstrates procedural heightmap generation in JavaScript via Rust Noise API
+import { ComponentAddon } from "./system";
 
-
-const addon = Entropy.Addon.register({
-    name: "Simple Procedural Terrain",
-    version: "1.2.0",
-    description: "Generates terrain using Rust-side noise",
-    author: ["Entropy Team"],
-    capabilities: {
-        graphics: true,
-        ui: true
-    }
-});
-
-let terrainParams = {
-    seed: Math.floor(Math.random() * 1000),
-    frequency: 0.02,
-    octaves: 6,
-    usePBR: true
-};
-
-let addonState = {
-    savedComponents: [
-        { id: Entropy.generateUUID(), name: "Default Terrain", params: JSON.parse(JSON.stringify(terrainParams)) }
-    ] as { id: string, name: string, params: typeof terrainParams }[],
-    activeComponentId: "",
-    get currentParams(): typeof terrainParams {
-        const found = this.savedComponents.find(c => c.id === this.activeComponentId);
-        return found ? found.params : this.savedComponents[0].params;
-    }
-};
-addonState.activeComponentId = addonState.savedComponents[0].id;
-
-let newComponentName = "New Rust Terrain Component";
-
-async function generateTerrain(params: typeof terrainParams, id: string = Entropy.generateUUID()) {
-    // 1. Create a noise handle in Rust
-    const noiseId = addon.Noise.create({
-        type: "fbm",
-        source: "perlin",
-        seed: params.seed,
-        frequency: params.frequency,
-        octaves: params.octaves
-    });
-
-    let pipelineId = "default";
-    if (!params.usePBR) {
-        // Create a simple custom non-PBR pipeline (Green Tint)
-        pipelineId = Entropy.Pipeline.create({
-            name: "terrain_green",
-            pbr: false,
-            fragmentShader: `
-                @fragment
-                fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-                    return vec4<f32>(0.2, 0.8, 0.2, 1.0);
-                }
-            `
-        });
-    }
-
-    // 2. Spawn landscape using that noise handle (Heavy data stays in Rust!)
-    addon.Landscape.create({
-        id: id,
-        width: 128,
-        height: 128,
-        noiseId: noiseId,
-        position: [0, 0, 0],
-        pipelineId: pipelineId,
-        renderRole: "Terrain"
-    } as any);
+interface TerrainParams {
+    seed: number;
+    frequency: number;
+    octaves: number;
+    usePBR: boolean;
 }
 
-const renderTerrainUI = (windowId: string) => {
-    Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
+class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
+    protected defaultParams: TerrainParams = {
+        seed: Math.floor(Math.random() * 1000),
+        frequency: 0.02,
+        octaves: 6,
+        usePBR: true
+    };
 
-    Entropy.UI.Widget.button(windowId, {
-        text: "💾 Save All to Project",
-        onClick: () => {
-            addon.IO.save(addonState);
-            if (Entropy.Composer) {
-                addonState.savedComponents.forEach(comp => {
-                    Entropy.Composer!.registerComponent("Simple Procedural Terrain", comp.id, comp.name, comp.params);
-                });
-            }
-            Entropy.println("Terrain state saved!");
-        }
-    });
-
-    Entropy.UI.Widget.label(windowId, { text: "📦 Components", bold: true });
-    
-    Entropy.UI.Widget.button(windowId, {
-        text: "➕ Save Current as Component",
-        onClick: () => {
-            const id = Math.random().toString(36).substr(2, 9);
-            addonState.savedComponents.push({
-                id,
-                name: newComponentName,
-                params: JSON.parse(JSON.stringify(addonState.currentParams))
-            });
-            if (Entropy.Composer) {
-                Entropy.Composer!.registerComponent("Simple Procedural Terrain", id, newComponentName, addonState.currentParams);
-            }
-            Entropy.println(`Saved component: ${newComponentName}`);
-        }
-    });
-
-    addonState.savedComponents.forEach(comp => {
-        Entropy.UI.Widget.button(windowId, {
-            text: `📂 Load & Render: ${comp.name}`,
-            onClick: () => {
-                addonState.activeComponentId = comp.id;
-                generateTerrain(addonState.currentParams, comp.id);
-            }
+    constructor() {
+        super({
+            name: "Simple Procedural Terrain",
+            version: "2.0.0",
+            description: "Generates terrain using Rust-side noise"
         });
-    });
+    }
 
-    Entropy.UI.Widget.label(windowId, { text: "--------------------------------" });
-    
-    Entropy.UI.Widget.button(windowId, {
-        text: "Randomize Seed & Regenerate",
-        onClick: () => {
-            addonState.currentParams.seed = Math.floor(Math.random() * 1000);
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-        }
-    });
+    protected setup() {
+        this.initComponentState("Default Terrain");
 
-    Entropy.UI.Widget.button(windowId, {
-        text: addonState.currentParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
-        onClick: () => {
-            addonState.currentParams.usePBR = !addonState.currentParams.usePBR;
-            generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-        }
-    });
+        this.component(this.name)
+            .name("Simple Procedural Terrain")
+            .renderer((id, params) => this.generateTerrain(params, id))
+            .editor((windowId) => this.renderUI(windowId))
+            .register();
+    }
 
-    Entropy.UI.Widget.label(windowId, { text: `Current Seed: ${addonState.currentParams.seed}` });
-    Entropy.UI.Widget.label(windowId, { text: `Mode: ${addonState.currentParams.usePBR ? "PBR" : "Non-PBR"}` });
-};
+    onInit() {
+        this.generateTerrain(this.currentParams, this.state.activeComponentId);
+        
+        const windowId = this.UI.createTab({
+            title: "Rust Noise",
+            onRender: () => this.renderUI(windowId)
+        });
+    }
 
-addon.onInit(async () => {
-    Entropy.println("Procedural Terrain Initializing...");
-
-    // const saved = addon.IO.load();
-    // if (saved) {
-    //     addonState = { ...addonState, ...saved };
-    //     if (Entropy.Composer) {
-    //         addonState.savedComponents.forEach(comp => {
-    //             Entropy.Composer!.registerComponent("Simple Procedural Terrain", comp.id, comp.name, comp.params);
-    //         });
-    //     }
-    // }
-
-    generateTerrain(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
-
-    if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("Simple Procedural Terrain", renderTerrainUI);
-        if (Entropy.Composer.registerRenderer) {
-            Entropy.Composer.registerRenderer("Simple Procedural Terrain", (id: string, params: any) => {
-                generateTerrain(params, id);
-            });
+    onProjectChanged() {
+        if (this.loadFromProject()) {
+            this.generateTerrain(this.currentParams, this.state.activeComponentId);
         }
     }
 
-    const windowId = addon.UI.createTab({
-        title: "Rust Noise Settings",
-        onRender: () => {
-            renderTerrainUI(windowId);
+    private async generateTerrain(params: TerrainParams, id: string) {
+        const noiseId = this.Noise.create({
+            type: "fbm",
+            source: "perlin",
+            seed: params.seed,
+            frequency: params.frequency,
+            octaves: params.octaves
+        });
+
+        let pipelineId = "default";
+        if (!params.usePBR) {
+            pipelineId = Entropy.Pipeline.create({
+                name: "terrain_green",
+                pbr: false,
+                fragmentShader: `
+                    @fragment
+                    fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
+                        return vec4<f32>(0.2, 0.8, 0.2, 1.0);
+                    }
+                `
+            });
         }
-    });
-});
+
+        this.Landscape.create({
+            id: id,
+            width: 128,
+            height: 128,
+            noiseId: noiseId,
+            position: [0, 0, 0],
+            pipelineId: pipelineId,
+            renderRole: "Terrain",
+            size: 512, // Default size
+            scale: 150  // Default scale
+        } as any);
+    }
+
+    private renderUI(windowId: string) {
+        this.renderComponentUI(windowId, () => {
+            this.generateTerrain(this.currentParams, this.state.activeComponentId);
+        });
+
+        Entropy.UI.Widget.label(windowId, { text: "Noise Parameters", bold: true });
+        
+        Entropy.UI.Widget.button(windowId, {
+            text: "Randomize Seed & Regenerate",
+            onClick: () => {
+                this.currentParams.seed = Math.floor(Math.random() * 1000);
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.button(windowId, {
+            text: this.currentParams.usePBR ? "Switch to non-PBR (Green)" : "Switch to PBR",
+            onClick: () => {
+                this.currentParams.usePBR = !this.currentParams.usePBR;
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.label(windowId, { text: `Current Seed: ${this.currentParams.seed}` });
+        Entropy.UI.Widget.label(windowId, { text: `Mode: ${this.currentParams.usePBR ? "PBR" : "Non-PBR"}` });
+    }
+}
+
+new MegaworldsTerrainAddon().register();

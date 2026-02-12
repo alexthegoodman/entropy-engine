@@ -401,25 +401,39 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
         
-        Entropy.UI.Widget.numericInput(tab, {
-            label: "Component Name",
-            value: 0, // Numeric input doesn't support text yet? Use label for now if so.
-            // Actually let's assume Widget.textInput exists or just use a workaround.
-        } as any);
+        const activeComp = addonState.savedComponents.find(c => c.id === addonState.activeComponentId);
+        
+        if (activeComp) {
+            Entropy.UI.Widget.button(tab, {
+                text: `💾 Update "${activeComp.name}"`,
+                onClick: () => {
+                    // currentParams getter already ensures activeComp.params is updated.
+                    // We just need to persist the change.
+                    addon.IO.save(addonState);
+                    if (Entropy.Composer) {
+                        Entropy.Composer.registerComponent(addonInfo.name, activeComp.id, activeComp.name, activeComp.params);
+                    }
+                    Entropy.println(`Updated component: ${activeComp.name}`);
+                }
+            });
+        }
 
         Entropy.UI.Widget.button(tab, {
-            text: "➕ Save Current as Component",
+            text: "➕ Save Current as New Component",
             onClick: () => {
                 const id = Entropy.generateUUID();
+                const name = `New ${addonInfo.name} ${addonState.savedComponents.length + 1}`;
                 addonState.savedComponents.push({
                     id,
-                    name: newComponentName,
+                    name: name,
                     params: JSON.parse(JSON.stringify(addonState.currentParams))
                 });
+                addonState.activeComponentId = id;
                 if (Entropy.Composer) {
-                    Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
+                    Entropy.Composer!.registerComponent(addonInfo.name, id, name, addonState.currentParams);
                 }
-                Entropy.println(`Saved component: ${newComponentName}`);
+                addon.IO.save(addonState);
+                Entropy.println(`Saved new component: ${name}`);
             }
         });
 

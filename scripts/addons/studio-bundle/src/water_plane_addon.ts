@@ -503,19 +503,36 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
         
+        const activeComp = addonState.savedComponents.find(c => c.id === addonState.activeComponentId);
+        if (activeComp) {
+            Entropy.UI.Widget.button(tab, {
+                text: `💾 Update "${activeComp.name}"`,
+                onClick: () => {
+                    addon.IO.save(addonState);
+                    if (Entropy.Composer) {
+                        Entropy.Composer.registerComponent("Advanced Water Plane", activeComp.id, activeComp.name, activeComp.params);
+                    }
+                    Entropy.println(`Updated component: ${activeComp.name}`);
+                }
+            });
+        }
+
         Entropy.UI.Widget.button(tab, {
-            text: "➕ Save Current as Component",
+            text: "➕ Save Current as New Component",
             onClick: () => {
-                const id = Math.random().toString(36).substr(2, 9);
+                const id = Entropy.generateUUID();
+                const name = `New Water ${addonState.savedComponents.length + 1}`;
                 addonState.savedComponents.push({
                     id,
-                    name: newComponentName,
+                    name: name,
                     params: JSON.parse(JSON.stringify(addonState.currentParams))
                 });
+                addonState.activeComponentId = id;
                 if (Entropy.Composer) {
-                    Entropy.Composer!.registerComponent("Advanced Water Plane", id, newComponentName, addonState.currentParams);
+                    Entropy.Composer!.registerComponent("Advanced Water Plane", id, name, addonState.currentParams);
                 }
-                Entropy.println(`Saved component: ${newComponentName}`);
+                addon.IO.save(addonState);
+                Entropy.println(`Saved new component: ${name}`);
             }
         });
 
