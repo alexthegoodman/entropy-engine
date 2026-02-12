@@ -166,7 +166,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         let position = rb.translation();
                         let yaw = renderer_state.camera_yaw;
                         let landscape_center = Vector3::new(0.0, 0.0, 0.0);
-                        let landscape_size = 4096.0; // Matches grid size for now
+                        let landscape_size = 4096.0; // Matches grid size for now // make match addon global settings
 
                         mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
                      }

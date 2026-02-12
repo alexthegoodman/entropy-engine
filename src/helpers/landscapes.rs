@@ -21,6 +21,8 @@ pub struct LandscapePixelData {
     pub rapier_heights: na::DMatrix<f32>,
     pub raw_heights: Vec<f32>,
     pub max_height: f32,
+    pub scale: f32,
+    pub size: f32,
 }
 
 impl LandscapePixelData {
@@ -370,7 +372,7 @@ pub fn get_landscape_pixels(
 
     // let square_size = 1024.0 * 100.0;
     // let square_height = 1858.0 * 10.0;
-    let square_size = 1024.0 * 4.0;
+    let square_size = 1024.0 * 4.0; // TODO: fix hardcoding, use globalSettings from addons
     let square_height = 150.0 * 4.0;
     let (width, height, pixel_data, rapier_heights, raw_heights, max_height) = read_heightmap(
         landscape_path
@@ -395,6 +397,8 @@ pub fn get_landscape_pixels(
         rapier_heights,
         raw_heights,
         max_height,
+        size: square_size,
+        scale: square_height
     }
 }
 
@@ -706,5 +710,7 @@ pub fn generate_landscape_data(
         rapier_heights: heights,
         raw_heights,
         max_height: max_height_actual,
+        size: target_width,
+        scale: target_height
     }
 }
