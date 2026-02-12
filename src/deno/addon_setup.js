@@ -382,6 +382,9 @@ globalThis.Entropy = {
             // ops.op_println("Applying velocity");
             ops.op_entity_set_velocity(id, velocity);
         },
+        setXZVelocity: (id, velocity) => {
+            ops.op_entity_set_xz_velocity(id, velocity);
+        },
         playAnimation: (id, animName) => {
             ops.op_entity_play_animation(id, animName);
         },

@@ -497,10 +497,10 @@ export interface EntropyAPI {
     }) => void;
   };
   Entity: {
-    applyImpulse: (id: string, impulse: [number, number, number]) => void;
-    setVelocity: (id: string, impulse: [number, number, number]) => void;
-    playAnimation: (id: string, animName: string) => void;
-    setStats: (id: string, stats: { health: number, stamina: number }) => void;
+            applyImpulse: (id: string, impulse: [number, number, number]) => void;
+            setVelocity: (id: string, impulse: [number, number, number]) => void;
+            setXZVelocity: (id: string, velocity: [number, number]) => void;
+            playAnimation: (id: string, animName: string) => void;    setStats: (id: string, stats: { health: number, stamina: number }) => void;
   };
   UI: {
     createWindow: (config: WindowConfig) => string;

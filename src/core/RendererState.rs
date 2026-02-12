@@ -886,7 +886,7 @@ impl RendererState {
                 {
                     instance_model_data.meshes.iter_mut().for_each(|mesh| {
                         if (mesh.transform.initial_position.is_none()) {
-                            println!("Set initial position {:?}", position);
+                            // println!("Set initial position {:?}", position);
                             mesh.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
                         }
 

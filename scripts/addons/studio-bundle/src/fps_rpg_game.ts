@@ -384,9 +384,9 @@ const doWander = (entity: Entity, system: any, state: any) => {
     
     if (wdist > 1.0) {
         const speed = 6.5;
-        Entropy.Entity.setVelocity(entity.id, [
-            (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-        ] as [number, number, number]);
+        Entropy.Entity.setXZVelocity(entity.id, [
+            (wdx / wdist) * speed, (wdz / wdist) * speed
+        ]);
         Entropy.Entity.playAnimation(entity.id, "Walking");
     } else {
         state.wanderTarget = null;
@@ -613,9 +613,9 @@ Entropy.Behavior.register("crimson_soldier", {
         if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 9.5;
-                Entropy.Entity.setVelocity(entity.id, [
-                    (dx / dist) * speed, 0, (dz / dist) * speed
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (dx / dist) * speed, (dz / dist) * speed
+                ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
             } else {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
@@ -630,9 +630,9 @@ Entropy.Behavior.register("crimson_soldier", {
             
             if (wdist > 1.0) {
                 const speed = 6.5;
-                Entropy.Entity.setVelocity(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
             } else {
                 state.wanderTarget = null;
@@ -695,9 +695,9 @@ Entropy.Behavior.register("azure_soldier", {
         if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 9.5;
-                Entropy.Entity.setVelocity(entity.id, [
-                    (dx / dist) * speed, 0, (dz / dist) * speed
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (dx / dist) * speed, (dz / dist) * speed
+                ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
             } else {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
@@ -710,9 +710,9 @@ Entropy.Behavior.register("azure_soldier", {
             
             if (wdist > 1.0) {
                 const speed = 6.5;
-                Entropy.Entity.setVelocity(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
             } else {
                 state.wanderTarget = null;
@@ -786,9 +786,9 @@ Entropy.Behavior.register("shadow_assassin", {
                 const newZ = playerPos[2] + Math.sin(angle) * 8;
                 system.spawn_particles(entity.position, [0.5, 0.2, 0.8, 1], [0, 2, 0]);
                 // Teleport via position set if possible, otherwise just use impulse
-                Entropy.Entity.setVelocity(entity.id, [
-                    (newX - entity.position[0]) * 2, 0, (newZ - entity.position[2]) * 2
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (newX - entity.position[0]) * 2, (newZ - entity.position[2]) * 2
+                ]);
             }
         } else {
             // Wander behavior
@@ -798,9 +798,9 @@ Entropy.Behavior.register("shadow_assassin", {
             
             if (wdist > 1.0) {
                 const speed = 2.0; // Assassins are a bit faster
-                Entropy.Entity.setVelocity(entity.id, [
-                    (wdx / wdist) * speed, 0, (wdz / wdist) * speed
-                ] as [number, number, number]);
+                Entropy.Entity.setXZVelocity(entity.id, [
+                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
             } else {
                 state.wanderTarget = null;
