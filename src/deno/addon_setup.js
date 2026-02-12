@@ -957,7 +957,13 @@ globalThis.Entropy.Composer = {
     textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
     components: {}, // addonName -> { componentId -> { name, params } }
     initCallbacks: {}, // addonName -> initCallback()
-    globalSettings: {},
+    globalSettings: {
+        landscapeSettings: {
+            size: 1024,
+            height: 150,
+            yOffset: -200
+        }
+    },
     registerEditor: (addonName, renderFn) => {
         globalThis.Entropy.Composer.editors[addonName] = renderFn;
     },
