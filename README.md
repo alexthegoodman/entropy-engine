@@ -4,7 +4,8 @@
 
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-Lightweight, powerful, sophisticated. End-to-end game creation suite. Texture creation, audio creation, model creation - not to mention level design. 
+Lightweight, powerful, sophisticated. Entropy is a "Unified Semantic Engine" for creating with high-performance apps via chat.
+End-to-end game creation suite. Texture creation, audio creation, model creation - not to mention level design. 
 Entropy Engine provides you with a suite of first-class, high-performance addons, tied together by a universal chat.
 Entropy Engine helps you create professional games and creative content with next-generation technology.
 
