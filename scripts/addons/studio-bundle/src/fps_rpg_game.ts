@@ -824,6 +824,8 @@ class WorldManager {
     initialize() {
         this.spawnPlayer();
         this.populateWorld();
+
+        environmentDecorator.decorateWorld();
     }
     
     spawnPlayer() {
@@ -1013,6 +1015,256 @@ class WorldManager {
 }
 
 const worldManager = new WorldManager();
+
+// --- Environmental Decoration Functions ---
+
+class EnvironmentDecorator {
+    
+    /**
+     * Spawn trees around the map
+     */
+    spawnTrees(count: number = 50) {
+        let globalSettings = Entropy.Composer?.getGlobalSettings();
+        let LANDSCAPE_SIZE = globalSettings?.landscapeSettings.size || 1024;
+        
+        for (let i = 0; i < count; i++) {
+            const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
+            const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
+            const y = addon.Landscape.getHeightAt(x, z);
+            const scale = 0.8 + Math.random() * 0.4; // Vary tree sizes
+            
+            addon.Model.load({
+                path: "Tree1b.glb",
+                position: [x, y, z],
+                scale: [scale, scale, scale],
+                physics: {
+                    bodyType: "fixed",
+                    colliderShape: "capsule"
+                }
+            });
+        }
+        Entropy.println(`[Environment] Spawned ${count} trees`);
+    }
+    
+    /**
+     * Spawn foliage patches
+     */
+    spawnFoliage(count: number = 100) {
+        let globalSettings = Entropy.Composer?.getGlobalSettings();
+        let LANDSCAPE_SIZE = globalSettings?.landscapeSettings.size || 1024;
+        
+        for (let i = 0; i < count; i++) {
+            const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
+            const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
+            const y = addon.Landscape.getHeightAt(x, z);
+            const rotation = Math.random() * Math.PI * 2;
+            
+            addon.Model.load({
+                path: Math.random() > 0.5 ? "Foliage1.glb" : "Plant_02_Art.glb",
+                position: [x, y, z],
+                rotation: [0, rotation, 0],
+                scale: [0.5 + Math.random() * 0.5, 0.5 + Math.random() * 0.5, 0.5 + Math.random() * 0.5]
+            });
+        }
+        Entropy.println(`[Environment] Spawned ${count} foliage patches`);
+    }
+    
+    /**
+     * Build faction outposts with houses and structures
+     */
+    buildFactionOutpost(faction: Faction, houseCount: number = 3) {
+        const territory = factions[faction].territory;
+        const houseModels = ["House1b.glb", "House2a.glb", "House3a.glb"];
+        
+        for (let i = 0; i < houseCount; i++) {
+            const angle = (i / houseCount) * Math.PI * 2;
+            const dist = territory.radius * 0.6;
+            const x = territory.x + Math.cos(angle) * dist;
+            const z = territory.z + Math.sin(angle) * dist;
+            const y = addon.Landscape.getHeightAt(x, z);
+            
+            addon.Model.load({
+                path: houseModels[i % houseModels.length],
+                position: [x, y, z],
+                rotation: [0, angle + Math.PI / 2, 0],
+                scale: [1.2, 1.2, 1.2],
+                physics: {
+                    bodyType: "fixed",
+                    colliderShape: "cuboid"
+                }
+            });
+        }
+        
+        Entropy.println(`[Outpost] Built ${houseCount} structures for ${factions[faction].name}`);
+    }
+    
+    /**
+     * Add towers to faction territories
+     */
+    buildFactionTowers(faction: Faction, towerCount: number = 4) {
+        const territory = factions[faction].territory;
+        const towerModels = ["Tower_Base_02_Art.glb", "Spooky_Tower_Floating_Cabin_03_Art.glb"];
+        
+        for (let i = 0; i < towerCount; i++) {
+            const angle = (i / towerCount) * Math.PI * 2;
+            const dist = territory.radius * 0.8; // Place at perimeter
+            const x = territory.x + Math.cos(angle) * dist;
+            const z = territory.z + Math.sin(angle) * dist;
+            const y = addon.Landscape.getHeightAt(x, z);
+            
+            addon.Model.load({
+                path: towerModels[i % towerModels.length],
+                position: [x, y, z],
+                rotation: [0, angle, 0],
+                scale: [1, 1, 1],
+                physics: {
+                    bodyType: "fixed",
+                    colliderShape: "capsule"
+                }
+            });
+        }
+        
+        Entropy.println(`[Towers] Built ${towerCount} towers for ${factions[faction].name}`);
+    }
+    
+    /**
+     * Spawn decorative props across the map
+     */
+    spawnScatteredProps(count: number = 40) {
+        let globalSettings = Entropy.Composer?.getGlobalSettings();
+        let LANDSCAPE_SIZE = globalSettings?.landscapeSettings.size || 1024;
+        
+        const props = [
+            "ElectricPost02_Art.glb",
+            "Iron_Structure_01_Art.glb",
+            "Tank.glb",
+            "013_Octogecko_Art.glb"
+        ];
+        
+        for (let i = 0; i < count; i++) {
+            const x = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
+            const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.85;
+            const y = addon.Landscape.getHeightAt(x, z);
+            const rotation = Math.random() * Math.PI * 2;
+            const propModel = props[Math.floor(Math.random() * props.length)];
+            
+            addon.Model.load({
+                path: propModel,
+                position: [x, y, z],
+                rotation: [0, rotation, 0],
+                scale: [0.8, 0.8, 0.8],
+                physics: {
+                    bodyType: "fixed",
+                    colliderShape: "cuboid"
+                }
+            });
+        }
+        
+        Entropy.println(`[Props] Spawned ${count} decorative props`);
+    }
+    
+    /**
+     * Create a central bridge landmark
+     */
+    buildCentralBridge() {
+        const y = addon.Landscape.getHeightAt(0, 0);
+        
+        addon.Model.load({
+            path: "LoveDeath_Bridge_Fragment_Art.glb",
+            position: [0, y + 5, 0],
+            scale: [2, 2, 2],
+            physics: {
+                bodyType: "fixed",
+                colliderShape: "cuboid"
+            }
+        });
+        
+        Entropy.println("[Landmark] Built central bridge");
+    }
+    
+    /**
+     * Add weapon racks/displays in faction areas
+     */
+    spawnWeaponDisplays(faction: Faction, count: number = 5) {
+        const territory = factions[faction].territory;
+        const swordModels = [
+            "Sword1small.glb",
+            "Sword1medium.glb", 
+            "Sword1large.glb",
+            "Sword1extralarge.glb"
+        ];
+        
+        for (let i = 0; i < count; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.random() * territory.radius * 0.5;
+            const x = territory.x + Math.cos(angle) * dist;
+            const z = territory.z + Math.sin(angle) * dist;
+            const y = addon.Landscape.getHeightAt(x, z);
+            
+            addon.Model.load({
+                path: swordModels[Math.floor(Math.random() * swordModels.length)],
+                position: [x, y + 1, z],
+                rotation: [Math.PI / 4, Math.random() * Math.PI * 2, 0],
+                scale: [1, 1, 1]
+            });
+        }
+        
+        Entropy.println(`[Weapons] Added ${count} weapon displays to ${factions[faction].name}`);
+    }
+    
+    /**
+     * Place a dome structure (could be used as a central hub or special location)
+     */
+    buildDomeStructure(x: number, z: number) {
+        const y = addon.Landscape.getHeightAt(x, z);
+        
+        addon.Model.load({
+            path: "DomeKit5.glb",
+            position: [x, y, z],
+            scale: [1.5, 1.5, 1.5],
+            physics: {
+                bodyType: "fixed",
+                colliderShape: "trimesh"
+            }
+        });
+        
+        Entropy.println(`[Structure] Built dome at (${x.toFixed(0)}, ${z.toFixed(0)})`);
+    }
+    
+    /**
+     * Master function to decorate the entire world
+     */
+    decorateWorld() {
+        this.spawnTrees(60);
+        this.spawnFoliage(80);
+        this.buildCentralBridge();
+        
+        // Build outposts for each faction
+        this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
+        this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
+        this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
+        
+        // Add towers
+        this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
+        this.buildFactionTowers(Faction.AZURE_ORDER, 4);
+        this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
+        
+        // Add weapon displays
+        this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
+        this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
+        this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
+        
+        // Scatter props
+        this.spawnScatteredProps(50);
+        
+        // Build a dome at neutral zone
+        this.buildDomeStructure(-440, 440);
+        
+        Entropy.println("[World] Full decoration complete! 🌍");
+    }
+}
+
+const environmentDecorator = new EnvironmentDecorator();
 
 // --- Game Lifecycle ---
 
