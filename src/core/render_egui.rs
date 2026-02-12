@@ -95,60 +95,77 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                     viewer.ui(ui, &mut Tab::Projects);
                 });
             } else {
-                egui::SidePanel::left("activity_bar")
-                    .resizable(false)
-                    .default_width(48.0)
+                egui::TopBottomPanel::top("top_bar")
+                    .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()).inner_margin(4.0))
                     .show(ctx, |ui| {
-                        ui.vertical_centered(|ui| {
-                            ui.add_space(6.0);
-                            // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
-                            //     pipeline.current_workspace = Workspace::GameEngine;
-                            // }
-                            // ui.add_space(6.0);
-                            // if ui.selectable_label(pipeline.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
-                            //     pipeline.current_workspace = Workspace::Sophia;
-                            // }
-                            // ui.add_space(6.0);
-                            // if ui.selectable_label(pipeline.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
-                            //     pipeline.current_workspace = Workspace::Stunts;
-                            // }
-                            // ui.add_space(6.0);
-                            // if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
-                            //     pipeline.current_workspace = Workspace::CentralChat;
-                            // }
-
-                            // Render Addon Workspaces
-                            if let Some(editor) = &mut viewer.context.export_editor {
-                                let addons = editor.addon_engine.get_registered_addons();
-                                for addon in addons {
-                                    // Only show if it has UI/workspace capability (assume yes for now or check metadata)
-                                    // We use the first letter of the name as the icon for now
-                                    let icon = addon.name.chars().next().unwrap_or('?').to_string();
-                                    let is_active = if let Workspace::Addon(name) = &pipeline.current_workspace {
-                                        name == &addon.name
-                                    } else {
-                                        false
-                                    };
-                                    
-                                    ui.add_space(6.0);
-                                    if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
-                                        pipeline.current_workspace = Workspace::Addon(addon.name.clone());
-                                    }
-                                }
-                            }
-
-                            ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
-                                pipeline.show_addon_manager = !pipeline.show_addon_manager;
-                            }
-                            ui.add_space(6.0);
-                            ui.separator();
-                            ui.add_space(6.0);
-                            if ui.selectable_label(pipeline.focus_mode, "F").on_hover_text("Focus Mode").clicked() {
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(pipeline.focus_mode, "👓").on_hover_text("Focus Mode").clicked() {
                                 pipeline.focus_mode = !pipeline.focus_mode;
+                            }
+                            
+                            ui.separator();
+                            
+                            if let Workspace::Addon(name) = &pipeline.current_workspace {
+                                ui.label(egui::RichText::new(name).strong());
+                            } else {
+                                ui.label(egui::RichText::new(format!("{:?}", pipeline.current_workspace)).strong());
                             }
                         });
                     });
+
+                if !pipeline.focus_mode {
+                    egui::SidePanel::left("activity_bar")
+                        .resizable(false)
+                        .default_width(48.0)
+                        .show(ctx, |ui| {
+                            ui.vertical_centered(|ui| {
+                                ui.add_space(6.0);
+                                // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
+                                //     pipeline.current_workspace = Workspace::GameEngine;
+                                // }
+                                // ui.add_space(6.0);
+                                // if ui.selectable_label(pipeline.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
+                                //     pipeline.current_workspace = Workspace::Sophia;
+                                // }
+                                // ui.add_space(6.0);
+                                // if ui.selectable_label(pipeline.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
+                                //     pipeline.current_workspace = Workspace::Stunts;
+                                // }
+                                // ui.add_space(6.0);
+                                // if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
+                                //     pipeline.current_workspace = Workspace::CentralChat;
+                                // }
+
+                                // Render Addon Workspaces
+                                if let Some(editor) = &mut viewer.context.export_editor {
+                                    let addons = editor.addon_engine.get_registered_addons();
+                                    for addon in addons {
+                                        // Only show if it has UI/workspace capability (assume yes for now or check metadata)
+                                        // We use the first letter of the name as the icon for now
+                                        let icon = addon.name.chars().next().unwrap_or('?').to_string();
+                                        let is_active = if let Workspace::Addon(name) = &pipeline.current_workspace {
+                                            name == &addon.name
+                                        } else {
+                                            false
+                                        };
+                                        
+                                        ui.add_space(6.0);
+                                        if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
+                                            pipeline.current_workspace = Workspace::Addon(addon.name.clone());
+                                        }
+                                    }
+                                }
+
+                                ui.add_space(6.0);
+                                if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
+                                    pipeline.show_addon_manager = !pipeline.show_addon_manager;
+                                }
+                                ui.add_space(6.0);
+                                ui.separator();
+                                ui.add_space(6.0);
+                            });
+                        });
+                }
 
                 if pipeline.show_addon_manager {
                     // TODO: make a tab so it doesnt float
@@ -254,19 +271,23 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                             }
                         }
 
-                        let active_dock_state = match &pipeline.current_workspace {
-                            Workspace::Addon(name) => {
-                                pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
-                                    let mut ds = DockState::new(vec![Tab::Projects]);
-                                    ds
-                                })
-                            },
-                            _ => return
-                        };
+                        if pipeline.focus_mode {
+                            viewer.ui(ui, &mut Tab::Viewport);
+                        } else {
+                            let active_dock_state = match &pipeline.current_workspace {
+                                Workspace::Addon(name) => {
+                                    pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
+                                        let mut ds = DockState::new(vec![Tab::Projects]);
+                                        ds
+                                    })
+                                },
+                                _ => return
+                            };
 
-                        DockArea::new(active_dock_state)
-                            .style(Style::from_egui(ctx.style().as_ref()))
-                            .show_inside(ui, &mut viewer);
+                            DockArea::new(active_dock_state)
+                                .style(Style::from_egui(ctx.style().as_ref()))
+                                .show_inside(ui, &mut viewer);
+                        }
 
                         if let Some(editor) = &mut viewer.context.export_editor {
                             editor.addon_engine.render_ui(ctx, viewer.context.egui_renderer);
