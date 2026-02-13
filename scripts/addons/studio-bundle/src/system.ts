@@ -128,10 +128,10 @@ export abstract class EntropyAddon<TState = any> {
   
   protected tool(name: string): ToolBuilder { return new ToolBuilder(this.name, name); }
   protected component(id: string): ComponentBuilder { return new ComponentBuilder(this.name, id); }
-  protected getAddon(name: string): EntropyAddon<any> | undefined { return AddonContext.getAddon(name); }
-  protected registerVisual(name: string, provider: string | VisualProvider) { AddonContext.registerVisual(name, provider); }
-  protected getVisual(name: string): string | undefined { return AddonContext.getVisual(name); }
-  protected getVisualProvider(name: string): VisualProvider | undefined { return AddonContext.getVisualProvider(name); }
+  public getAddon(name: string): EntropyAddon<any> | undefined { return AddonContext.getAddon(name); }
+  public registerVisual(name: string, provider: string | VisualProvider) { AddonContext.registerVisual(name, provider); }
+  public getVisual(name: string): string | undefined { return AddonContext.getVisual(name); }
+  public getVisualProvider(name: string): VisualProvider | undefined { return AddonContext.getVisualProvider(name); }
   
   protected onInit?(): void;
   protected onUpdate?(time: number, pos: Position, dir: Position): void;

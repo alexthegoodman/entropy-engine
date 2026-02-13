@@ -131,6 +131,12 @@ export interface ToolDefinition {
   parameters: any;
 }
 
+export interface VisualProvider {
+    meshId: string;
+    onAnimate?: (entityId: string, animName: string) => void;
+    onSpawn?: (entityId: string, position: [number, number, number]) => void;
+}
+
 export interface PhysicsConfig {
   bodyType: "dynamic" | "fixed" | "kinematic";
   colliderShape: "trimesh" | "hull" | "cuboid" | "capsule" | "ball";
@@ -155,12 +161,19 @@ export interface ScopedAPI {
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   onAllProjectsLoaded: (callback: ProjectChangedCallback) => void;
+  getAddon: (name: string) => any;
+  getVisual: (name: string) => string | undefined;
+  getVisualProvider: (name: string) => VisualProvider | undefined;
+  registerVisual: (name: string, provider: string | VisualProvider) => void;
   setVisibility: (visible: boolean) => void;
   registerTool: (definition: ToolDefinition, callback: any) => void;
   Model: {
       load: (config: {
-          path: string;
+          path?: string;
           id?: string;
+          visualType?: "customMesh" | "standard" | string;
+          visualName?: string;
+          modelId?: string;
           position?: number[];
           rotation?: number[];
           scale?: number[];

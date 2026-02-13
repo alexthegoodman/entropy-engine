@@ -836,25 +836,25 @@ class WorldManager {
         gameState.playerId = Entropy.generateUUID();
         
         // Try to use the humanoid character from CharacterCreator addon
-        const visualId = (addon as any).getVisual("humanoid_character");
+        const visualId = addon.getVisual("humanoid_character");
         
         if (visualId) {
             addon.Model.load({
                 id: gameState.playerId,
-                visualType: "customMesh" as any,
+                visualType: "customMesh",
                 visualName: "humanoid_character",
                 modelId: visualId, // In customMesh mode, modelId is the meshId
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
                 physics: {
-                    body_type: "dynamic",
-                    collider_shape: "capsule",
+                    bodyType: "dynamic",
+                    colliderShape: "capsule",
                     mass: 80
                 },
                 player: {
                     modelId: gameState.playerId
                 }
-            } as any);
+            });
         } else {
             addon.Model.load({
                 path: "Friend1b.glb",
@@ -862,8 +862,8 @@ class WorldManager {
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
                 physics: {
-                    body_type: "dynamic",
-                    collider_shape: "capsule",
+                    bodyType: "dynamic",
+                    colliderShape: "capsule",
                     mass: 80
                 },
                 player: {
@@ -907,23 +907,23 @@ class WorldManager {
         const z = territory.z + Math.sin(angle) * dist;
         const y = addon.Landscape.getHeightAt(x, z);
         
-        const visualId = (addon as any).getVisual("humanoid_character");
+        const visualId = addon.getVisual("humanoid_character");
 
         if (visualId) {
             addon.Model.load({
                 id: id,
-                visualType: "customMesh" as any,
+                visualType: "customMesh",
                 visualName: "humanoid_character",
                 modelId: visualId,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
                 isNpc: true,
                 physics: {
-                    body_type: "dynamic",
-                    collider_shape: "capsule",
+                    bodyType: "dynamic",
+                    colliderShape: "capsule",
                     mass: 100
                 }
-            } as any);
+            });
         } else {
             addon.Model.load({
                 path: model,
@@ -932,8 +932,8 @@ class WorldManager {
                 behaviorId: behaviorId,
                 isNpc: true,
                 physics: {
-                    body_type: "dynamic",
-                    collider_shape: "capsule",
+                    bodyType: "dynamic",
+                    colliderShape: "capsule",
                     mass: 100
                 }
             } as any);
@@ -942,7 +942,7 @@ class WorldManager {
     
     spawnFactionGuards(faction: Faction, model: string, behaviorId: string, count: number) {
         const territory = factions[faction].territory;
-        const visualId = (addon as any).getVisual("humanoid_character");
+        const visualId = addon.getVisual("humanoid_character");
         
         for (let i = 0; i < count; i++) {
             const angle = (i / count) * Math.PI * 2;
@@ -953,17 +953,17 @@ class WorldManager {
             
             if (visualId) {
                 addon.Model.load({
-                    visualType: "customMesh" as any,
+                    visualType: "customMesh",
                     visualName: "humanoid_character",
                     modelId: visualId,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,
                     isNpc: true,
                     physics: {
-                        body_type: "dynamic",
-                        collider_shape: "capsule"
+                        bodyType: "dynamic",
+                        colliderShape: "capsule"
                     }
-                } as any);
+                });
             } else {
                 addon.Model.load({
                     path: model,
@@ -971,8 +971,8 @@ class WorldManager {
                     behaviorId: behaviorId,
                     isNpc: true,
                     physics: {
-                        body_type: "dynamic",
-                        collider_shape: "capsule"
+                        bodyType: "dynamic",
+                        colliderShape: "capsule"
                     }
                 } as any);
             }

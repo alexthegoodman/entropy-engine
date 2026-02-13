@@ -43,6 +43,18 @@ globalThis.Entropy = {
                 onAllProjectsLoaded: (callback) => {
                     ops.op_addon_on_all_projects_loaded(metadata.name, callback);
                 },
+                getAddon: (name) => {
+                    return globalThis.__ENTROPY_ADDONS__?.getAddon(name);
+                },
+                getVisual: (name) => {
+                    return globalThis.__ENTROPY_ADDONS__?.getVisual(name);
+                },
+                getVisualProvider: (name) => {
+                    return globalThis.__ENTROPY_ADDONS__?.getVisualProvider(name);
+                },
+                registerVisual: (name, provider) => {
+                    return globalThis.__ENTROPY_ADDONS__?.registerVisual(name, provider);
+                },
                 registerTool: (definition, callback) => {
                     ops.op_addon_register_tool(definition, callback);
                 },
