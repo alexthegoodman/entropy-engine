@@ -27,6 +27,7 @@ import "./fft_water_addon";
 import "./model_viewer_addon";
 import "./character_creator_addon";
 // import "./basic_character_addon";
+// import "./basic_character_addon_gl";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
 import "./procedural_houses_addon";
