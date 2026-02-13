@@ -449,6 +449,7 @@ pub struct AddonContext {
     pub grass_uniform_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub landscape_particle_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub composite_layout: Option<Arc<wgpu::BindGroupLayout>>,
+    pub skinned_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_models: Vec<(String, ModelConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
@@ -1851,6 +1852,27 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.bind_group_layouts[1].as_ref(), // Model/Mesh Transform
             ];
+        } else if config.layout.as_deref() == Some("skinned") {
+            if ctx.skinned_layout.is_none() {
+                ctx.skinned_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Skinned Joint Layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::VERTEX,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                })));
+            }
+            layouts = vec![
+                ctx.bind_group_layouts[0].as_ref(), // Camera
+                ctx.bind_group_layouts[1].as_ref(), // Model/Mesh Transform
+                ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices
+            ];
         } else if config.form.as_deref() == Some("composite") {
             if ctx.composite_layout.is_none() {
                 ctx.composite_layout = Some(Arc::new(device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -1903,6 +1925,12 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 layouts = vec![
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.bind_group_layouts[1].as_ref(), // Model
+                ];
+            } else if config.layout.as_deref() == Some("skinned") {
+                layouts = vec![
+                    ctx.bind_group_layouts[0].as_ref(), // Camera
+                    ctx.bind_group_layouts[1].as_ref(), // Model
+                    ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices
                 ];
             } else if config.form.as_deref() == Some("composite") {
                 layouts = vec![
@@ -2896,6 +2924,7 @@ impl AddonEngine {
             grass_uniform_layout: None,
             landscape_particle_layout: None,
             composite_layout: None,
+            skinned_layout: None,
             pending_cubes: Vec::new(),
             pending_models: Vec::new(),
             pending_meshes: Vec::new(),
