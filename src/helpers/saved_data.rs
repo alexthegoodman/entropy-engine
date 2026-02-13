@@ -160,14 +160,24 @@ pub struct CollectableProperties {
 #[serde(rename_all = "camelCase")]
 pub struct NPCProperties {
     pub model_id: String,
+    pub visual_type: Option<VisualType>,
     pub behavior: BehaviorConfig,
     pub squad_id: Option<String>,
+}
+
+#[derive(Clone, PartialEq, Serialize, Deserialize, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum VisualType {
+    #[default]
+    Model,
+    CustomMesh,
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct PlayerProperties {
     pub model_id: Option<String>,
+    pub visual_type: Option<VisualType>,
     // default weapon is already hidden from the level / world. 
     // mounted on a Model armature (LowerArm.r to start with)
     pub default_weapon_id: Option<String>, // Component id of the Collectable (Weapon type)

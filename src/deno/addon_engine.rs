@@ -337,7 +337,8 @@ pub struct SynthConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ModelConfig {
     pub id: Option<String>,
-    pub path: String,
+    pub path: Option<String>,
+    pub visual_type: Option<crate::helpers::saved_data::VisualType>,
     pub position: [f32; 3],
     pub rotation: Option<[f32; 3]>,
     pub scale: Option<[f32; 3]>,
@@ -3945,17 +3946,21 @@ impl AddonEngine {
                     let scale_val = config.scale.unwrap_or([1.0, 1.0, 1.0]);
                     let scale = Vector3::new(scale_val[0], scale_val[1], scale_val[2]);
 
-                    let bytes = {
+                    let visual_type = config.visual_type.unwrap_or_default();
+
+                    if visual_type == crate::helpers::saved_data::VisualType::Model {
+                        let path = config.path.as_ref().expect("Path is required for Model visual type");
+                        let bytes = {
                         let mut op_state = self.runtime.op_state();
                         let mut op_state = op_state.borrow_mut();
                         let ctx = op_state.try_borrow_mut::<AddonContext>().expect("Failed to borrow AddonContext");
                         
-                        if let Some(cached_bytes) = ctx.model_cache.get(&config.path) {
+                        if let Some(cached_bytes) = ctx.model_cache.get(path) {
                             cached_bytes.clone()
                         } else {
-                            println!("Reading in model: {:?}", config.path);
-                            let bytes = crate::art_assets::Model::read_model(project_id.clone(), config.path.clone()).expect("Couldn't get model bytes");
-                            ctx.model_cache.insert(config.path.clone(), bytes.clone());
+                            println!("Reading in model: {:?}", path);
+                            let bytes = crate::art_assets::Model::read_model(project_id.clone(), path.clone()).expect("Couldn't get model bytes");
+                            ctx.model_cache.insert(path.clone(), bytes.clone());
                             bytes
                         }
                     };
@@ -3974,8 +3979,10 @@ impl AddonEngine {
                         config.physics,
                         config.behavior_id.clone()
                     );
+                    }
 
-                    if let Some(player_props) = config.player {
+                    if let Some(mut player_props) = config.player {
+                        player_props.visual_type = Some(visual_type);
                         renderer_state.add_player_character(
                             &gpu.device,
                             &gpu.queue,
@@ -3987,21 +3994,14 @@ impl AddonEngine {
                         );
                     } else if let Some(is_npc) = config.is_npc {
                         if is_npc {
-                            if let Some(npc_props) = config.npc {
-                                renderer_state.add_npc(
-                                    id.clone(),
-                                    npc_props,
-                                    config.behavior_id
-                                );
-                            } else {
-                                renderer_state.add_npc(
-                                    id.clone(),
-                                    NPCProperties::default(),
-                                    config.behavior_id
-                                );
-                            }
+                            let mut npc_props = config.npc.unwrap_or_default();
+                            npc_props.visual_type = Some(visual_type);
+                            renderer_state.add_npc(
+                                id.clone(),
+                                npc_props,
+                                config.behavior_id
+                            );
                         }
-                        
                     } else {
                         renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
                     }

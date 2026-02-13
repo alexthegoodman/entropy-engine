@@ -713,6 +713,9 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         });
 
         this.generateCharacter();
+        if (this.meshId) {
+            this.registerVisual("humanoid_character", this.meshId);
+        }
         this.setupUI();
 
         this.api.onUpdate((time) => {

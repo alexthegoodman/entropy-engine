@@ -15,7 +15,7 @@ use rapier3d::{
 use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
 
-use crate::helpers::saved_data::{AttackStats, CharacterStats};
+use crate::helpers::saved_data::{AttackStats, CharacterStats, VisualType};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},
@@ -119,6 +119,7 @@ impl NPCBehavior {
 pub struct NPC {
     pub id: String,
     pub model_id: String,
+    pub visual_type: VisualType,
     pub rigid_body_handle: RigidBodyHandle,
     pub test_behavior: NPCBehavior,
     pub animation_state: AnimationState,
@@ -136,7 +137,7 @@ pub struct NPC {
 }
 
 impl NPC {
-    pub fn new(component_id: String, model_id: String, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig, squad_id: Option<String>) -> Self {
+    pub fn new(component_id: String, model_id: String, visual_type: VisualType, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig, squad_id: Option<String>) -> Self {
         // Default to a Stateful behavior
         let stateful_behavior = StatefulBehavior::new(behavior_config);
         let test_behavior = NPCBehavior::Stateful(stateful_behavior);
@@ -146,6 +147,7 @@ impl NPC {
         NPC {
             id: component_id,
             model_id,
+            visual_type,
             rigid_body_handle,
             test_behavior,
             animation_state: AnimationState::new(0),

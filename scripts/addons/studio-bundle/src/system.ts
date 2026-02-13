@@ -8,6 +8,7 @@ class AddonRegistry {
   private addons: Map<string, EntropyAddon<any>> = new Map();
   private tools: Map<string, ToolRegistration> = new Map();
   private components: Map<string, ComponentRegistration> = new Map();
+  private visuals: Map<string, string> = new Map(); // visualName -> meshId
   
   register(addon: EntropyAddon<any>) {
     this.addons.set(addon.name, addon);
@@ -34,6 +35,14 @@ class AddonRegistry {
 
   getComponentsForAddon(addonName: string): ComponentRegistration[] {
     return Array.from(this.components.values()).filter(c => c.addonName === addonName);
+  }
+
+  registerVisual(name: string, meshId: string) {
+    this.visuals.set(name, meshId);
+  }
+
+  getVisual(name: string): string | undefined {
+    return this.visuals.get(name);
   }
 }
 
@@ -105,6 +114,8 @@ export abstract class EntropyAddon<TState = any> {
   protected tool(name: string): ToolBuilder { return new ToolBuilder(this.name, name); }
   protected component(id: string): ComponentBuilder { return new ComponentBuilder(this.name, id); }
   protected getAddon(name: string): EntropyAddon<any> | undefined { return AddonContext.getAddon(name); }
+  protected registerVisual(name: string, meshId: string) { AddonContext.registerVisual(name, meshId); }
+  protected getVisual(name: string): string | undefined { return AddonContext.getVisual(name); }
   
   protected onInit?(): void;
   protected onUpdate?(time: number, pos: Position, dir: Position): void;

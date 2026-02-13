@@ -29,7 +29,7 @@ use crate::vector_animations::animations::ObjectType;
 use crate::core::gpu_resources;
 use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
-use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentData, ComponentKind, StatData, ProceduralTreeProperties, ProceduralParticleProperties, ProceduralGrassProperties, ScatterSettings};
+use crate::helpers::saved_data::{CollectableProperties, CollectableType, ComponentData, ComponentKind, ProceduralGrassProperties, ProceduralParticleProperties, ProceduralTreeProperties, ScatterSettings, StatData, VisualType};
 #[cfg(target_arch = "wasm32")]
 use crate::helpers::wasm_loaders::{get_landscape_pixels_wasm, read_landscape_mask_wasm, read_landscape_texture_wasm, read_model_wasm};
 use crate::procedural_trees::trees::{ProceduralTrees, TreeInstance};
@@ -173,7 +173,8 @@ pub async fn handle_add_player(
         camera,
         isometry,
         scale,
-        default_weapon
+        default_weapon,
+        VisualType::Model
     );
 
     player_character.model_id = Some(modelComponentId); // may want to be an optional model later
@@ -1071,7 +1072,7 @@ pub async fn handle_add_npc(
 
     let squad_id = npc_properties.squad_id.clone();
 
-    let mut npc = NPC::new(npcComponentId.clone(), npcComponentId.clone(), npc_rigid_body_handle, npc_properties.behavior.clone(), squad_id);
+    let mut npc = NPC::new(npcComponentId.clone(), npcComponentId.clone(), VisualType::Model, npc_rigid_body_handle, npc_properties.behavior.clone(), squad_id);
     npc.behavior_id = behavior_id;
     state.npcs.push(npc);
 }

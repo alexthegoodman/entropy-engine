@@ -17,7 +17,7 @@ use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape, Ray};
 
 use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
-use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType, ComponentData};
+use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType, ComponentData, VisualType};
 use crate::model_components::NPC::{NPC};
 use crate::{
     game_behaviors::{
@@ -65,6 +65,7 @@ impl Default for MovementConfig {
 pub struct PlayerCharacter {
     pub id: String,
     pub model_id: Option<String>,
+    pub visual_type: VisualType,
     pub sphere: Option<Sphere>,
 
     // Physics components
@@ -119,7 +120,8 @@ impl PlayerCharacter {
         camera: &SimpleCamera,
         isometry: Isometry3<f32>,
         scale: Vector3<f32>,
-        default_weapon: Option<ComponentData>
+        default_weapon: Option<ComponentData>,
+        visual_type: VisualType,
     ) -> Self {
         // let id = Uuid::new_v4();
         let uuid = Uuid::from_str(&id);
@@ -178,6 +180,7 @@ impl PlayerCharacter {
         Self {
             id,
             model_id: None,
+            visual_type,
             sphere: Some(sphere),
             character_controller: KinematicCharacterController {
                 autostep: Some(CharacterAutostep {
