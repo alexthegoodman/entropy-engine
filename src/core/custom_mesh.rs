@@ -20,6 +20,7 @@ pub struct CustomMesh {
     pub time_buffer: Option<wgpu::Buffer>,
     pub render_role: Option<String>,
     pub model_bind_group: wgpu::BindGroup,
+    pub group_bind_group: wgpu::BindGroup,
 }
 
 impl CustomMesh {
@@ -255,7 +256,8 @@ impl CustomMesh {
             samplers,
             time_buffer,
             render_role: None,
-            model_bind_group: bind_group
+            model_bind_group: bind_group,
+            group_bind_group: tmp_group_bind_group,
         }
     }
 }

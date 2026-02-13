@@ -9,3 +9,11 @@ Material and surface detail through parallax occlusion mapping to give flat text
 Vegetation systems with wind animation that looks organic rather than uniform. Trees and grass that sway with different frequencies, foliage that rustles convincingly.
 Weather systems - dynamic rain with proper surface wetness, snow accumulation, storms with lightning that illuminates the scene.
 Water variations - you've nailed ocean water, but also consider rivers with flow maps, waterfalls with mist, puddles with proper reflections, caustics dancing on underwater surfaces.
+
+Also
+
+Performance Profiler:
+Frame time breakdown
+Draw call counter
+Memory usage monitor
+Entity count tracker

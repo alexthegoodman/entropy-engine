@@ -580,14 +580,24 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         if !pipeline_set {
-                            render_pass.set_pipeline(&mesh.pipeline);
+                            if mesh.pipeline_id == "default" {
+                                render_pass.set_pipeline(geometry_pipeline);
+                                pipeline_set = true;
+                            } else {
+                                render_pass.set_pipeline(&mesh.pipeline);
+                            }
                         }
                         
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                         render_pass.set_bind_group(1, &mesh.model_bind_group, &[]);
 
-                        for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                            render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
+                        if mesh.pipeline_id == "default" {
+                            render_pass.set_bind_group(2, window_size_bind_group, &[]);
+                            render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+                        } else {
+                            for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                                render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
+                            }
                         }
 
                         if let Some(time_buffer) = &mesh.time_buffer {

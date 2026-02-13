@@ -3868,50 +3868,66 @@ impl AddonEngine {
 
         if !pending_meshes.is_empty() {
             if let Some(gpu) = &renderer_state.gpu_resources {
-                for (addon_name, config) in pending_meshes {
-                     let pipeline = {
-                         let op_state = self.runtime.op_state();
-                         let op_state = op_state.borrow();
-                         if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-                                 ctx.pipelines.get(&config.pipeline_id).cloned()
-                         } else {
-                             None
-                         }
-                     };
-                     
-                     if let Some(pipeline) = pipeline {
-                         let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
-                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings, config.id.clone(), current_addon_name.clone())
-                         } else {
-                             (Vec::new(), Vec::new(), Vec::new(), None)
-                         };
-                         
-                         // Create Mesh
-                         let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
-                         let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
-
-                         let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-
-                         let mut mesh = CustomMesh::new(
-                             &gpu.device,
-                             &gpu.queue,
-                             vertex_bytes,
-                             index_bytes,
-                             pipeline,
-                             config.pipeline_id.clone(),
-                             bind_groups,
-                             config.position,
-                             id.clone(),
-                             uniform_buffers,
-                             samplers,
-                             config.instance_count.unwrap_or(1),
-                             time_buffer,
-
-                             &renderer_state.model_bind_group_layout,
-                             &renderer_state.texture_render_mode_buffer,
-                             &renderer_state.group_bind_group_layout,
-                             camera
-                         );
+                                for (addon_name, config) in pending_meshes {
+                                     let (pipeline, pipeline_id) = {
+                                         let op_state = self.runtime.op_state();
+                                         let op_state = op_state.borrow();
+                                         
+                                         let custom_pipeline = if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                                 ctx.pipelines.get(&config.pipeline_id).cloned()
+                                         } else {
+                                             None
+                                         };
+                
+                                         if let Some(p) = custom_pipeline {
+                                             (Some(p), config.pipeline_id.clone())
+                                         } else if config.pipeline_id == "default" {
+                                             // "default" is handled in render_addon_frame.rs using the engine's geometry_pipeline
+                                             // We just need a placeholder pipeline here to satisfy CustomMesh::new, 
+                                             // but it won't be used for rendering if the ID is "default"
+                                             let any_pipeline = if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                                 ctx.pipelines.values().next().cloned()
+                                             } else {
+                                                 None
+                                             };
+                                             (any_pipeline, "default".to_string())
+                                         } else {
+                                             (None, config.pipeline_id.clone())
+                                         }
+                                     };
+                                     
+                                     if let Some(pipeline) = pipeline {
+                                         let (bind_groups, uniform_buffers, samplers, time_buffer) = if let Some(bindings) = config.bindings {
+                                             self.create_bindings_from_config(gpu, landscape_view.clone(), &pipeline, bindings, config.id.clone(), current_addon_name.clone())
+                                         } else {
+                                             (Vec::new(), Vec::new(), Vec::new(), None)
+                                         };
+                                         
+                                         // Create Mesh
+                                         let vertex_bytes: &[u8] = bytemuck::cast_slice(&config.vertex_data);
+                                         let index_bytes: &[u8] = bytemuck::cast_slice(&config.index_data);
+                
+                                         let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                
+                                         let mut mesh = CustomMesh::new(
+                                             &gpu.device,
+                                             &gpu.queue,
+                                             vertex_bytes,
+                                             index_bytes,
+                                             pipeline,
+                                             pipeline_id,
+                                             bind_groups,
+                                             config.position,
+                                             id.clone(),
+                                             uniform_buffers,
+                                             samplers,
+                                             config.instance_count.unwrap_or(1),
+                                             time_buffer,
+                                             &renderer_state.model_bind_group_layout,
+                                             &renderer_state.texture_render_mode_buffer,
+                                             &renderer_state.group_bind_group_layout,
+                                             camera
+                                         );
                          
                          if let Some(rotation) = config.rotation {
                              mesh.transform.update_rotation(rotation);

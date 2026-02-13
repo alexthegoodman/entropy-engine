@@ -27,6 +27,7 @@ import "./fft_water_addon";
 import "./model_viewer_addon";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
+import "./procedural_houses_addon";
 
 // game logic tier
 // import "./horde_mode_game";
