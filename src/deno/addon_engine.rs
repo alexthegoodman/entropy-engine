@@ -388,6 +388,51 @@ pub struct EngineContext {
     pub dialogue_wrapper: Option<DialogueWrapper>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BoneTransformConfig {
+    pub model_id: String,
+    pub bone_name: String,
+    pub position: Option<[f32; 3]>,
+    pub rotation: Option<[f32; 4]>, // Quaternion [x, y, z, w]
+    pub scale: Option<[f32; 3]>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ProceduralCharacterConfig {
+    pub id: Option<String>,
+    pub position: [f32; 3],
+    pub rotation: Option<[f32; 3]>,
+    pub scale: Option<[f32; 3]>,
+    
+    // Proportions
+    pub body_scale: f32,
+    pub head_scale: f32,
+    pub torso_width: f32,
+    pub arm_length: f32,
+    pub leg_length: f32,
+    
+    // Colors
+    pub skin_color: [f32; 4],
+    pub hair_color: [f32; 4],
+    pub shirt_color: [f32; 4],
+    pub pants_color: [f32; 4],
+
+    pub render_role: Option<String>,
+    pub is_npc: Option<bool>,
+    pub behavior_id: Option<String>,
+}
+
+#[op2]
+fn op_model_create_procedural_character(state: &mut OpState, #[string] addon_name: String, #[serde] config: ProceduralCharacterConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        // We'll store this in a new pending list or reuse pending_models with a flag
+        // For simplicity, let's add a new list to AddonContext
+        ctx.pending_procedural_characters.push((addon_name, config));
+    }
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub behaviors: HashMap<String, BehaviorHooks>,
@@ -421,6 +466,8 @@ pub struct AddonContext {
     pub pending_entity_xz_velocities: Vec<(String, [f32; 2])>,
     pub pending_animation_plays: Vec<(String, String)>,
     pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
+    pub pending_bone_transforms: Vec<BoneTransformConfig>,
+    pub pending_procedural_characters: Vec<(String, ProceduralCharacterConfig)>,
     pub active_gizmo: Option<GizmoState>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
@@ -605,6 +652,13 @@ fn op_entity_play_animation(state: &mut OpState, #[string] id: String, #[string]
 fn op_entity_set_stats(state: &mut OpState, #[string] id: String, #[serde] stats: crate::helpers::saved_data::CharacterStats) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_stat_updates.push((id, stats));
+    }
+}
+
+#[op2]
+fn op_model_set_bone_transform(state: &mut OpState, #[serde] config: BoneTransformConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_bone_transforms.push(config);
     }
 }
 
@@ -2650,7 +2704,9 @@ extension!(
         op_entity_set_velocity,
         op_entity_set_xz_velocity,
         op_entity_play_animation,
-        op_entity_set_stats
+        op_entity_set_stats,
+        op_model_set_bone_transform,
+        op_model_create_procedural_character
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2899,6 +2955,8 @@ impl AddonEngine {
             modifiers: Modifiers::default(),
             window_size: [1920, 1080],
             selected_entity_id: None,
+            pending_bone_transforms: Vec::new(),
+            pending_procedural_characters: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3451,7 +3509,9 @@ impl AddonEngine {
             pending_velocities, 
             pending_xz_velocities,
             pending_animations, 
-            pending_stats
+            pending_stats,
+            pending_bone_transforms,
+            pending_procedural_characters
         ) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -3473,9 +3533,11 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_entity_xz_velocities),
                     std::mem::take(&mut ctx.pending_animation_plays),
                     std::mem::take(&mut ctx.pending_stat_updates),
+                    std::mem::take(&mut ctx.pending_bone_transforms),
+                    std::mem::take(&mut ctx.pending_procedural_characters),
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
             }
         };
 
@@ -3562,6 +3624,67 @@ impl AddonEngine {
             } else if let Some(player) = &mut renderer_state.player_character {
                 if player.id == id {
                     player.stats = stats;
+                }
+            }
+        }
+
+        for bt in pending_bone_transforms {
+            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == bt.model_id) {
+                if let Some(node_idx) = model.nodes.iter().position(|n| n.name == bt.bone_name) {
+                    let node = &mut model.nodes[node_idx];
+                    if let Some(pos) = bt.position {
+                        node.transform.position = nalgebra::Vector3::new(pos[0], pos[1], pos[2]);
+                    }
+                    if let Some(rot) = bt.rotation {
+                        node.transform.rotation = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(rot[3], rot[0], rot[1], rot[2]));
+                    }
+                    if let Some(scale) = bt.scale {
+                        node.transform.scale = nalgebra::Vector3::new(scale[0], scale[1], scale[2]);
+                    }
+                    
+                    // Manually trigger matrix updates
+                    // Note: Ideally we should call a centralized update_global_transforms(model) here
+                    // similar to what animation_system.rs does.
+                    
+                    // We can reuse the update logic from animation_system if we make it public or duplicate it
+                    // For now, let's just mark it as needing update if we had such a flag, 
+                    // or just run the update logic right here for this model.
+                    
+                    fn update_node_recursive(nodes: &mut [crate::art_assets::Model::Node], parent_transform: &nalgebra::Matrix4<f32>, node_idx: usize, queue: &wgpu::Queue) {
+                        let (global_transform, children) = {
+                            let node = &mut nodes[node_idx];
+                            let local_transform = node.transform.update_transform();
+                            node.global_transform = parent_transform * local_transform;
+                            (node.global_transform, node.children.clone())
+                        };
+
+                        let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&global_transform);
+                        queue.write_buffer(&nodes[node_idx].transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
+
+                        for child_idx in children {
+                            update_node_recursive(nodes, &global_transform, child_idx, queue);
+                        }
+                    }
+
+                    if let gpu = &gpu_resources {
+                        let root_nodes = model.root_nodes.clone();
+                        for root_idx in root_nodes {
+                            update_node_recursive(&mut model.nodes, &nalgebra::Matrix4::identity(), root_idx, &gpu.queue);
+                        }
+
+                        // Also update skinning buffer if it exists
+                        if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
+                            if let Some(skin) = model.skins.first() {
+                                let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
+                                for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
+                                    let joint_node = &model.nodes[*joint_node_index];
+                                    let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
+                                    joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
+                                }
+                                gpu.queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
+                            }
+                        }
+                    }
                 }
             }
         }

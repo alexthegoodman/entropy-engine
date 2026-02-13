@@ -25,6 +25,7 @@ import "./fft_water_addon";
 // better for flow simulation than for water properties like surface waves and refractions
 // import "./gpgpu_river_addon"; 
 import "./model_viewer_addon";
+import "./character_creator_addon";
 import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
 import "./procedural_houses_addon";

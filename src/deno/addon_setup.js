@@ -101,6 +101,9 @@ globalThis.Entropy = {
                     },
                     clearMeshes: () => {
                         ops.op_meshes_clear(getAddonName());
+                    },
+                    setBoneTransform: (config) => {
+                        ops.op_model_set_bone_transform(config);
                     }
                 },
                 Landscape: {

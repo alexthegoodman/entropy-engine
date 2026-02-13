@@ -202,6 +202,13 @@ export interface ScopedAPI {
       }) => void;
       clearMeshes: () => void;
       clearMesh: (meshId: string) => void;
+      setBoneTransform: (config: {
+          modelId: string;
+          boneName: string;
+          position?: [number, number, number];
+          rotation?: [number, number, number, number]; // [x, y, z, w]
+          scale?: [number, number, number];
+      }) => void;
   };
   Landscape: {
     create: (config: LandscapeConfig) => void;
@@ -402,7 +409,7 @@ export interface PipelineConfig {
   pbr?: boolean;
   vertexShader?: string;
   fragmentShader?: string;
-  layout?: "hair" | "mesh";
+  layout?: "hair" | "mesh" | "skinned";
   lightingShader?: string;
   extraBindGroups?: {
     entries: BindingEntry[]

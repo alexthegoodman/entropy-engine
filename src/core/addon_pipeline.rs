@@ -1,6 +1,6 @@
 use wgpu::{self, Device, RenderPipeline, ShaderModuleDescriptor, ShaderSource};
 use crate::deno::addon_engine::PipelineConfig;
-use crate::core::vertex::Vertex; // Assuming standard vertex for now
+use crate::core::vertex::{Vertex, ModelVertex}; 
 
 // Add GBuffer format constants at the top or pass them in
 pub const GBUFFER_FORMATS: [wgpu::TextureFormat; 4] = [
@@ -154,7 +154,11 @@ pub fn create_addon_pipeline(
     let mut vertex_buffers = wgpu::VertexState {
         module: &vertex_shader,
         entry_point: Some("vs_main"), // Standard entry point
-        buffers: &[Vertex::desc()], // Standard vertex layout
+        buffers: if config.layout.as_deref() == Some("skinned") {
+            &[ModelVertex::desc()]
+        } else {
+            &[Vertex::desc()]
+        },
         compilation_options: wgpu::PipelineCompilationOptions::default(),
     };
 
