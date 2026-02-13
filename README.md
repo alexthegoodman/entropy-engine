@@ -6,9 +6,9 @@
 
 **Lightweight, powerful, sophisticated.**
 
-Entropy is an end-to-end game engine with an API designed for LLM generation. 
-Create entire games in a single JavaScript file. No extra plugins, no build systems, no configuration hell.
-Get everything you need, from PBR textures to animations to audio and level design. No extra tools needed.
+Entropy is an end-to-end, native game engine with an API designed for LLM generation and fewer lines of code.
+Create entire games in a single JavaScript file (on top of the fully native Rust-based core). No extra plugins needed.
+Get everything you need, from PBR textures to animations to audio and level design. No extra tools required.
 
 The API is clean enough to paste into any LLM (Claude, ChatGPT, local models) and get reliable code generation. 
 Or use the built-in chat for convenience (best for non-coders). Your choice.
