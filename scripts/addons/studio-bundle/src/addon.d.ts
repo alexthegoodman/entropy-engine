@@ -169,7 +169,7 @@ export interface ScopedAPI {
   registerTool: (definition: ToolDefinition, callback: any) => void;
   Model: {
       load: (config: {
-          path?: string;
+          path: string;
           id?: string;
           visualType?: "customMesh" | "standard" | string;
           visualName?: string;

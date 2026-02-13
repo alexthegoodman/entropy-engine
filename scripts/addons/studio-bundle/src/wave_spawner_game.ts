@@ -34,7 +34,7 @@ const addon = Entropy.Addon.register({
   author: ["Entropy AI"],
   capabilities: {
       ui: true,
-      scripts: true
+      // scripts: true
   }
 });
 

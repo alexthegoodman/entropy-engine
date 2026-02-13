@@ -4001,11 +4001,11 @@ impl AddonEngine {
                             renderer_state.add_npc(
                                 id.clone(),
                                 npc_props,
-                                config.behavior_id
+                                config.behavior_id,
                             );
                         }
                     } else {
-                        renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model);
+                        renderer_state.add_collider(id.clone(), crate::helpers::saved_data::ComponentKind::Model, None);
                     }
 
                     if let Some(models) = renderer_state.addon_models.get_mut(&addon_name) {
@@ -4269,7 +4269,7 @@ impl AddonEngine {
                         renderer_state.addon_landscapes
                             .insert(addon_name, vec![landscape]);
 
-                        renderer_state.add_collider(id.clone(), ComponentKind::Landscape);
+                        renderer_state.add_collider(id.clone(), ComponentKind::Landscape, None);
                     }
                 }
             }

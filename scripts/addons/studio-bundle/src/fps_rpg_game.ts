@@ -836,13 +836,13 @@ class WorldManager {
         gameState.playerId = Entropy.generateUUID();
         
         // Try to use the humanoid character from CharacterCreator addon
-        const visualId = addon.getVisual("humanoid_character");
+        const visualId = addon.getVisualProvider("humanoid_character");
         
         if (visualId) {
             addon.Visual.load({
                 id: gameState.playerId,
                 visualName: "humanoid_character",
-                meshId: visualId,
+                meshId: visualId.meshId,
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
                 physics: {
@@ -906,13 +906,13 @@ class WorldManager {
         const z = territory.z + Math.sin(angle) * dist;
         const y = addon.Landscape.getHeightAt(x, z);
         
-        const visualId = addon.getVisual("humanoid_character");
+        const visualId = addon.getVisualProvider("humanoid_character");
 
         if (visualId) {
             addon.Visual.load({
                 id: id,
                 visualName: "humanoid_character",
-                meshId: visualId,
+                meshId: visualId.meshId,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
                 isNpc: true,
@@ -940,7 +940,7 @@ class WorldManager {
     
     spawnFactionGuards(faction: Faction, model: string, behaviorId: string, count: number) {
         const territory = factions[faction].territory;
-        const visualId = addon.getVisual("humanoid_character");
+        const visualId = addon.getVisualProvider("humanoid_character");
         
         for (let i = 0; i < count; i++) {
             const angle = (i / count) * Math.PI * 2;
@@ -952,7 +952,7 @@ class WorldManager {
             if (visualId) {
                 addon.Visual.load({
                     visualName: "humanoid_character",
-                    meshId: visualId,
+                    meshId: visualId.meshId,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,
                     isNpc: true,
@@ -1290,30 +1290,32 @@ class EnvironmentDecorator {
      * Master function to decorate the entire world
      */
     decorateWorld() {
+        // just trees during testing
         this.spawnTrees(60);
-        this.spawnFoliage(80);
-        this.buildCentralBridge();
+
+        // this.spawnFoliage(80);
+        // this.buildCentralBridge();
         
-        // Build outposts for each faction
-        this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
-        this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
-        this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
+        // // Build outposts for each faction
+        // this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
+        // this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
+        // this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
         
-        // Add towers
-        this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
-        this.buildFactionTowers(Faction.AZURE_ORDER, 4);
-        this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
+        // // Add towers
+        // this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
+        // this.buildFactionTowers(Faction.AZURE_ORDER, 4);
+        // this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
         
-        // Add weapon displays
-        this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
-        this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
-        this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
+        // // Add weapon displays
+        // this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
+        // this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
+        // this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
         
-        // Scatter props
-        this.spawnScatteredProps(50);
+        // // Scatter props
+        // this.spawnScatteredProps(50);
         
-        // Build a dome at neutral zone
-        this.buildDomeStructure(-440, 440);
+        // // Build a dome at neutral zone
+        // this.buildDomeStructure(-440, 440);
         
         Entropy.println("[World] Full decoration complete! 🌍");
     }

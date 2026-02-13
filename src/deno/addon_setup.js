@@ -78,7 +78,7 @@ globalThis.Entropy = {
                         ops.op_model_load(getAddonName(), {
                             id: id,
                             path: config.path,
-                            visual_type: config.visualType || null,
+                            visualType: config.visualType || null,
                             modelId: config.modelId || null,
                             position: config.position || [0, 0, 0],
                             rotation: config.rotation || [0, 0, 0],
@@ -136,7 +136,7 @@ globalThis.Entropy = {
 
                         ops.op_model_load(getAddonName(), {
                             id: id,
-                            visual_type: "customMesh",
+                            visualType: "customMesh",
                             visualName: config.visualName,
                             modelId: config.meshId, // Maps meshId to modelId for the Rust op
                             position: config.position || [0, 0, 0],

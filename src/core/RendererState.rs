@@ -18,7 +18,7 @@ use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::handlers::EntropyPosition;
-use crate::helpers::saved_data::{GameSettings, ScatterSettings, PhysicsConfig};
+use crate::helpers::saved_data::{GameSettings, PhysicsConfig, ScatterSettings, VisualType};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
 use crate::heightfield_landscapes::TerrainManager::TerrainManager;
 use crate::model_components::Collectable::Collectable;
@@ -1782,7 +1782,7 @@ impl RendererState {
         });
     }
 
-    pub fn add_collider(&mut self, component_id: String, component_kind: ComponentKind) {
+    pub fn add_collider(&mut self, component_id: String, component_kind: ComponentKind, visual_type: Option<VisualType>) {
         match component_kind {
             ComponentKind::Landscape => {
                 println!("Adding landscape collider");
@@ -1872,53 +1872,58 @@ impl RendererState {
                 }
             },
             ComponentKind::NPC => {
-                let mut found = false;
-                if let Some(models) = self.addon_models.get_mut("Game Composer") {
-                    if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
-                        renderer_model.meshes.iter_mut().for_each(|mesh| {
-                            let existing_iso = mesh.rapier_rigidbody.position().clone();
+                // let mut found = false;
+                if visual_type == Some(VisualType::Model) {
+                    if let Some(models) = self.addon_models.get_mut("Game Composer") {
+                        if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
+                            renderer_model.meshes.iter_mut().for_each(|mesh| {
+                                let existing_iso = mesh.rapier_rigidbody.position().clone();
 
-                            if let Ok(uuid) = Uuid::from_str(&component_id) {
-                                let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
-                                    .friction(0.7)
-                                    .restitution(0.0)
-                                    .density(1.0)
-                                    .user_data(uuid.as_u128())
-                                    .build();
+                                if let Ok(uuid) = Uuid::from_str(&component_id) {
+                                    let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+                                        .friction(0.7)
+                                        .restitution(0.0)
+                                        .density(1.0)
+                                        .user_data(uuid.as_u128())
+                                        .build();
 
-                                let dynamic_body = RigidBodyBuilder::dynamic()
-                                    .additional_mass(70.0)
-                                    .linear_damping(0.1)
-                                    .position(existing_iso)
-                                    .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
-                                    .user_data(uuid.as_u128())
-                                    .build();
+                                    let dynamic_body = RigidBodyBuilder::dynamic()
+                                        .additional_mass(70.0)
+                                        .linear_damping(0.1)
+                                        .position(existing_iso)
+                                        .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                                        .user_data(uuid.as_u128())
+                                        .build();
 
-                                mesh.rapier_collider = rapier_collider;
-                                mesh.rapier_rigidbody = dynamic_body;
+                                    mesh.rapier_collider = rapier_collider;
+                                    mesh.rapier_rigidbody = dynamic_body;
 
-                                let rigid_body_handle =
-                                    self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
-                                mesh.rigid_body_handle = Some(rigid_body_handle);
+                                    let rigid_body_handle =
+                                        self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                                    mesh.rigid_body_handle = Some(rigid_body_handle);
 
-                                let collider_handle = self.collider_set.insert_with_parent(
-                                    mesh.rapier_collider.clone(),
-                                    rigid_body_handle,
-                                    &mut self.rigid_body_set,
-                                );
-                                mesh.collider_handle = Some(collider_handle);
-                            }
-                        });
-                        found = true;
+                                    let collider_handle = self.collider_set.insert_with_parent(
+                                        mesh.rapier_collider.clone(),
+                                        rigid_body_handle,
+                                        &mut self.rigid_body_set,
+                                    );
+                                    mesh.collider_handle = Some(collider_handle);
+                                }
+                            });
+                            // found = true;
+                        }
                     }
                 }
 
-                if !found {
+                if visual_type == Some(VisualType::CustomMesh) {
+                    println!("adding customesh collider");
                     // Try CustomMesh
                     for meshes in self.addon_meshes.values_mut() {
                         if let Some(mesh) = meshes.iter_mut().find(|m| m.id == component_id) {
                             let existing_iso = mesh.rapier_rigidbody.position().clone();
 
+                            println!("STILL adding customesh collider and rigid_body_handle");
+
                             if let Ok(uuid) = Uuid::from_str(&component_id) {
                                 let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
                                     .friction(0.7)
@@ -1949,7 +1954,7 @@ impl RendererState {
                                 );
                                 mesh.collider_handle = Some(collider_handle);
                             }
-                            found = true;
+                            // found = true;
                             break;
                         }
                     }
@@ -2127,12 +2132,12 @@ impl RendererState {
             isometry,
             scale,
             None, // default_weapon - we'll handle this via player_properties later if needed
-            visual_type
+            visual_type.clone()
         );
 
         player_character.model_id = Some(model_component_id.clone());
         self.player_character = Some(player_character);
-        self.add_collider(model_component_id, ComponentKind::PlayerCharacter);
+        self.add_collider(model_component_id, ComponentKind::PlayerCharacter, Some(visual_type.clone()));
     }
 
     pub fn add_npc(
@@ -2146,7 +2151,7 @@ impl RendererState {
 
         let visual_type = npc_properties.visual_type.unwrap_or_default();
 
-        self.add_collider(model_component_id.clone(), ComponentKind::NPC);
+        self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
 
         // Retrieve the rigid_body_handle after the collider has been added
         let npc_rigid_body_handle = if visual_type == crate::helpers::saved_data::VisualType::Model {

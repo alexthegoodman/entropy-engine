@@ -737,6 +737,8 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
             }
         });
 
+        Entropy.println("Registered humanoid_character " + JSON.stringify(this.getVisual("humanoid_character")));
+
         this.setupUI();
 
         this.api.onUpdate((time) => {

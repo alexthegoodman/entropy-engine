@@ -158,7 +158,7 @@ pub async fn handle_add_player(
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
 
-    state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter);
+    state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter, None);
 
     // TODO: provide model info for Player model and isometry for player position
     let mut player_character = PlayerCharacter::new(
@@ -994,7 +994,7 @@ pub async fn handle_add_model(
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
     state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
-    state.add_collider(modelComponentId, ComponentKind::Model);
+    state.add_collider(modelComponentId, ComponentKind::Model, None);
 }
 
 pub async fn handle_add_scattered_model(
@@ -1059,7 +1059,7 @@ pub async fn handle_add_npc(
 
     state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id.clone());
 
-    state.add_collider(npcComponentId.clone(), ComponentKind::NPC);
+    state.add_collider(npcComponentId.clone(), ComponentKind::NPC, None);
 
     // Retrieve the rigid_body_handle after the collider has been added
     let npc_rigid_body_handle = state
@@ -1102,7 +1102,7 @@ pub async fn handle_add_collectable(
 
     state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None, behavior_id.clone());
 
-    state.add_collider(modelAssetId.clone(), ComponentKind::Collectable);
+    state.add_collider(modelAssetId.clone(), ComponentKind::Collectable, None);
 
     // Retrieve the rigid_body_handle after the collider has been added
     let npc_rigid_body_handle = state
@@ -1153,7 +1153,7 @@ pub async fn handle_add_landscape(
     let data = get_landscape_pixels_wasm(projectId, landscapeAssetId, landscapeFilename).await;
 
     state.add_landscape(device, queue, &landscapeComponentId, &data, position, camera);
-    state.add_collider(landscapeComponentId, ComponentKind::Landscape);
+    state.add_collider(landscapeComponentId, ComponentKind::Landscape, None);
 
     // with quadtree
     // state.add_terrain_manager(
