@@ -706,7 +706,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
             vertexShader: SKINNED_SHADER,
             fragmentShader: SKINNED_SHADER,
             extraBindGroups: [
-                { entries: [{ binding: 0, visibility: ["Vertex"], resourceType: "Uniform" }] }
+                { entries: [{ binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" }] }
             ]
         });
 
