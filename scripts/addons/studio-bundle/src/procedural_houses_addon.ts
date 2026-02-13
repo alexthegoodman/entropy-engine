@@ -237,6 +237,13 @@ interface HouseParams {
   
   // Generation
   seed: number;
+
+  // Textures
+  textureLayers: {
+    Walls: string | null;
+    Roof: string | null;
+    Floor: string | null;
+  };
 }
 
 // ============================================================================
@@ -1024,10 +1031,19 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
     addBasement: false,
     addAttic: false,
     addPorch: false,
-    seed: 12345
+    seed: 12345,
+    textureLayers: {
+      Walls: null,
+      Roof: null,
+      Floor: null
+    }
   };
   
-  private meshId: string | null = null;
+  private wallMeshId: string | null = null;
+  private floorMeshId: string | null = null;
+  private roofMeshId: string | null = null;
+  private detailMeshId: string | null = null;
+  private pipelineId: string | null = null;
   
   constructor() {
     super({
@@ -1040,6 +1056,7 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
   }
   
   protected setup(): void {
+    this.setupPipeline();
     this.initComponentState("Default House");
     this.createUI();
 
@@ -1049,128 +1066,383 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
         }
     });
   }
-  
-  private generateHouse() {
-    const params = this.currentParams;
-    
-    // Clear existing mesh
-    if (this.meshId) {
-      this.api.Model.clearMesh(this.meshId);
-    }
-    
-    // Generate floor plan
-    const floorPlan = new FloorPlan(params.seed);
-    floorPlan.generate(params);
-    
-    // Build geometry
-    const houseMesh = new MeshBuilder();
-    
-    // Generate each story
-    for (let story = 0; story < params.stories; story++) {
-      const baseY = story * params.floorHeight;
-      
-      // Floor
-      for (const room of floorPlan.rooms) {
-        const floor = HouseGeometry.generateFloor(room.bounds, baseY);
-        houseMesh.merge(floor);
-        
-        // Ceiling (except top story)
-        if (story < params.stories - 1) {
-          const ceiling = HouseGeometry.generateCeiling(
-            room.bounds,
-            baseY + params.floorHeight
-          );
-          houseMesh.merge(ceiling);
-        }
-      }
-      
-      // Walls for each room
-      for (const room of floorPlan.rooms) {
-        const bounds = room.bounds;
-        
-        // Four walls
-        const walls = [
-          { start: vec2(bounds.x, bounds.y), end: vec2(bounds.right, bounds.y) }, // Top
-          { start: vec2(bounds.right, bounds.y), end: vec2(bounds.right, bounds.bottom) }, // Right
-          { start: vec2(bounds.right, bounds.bottom), end: vec2(bounds.x, bounds.bottom) }, // Bottom
-          { start: vec2(bounds.x, bounds.bottom), end: vec2(bounds.x, bounds.y) }  // Left
-        ];
-        
-        for (const wall of walls) {
-          const wallMesh = HouseGeometry.generateWall(
-            vec3(wall.start.x, baseY, wall.start.y),
-            vec3(wall.end.x, baseY, wall.end.y),
-            params.floorHeight,
-            params.wallThickness
-          );
-          houseMesh.merge(wallMesh);
-        }
-      }
-      
-      // Door frames
-      for (const doorway of floorPlan.doorways) {
-        const doorMesh = HouseGeometry.generateDoorFrame(
-          doorway.position,
-          doorway.axis,
-          doorway.width,
-          params.doorHeight,
-          baseY,
-          params.wallThickness
-        );
-        houseMesh.merge(doorMesh);
-      }
-      
-      // Windows
-      for (const window of floorPlan.windows) {
-        const windowMesh = HouseGeometry.generateWindow(
-          window.position,
-          window.wallNormal,
-          window.width,
-          window.height,
-          baseY,
-          params.wallThickness
-        );
-        houseMesh.merge(windowMesh);
-      }
-      
-      // Stairs (if multi-story and not top floor)
-      if (params.stories > 1 && story < params.stories - 1 && floorPlan.stairs) {
-        const stairMesh = HouseGeometry.generateStaircase(
-          floorPlan.stairs.position,
-          floorPlan.stairs.direction,
-          floorPlan.stairs.width,
-          params.floorHeight
-        );
-        houseMesh.merge(stairMesh);
-      }
-    }
-    
-    // Roof
-    const topY = params.stories * params.floorHeight;
-    const houseBounds = new Rect(0, 0, params.width, params.depth);
-    const roofStyle = params.style === "modern" ? "flat" : "gable";
-    const roofHeight = roofStyle === "flat" ? 0.3 : 2.0;
-    
-    const roofMesh = HouseGeometry.generateRoof(
-      houseBounds,
-      topY,
-      roofHeight,
-      roofStyle
-    );
-    houseMesh.merge(roofMesh);
-    
-    // Create mesh in engine
-    this.meshId = Entropy.generateUUID();
-    this.api.Model.createMesh({
-      id: this.meshId,
-      position: [-params.width / 2, 0, -params.depth / 2],
-      vertexData: houseMesh.vertices,
-      indexData: houseMesh.indices,
-      pipelineId: "default"
+
+  private setupPipeline() {
+    this.pipelineId = Entropy.Pipeline.create({
+        name: "House_PBR_Pipeline",
+        pbr: true,
+        layout: "mesh",
+        extraBindGroups: [
+            { entries: [
+                { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
+                { binding: 1, visibility: ["Fragment"], resourceType: "Texture" },
+                { binding: 2, visibility: ["Fragment"], resourceType: "Sampler" },
+                { binding: 3, visibility: ["Fragment"], resourceType: "Texture" },
+                { binding: 4, visibility: ["Fragment"], resourceType: "Texture" }
+            ]}
+        ]
     });
-    
-    Entropy.println(`Generated house: ${floorPlan.rooms.length} rooms, ${floorPlan.doorways.length} doorways, ${floorPlan.windows.length} windows`);
   }
+  
+    private getBindingsForSlot(slot: keyof HouseParams["textureLayers"]): any[] {
+      const compId = this.currentParams.textureLayers[slot];
+      if (!compId || !Entropy.Composer) return [];
+  
+      const texAddonName = "PBR Texture Designer Pro";
+      const components = Entropy.Composer.getComponents(texAddonName) || {};
+      const comp = components[compId];
+      if (!comp) return [];
+  
+      // Ensure textures are generated
+      const generator = (Entropy.Composer as any).getTextureGenerator?.(texAddonName);
+      let designerTextures = globalThis.lastPBRDesignerTextures ? globalThis.lastPBRDesignerTextures[compId] : null;
+  
+      if (!designerTextures && generator) {
+          generator(compId, comp.params, 512);
+          designerTextures = globalThis.lastPBRDesignerTextures ? globalThis.lastPBRDesignerTextures[compId] : null;
+      }
+  
+      if (!designerTextures) return [];
+  
+      const params = comp.params;
+      return [
+          { group: 2, binding: 0, resource: { type: "Uniform", value: { data: [params.seed, 0, 0, 0, ...params.baseColor, params.roughness, params.metallic, params.aoStrength, params.normalStrength] } } },
+          { group: 2, binding: 1, resource: { type: "Texture", value: {id: designerTextures.diffId} } },
+          { group: 2, binding: 2, resource: { type: "Sampler" } },
+          { group: 2, binding: 3, resource: { type: "Texture", value: {id: designerTextures.norId} } },
+          { group: 2, binding: 4, resource: { type: "Texture", value: {id: designerTextures.armId} } }
+      ];
+    }
+  
+      private generateHouse() {
+  
+        const params = this.currentParams;
+  
+        
+  
+        // Clear existing meshes
+  
+        [this.wallMeshId, this.floorMeshId, this.roofMeshId, this.detailMeshId].forEach(id => {
+  
+          if (id) this.api.Model.clearMesh(id);
+  
+        });
+  
+        
+  
+        // Generate floor plan
+  
+        const floorPlan = new FloorPlan(params.seed);
+  
+        floorPlan.generate(params);
+  
+        
+  
+        // Build geometry for each part
+  
+        const wallMesh = new MeshBuilder();
+  
+        const floorMesh = new MeshBuilder();
+  
+        const roofMesh = new MeshBuilder();
+  
+        const detailMesh = new MeshBuilder();
+  
+        
+  
+        // Generate each story
+  
+        for (let story = 0; story < params.stories; story++) {
+  
+          const baseY = story * params.floorHeight;
+  
+          
+  
+          // Floor
+  
+          for (const room of floorPlan.rooms) {
+  
+            const floor = HouseGeometry.generateFloor(room.bounds, baseY);
+  
+            floorMesh.merge(floor);
+  
+            
+  
+            // Ceiling (except top story) - using floor mesh for now as it's similar material
+  
+            if (story < params.stories - 1) {
+  
+              const ceiling = HouseGeometry.generateCeiling(
+  
+                room.bounds,
+  
+                baseY + params.floorHeight
+  
+              );
+  
+              floorMesh.merge(ceiling);
+  
+            }
+  
+          }
+  
+          
+  
+          // Walls for each room
+  
+          for (const room of floorPlan.rooms) {
+  
+            const bounds = room.bounds;
+  
+            
+  
+            // Four walls
+  
+            const walls = [
+  
+              { start: vec2(bounds.x, bounds.y), end: vec2(bounds.right, bounds.y) }, // Top
+  
+              { start: vec2(bounds.right, bounds.y), end: vec2(bounds.right, bounds.bottom) }, // Right
+  
+              { start: vec2(bounds.right, bounds.bottom), end: vec2(bounds.x, bounds.bottom) }, // Bottom
+  
+              { start: vec2(bounds.x, bounds.bottom), end: vec2(bounds.x, bounds.y) }  // Left
+  
+            ];
+  
+            
+  
+            for (const wall of walls) {
+  
+              const w = HouseGeometry.generateWall(
+  
+                vec3(wall.start.x, baseY, wall.start.y),
+  
+                vec3(wall.end.x, baseY, wall.end.y),
+  
+                params.floorHeight,
+  
+                params.wallThickness
+  
+              );
+  
+              wallMesh.merge(w);
+  
+            }
+  
+          }
+  
+          
+  
+          // Door frames
+  
+          for (const doorway of floorPlan.doorways) {
+  
+            const door = HouseGeometry.generateDoorFrame(
+  
+              doorway.position,
+  
+              doorway.axis,
+  
+              doorway.width,
+  
+              params.doorHeight,
+  
+              baseY,
+  
+              params.wallThickness
+  
+            );
+  
+            detailMesh.merge(door);
+  
+          }
+  
+          
+  
+          // Windows
+  
+          for (const window of floorPlan.windows) {
+  
+            const win = HouseGeometry.generateWindow(
+  
+              window.position,
+  
+              window.wallNormal,
+  
+              window.width,
+  
+              window.height,
+  
+              baseY,
+  
+              params.wallThickness
+  
+            );
+  
+            detailMesh.merge(win);
+  
+          }
+  
+          
+  
+          // Stairs (if multi-story and not top floor)
+  
+          if (params.stories > 1 && story < params.stories - 1 && floorPlan.stairs) {
+  
+            const stair = HouseGeometry.generateStaircase(
+  
+              floorPlan.stairs.position,
+  
+              floorPlan.stairs.direction,
+  
+              floorPlan.stairs.width,
+  
+              params.floorHeight
+  
+            );
+  
+            detailMesh.merge(stair);
+  
+          }
+  
+        }
+  
+        
+  
+        // Roof
+  
+        const topY = params.stories * params.floorHeight;
+  
+        const houseBounds = new Rect(0, 0, params.width, params.depth);
+  
+        const roofStyle = params.style === "modern" ? "flat" : "gable";
+  
+        const roofHeight = roofStyle === "flat" ? 0.3 : 2.0;
+  
+        
+  
+        const roof = HouseGeometry.generateRoof(
+  
+          houseBounds,
+  
+          topY,
+  
+          roofHeight,
+  
+          roofStyle
+  
+        );
+  
+        roofMesh.merge(roof);
+  
+        
+  
+        // Create meshes in engine
+  
+        const commonPos: [number, number, number] = [-params.width / 2, 0, -params.depth / 2];
+  
+        const defaultPipeline = "default";
+  
+        const pbrPipeline = this.pipelineId || "default";
+  
+    
+  
+        // Walls
+  
+        this.wallMeshId = Entropy.generateUUID();
+  
+        const wallBindings = this.getBindingsForSlot("Walls");
+  
+        this.api.Model.createMesh({
+  
+          id: this.wallMeshId,
+  
+          position: commonPos,
+  
+          vertexData: wallMesh.vertices,
+  
+          indexData: wallMesh.indices,
+  
+          pipelineId: wallBindings.length > 0 ? pbrPipeline : defaultPipeline,
+  
+          bindings: wallBindings
+  
+        });
+  
+    
+  
+        // Floor
+  
+        this.floorMeshId = Entropy.generateUUID();
+  
+        const floorBindings = this.getBindingsForSlot("Floor");
+  
+        this.api.Model.createMesh({
+  
+          id: this.floorMeshId,
+  
+          position: commonPos,
+  
+          vertexData: floorMesh.vertices,
+  
+          indexData: floorMesh.indices,
+  
+          pipelineId: floorBindings.length > 0 ? pbrPipeline : defaultPipeline,
+  
+          bindings: floorBindings
+  
+        });
+  
+    
+  
+        // Roof
+  
+        this.roofMeshId = Entropy.generateUUID();
+  
+        const roofBindings = this.getBindingsForSlot("Roof");
+  
+        this.api.Model.createMesh({
+  
+          id: this.roofMeshId,
+  
+          position: commonPos,
+  
+          vertexData: roofMesh.vertices,
+  
+          indexData: roofMesh.indices,
+  
+          pipelineId: roofBindings.length > 0 ? pbrPipeline : defaultPipeline,
+  
+          bindings: roofBindings
+  
+        });
+  
+    
+  
+        // Details (always default for now)
+  
+        this.detailMeshId = Entropy.generateUUID();
+  
+        this.api.Model.createMesh({
+  
+          id: this.detailMeshId,
+  
+          position: commonPos,
+  
+          vertexData: detailMesh.vertices,
+  
+          indexData: detailMesh.indices,
+  
+          pipelineId: defaultPipeline
+  
+        });
+  
+        
+  
+        Entropy.println(`Generated house: ${floorPlan.rooms.length} rooms, ${floorPlan.doorways.length} doorways, ${floorPlan.windows.length} windows`);
+  
+      }
   
   private createUI() {
     const windowId = this.UI.createTab({
@@ -1189,6 +1461,8 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
 
     this.renderComponentUI(windowId, () => this.generateHouse());
     
+    this.renderTextureInteropUI(windowId);
+
     const params = this.currentParams;
     
     Entropy.UI.Widget.label(windowId, { text: "🏗️ Structure", bold: true });
@@ -1310,6 +1584,43 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
         this.generateHouse();
       }
     });
+  }
+
+  private renderTextureInteropUI(tab: string): void {
+    Entropy.UI.Widget.label(tab, { text: "🔗 Texture Interop", bold: true });
+    
+    const slots: (keyof HouseParams["textureLayers"])[] = ["Walls", "Roof", "Floor"];
+    
+    if (Entropy.Composer) {
+        const texAddonName = "PBR Texture Designer Pro";
+        const texComponents = Entropy.Composer.getComponents(texAddonName) || {};
+        const texCompIds = Object.keys(texComponents);
+        const texCompNames = texCompIds.map(id => texComponents[id].name);
+
+        if (texCompIds.length > 0) {
+            slots.forEach(slot => {
+                const currentId = this.currentParams.textureLayers[slot];
+                Entropy.UI.Widget.dropdown(tab, {
+                    label: `${slot} Texture`,
+                    options: ["None", ...texCompNames],
+                    selectedIndex: currentId ? texCompIds.indexOf(currentId) + 1 : 0,
+                    onChange: (idx) => {
+                        const i = parseInt(idx);
+                        if (i === 0) {
+                            this.currentParams.textureLayers[slot] = null;
+                        } else {
+                            this.currentParams.textureLayers[slot] = texCompIds[i - 1];
+                        }
+                        this.generateHouse();
+                    }
+                });
+            });
+        } else {
+            Entropy.UI.Widget.label(tab, { text: "(No PBR Texture Components saved yet)" });
+        }
+    }
+
+    Entropy.UI.Widget.separator(tab);
   }
 }
 
