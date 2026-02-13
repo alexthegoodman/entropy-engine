@@ -185,7 +185,7 @@ impl MiniMap {
         for npc in npcs {
             active_npc_ids.push(npc.id.clone());
             
-            if let Some(rb) = rigid_body_set.get(npc.rigid_body_handle) {
+            if let Some(rb) = rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                 let npc_pos = rb.translation();
                 
                 // Calculate position RELATIVE to player

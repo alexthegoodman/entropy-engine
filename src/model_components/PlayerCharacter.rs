@@ -389,7 +389,7 @@ impl PlayerCharacter {
                 if let Some(collider) = collider_set.get(handle) {
                     if let Some(parent_handle) = collider.parent() {
                          // Find which NPC has this rigid body handle
-                         if let Some(npc) = npcs.iter_mut().find(|n| n.rigid_body_handle == parent_handle) {
+                         if let Some(npc) = npcs.iter_mut().find(|n| *n.rigid_body_handle.as_ref().expect("Couldnt get handle") == parent_handle) {
                              npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                              println!("Player shot NPC! (ranged)");
                              hit_id = Some(npc.id.clone());
@@ -413,7 +413,7 @@ impl PlayerCharacter {
             let mut min_distance = self.attack_stats.range;
 
             for (i, npc) in npcs.iter().enumerate() {
-                if let Some(npc_rb) = rigid_body_set.get(npc.rigid_body_handle) {
+                if let Some(npc_rb) = rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     let npc_pos = npc_rb.translation().xyz();
                     let distance = nalgebra::distance(&player_pos.into(), &npc_pos.into());
 

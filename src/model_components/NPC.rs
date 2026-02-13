@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
-use nalgebra::{Isometry3, Point3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, Vector3};
 use rapier3d::{
     control::{CharacterAutostep, KinematicCharacterController}, parry::shape::Capsule, prelude::{
         ActiveCollisionTypes, Collider, ColliderBuilder, ColliderHandle, ColliderSet, QueryFilter, RigidBody, RigidBodyBuilder, RigidBodyHandle, RigidBodySet, TypedShape
@@ -14,8 +14,9 @@ use rapier3d::{
 };
 use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
+use wgpu::util::DeviceExt;
 
-use crate::helpers::saved_data::{AttackStats, CharacterStats, VisualType};
+use crate::{core::Transform_2::matrix4_to_raw_array, deno::addon_engine::VisualConfig, helpers::saved_data::{AttackStats, CharacterStats, VisualType}};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},
@@ -120,7 +121,7 @@ pub struct NPC {
     pub id: String,
     pub model_id: String,
     pub visual_type: VisualType,
-    pub rigid_body_handle: RigidBodyHandle,
+    pub rigid_body_handle: Option<RigidBodyHandle>,
     pub test_behavior: NPCBehavior,
     pub animation_state: AnimationState,
     pub transform: Option<Transform>,
@@ -138,15 +139,52 @@ pub struct NPC {
     pub forward_axis: Vector3<f32>,
     pub debug_sphere: Option<Sphere>,
     pub behavior_id: Option<String>,
+
+    pub rapier_collider: Option<Collider>,
+    pub collider_handle: Option<ColliderHandle>,
+    pub rapier_rigidbody: Option<RigidBody>,
 }
 
 impl NPC {
-    pub fn new(component_id: String, model_id: String, visual_type: VisualType, rigid_body_handle: RigidBodyHandle, behavior_config: BehaviorConfig, squad_id: Option<String>) -> Self {
+    pub fn new(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        component_id: String, 
+        model_id: String, 
+        visual_type: VisualType, 
+        rigid_body_handle: Option<RigidBodyHandle>, 
+        behavior_config: BehaviorConfig, 
+        squad_id: Option<String>,
+        visual_config: Option<VisualConfig>,
+    ) -> Self {
         // Default to a Stateful behavior
         let stateful_behavior = StatefulBehavior::new(behavior_config);
         let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
         // TODO: add a customizable ScriptedBehavior which ties into the Rhai scripting more
+        let mut transform = None;
+        if let Some(config) = visual_config {
+            let rotation = if let Some(rot) = config.rotation {
+                Vector3::new(rot[0], rot[1], rot[2])
+            } else {
+                Vector3::zeros()
+            };
+
+            let empty_buffer = Matrix4::<f32>::identity();
+            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("NPC {} Transform Buffer", component_id)),
+                contents: bytemuck::cast_slice(&raw_matrix),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            transform = Some(Transform::new(
+                Vector3::new(config.position[0], config.position[1], config.position[2]),
+                rotation,
+                Vector3::new(1.0, 1.0, 1.0),
+                uniform_buffer,
+            ))
+        }
 
         NPC {
             id: component_id,
@@ -155,7 +193,7 @@ impl NPC {
             rigid_body_handle,
             test_behavior,
             animation_state: AnimationState::new(0),
-            transform: None,
+            transform,
             joint_matrices_buffer: None,
             skin_bind_group: None,
             model_bind_group: None,
@@ -174,6 +212,9 @@ impl NPC {
             forward_axis: Vector3::x(),
             debug_sphere: None,
             behavior_id: None,
+            rapier_collider: None,
+            collider_handle: None,
+            rapier_rigidbody: None,
         }
     }
 }

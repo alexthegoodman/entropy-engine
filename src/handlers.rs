@@ -319,7 +319,7 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
                             if let Some(script) = target_script_path {
                                 if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
-                                    if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+                                    if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                                         let pos = rb.translation();
                                         let wrapper = crate::deno::addon_engine::EntityWrapper {
                                             id: npc.id.clone(),
@@ -1072,7 +1072,17 @@ pub async fn handle_add_npc(
 
     let squad_id = npc_properties.squad_id.clone();
 
-    let mut npc = NPC::new(npcComponentId.clone(), npcComponentId.clone(), VisualType::Model, npc_rigid_body_handle, npc_properties.behavior.clone(), squad_id);
+    let mut npc = NPC::new(
+        device,
+        queue,
+        npcComponentId.clone(), 
+        npcComponentId.clone(), 
+        VisualType::Model, 
+        Some(npc_rigid_body_handle), 
+        npc_properties.behavior.clone(), 
+        squad_id,
+        None
+    );
     npc.behavior_id = behavior_id;
     state.npcs.push(npc);
 }
@@ -1451,7 +1461,7 @@ fn handle_npc_interaction(state: &mut Editor) {
     let mut target_id = String::new();
     
     for npc in &renderer_state.npcs {
-        if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+        if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
             let npc_pos = rb.translation();
             let dist = (npc_pos - player_pos).magnitude();
             // Using 50.0 as interaction range
@@ -1538,7 +1548,7 @@ fn handle_npc_interaction(state: &mut Editor) {
         
         if let Some(renderer_state) = state.renderer_state.as_mut() {
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get(npc.rigid_body_handle) {
+                if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     let pos = rb.translation();
                     let wrapper = crate::deno::addon_engine::EntityWrapper {
                         id: npc.id.clone(),

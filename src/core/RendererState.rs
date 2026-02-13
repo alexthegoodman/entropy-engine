@@ -16,6 +16,7 @@ use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
+use crate::deno::addon_engine::VisualConfig;
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::handlers::EntropyPosition;
@@ -450,7 +451,7 @@ impl RendererState {
         for npc in &mut self.npcs {
             if npc.is_dead { continue; }
             
-            if let Some(rb) = self.rigid_body_set.get(npc.rigid_body_handle) {
+            if let Some(rb) = self.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                 let npc_pos = rb.translation();
                 let npc_pos = Vector3::new(npc_pos.x, npc_pos.y, npc_pos.z);
 
@@ -631,7 +632,7 @@ impl RendererState {
             if let Some(squad_id) = &npc.squad_id {
                 // First living NPC in squad becomes the leader for this frame if not already set
                 if !squad_leaders.contains_key(squad_id) {
-                    if let Some(rb) = self.rigid_body_set.get(npc.rigid_body_handle) {
+                    if let Some(rb) = self.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldn't get rigidbody handle")) {
                         let pos = rb.translation();
                         squad_leaders.insert(squad_id.clone(), Point3::new(pos.x, pos.y, pos.z));
                     }
@@ -1950,9 +1951,16 @@ impl RendererState {
                 if visual_type == Some(VisualType::CustomMesh) {
                     println!("adding customesh collider");
                     // Try CustomMesh
-                    for meshes in self.addon_meshes.values_mut() {
-                        if let Some(mesh) = meshes.iter_mut().find(|m| m.id == component_id) {
-                            let existing_iso = mesh.rapier_rigidbody.position().clone();
+                    // for meshes in self.addon_meshes.values_mut() {
+                        if let Some(mesh) = self.npcs.iter_mut().find(|m| m.id == component_id) {
+                            let transform = mesh.transform.as_ref().expect("Couldn't get transform");
+                            let existion_pos = transform.position;
+
+                            let existing_iso = Isometry3::translation(
+                                existion_pos.x,
+                                existion_pos.y,
+                                existion_pos.z,
+                            );
 
                             println!("STILL adding customesh collider and rigid_body_handle");
 
@@ -1972,24 +1980,24 @@ impl RendererState {
                                     .user_data(uuid.as_u128())
                                     .build();
 
-                                mesh.rapier_collider = rapier_collider;
-                                mesh.rapier_rigidbody = dynamic_body;
+                                mesh.rapier_collider = Some(rapier_collider);
+                                mesh.rapier_rigidbody = Some(dynamic_body);
 
                                 let rigid_body_handle =
-                                    self.rigid_body_set.insert(mesh.rapier_rigidbody.clone());
+                                    self.rigid_body_set.insert(mesh.rapier_rigidbody.as_ref().expect("Couldn't get rigidbody").clone());
                                 mesh.rigid_body_handle = Some(rigid_body_handle);
 
                                 let collider_handle = self.collider_set.insert_with_parent(
-                                    mesh.rapier_collider.clone(),
+                                    mesh.rapier_collider.as_ref().expect("Couldn't get collider").clone(),
                                     rigid_body_handle,
                                     &mut self.rigid_body_set,
                                 );
                                 mesh.collider_handle = Some(collider_handle);
                             }
                             // found = true;
-                            break;
+                            // break;
                         }
-                    }
+                    // }
                 }
             }
 ,
@@ -2176,45 +2184,54 @@ impl RendererState {
         &mut self,
         model_component_id: String,
         npc_properties: crate::helpers::saved_data::NPCProperties,
-        behavior_id: Option<String>
+        behavior_id: Option<String>,
+        visual_config: Option<VisualConfig>,
     ) {
+        
         use crate::model_components::NPC::NPC;
         use crate::helpers::saved_data::ComponentKind;
 
         let visual_type = npc_properties.visual_type.unwrap_or_default();
 
-        self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
-
         // Retrieve the rigid_body_handle after the collider has been added
         let npc_rigid_body_handle = if visual_type == crate::helpers::saved_data::VisualType::Model {
-             self
+            self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
+
+            self
                 .models
                 .iter()
                 .chain(self.addon_models.values().flatten())
                 .find(|m| m.id == model_component_id)
                 .and_then(|m| m.meshes.get(0))
-                .and_then(|mesh| mesh.rigid_body_handle)
+                .and_then(|mesh| Some(mesh.rigid_body_handle))
                 .expect("Couldn't retrieve rigid body handle for NPC Model after adding collider")
         } else {
-            // For CustomMesh, it's in addon_meshes
-            self.addon_meshes.values().flatten()
-                .find(|m| m.id == model_component_id)
-                .and_then(|m| m.rigid_body_handle)
-                .expect("Couldn't retrieve rigid body handle for NPC CustomMesh after adding collider")
+            None
         };
+
+        let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get resources");
 
         let squad_id = npc_properties.squad_id.clone();
 
         let mut npc = NPC::new(
+            &gpu_resources.device,
+            &gpu_resources.queue,
             model_component_id.clone(),
             model_component_id.clone(),
-            visual_type,
+            visual_type.clone(),
             npc_rigid_body_handle,
             npc_properties.behavior.clone(),
-            squad_id
+            squad_id,
+            visual_config
         );
         npc.behavior_id = behavior_id;
         self.npcs.push(npc);
+
+        if visual_type == VisualType::CustomMesh {
+            // add collider for custom mesh afterward
+            self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
+        }
+
     }
 
     pub fn add_house(
@@ -2463,26 +2480,11 @@ impl RendererState {
         // }
     }
 
-    pub fn initialize_npc_visual(&mut self, device: &wgpu::Device, npc_id: &str, template_id: &str, visual_type: VisualType) {
+    pub fn initialize_npc_visual(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, npc_id: &str, template_id: &str, visual_type: VisualType) {
+        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) = self.create_fallback_material_resources(device, queue);
+
         if let Some(npc) = self.npcs.iter_mut().find(|n| n.id == npc_id) {
-            // Create unique transform buffer
-            let empty_buffer = Matrix4::<f32>::identity();
-            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
-            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("NPC {} Transform Buffer", npc_id)),
-                contents: bytemuck::cast_slice(&raw_matrix),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            npc.transform = Some(Transform::new(
-                Vector3::zeros(),
-                Vector3::zeros(),
-                Vector3::new(1.0, 1.0, 1.0),
-                uniform_buffer,
-            ));
-
-            // Create unique joint buffer if template is a model or skinned mesh
-            // For now, always create one to be safe
+            // Create unique joint buffer
             let joint_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some(&format!("NPC {} Joint Buffer", npc_id)),
                 contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; 256]),
@@ -2490,13 +2492,53 @@ impl RendererState {
             });
             npc.joint_matrices_buffer = Some(joint_buffer);
 
-            // Create model bind group for the unique transform
+            // Borrow material resources from template
+            let mut template_resources = None;
+            if visual_type == VisualType::CustomMesh {
+                // For CustomMesh, fall back to dummies for now
+            } else {
+                if let Some(model) = self.models.iter().chain(self.addon_models.values().flatten()).find(|m| m.id == template_id) {
+                    if let Some(mesh) = model.meshes.get(0) {
+                        template_resources = Some((
+                            &mesh.normal_texture_view,
+                            &mesh.pbr_params_texture_view,
+                        ));
+                    }
+                }
+            }
+            // Create model bind group with all 6 bindings
             npc.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.model_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: npc.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: npc.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&dummy_albedo),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&dummy_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.regular_texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.0.as_ref()).unwrap_or(&dummy_normal)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.1.as_ref()).unwrap_or(&dummy_pbr)),
+                    },
+                ],
                 label: Some(&format!("NPC {} Model Bind Group", npc_id)),
             }));
 
@@ -2514,7 +2556,9 @@ impl RendererState {
         }
     }
 
-    pub fn initialize_player_visual(&mut self, device: &wgpu::Device, template_id: &str, visual_type: VisualType) {
+    pub fn initialize_player_visual(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, template_id: &str, visual_type: VisualType) {
+        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) = self.create_fallback_material_resources(device, queue);
+        
         if let Some(player) = &mut self.player_character {
             // Create unique transform buffer
             let empty_buffer = Matrix4::<f32>::identity();
@@ -2539,12 +2583,51 @@ impl RendererState {
             });
             player.joint_matrices_buffer = Some(joint_buffer);
 
+            // Borrow material resources from template
+            let mut template_resources = None;
+            if let Some(model) = self.models.iter().chain(self.addon_models.values().flatten()).find(|m| m.id == template_id) {
+                if let Some(mesh) = model.meshes.get(0) {
+                    template_resources = Some((
+                        &mesh.normal_texture_view,
+                        &mesh.pbr_params_texture_view,
+                    ));
+                }
+            }
+
+            
+
             player.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
                 layout: &self.model_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: player.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
-                }],
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: player.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&dummy_albedo),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(&dummy_sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                            buffer: &self.regular_texture_render_mode_buffer,
+                            offset: 0,
+                            size: None,
+                        }),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.0.as_ref()).unwrap_or(&dummy_normal)),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 5,
+                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.1.as_ref()).unwrap_or(&dummy_pbr)),
+                    },
+                ],
                 label: Some(&format!("Player {} Model Bind Group", player.id)),
             }));
 
@@ -2559,6 +2642,79 @@ impl RendererState {
                 }));
             }
         }
+    }
+
+    pub fn create_fallback_material_resources(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Sampler, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
+        // Albedo (White)
+        let albedo = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Instanced Visual Fallback Albedo"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &albedo, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &[255, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+
+        // Normal (Flat)
+        let normal = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Instanced Visual Fallback Normal"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &normal, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &[128, 128, 255, 255],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+
+        // PBR Params
+        let pbr = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Instanced Visual Fallback PBR"),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &pbr, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &[0, 255, 255, 255],
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let view_desc = wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        };
+
+        (sampler, albedo.create_view(&view_desc), normal.create_view(&view_desc), pbr.create_view(&view_desc))
     }
 }
 

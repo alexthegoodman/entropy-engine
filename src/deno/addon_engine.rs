@@ -3608,7 +3608,7 @@ impl AddonEngine {
                             camera,
                             player_props
                         );
-                        renderer_state.initialize_player_visual(&gpu.device, &config.template_id, visual_type.clone());
+                        renderer_state.initialize_player_visual(&gpu.device, &gpu.queue, &config.template_id, visual_type.clone());
                         if let Some(player) = &mut renderer_state.player_character {
                             player.model_id = Some(config.template_id.clone());
                             player.visual_type = visual_type;
@@ -3625,8 +3625,9 @@ impl AddonEngine {
                             id.clone(),
                             npc_props,
                             config.behavior_id.clone(),
+                            Some(config.clone())
                         );
-                        renderer_state.initialize_npc_visual(&gpu.device, &id, &config.template_id, visual_type.clone());
+                        renderer_state.initialize_npc_visual(&gpu.device, &gpu.queue, &id, &config.template_id, visual_type.clone());
                         if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
                             npc.model_id = config.template_id.clone();
                             npc.visual_type = visual_type;
@@ -3652,7 +3653,7 @@ impl AddonEngine {
         for (id, impulse) in pending_impulses {
             // Apply to NPC
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
+                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
                 }
             } 
@@ -3671,7 +3672,7 @@ impl AddonEngine {
         for (id, velocity) in pending_velocities {
             // Apply to NPC
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
+                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
                     // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
                 }
@@ -3692,7 +3693,7 @@ impl AddonEngine {
         for (id, velocity_xz) in pending_xz_velocities {
             // Apply to NPC
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(npc.rigid_body_handle) {
+                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     let current_vel = rb.linvel();
                     rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
                 }
@@ -4073,6 +4074,7 @@ impl AddonEngine {
                                 id.clone(),
                                 npc_props,
                                 config.behavior_id,
+                                None, // visual config is supplied on pending_visuals
                             );
                         }
                     } else {
