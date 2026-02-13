@@ -738,8 +738,13 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
             pipelineId: this.pipelineId!,
             bindings: [
                 { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.jointBufferId! } } }
-            ]
-        });
+            ],
+            physics: {
+                bodyType: "dynamic",
+                colliderShape: "capsule",
+                mass: 70
+            }
+        } as any);
     }
 
     public animate(time: number) {

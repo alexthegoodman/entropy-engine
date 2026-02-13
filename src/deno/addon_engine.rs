@@ -15,6 +15,7 @@ use deno_core::{
 };
 use mint::ColumnMatrix4;
 use nalgebra::{Isometry3, UnitQuaternion, Vector3};
+use rapier3d::prelude::{ColliderBuilder, LockedAxes, RigidBodyBuilder};
 use uuid::Uuid;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -115,6 +116,7 @@ pub struct MeshConfig {
     pub render_role: Option<String>,
     pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
+    pub physics: Option<PhysicsConfig>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4088,6 +4090,39 @@ impl AddonEngine {
                              mesh.transform.update_scale(scale);
                          }
                          
+                         if let Some(phys) = &config.physics {
+                             let mass = phys.mass.unwrap_or(70.0);
+                             let friction = phys.friction.unwrap_or(0.7);
+                             let restitution = phys.restitution.unwrap_or(0.0);
+                             
+                             let mut rb_builder = match phys.body_type.as_str() {
+                                 "dynamic" => RigidBodyBuilder::dynamic(),
+                                 "kinematic" => RigidBodyBuilder::kinematic_position_based(),
+                                 _ => RigidBodyBuilder::fixed(),
+                             };
+                             
+                             let uuid = uuid::Uuid::parse_str(&id).unwrap_or_else(|_| uuid::Uuid::new_v4());
+                             
+                             mesh.rapier_rigidbody = rb_builder
+                                 .additional_mass(mass)
+                                 .linear_damping(0.1)
+                                 .position(Isometry3::translation(config.position[0], config.position[1], config.position[2]))
+                                 .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
+                                 .user_data(uuid.as_u128())
+                                 .build();
+                                 
+                             mesh.rapier_collider = match phys.collider_shape.as_str() {
+                                 "capsule" => ColliderBuilder::capsule_y(1.0, 0.5),
+                                 "ball" => ColliderBuilder::ball(0.5),
+                                 "cuboid" => ColliderBuilder::cuboid(1.0, 1.0, 1.0),
+                                 _ => ColliderBuilder::capsule_y(1.0, 0.5),
+                             }
+                             .friction(friction)
+                             .restitution(restitution)
+                             .user_data(uuid.as_u128())
+                             .build();
+                         }
+
                          mesh.render_role = config.render_role;
 
                          let meshes = renderer_state.addon_meshes.entry(addon_name).or_insert_with(Vec::new);

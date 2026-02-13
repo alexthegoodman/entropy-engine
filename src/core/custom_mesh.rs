@@ -1,9 +1,11 @@
-use nalgebra::{Matrix4, Vector3};
+use nalgebra::{Matrix4, Vector3, Isometry3};
 use wgpu::util::DeviceExt;
 use crate::core::{SimpleCamera::SimpleCamera, Transform_2::{Transform, matrix4_to_raw_array}, transform::create_empty_group_transform};
 use std::sync::Arc;
 use wgpu;
 use crate::core::editor::WindowSize;
+
+use rapier3d::prelude::{Collider, ColliderHandle, RigidBody, RigidBodyHandle};
 
 pub struct CustomMesh {
     pub vertex_buffer: wgpu::Buffer,
@@ -21,7 +23,15 @@ pub struct CustomMesh {
     pub render_role: Option<String>,
     pub model_bind_group: wgpu::BindGroup,
     pub group_bind_group: wgpu::BindGroup,
+
+    // Physics
+    pub rapier_collider: Collider,
+    pub collider_handle: Option<ColliderHandle>,
+    pub rapier_rigidbody: RigidBody,
+    pub rigid_body_handle: Option<RigidBodyHandle>,
 }
+
+use rapier3d::prelude::{ColliderBuilder, RigidBodyBuilder, LockedAxes};
 
 impl CustomMesh {
     pub fn new(
@@ -44,6 +54,20 @@ impl CustomMesh {
         group_bind_group_layout: &wgpu::BindGroupLayout,
         camera: &SimpleCamera
     ) -> Self {
+        let uuid = uuid::Uuid::parse_str(&id).unwrap_or_else(|_| uuid::Uuid::new_v4());
+
+        let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
+            .friction(0.7)
+            .restitution(0.0)
+            .density(1.0)
+            .user_data(uuid.as_u128())
+            .build();
+
+        let rapier_rigidbody = RigidBodyBuilder::fixed()
+            .position(Isometry3::translation(position[0], position[1], position[2]))
+            .user_data(uuid.as_u128())
+            .build();
+
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Custom Mesh Vertex Buffer {}", id)),
             contents: vertex_data,
@@ -258,6 +282,10 @@ impl CustomMesh {
             render_role: None,
             model_bind_group: bind_group,
             group_bind_group: tmp_group_bind_group,
+            rapier_collider,
+            collider_handle: None,
+            rapier_rigidbody,
+            rigid_body_handle: None,
         }
     }
 }
