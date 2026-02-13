@@ -209,6 +209,109 @@ interface StairConfig {
 // HOUSE PARAMETERS
 // ============================================================================
 
+const HOUSE_SHADER = `
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+};
+@group(0) @binding(0)
+var<uniform> camera: Camera;
+
+struct MeshUniforms {
+    model_matrix: mat4x4<f32>,
+};
+@group(1) @binding(0)
+var<uniform> mesh: MeshUniforms;
+
+struct HousePBRParams {
+    seed: f32,
+    unused: f32,
+    unused2: f32,
+    unused3: f32,
+    base_color: vec4<f32>,
+    roughness: f32,
+    metallic: f32,
+    ao_strength: f32,
+    normal_strength: f32,
+}
+@group(2) @binding(0)
+var<uniform> p: HousePBRParams;
+
+@group(2) @binding(1)
+var t_diffuse: texture_2d<f32>;
+@group(2) @binding(2)
+var s_diffuse: sampler;
+@group(2) @binding(3)
+var t_normal: texture_2d<f32>;
+@group(2) @binding(4)
+var t_arm: texture_2d<f32>;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) color: vec4<f32>
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) world_pos: vec3<f32>,
+    @location(1) uv: vec2<f32>,
+    @location(2) normal: vec3<f32>,
+    @location(3) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    let world_pos = mesh.model_matrix * vec4<f32>(in.position, 1.0);
+    out.world_pos = world_pos.xyz;
+    out.clip_position = camera.view_proj * world_pos;
+    out.uv = in.uv;
+    out.normal = (mesh.model_matrix * vec4<f32>(in.normal, 0.0)).xyz;
+    out.color = in.color;
+    return out;
+}
+
+struct GbufferOutput {
+    @location(0) position: vec4<f32>,
+    @location(1) normal: vec4<f32>,
+    @location(2) albedo: vec4<f32>,
+    @location(3) pbr_material: vec4<f32>,
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> GbufferOutput {
+    let tex_diffuse = textureSample(t_diffuse, s_diffuse, in.uv);
+    let tex_normal = textureSample(t_normal, s_diffuse, in.uv).rgb * 2.0 - 1.0;
+    let tex_arm = textureSample(t_arm, s_diffuse, in.uv);
+    
+    let albedo = tex_diffuse * p.base_color * in.color;
+    
+    let N = normalize(in.normal);
+    var T = normalize(cross(N, vec3<f32>(0.0, 1.0, 0.0)));
+    if (length(T) < 0.1) {
+        T = normalize(cross(N, vec3<f32>(1.0, 0.0, 0.0)));
+    }
+    let B = cross(N, T);
+    let TBN = mat3x3<f32>(T, B, N);
+    
+    let bumped_normal = normalize(TBN * (tex_normal * p.normal_strength));
+    
+    var out: GbufferOutput;
+    out.position = vec4<f32>(in.world_pos, 1.0);
+    out.normal = vec4<f32>(bumped_normal, 1.0);
+    out.albedo = albedo;
+    out.pbr_material = vec4<f32>(
+        tex_arm.y * p.roughness,
+        tex_arm.z * p.metallic,
+        tex_arm.x * p.ao_strength,
+        1.0
+    );
+    return out;
+}
+`;
+
 interface HouseParams {
   // Footprint
   width: number;
@@ -1072,6 +1175,8 @@ export class ProceduralHouseGenerator extends ComponentAddon<HouseParams> {
         name: "House_PBR_Pipeline",
         pbr: true,
         layout: "mesh",
+        vertexShader: HOUSE_SHADER,
+        fragmentShader: HOUSE_SHADER,
         extraBindGroups: [
             { entries: [
                 { binding: 0, visibility: ["Vertex", "Fragment"], resourceType: "Uniform" },
