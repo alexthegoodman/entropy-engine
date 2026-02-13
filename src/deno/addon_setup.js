@@ -134,16 +134,15 @@ globalThis.Entropy = {
                             globalThis.Entropy._entityVisuals[id] = config.visualName;
                         }
 
-                        ops.op_model_load(getAddonName(), {
+                        ops.op_visual_load(getAddonName(), {
                             id: id,
-                            visualType: "customMesh",
                             visualName: config.visualName,
-                            modelId: config.meshId, // Maps meshId to modelId for the Rust op
+                            templateId: config.meshId || config.modelPath,
                             position: config.position || [0, 0, 0],
                             rotation: config.rotation || [0, 0, 0],
                             scale: config.scale || [1, 1, 1],
-                            pipeline_id: config.pipelineId || null,
-                            render_role: config.renderRole || null,
+                            pipelineId: config.pipelineId || null,
+                            renderRole: config.renderRole || null,
                             physics: config.physics || null,
                             player: config.player || null,
                             npc: config.npc || null,

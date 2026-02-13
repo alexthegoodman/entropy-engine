@@ -1,6 +1,6 @@
 use gltf::json::camera;
 use mint::ColumnMatrix4;
-use nalgebra::{Isometry3, Point3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Matrix4, Point3, UnitQuaternion, Vector3};
 use rapier3d::math::Point as RapierPoint;
 use rapier3d::prelude::*;
 use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
@@ -11,6 +11,7 @@ use wgpu::{BindGroupLayout, TextureView};
 use crate::art_assets::ScatteredModel::ScatteredModel;
 use crate::core::AnimationState::AnimationState;
 use crate::core::HealthBar::HealthBar;
+use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
 use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
@@ -1224,7 +1225,12 @@ impl RendererState {
                             }
                         }
    
-                        if character.visual_type == crate::helpers::saved_data::VisualType::Model {
+                        if let Some(transform) = &mut character.transform {
+                            transform.update_position([position.x, position.y, position.z]);
+                            if self.game_mode && !self.game_settings.third_person {
+                                transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
+                            }
+                        } else if character.visual_type == crate::helpers::saved_data::VisualType::Model {
                             if let Some(models) = self.addon_models.get_mut("Game Composer") {
                                 if let Some(instance_model_data) = models.iter_mut().find(|m| m.id == component_id_str) {
                                     instance_model_data.meshes.iter_mut().for_each(|mesh| {
@@ -1255,7 +1261,33 @@ impl RendererState {
                     let mut first_mesh_collider: Option<*const rapier3d::prelude::Collider> = None;
                     let mut first_mesh_rigid_body_handle: Option<RigidBodyHandle> = None;
    
-                    if instance_npc_data.visual_type == crate::helpers::saved_data::VisualType::Model {
+                    if let Some(transform) = &mut instance_npc_data.transform {
+                        if transform.initial_position.is_none() {
+                            transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
+                        }
+                        transform.update_position([position.x, position.y, position.z]);
+                        first_mesh_transform = Some(transform as *mut _);
+                        
+                        // We still need the collider from the template
+                        if instance_npc_data.visual_type == crate::helpers::saved_data::VisualType::Model {
+                            if let Some(models) = self.addon_models.get("Game Composer") {
+                                if let Some(instance_model_data) = models.iter().find(|m| m.id == instance_npc_data.model_id) {
+                                    if let Some(m) = instance_model_data.meshes.get(0) {
+                                        first_mesh_collider = Some(&m.rapier_collider as *const _);
+                                        first_mesh_rigid_body_handle = m.rigid_body_handle;
+                                    }
+                                }
+                            }
+                        } else {
+                            for meshes in self.addon_meshes.values() {
+                                if let Some(mesh) = meshes.iter().find(|m| m.id == instance_npc_data.model_id) {
+                                    first_mesh_collider = Some(&mesh.rapier_collider as *const _);
+                                    first_mesh_rigid_body_handle = mesh.rigid_body_handle;
+                                    break;
+                                }
+                            }
+                        }
+                    } else if instance_npc_data.visual_type == crate::helpers::saved_data::VisualType::Model {
                         if let Some(models) = self.addon_models.get_mut("Game Composer") {
                             if let Some(instance_model_data) = models.iter_mut().find(|m| m.id == instance_npc_data.model_id) {
                                 instance_model_data.meshes.iter_mut().for_each(|mesh| {
@@ -2429,6 +2461,104 @@ impl RendererState {
         //         &mask,
         //     );
         // }
+    }
+
+    pub fn initialize_npc_visual(&mut self, device: &wgpu::Device, npc_id: &str, template_id: &str, visual_type: VisualType) {
+        if let Some(npc) = self.npcs.iter_mut().find(|n| n.id == npc_id) {
+            // Create unique transform buffer
+            let empty_buffer = Matrix4::<f32>::identity();
+            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("NPC {} Transform Buffer", npc_id)),
+                contents: bytemuck::cast_slice(&raw_matrix),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            npc.transform = Some(Transform::new(
+                Vector3::zeros(),
+                Vector3::zeros(),
+                Vector3::new(1.0, 1.0, 1.0),
+                uniform_buffer,
+            ));
+
+            // Create unique joint buffer if template is a model or skinned mesh
+            // For now, always create one to be safe
+            let joint_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("NPC {} Joint Buffer", npc_id)),
+                contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; 256]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+            npc.joint_matrices_buffer = Some(joint_buffer);
+
+            // Create model bind group for the unique transform
+            npc.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.model_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: npc.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
+                }],
+                label: Some(&format!("NPC {} Model Bind Group", npc_id)),
+            }));
+
+            // Create skin bind group
+            if let Some(skinned_layout) = &self.skinned_pipeline.as_ref().map(|p| p.render_pipeline.get_bind_group_layout(2)) {
+                npc.skin_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: skinned_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: npc.joint_matrices_buffer.as_ref().unwrap().as_entire_binding(),
+                    }],
+                    label: Some(&format!("NPC {} Skin Bind Group", npc_id)),
+                }));
+            }
+        }
+    }
+
+    pub fn initialize_player_visual(&mut self, device: &wgpu::Device, template_id: &str, visual_type: VisualType) {
+        if let Some(player) = &mut self.player_character {
+            // Create unique transform buffer
+            let empty_buffer = Matrix4::<f32>::identity();
+            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
+            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("Player {} Transform Buffer", player.id)),
+                contents: bytemuck::cast_slice(&raw_matrix),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            player.transform = Some(Transform::new(
+                Vector3::zeros(),
+                Vector3::zeros(),
+                Vector3::new(1.0, 1.0, 1.0),
+                uniform_buffer,
+            ));
+
+            let joint_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some(&format!("Player {} Joint Buffer", player.id)),
+                contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; 256]),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+            player.joint_matrices_buffer = Some(joint_buffer);
+
+            player.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.model_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: player.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
+                }],
+                label: Some(&format!("Player {} Model Bind Group", player.id)),
+            }));
+
+            if let Some(skinned_layout) = &self.skinned_pipeline.as_ref().map(|p| p.render_pipeline.get_bind_group_layout(2)) {
+                player.skin_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    layout: skinned_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: player.joint_matrices_buffer.as_ref().unwrap().as_entire_binding(),
+                    }],
+                    label: Some(&format!("Player {} Skin Bind Group", player.id)),
+                }));
+            }
+        }
     }
 }
 

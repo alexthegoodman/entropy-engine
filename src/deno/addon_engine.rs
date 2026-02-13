@@ -30,7 +30,7 @@ use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::game_ui::hud::{AmmoDisplay, Crosshair};
-use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig};
+use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -353,6 +353,30 @@ pub struct ModelConfig {
     pub behavior_id: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VisualConfig {
+    pub id: Option<String>,
+    pub visual_name: String,
+    pub template_id: String, // meshId or modelId
+    pub position: [f32; 3],
+    pub rotation: Option<[f32; 3]>,
+    pub scale: Option<[f32; 3]>,
+    pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
+    pub physics: Option<PhysicsConfig>,
+    pub player: Option<crate::helpers::saved_data::PlayerProperties>,
+    pub is_npc: Option<bool>,
+    pub behavior_id: Option<String>,
+}
+
+#[op2]
+fn op_visual_load(state: &mut OpState, #[string] addon_name: String, #[serde] config: VisualConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_visuals.push((addon_name, config));
+    }
+}
+
 #[derive(Clone)]
 pub struct BehaviorHooks {
     pub on_update: Option<v8::Global<v8::Function>>,
@@ -401,41 +425,6 @@ pub struct BoneTransformConfig {
     pub scale: Option<[f32; 3]>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ProceduralCharacterConfig {
-    pub id: Option<String>,
-    pub position: [f32; 3],
-    pub rotation: Option<[f32; 3]>,
-    pub scale: Option<[f32; 3]>,
-    
-    // Proportions
-    pub body_scale: f32,
-    pub head_scale: f32,
-    pub torso_width: f32,
-    pub arm_length: f32,
-    pub leg_length: f32,
-    
-    // Colors
-    pub skin_color: [f32; 4],
-    pub hair_color: [f32; 4],
-    pub shirt_color: [f32; 4],
-    pub pants_color: [f32; 4],
-
-    pub render_role: Option<String>,
-    pub is_npc: Option<bool>,
-    pub behavior_id: Option<String>,
-}
-
-#[op2]
-fn op_model_create_procedural_character(state: &mut OpState, #[string] addon_name: String, #[serde] config: ProceduralCharacterConfig) {
-    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        // We'll store this in a new pending list or reuse pending_models with a flag
-        // For simplicity, let's add a new list to AddonContext
-        ctx.pending_procedural_characters.push((addon_name, config));
-    }
-}
-
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub behaviors: HashMap<String, BehaviorHooks>,
@@ -455,6 +444,7 @@ pub struct AddonContext {
     pub skinned_layout: Option<Arc<wgpu::BindGroupLayout>>,
     pub pending_cubes: Vec<(String, CubeConfig)>, // (addon_name, config)
     pub pending_models: Vec<(String, ModelConfig)>, // (addon_name, config)
+    pub pending_visuals: Vec<(String, VisualConfig)>, // (addon_name, config)
     pub pending_meshes: Vec<(String, MeshConfig)>, // (addon_name, config)
     pub pending_clears: Vec<String>, // addon_names to clear meshes for
     pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
@@ -471,7 +461,6 @@ pub struct AddonContext {
     pub pending_animation_plays: Vec<(String, String)>,
     pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
     pub pending_bone_transforms: Vec<BoneTransformConfig>,
-    pub pending_procedural_characters: Vec<(String, ProceduralCharacterConfig)>,
     pub active_gizmo: Option<GizmoState>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
@@ -2669,6 +2658,7 @@ extension!(
         op_buffer_write,
         op_cube_spawn,
         op_model_load,
+        op_visual_load,
         op_mesh_create,
         op_mesh_clear,
         op_meshes_clear,
@@ -2736,8 +2726,7 @@ extension!(
         op_entity_set_xz_velocity,
         op_entity_play_animation,
         op_entity_set_stats,
-        op_model_set_bone_transform,
-        op_model_create_procedural_character
+        op_model_set_bone_transform
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -2930,6 +2919,7 @@ impl AddonEngine {
             skinned_layout: None,
             pending_cubes: Vec::new(),
             pending_models: Vec::new(),
+            pending_visuals: Vec::new(),
             pending_meshes: Vec::new(),
             pending_clears: Vec::new(),
             pending_mesh_clears: Vec::new(),
@@ -2988,7 +2978,6 @@ impl AddonEngine {
             window_size: [1920, 1080],
             selected_entity_id: None,
             pending_bone_transforms: Vec::new(),
-            pending_procedural_characters: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3543,7 +3532,7 @@ impl AddonEngine {
             pending_animations, 
             pending_stats,
             pending_bone_transforms,
-            pending_procedural_characters
+            pending_visuals
         ) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -3566,10 +3555,29 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_animation_plays),
                     std::mem::take(&mut ctx.pending_stat_updates),
                     std::mem::take(&mut ctx.pending_bone_transforms),
-                    std::mem::take(&mut ctx.pending_procedural_characters),
+                    std::mem::take(&mut ctx.pending_visuals),
                 )
             } else {
-                (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), None, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())
+                (
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    None, 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(), 
+                    Vec::new(),
+                    Vec::new()
+                )
             }
         };
 
@@ -3578,6 +3586,69 @@ impl AddonEngine {
         }
 
         // 2.0.1 Apply Entity Actions
+        if !pending_visuals.is_empty() {
+            if let gpu = gpu_resources {
+                for (addon_name, config) in pending_visuals {
+                    let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+                    
+                    // 1. Determine Visual Type
+                    let mut visual_type = VisualType::Model;
+                    if renderer_state.addon_meshes.values().any(|v| v.iter().any(|m| m.id == config.template_id)) {
+                        visual_type = VisualType::CustomMesh;
+                    }
+
+                    // 2. Create Entity
+                    if let Some(player_props) = config.player {
+                        renderer_state.add_player_character(
+                            &gpu.device,
+                            &gpu.queue,
+                            id.clone(),
+                            Isometry3::translation(config.position[0], config.position[1], config.position[2]),
+                            Vector3::from(config.scale.unwrap_or([1.0, 1.0, 1.0])),
+                            camera,
+                            player_props
+                        );
+                        renderer_state.initialize_player_visual(&gpu.device, &config.template_id, visual_type.clone());
+                        if let Some(player) = &mut renderer_state.player_character {
+                            player.model_id = Some(config.template_id.clone());
+                            player.visual_type = visual_type;
+                            player.behavior_id = config.behavior_id;
+                        }
+                    } else if config.is_npc.unwrap_or(false) {
+                        let npc_props = crate::helpers::saved_data::NPCProperties {
+                            visual_type: Some(visual_type.clone()),
+                            squad_id: None,
+                            behavior: crate::game_behaviors::stateful::BehaviorConfig::default(),
+                            model_id: String::new()
+                        };
+                        renderer_state.add_npc(
+                            id.clone(),
+                            npc_props,
+                            config.behavior_id.clone(),
+                        );
+                        renderer_state.initialize_npc_visual(&gpu.device, &id, &config.template_id, visual_type.clone());
+                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+                            npc.model_id = config.template_id.clone();
+                            npc.visual_type = visual_type;
+                            npc.behavior_id = config.behavior_id;
+                        }
+                    }
+
+                    // 3. Set Visual-specific transform if provided
+                    if let Some(rot) = config.rotation {
+                        if let Some(player) = &mut renderer_state.player_character {
+                            if player.id == id {
+                                if let Some(t) = &mut player.transform { t.update_rotation(rot); }
+                            }
+                        }
+                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+                            if let Some(t) = &mut npc.transform { t.update_rotation(rot); }
+                        }
+                    }
+                }
+            }
+        }
+
         for (id, impulse) in pending_impulses {
             // Apply to NPC
             if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {

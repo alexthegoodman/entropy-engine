@@ -16,6 +16,7 @@ use rapier3d::{
 use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape, Ray};
 
+use crate::core::Transform_2::Transform;
 use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
 use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType, ComponentData, VisualType};
 use crate::model_components::NPC::{NPC};
@@ -105,6 +106,11 @@ pub struct PlayerCharacter {
     pub recoil_offset: Vector3<f32>, // (pitch, yaw, 0)
     pub recoil_velocity: Vector3<f32>,
     pub behavior_id: Option<String>,
+
+    pub transform: Option<Transform>,
+    pub joint_matrices_buffer: Option<wgpu::Buffer>,
+    pub skin_bind_group: Option<wgpu::BindGroup>,
+    pub model_bind_group: Option<wgpu::BindGroup>,
 }
 
 impl PlayerCharacter {
@@ -228,6 +234,10 @@ impl PlayerCharacter {
             recoil_offset: Vector3::zeros(),
             recoil_velocity: Vector3::zeros(),
             behavior_id: None,
+            transform: None,
+            joint_matrices_buffer: None,
+            skin_bind_group: None,
+            model_bind_group: None,
         }
     }
 

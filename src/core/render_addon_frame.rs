@@ -654,6 +654,60 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
                     }
 
+                    // --- Entity Visuals (NPCs and Player Instances) ---
+                    let mut entities_to_render = Vec::new();
+                    if let Some(player) = &renderer_state.player_character {
+                        if player.transform.is_some() && player.model_id.is_some() {
+                            entities_to_render.push((player.model_id.as_ref().unwrap(), player.transform.as_ref().unwrap(), &player.model_bind_group, &player.skin_bind_group));
+                        }
+                    }
+                    for npc in &renderer_state.npcs {
+                        if npc.transform.is_some() && !npc.model_id.is_empty() {
+                            entities_to_render.push((&npc.model_id, npc.transform.as_ref().unwrap(), &npc.model_bind_group, &npc.skin_bind_group));
+                        }
+                    }
+
+                    for (template_id, transform, model_bg, skin_bg) in entities_to_render {
+                        // Find Template (CustomMesh or Model)
+                        if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
+                            render_pass.set_pipeline(&mesh.pipeline);
+                            render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                            if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
+                            if let Some(bg) = skin_bg { render_pass.set_bind_group(2, bg, &[]); }
+                            
+                            for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                                render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+                            }
+
+                            transform.update_uniform_buffer(queue);
+                            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                            render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                        } else if let Some(model) = renderer_state.models.iter().chain(renderer_state.addon_models.values().flatten()).find(|m| &m.id == template_id) {
+                            for mesh in &model.meshes {
+                                if let Some(skin_bg_instance) = skin_bg {
+                                    if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
+                                        render_pass.set_pipeline(&pipeline_instance.render_pipeline);
+                                        render_pass.set_bind_group(2, skin_bg_instance, &[]);
+                                    } else {
+                                        render_pass.set_pipeline(geometry_pipeline);
+                                    }
+                                } else {
+                                    render_pass.set_pipeline(geometry_pipeline);
+                                }
+
+                                transform.update_uniform_buffer(queue);
+                                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                                if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
+                                render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+
+                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                                render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                            }
+                        }
+                    }
+
                     for grass in &mut pbr_grasses {
                         let mut pipeline_set = false;
 
