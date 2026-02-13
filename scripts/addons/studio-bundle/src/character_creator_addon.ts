@@ -300,14 +300,15 @@ class ProceduralHumanoid {
         
         // Create small boxes at each bone position
         const boxSize = 0.1;
+        const limbSize = 0.4;
         
         // Legs - the problematic ones
-        this.addBox(getPos(this.leftUpperLeg.worldTransform), boxSize, this.leftUpperLeg.id, pantsColor);
-        this.addBox(getPos(this.leftLowerLeg.worldTransform), boxSize, this.leftLowerLeg.id, pantsColor);
+        this.addCylinder(getPos(this.leftUpperLeg.worldTransform), 0.05, limbSize, 8, this.leftUpperLeg.id, pantsColor);
+        this.addCylinder(getPos(this.leftLowerLeg.worldTransform), 0.05, limbSize, 8, this.leftLowerLeg.id, pantsColor);
         this.addBox(getPos(this.leftFoot.worldTransform), boxSize, this.leftFoot.id, skinColor);
         
-        this.addBox(getPos(this.rightUpperLeg.worldTransform), boxSize, this.rightUpperLeg.id, pantsColor);
-        this.addBox(getPos(this.rightLowerLeg.worldTransform), boxSize, this.rightLowerLeg.id, pantsColor);
+        this.addCylinder(getPos(this.rightUpperLeg.worldTransform), 0.05, limbSize, 8, this.rightUpperLeg.id, pantsColor);
+        this.addCylinder(getPos(this.rightLowerLeg.worldTransform), 0.05, limbSize, 8, this.rightLowerLeg.id, pantsColor);
         this.addBox(getPos(this.rightFoot.worldTransform), boxSize, this.rightFoot.id, skinColor);
         
         // Torso
@@ -315,8 +316,8 @@ class ProceduralHumanoid {
         this.addBox(getPos(this.head.worldTransform), boxSize, this.head.id, skinColor);
         
         // Arms
-        this.addBox(getPos(this.leftUpperArm.worldTransform), boxSize * 0.7, this.leftUpperArm.id, skinColor);
-        this.addBox(getPos(this.rightUpperArm.worldTransform), boxSize * 0.7, this.rightUpperArm.id, skinColor);
+        this.addCylinder(getPos(this.leftUpperArm.worldTransform), 0.05, limbSize * 0.7, 8, this.leftUpperArm.id, skinColor);
+        this.addCylinder(getPos(this.rightUpperArm.worldTransform), 0.05, limbSize * 0.7, 8, this.rightUpperArm.id, skinColor);
     }
     
     public addBox(
