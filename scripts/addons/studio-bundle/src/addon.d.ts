@@ -534,8 +534,8 @@ export interface EntropyAPI {
     };
   };
   Composer?: {
-      registerEditor: (addonName: string, renderFn: (windowId: string) => void) => void;
-      getEditor: (addonName: string) => ((windowId: string) => void) | undefined;
+      registerEditor: (addonName: string, renderFn: (windowId: string, overrideKey: string) => void) => void;
+      getEditor: (addonName: string) => ((windowId: string, overrideKey: string) => void) | undefined;
       registerRenderer: (addonName: string, renderFn: (id: string, params: any) => void) => void;
       getRenderer: (addonName: string) => ((id: string, params: any) => void) | undefined;
       registerGame: (gameName: string, renderFn: (id: string, params: any) => void) => void;
@@ -550,6 +550,8 @@ export interface EntropyAPI {
       }
       enableGameComposerOverride: () => void,
       disableGameComposerOverride: () => void,
+      enableOverride: (addonName: string) => void,
+      disableOverride: () => void,
       setGlobalSettings: (settings: GlobalSettings) => void,
       getGlobalSettings: () => GlobalSettings,
   };

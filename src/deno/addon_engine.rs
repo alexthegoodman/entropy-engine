@@ -1188,6 +1188,7 @@ fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String 
 #[op2]
 fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: PointLightConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        println!("new point light: {:?} {:?}", addon_name, config);
         ctx.pending_point_lights.push((addon_name, config));
     }
 }

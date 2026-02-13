@@ -84,7 +84,8 @@ const gameAddons = [
 
 function refreshScene() {
     // Use context override so everything spawned belongs to "Game Composer" bucket in Rust
-    (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+    // (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+    Entropy.Composer?.enableGameComposerOverride();
     
     // Clear existing meshes owned by Game Composer (implicit in how Addons work usually, 
     // but if we want to be safe we might need a clear command. 
@@ -118,7 +119,8 @@ function refreshScene() {
         }
     });
 
-    (globalThis as any).__entropy_current_addon_context_override = null;
+    // (globalThis as any).__entropy_current_addon_context_override = null;
+    Entropy.Composer?.disableGameComposerOverride();
 }
 
 // runs after all projects are loaded in non-composer addons
@@ -183,7 +185,8 @@ addon.onInit(async () => {
             if (Entropy.Composer) {
                 const lightUI = Entropy.Composer.getEditor("Light Hive");
                 if (lightUI) {
-                    lightUI(tab); // Renders the light hive controls here!
+                    // ensure the spawned lights show in Game Composer (need a better API for this, maybe getEditor should autooverride)
+                    lightUI(tab, "Game Composer"); // Renders the light hive controls here!
                 }
             }
 
@@ -325,7 +328,7 @@ addon.onInit(async () => {
                      Entropy.UI.Widget.label(tab, { text: "--- Properties ---", bold: true });
                      const editor = Entropy.Composer?.getEditor(activeInst.addon);
                      if (editor) {
-                        editor(tab);
+                        editor(tab, "Game Composer");
                      }
                  } else {
                      Entropy.UI.Widget.label(tab, { text: "Select an object to inspect." });

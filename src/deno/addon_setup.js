@@ -1024,6 +1024,12 @@ globalThis.Entropy.Composer = {
     disableGameComposerOverride: () => {
         globalThis.__entropy_current_addon_context_override = null;
     },
+    enableOverride: (name) => {
+        globalThis.__entropy_current_addon_context_override = name;
+    },
+    disableOverride: () => {
+        globalThis.__entropy_current_addon_context_override = null;
+    },
     setGlobalSettings: (settings) => {
         globalThis.Entropy.Composer.globalSettings = settings;
     },
