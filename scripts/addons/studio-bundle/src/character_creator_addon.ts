@@ -31,6 +31,21 @@ function mat4_multiply(a: Mat4, b: Mat4): Mat4 {
     return out;
 }
 
+function quat_from_axis_angle(axis: Vec3, angle: number): Quat {
+    const halfAngle = angle / 2;
+    const s = Math.sin(halfAngle);
+    return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(halfAngle)];
+}
+
+function quat_multiply(a: Quat, b: Quat): Quat {
+    return [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]
+    ];
+}
+
 function mat4_from_rotation_translation_scale(q: Quat, t: Vec3, s: Vec3): Mat4 {
     const x = q[0], y = q[1], z = q[2], w = q[3];
     const x2 = x + x, y2 = y + y, z2 = z + z;
@@ -48,15 +63,53 @@ function mat4_from_rotation_translation_scale(q: Quat, t: Vec3, s: Vec3): Mat4 {
 }
 
 function mat4_inverse(m: Mat4): Mat4 {
-    const n = new Array(16);
-    // Simplified inverse for TRS matrices (not general, but enough for bones)
-    // Actually let's just use a simple one for now or a placeholder
-    // In a real implementation we'd use a robust matrix inverse
-    return m; // Placeholder: InverseBind should be precalculated
+    const out = new Array(16);
+    
+    const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
+    const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+    const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+    const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+
+    const b00 = a00 * a11 - a01 * a10;
+    const b01 = a00 * a12 - a02 * a10;
+    const b02 = a00 * a13 - a03 * a10;
+    const b03 = a01 * a12 - a02 * a11;
+    const b04 = a01 * a13 - a03 * a11;
+    const b05 = a02 * a13 - a03 * a12;
+    const b06 = a20 * a31 - a21 * a30;
+    const b07 = a20 * a32 - a22 * a30;
+    const b08 = a20 * a33 - a23 * a30;
+    const b09 = a21 * a32 - a22 * a31;
+    const b10 = a21 * a33 - a23 * a31;
+    const b11 = a22 * a33 - a23 * a32;
+
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+
+    if (!det) return mat4_identity();
+    det = 1.0 / det;
+
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+
+    return out;
 }
 
 // ============================================================================
-// PROCEDURAL HUMAN BODY GENERATOR
+// SKELETON SYSTEM
 // ============================================================================
 
 class Bone {
@@ -64,6 +117,7 @@ class Bone {
     public worldTransform: Mat4 = mat4_identity();
     public children: Bone[] = [];
     public inverseBindMatrix: Mat4 = mat4_identity();
+    public parent: Bone | null = null;
 
     constructor(public name: string, public id: number) {}
 
@@ -73,140 +127,473 @@ class Bone {
             child.updateWorldTransform(this.worldTransform);
         }
     }
+
+    addChild(bone: Bone) {
+        this.children.push(bone);
+        bone.parent = this;
+    }
 }
 
-interface SkinnedVertex {
-    pos: Vec3;
-    normal: Vec3;
-    uv: [number, number];
-    color: [number, number, number, number];
-    joints: [number, number, number, number];
-    weights: [number, number, number, number];
-}
+// ============================================================================
+// PROCEDURAL MESH GENERATION
+// ============================================================================
 
 class ProceduralHumanoid {
-    vertices: number[] = []; // Layout: 3 pos, 3 norm, 2 uv, 4 color, 4 jointIndex(u16), 4 weights(f32)
+    vertices: number[] = [];
     indices: number[] = [];
     bones: Bone[] = [];
     rootBone: Bone;
+    
+    // Bone references
+    public hips: Bone;
+    public spine: Bone;
+    public chest: Bone;
+    public neck: Bone;
+    public head: Bone;
+    
+    public leftShoulder: Bone;
+    public leftUpperArm: Bone;
+    public leftForearm: Bone;
+    public leftHand: Bone;
+    
+    public rightShoulder: Bone;
+    public rightUpperArm: Bone;
+    public rightForearm: Bone;
+    public rightHand: Bone;
+    
+    public leftUpperLeg: Bone;
+    public leftLowerLeg: Bone;
+    public leftFoot: Bone;
+    
+    public rightUpperLeg: Bone;
+    public rightLowerLeg: Bone;
+    public rightFoot: Bone;
 
     constructor() {
-        // 1. Build Skeleton
+        // Build comprehensive skeleton
         this.rootBone = new Bone("Hips", 0);
-        const spine = new Bone("Spine", 1);
-        const neck = new Bone("Neck", 2);
-        const head = new Bone("Head", 3);
-        const armL = new Bone("UpperArm_L", 4);
-        const armR = new Bone("UpperArm_R", 5);
-        const legL = new Bone("UpperLeg_L", 6);
-        const legR = new Bone("UpperLeg_R", 7);
+        this.hips = this.rootBone;
+        
+        // Spine chain
+        this.spine = new Bone("Spine", 1);
+        this.chest = new Bone("Chest", 2);
+        this.neck = new Bone("Neck", 3);
+        this.head = new Bone("Head", 4);
+        
+        // Left arm chain
+        this.leftShoulder = new Bone("LeftShoulder", 5);
+        this.leftUpperArm = new Bone("LeftUpperArm", 6);
+        this.leftForearm = new Bone("LeftForearm", 7);
+        this.leftHand = new Bone("LeftHand", 8);
+        
+        // Right arm chain
+        this.rightShoulder = new Bone("RightShoulder", 9);
+        this.rightUpperArm = new Bone("RightUpperArm", 10);
+        this.rightForearm = new Bone("RightForearm", 11);
+        this.rightHand = new Bone("RightHand", 12);
+        
+        // Left leg chain
+        this.leftUpperLeg = new Bone("LeftUpperLeg", 13);
+        this.leftLowerLeg = new Bone("LeftLowerLeg", 14);
+        this.leftFoot = new Bone("LeftFoot", 15);
+        
+        // Right leg chain
+        this.rightUpperLeg = new Bone("RightUpperLeg", 16);
+        this.rightLowerLeg = new Bone("RightLowerLeg", 17);
+        this.rightFoot = new Bone("RightFoot", 18);
 
-        this.rootBone.children.push(spine, legL, legR);
-        spine.children.push(neck, armL, armR);
-        neck.children.push(head);
+        // Build hierarchy
+        this.hips.addChild(this.spine);
+        this.hips.addChild(this.leftUpperLeg);
+        this.hips.addChild(this.rightUpperLeg);
+        
+        this.spine.addChild(this.chest);
+        this.chest.addChild(this.neck);
+        this.neck.addChild(this.head);
+        
+        this.chest.addChild(this.leftShoulder);
+        this.leftShoulder.addChild(this.leftUpperArm);
+        this.leftUpperArm.addChild(this.leftForearm);
+        this.leftForearm.addChild(this.leftHand);
+        
+        this.chest.addChild(this.rightShoulder);
+        this.rightShoulder.addChild(this.rightUpperArm);
+        this.rightUpperArm.addChild(this.rightForearm);
+        this.rightForearm.addChild(this.rightHand);
+        
+        this.leftUpperLeg.addChild(this.leftLowerLeg);
+        this.leftLowerLeg.addChild(this.leftFoot);
+        
+        this.rightUpperLeg.addChild(this.rightLowerLeg);
+        this.rightLowerLeg.addChild(this.rightFoot);
 
-        this.bones = [this.rootBone, spine, neck, head, armL, armR, legL, legR];
+        this.bones = [
+            this.hips, this.spine, this.chest, this.neck, this.head,
+            this.leftShoulder, this.leftUpperArm, this.leftForearm, this.leftHand,
+            this.rightShoulder, this.rightUpperArm, this.rightForearm, this.rightHand,
+            this.leftUpperLeg, this.leftLowerLeg, this.leftFoot,
+            this.rightUpperLeg, this.rightLowerLeg, this.rightFoot
+        ];
 
-        // 2. Pre-set bone offsets (initial pose)
         this.resetPose();
     }
 
     resetPose() {
-        this.rootBone.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0, 1, 0], [1,1,1]);
-        this.getBone("Spine")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0, 0.4, 0], [1,1,1]);
-        this.getBone("Neck")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0, 0.3, 0], [1,1,1]);
-        this.getBone("Head")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0, 0.1, 0], [1,1,1]);
-        this.getBone("UpperArm_L")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [-0.3, 0.2, 0], [1,1,1]);
-        this.getBone("UpperArm_R")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0.3, 0.2, 0], [1,1,1]);
-        this.getBone("UpperLeg_L")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [-0.15, -0.1, 0], [1,1,1]);
-        this.getBone("UpperLeg_R")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0.15, -0.1, 0], [1,1,1]);
+        // Realistic human proportions (in meters, ~1.75m tall)
+        const hipHeight = 0.9;
+        const spineLength = 0.25;
+        const chestLength = 0.25;
+        const neckLength = 0.12;
+        const headLength = 0.23;
         
+        const shoulderWidth = 0.18;
+        const upperArmLength = 0.28;
+        const forearmLength = 0.26;
+        const handLength = 0.18;
+        
+        const upperLegLength = 0.45;
+        const lowerLegLength = 0.43;
+        const footLength = 0.25;
+        const legSpacing = 0.10;
+
+        // Set initial pose transforms
+        this.hips.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, hipHeight, 0], [1, 1, 1]
+        );
+        
+        this.spine.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, spineLength, 0], [1, 1, 1]
+        );
+        
+        this.chest.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, chestLength, 0], [1, 1, 1]
+        );
+        
+        this.neck.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, neckLength, 0], [1, 1, 1]
+        );
+        
+        this.head.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, headLength, 0], [1, 1, 1]
+        );
+        
+        // Left arm
+        this.leftShoulder.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [-shoulderWidth, 0, 0], [1, 1, 1]
+        );
+        
+        this.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [-upperArmLength, 0, 0], [1, 1, 1]
+        );
+        
+        this.leftForearm.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [-forearmLength, 0, 0], [1, 1, 1]
+        );
+        
+        this.leftHand.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [-handLength, 0, 0], [1, 1, 1]
+        );
+        
+        // Right arm (mirrored)
+        this.rightShoulder.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [shoulderWidth, 0, 0], [1, 1, 1]
+        );
+        
+        this.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [upperArmLength, 0, 0], [1, 1, 1]
+        );
+        
+        this.rightForearm.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [forearmLength, 0, 0], [1, 1, 1]
+        );
+        
+        this.rightHand.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [handLength, 0, 0], [1, 1, 1]
+        );
+        
+        // Left leg
+        this.leftUpperLeg.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [-legSpacing, -0.05, 0], [1, 1, 1]
+        );
+        
+        this.leftLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, -upperLegLength, 0], [1, 1, 1]
+        );
+        
+        this.leftFoot.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, -lowerLegLength, footLength * 0.3], [1, 1, 1]
+        );
+        
+        // Right leg (mirrored)
+        this.rightUpperLeg.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [legSpacing, -0.05, 0], [1, 1, 1]
+        );
+        
+        this.rightLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, -upperLegLength, 0], [1, 1, 1]
+        );
+        
+        this.rightFoot.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, -lowerLegLength, footLength * 0.3], [1, 1, 1]
+        );
+
         this.rootBone.updateWorldTransform(mat4_identity());
         
-        // Precalculate inverse binds
-        for (const b of this.bones) {
-            b.inverseBindMatrix = mat4_inverse(b.worldTransform);
+        // Calculate inverse bind matrices
+        for (const bone of this.bones) {
+            bone.inverseBindMatrix = mat4_inverse(bone.worldTransform);
         }
     }
 
-    getBone(name: string) { return this.bones.find(b => b.name === name); }
+    getBone(name: string): Bone | undefined {
+        return this.bones.find(b => b.name === name);
+    }
 
     generateMesh() {
         this.vertices = [];
         this.indices = [];
 
-        // Add body parts as boxes weighted to bones
-        this.addBox([0.4, 0.4, 0.3], [0, 0, 0], 0, [0.9, 0.7, 0.6, 1]); // Hips
-        this.addBox([0.5, 0.5, 0.3], [0, 0.4, 0], 1, [0.2, 0.4, 0.8, 1]); // Torso (Spine)
-        this.addBox([0.25, 0.25, 0.25], [0, 0.1, 0], 3, [0.9, 0.7, 0.6, 1]); // Head
-        this.addBox([0.15, 0.4, 0.15], [-0.3, 0, 0], 4, [0.9, 0.7, 0.6, 1]); // Arm L
-        this.addBox([0.15, 0.4, 0.15], [0.3, 0, 0], 5, [0.9, 0.7, 0.6, 1]); // Arm R
-        this.addBox([0.2, 0.5, 0.2], [-0.15, -0.3, 0], 6, [0.3, 0.3, 0.3, 1]); // Leg L
-        this.addBox([0.2, 0.5, 0.2], [0.15, -0.3, 0], 7, [0.3, 0.3, 0.3, 1]); // Leg R
+        // Body proportions
+        const skinColor: [number, number, number, number] = [0.92, 0.76, 0.65, 1.0];
+        const shirtColor: [number, number, number, number] = [0.2, 0.4, 0.8, 1.0];
+        const pantsColor: [number, number, number, number] = [0.3, 0.3, 0.35, 1.0];
+        const shoeColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1.0];
+
+        // Torso (chest + spine)
+        this.addCapsule([0, 0.35, 0], 0.20, 0.45, 8, 6, this.chest.id, shirtColor);
+        
+        // Hips
+        this.addCapsule([0, 0, 0], 0.18, 0.22, 8, 4, this.hips.id, pantsColor);
+        
+        // Head
+        this.addSphere([0, 0.12, 0], 0.13, 12, 10, this.head.id, skinColor);
+        
+        // Neck
+        this.addCylinder([0, 0.06, 0], 0.06, 0.12, 8, this.neck.id, skinColor);
+        
+        // Left arm
+        this.addCapsule([-0.14, 0, 0], 0.045, 0.28, 6, 4, this.leftUpperArm.id, skinColor);
+        this.addCapsule([-0.13, 0, 0], 0.04, 0.26, 6, 4, this.leftForearm.id, skinColor);
+        this.addSphere([-0.09, 0, 0], 0.055, 8, 6, this.leftHand.id, skinColor);
+        
+        // Right arm
+        this.addCapsule([0.14, 0, 0], 0.045, 0.28, 6, 4, this.rightUpperArm.id, skinColor);
+        this.addCapsule([0.13, 0, 0], 0.04, 0.26, 6, 4, this.rightForearm.id, skinColor);
+        this.addSphere([0.09, 0, 0], 0.055, 8, 6, this.rightHand.id, skinColor);
+        
+        // Left leg
+        this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.leftUpperLeg.id, pantsColor);
+        this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.leftLowerLeg.id, pantsColor);
+        this.addCapsule([0, 0, 0.08], 0.06, 0.2, 6, 4, this.leftFoot.id, shoeColor);
+        
+        // Right leg
+        this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.rightUpperLeg.id, pantsColor);
+        this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.rightLowerLeg.id, pantsColor);
+        this.addCapsule([0, 0, 0.08], 0.06, 0.2, 6, 4, this.rightFoot.id, shoeColor);
     }
 
-    private addBox(size: Vec3, offset: Vec3, boneIdx: number, color: [number, number, number, number]) {
-        const hx = size[0]/2, hy = size[1]/2, hz = size[2]/2;
-        const startIdx = this.vertices.length / (3+3+2+4+2+4); // position(3), normal(3), uv(2), color(4), joints(2 u16 packed?), weights(4)
-        // Note: ModelVertex stride is complex. 
-        // position: Float32x3 (12 bytes)
-        // normal: Float32x3 (12 bytes)
-        // uv: Float32x2 (8 bytes)
-        // color: Float32x4 (16 bytes)
-        // joints: Uint16x4 (8 bytes)
-        // weights: Float32x4 (16 bytes)
-        // Total: 72 bytes. 
-        // In JS we'll push them all as floats, but joints need to be bit-packed u16s into floats or handled carefully.
-        // Actually, we can just push u32s for joint indices and let the engine interpret. 
-        // But the layout says Uint16x4. 
-        
-        // Helper to push a vertex
-        const pushV = (px: number, py: number, pz: number, nx: number, ny: number, nz: number) => {
-            // Pos
-            this.vertices.push(px + offset[0], py + offset[1], pz + offset[2]);
-            // Normal
-            this.vertices.push(nx, ny, nz);
-            // UV
-            this.vertices.push(0, 0);
-            // Color
-            this.vertices.push(...color);
-            // Joint Indices (Uint16x4 -> packed into 2 floats or handled by the op)
-            // The op_mesh_create takes Vec<f32>. We need to pack two u16 into one f32.
-            const j1 = boneIdx;
-            const j2 = 0; // only 1 bone influence for now
-            const packedJoints = (j1 & 0xFFFF) | ((j2 & 0xFFFF) << 16);
-            // We'll push them as two 32-bit floats but they will be interpreted as 4 u16s
-            const view = new DataView(new ArrayBuffer(8));
-            view.setUint16(0, boneIdx, true);
-            view.setUint16(2, 0, true);
-            view.setUint16(4, 0, true);
-            view.setUint16(6, 0, true);
-            this.vertices.push(view.getFloat32(0, true));
-            this.vertices.push(view.getFloat32(4, true));
-            // Weights
-            this.vertices.push(1.0, 0.0, 0.0, 0.0);
-        };
+    private addSphere(
+        offset: Vec3,
+        radius: number,
+        segments: number,
+        rings: number,
+        boneIdx: number,
+        color: [number, number, number, number]
+    ) {
+        const startVertex = this.vertices.length / 18;
 
-        // Front
-        pushV(-hx, -hy,  hz, 0, 0, 1); pushV( hx, -hy,  hz, 0, 0, 1); pushV( hx,  hy,  hz, 0, 0, 1); pushV(-hx,  hy,  hz, 0, 0, 1);
-        // Back
-        pushV(-hx, -hy, -hz, 0, 0, -1); pushV(-hx,  hy, -hz, 0, 0, -1); pushV( hx,  hy, -hz, 0, 0, -1); pushV( hx, -hy, -hz, 0, 0, -1);
-        
-        const base = startIdx * 24 / 24; // Just a placeholder for index logic
-        const s = Math.floor(this.vertices.length / 18) - 8; // 18 floats per vertex
-        
-        // Simple cube indices
-        for (let f = 0; f < 6; f++) {
-            const b = s + f * 4;
-            this.indices.push(b, b+1, b+2, b, b+2, b+3);
+        for (let ring = 0; ring <= rings; ring++) {
+            const theta = (ring * Math.PI) / rings;
+            const sinTheta = Math.sin(theta);
+            const cosTheta = Math.cos(theta);
+
+            for (let seg = 0; seg <= segments; seg++) {
+                const phi = (seg * 2 * Math.PI) / segments;
+                const sinPhi = Math.sin(phi);
+                const cosPhi = Math.cos(phi);
+
+                const x = cosPhi * sinTheta;
+                const y = cosTheta;
+                const z = sinPhi * sinTheta;
+
+                this.pushVertex(
+                    [offset[0] + radius * x, offset[1] + radius * y, offset[2] + radius * z],
+                    [x, y, z],
+                    color,
+                    boneIdx
+                );
+            }
         }
+
+        for (let ring = 0; ring < rings; ring++) {
+            for (let seg = 0; seg < segments; seg++) {
+                const current = startVertex + ring * (segments + 1) + seg;
+                const next = current + segments + 1;
+
+                this.indices.push(current, next, current + 1);
+                this.indices.push(current + 1, next, next + 1);
+            }
+        }
+    }
+
+    private addCapsule(
+        offset: Vec3,
+        radius: number,
+        height: number,
+        segments: number,
+        rings: number,
+        boneIdx: number,
+        color: [number, number, number, number]
+    ) {
+        const halfHeight = height / 2;
+        const startVertex = this.vertices.length / 18;
+
+        // Top hemisphere
+        for (let ring = 0; ring <= rings / 2; ring++) {
+            const theta = (ring * Math.PI) / rings;
+            const sinTheta = Math.sin(theta);
+            const cosTheta = Math.cos(theta);
+
+            for (let seg = 0; seg <= segments; seg++) {
+                const phi = (seg * 2 * Math.PI) / segments;
+                const x = Math.cos(phi) * sinTheta;
+                const y = cosTheta;
+                const z = Math.sin(phi) * sinTheta;
+
+                this.pushVertex(
+                    [offset[0] + radius * x, offset[1] + halfHeight + radius * y, offset[2] + radius * z],
+                    [x, y, z],
+                    color,
+                    boneIdx
+                );
+            }
+        }
+
+        // Cylinder middle
+        for (let h = 0; h <= 2; h++) {
+            const y = halfHeight - h * height;
+            for (let seg = 0; seg <= segments; seg++) {
+                const phi = (seg * 2 * Math.PI) / segments;
+                const x = Math.cos(phi);
+                const z = Math.sin(phi);
+
+                this.pushVertex(
+                    [offset[0] + radius * x, offset[1] + y, offset[2] + radius * z],
+                    [x, 0, z],
+                    color,
+                    boneIdx
+                );
+            }
+        }
+
+        // Bottom hemisphere
+        for (let ring = rings / 2; ring <= rings; ring++) {
+            const theta = (ring * Math.PI) / rings;
+            const sinTheta = Math.sin(theta);
+            const cosTheta = Math.cos(theta);
+
+            for (let seg = 0; seg <= segments; seg++) {
+                const phi = (seg * 2 * Math.PI) / segments;
+                const x = Math.cos(phi) * sinTheta;
+                const y = cosTheta;
+                const z = Math.sin(phi) * sinTheta;
+
+                this.pushVertex(
+                    [offset[0] + radius * x, offset[1] - halfHeight + radius * y, offset[2] + radius * z],
+                    [x, y, z],
+                    color,
+                    boneIdx
+                );
+            }
+        }
+
+        // Generate indices for all sections
+        const totalRings = rings + 3;
+        for (let ring = 0; ring < totalRings; ring++) {
+            for (let seg = 0; seg < segments; seg++) {
+                const current = startVertex + ring * (segments + 1) + seg;
+                const next = current + segments + 1;
+
+                this.indices.push(current, next, current + 1);
+                this.indices.push(current + 1, next, next + 1);
+            }
+        }
+    }
+
+    private addCylinder(
+        offset: Vec3,
+        radius: number,
+        height: number,
+        segments: number,
+        boneIdx: number,
+        color: [number, number, number, number]
+    ) {
+        const halfHeight = height / 2;
+        const startVertex = this.vertices.length / 18;
+
+        // Generate cylinder vertices
+        for (let h = 0; h <= 2; h++) {
+            const y = halfHeight - h * height;
+            for (let seg = 0; seg <= segments; seg++) {
+                const phi = (seg * 2 * Math.PI) / segments;
+                const x = Math.cos(phi);
+                const z = Math.sin(phi);
+
+                this.pushVertex(
+                    [offset[0] + radius * x, offset[1] + y, offset[2] + radius * z],
+                    [x, 0, z],
+                    color,
+                    boneIdx
+                );
+            }
+        }
+
+        // Generate indices
+        for (let h = 0; h < 2; h++) {
+            for (let seg = 0; seg < segments; seg++) {
+                const current = startVertex + h * (segments + 1) + seg;
+                const next = current + segments + 1;
+
+                this.indices.push(current, next, current + 1);
+                this.indices.push(current + 1, next, next + 1);
+            }
+        }
+    }
+
+    private pushVertex(
+        pos: Vec3,
+        normal: Vec3,
+        color: [number, number, number, number],
+        boneIdx: number
+    ) {
+        // Position
+        this.vertices.push(pos[0], pos[1], pos[2]);
+        // Normal
+        this.vertices.push(normal[0], normal[1], normal[2]);
+        // UV (placeholder)
+        this.vertices.push(0, 0);
+        // Color
+        this.vertices.push(...color);
+        
+        // Joint indices (packed as 2 floats for 4 u16 values)
+        const view = new DataView(new ArrayBuffer(8));
+        view.setUint16(0, boneIdx, true);
+        view.setUint16(2, 0, true);
+        view.setUint16(4, 0, true);
+        view.setUint16(6, 0, true);
+        this.vertices.push(view.getFloat32(0, true), view.getFloat32(4, true));
+        
+        // Weights
+        this.vertices.push(1.0, 0.0, 0.0, 0.0);
     }
 
     getJointMatrices(): number[] {
         const out: number[] = [];
         for (let i = 0; i < 256; i++) {
             const bone = this.bones[i];
-            const mat = bone ? mat4_multiply(bone.worldTransform, bone.inverseBindMatrix) : mat4_identity();
+            const mat = bone 
+                ? mat4_multiply(bone.worldTransform, bone.inverseBindMatrix)
+                : mat4_identity();
             out.push(...mat);
         }
         return out;
@@ -214,7 +601,7 @@ class ProceduralHumanoid {
 }
 
 // ============================================================================
-// CHARACTER CREATOR ADDON
+// SHADER
 // ============================================================================
 
 const SKINNED_SHADER = `
@@ -253,21 +640,31 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    var skin_matrix = mat4x4<f32>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    var skin_matrix: mat4x4<f32> = mat4x4<f32>(
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 1.0
+    );
     
-    // Weight blending
     for (var i = 0u; i < 4u; i = i + 1u) {
         let joint_index = in.joint_indices[i];
         let joint_weight = in.joint_weights[i];
-        skin_matrix = skin_matrix + joint_weight * skin.joints[joint_index];
+        if (joint_weight > 0.0) {
+            skin_matrix = skin_matrix + joint_weight * skin.joints[joint_index];
+        }
     }
 
-    let world_pos = mesh.model_matrix * skin_matrix * vec4<f32>(in.position, 1.0);
+    let skinned_pos = skin_matrix * vec4<f32>(in.position, 1.0);
+    let world_pos = mesh.model_matrix * skinned_pos;
+    
+    let skinned_normal = skin_matrix * vec4<f32>(in.normal, 0.0);
+    let world_normal = mesh.model_matrix * skinned_normal;
     
     var out: VertexOutput;
     out.clip_position = camera.view_proj * world_pos;
     out.world_pos = world_pos.xyz;
-    out.normal = (mesh.model_matrix * skin_matrix * vec4<f32>(in.normal, 0.0)).xyz;
+    out.normal = normalize(world_normal.xyz);
     out.color = in.color;
     return out;
 }
@@ -283,38 +680,43 @@ struct GbufferOutput {
 fn fs_main(in: VertexOutput) -> GbufferOutput {
     var out: GbufferOutput;
     out.pos = vec4<f32>(in.world_pos, 1.0);
-    out.norm = vec4<f32>(normalize(in.normal), 1.0);
+    out.norm = vec4<f32>(in.normal, 1.0);
     out.albedo = in.color;
-    out.mat = vec4<f32>(0.5, 0.0, 1.0, 1.0); // Roughness, Metallic, AO
+    out.mat = vec4<f32>(0.6, 0.0, 1.0, 1.0);
     return out;
 }
 `;
 
+// ============================================================================
+// ANIMATION SYSTEM
+// ============================================================================
+
 interface CharacterParams {
     bodyScale: number;
     headScale: number;
-    torsoWidth: number;
-    activeAnimation: "Idle" | "Walk" | "Wave";
+    armLength: number;
+    activeAnimation: "Idle" | "Walk" | "Wave" | "Jump" | "Dance";
 }
 
 export class CharacterCreator extends ComponentAddon<CharacterParams> {
     protected defaultParams: CharacterParams = {
         bodyScale: 1.0,
         headScale: 1.0,
-        torsoWidth: 1.0,
+        armLength: 1.0,
         activeAnimation: "Idle"
     };
 
-    private pipelineId: string | null = null;
-    private meshId: string | null = null;
-    private humanoid: ProceduralHumanoid;
-    private jointBufferId: string | null = null;
+    public pipelineId: string | null = null;
+    public meshId: string | null = null;
+    public humanoid: ProceduralHumanoid;
+    public jointBufferId: string | null = null;
+    public animationTime: number = 0;
 
     constructor() {
         super({
             name: "Character Creator",
-            version: "2.0.0",
-            description: "Procedural skinned humanoid character",
+            version: "3.0.0",
+            description: "Realistic procedural humanoid with smooth animations",
             author: ["Entropy Team"],
             capabilities: { graphics: true, ui: true }
         });
@@ -322,11 +724,10 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
     }
 
     protected setup(): void {
-        this.initComponentState("Procedural Hero");
+        this.initComponentState("Realistic Hero");
         
-        // 1. Create Skinned Pipeline
         this.pipelineId = Entropy.Pipeline.create({
-            name: "Procedural_Skinned_Pipeline",
+            name: "Realistic_Skinned_Pipeline",
             layout: "skinned",
             vertexShader: SKINNED_SHADER,
             fragmentShader: SKINNED_SHADER,
@@ -335,7 +736,6 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
             ]
         });
 
-        // 2. Create Joint Buffer (256 mat4x4 = 256 * 64 bytes = 16384)
         this.jointBufferId = this.api.Buffer.create({
             size: 16384,
             usage: "Uniform"
@@ -345,6 +745,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         this.setupUI();
 
         this.api.onUpdate((time) => {
+            this.animationTime = time;
             this.animate(time);
         });
     }
@@ -368,44 +769,232 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
     }
 
     private animate(time: number) {
-        const params = this.currentParams;
         this.humanoid.resetPose();
 
-        if (params.activeAnimation === "Idle") {
-            const breath = 1.0 + Math.sin(time * 2) * 0.05;
-            this.humanoid.getBone("Spine")!.localTransform = mat4_from_rotation_translation_scale([0,0,0,1], [0, 0.4 * breath, 0], [1,1,1]);
-        } else if (params.activeAnimation === "Walk") {
-            const swing = Math.sin(time * 5) * 0.5;
-            // Simplified walk
-            this.humanoid.getBone("UpperLeg_L")!.localTransform = mat4_from_rotation_translation_scale([Math.sin(swing), 0, 0, Math.cos(swing)], [-0.15, -0.1, 0], [1,1,1]);
-            this.humanoid.getBone("UpperLeg_R")!.localTransform = mat4_from_rotation_translation_scale([Math.sin(-swing), 0, 0, Math.cos(-swing)], [0.15, -0.1, 0], [1,1,1]);
+        const params = this.currentParams;
+        
+        switch (params.activeAnimation) {
+            case "Idle":
+                this.animateIdle(time);
+                break;
+            case "Walk":
+                this.animateWalk(time);
+                break;
+            case "Wave":
+                this.animateWave(time);
+                break;
+            case "Jump":
+                this.animateJump(time);
+                break;
+            case "Dance":
+                this.animateDance(time);
+                break;
         }
 
         this.humanoid.rootBone.updateWorldTransform(mat4_identity());
         
-        // Upload joint matrices to GPU
         const matrices = this.humanoid.getJointMatrices();
         this.api.Buffer.write(this.jointBufferId!, new Float32Array(matrices));
     }
 
+    private animateIdle(time: number) {
+        // Subtle breathing
+        const breathCycle = Math.sin(time * 1.5) * 0.02;
+        const currentChestTransform = this.humanoid.chest.localTransform;
+        const breathScale = [1.0, 1.0 + breathCycle, 1.0] as Vec3;
+        
+        // Head sway
+        const headSway = Math.sin(time * 0.8) * 0.03;
+        const headRot = quat_from_axis_angle([0, 1, 0], headSway);
+        this.humanoid.head.localTransform = mat4_from_rotation_translation_scale(
+            headRot, [0, 0.23, 0], [1, 1, 1]
+        );
+        
+        // Gentle arm sway
+        const armSway = Math.sin(time * 1.2) * 0.05;
+        const leftArmRot = quat_from_axis_angle([0, 0, 1], armSway);
+        const rightArmRot = quat_from_axis_angle([0, 0, 1], -armSway);
+        
+        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
+        );
+        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            rightArmRot, [0.28, 0, 0], [1, 1, 1]
+        );
+    }
+
+    private animateWalk(time: number) {
+        const walkSpeed = 4.0;
+        const cycle = time * walkSpeed;
+        const legSwing = Math.sin(cycle) * 0.6;
+        const armSwing = Math.sin(cycle) * 0.4;
+        
+        // Body bob
+        const bobAmount = Math.abs(Math.sin(cycle * 2)) * 0.03;
+        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, 0.9 + bobAmount, 0], [1, 1, 1]
+        );
+        
+        // Left leg (forward when positive)
+        const leftLegRot = quat_from_axis_angle([1, 0, 0], legSwing);
+        this.humanoid.leftUpperLeg.localTransform = mat4_from_rotation_translation_scale(
+            leftLegRot, [-0.10, -0.05, 0], [1, 1, 1]
+        );
+        
+        // Left knee bend
+        const leftKneeBend = Math.max(0, -legSwing) * 0.8;
+        const leftKneeRot = quat_from_axis_angle([1, 0, 0], leftKneeBend);
+        this.humanoid.leftLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            leftKneeRot, [0, -0.45, 0], [1, 1, 1]
+        );
+        
+        // Right leg (opposite)
+        const rightLegRot = quat_from_axis_angle([1, 0, 0], -legSwing);
+        this.humanoid.rightUpperLeg.localTransform = mat4_from_rotation_translation_scale(
+            rightLegRot, [0.10, -0.05, 0], [1, 1, 1]
+        );
+        
+        const rightKneeBend = Math.max(0, legSwing) * 0.8;
+        const rightKneeRot = quat_from_axis_angle([1, 0, 0], rightKneeBend);
+        this.humanoid.rightLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            rightKneeRot, [0, -0.45, 0], [1, 1, 1]
+        );
+        
+        // Arms swing opposite to legs
+        const leftArmRot = quat_from_axis_angle([1, 0, 0], -armSwing);
+        const rightArmRot = quat_from_axis_angle([1, 0, 0], armSwing);
+        
+        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
+        );
+        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            rightArmRot, [0.28, 0, 0], [1, 1, 1]
+        );
+    }
+
+    private animateWave(time: number) {
+        const waveCycle = time * 3.0;
+        
+        // Raise right arm
+        const shoulderRot = quat_from_axis_angle([0, 0, 1], -1.5);
+        const elbowRot = quat_from_axis_angle([0, 0, 1], -0.5);
+        
+        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            shoulderRot, [0.28, 0, 0], [1, 1, 1]
+        );
+        
+        // Wave hand
+        const waveAngle = Math.sin(waveCycle) * 0.5;
+        const waveRot = quat_from_axis_angle([0, 1, 0], waveAngle);
+        const combinedElbowRot = quat_multiply(elbowRot, waveRot);
+        
+        this.humanoid.rightForearm.localTransform = mat4_from_rotation_translation_scale(
+            combinedElbowRot, [0.26, 0, 0], [1, 1, 1]
+        );
+    }
+
+    private animateJump(time: number) {
+        const jumpCycle = (time * 2.0) % 2.0;
+        let jumpHeight = 0;
+        let legBend = 0;
+        
+        if (jumpCycle < 0.3) {
+            // Crouch
+            legBend = (jumpCycle / 0.3) * 0.8;
+            jumpHeight = -(jumpCycle / 0.3) * 0.1;
+        } else if (jumpCycle < 0.8) {
+            // In air
+            const airTime = (jumpCycle - 0.3) / 0.5;
+            jumpHeight = Math.sin(airTime * Math.PI) * 0.4;
+            legBend = 0.2;
+        } else {
+            // Landing
+            const landTime = (jumpCycle - 0.8) / 1.2;
+            jumpHeight = -(1 - landTime) * 0.05;
+            legBend = (1 - landTime) * 0.4;
+        }
+        
+        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
+            [0, 0, 0, 1], [0, 0.9 + jumpHeight, 0], [1, 1, 1]
+        );
+        
+        const kneeBendRot = quat_from_axis_angle([1, 0, 0], legBend);
+        this.humanoid.leftLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            kneeBendRot, [0, -0.45, 0], [1, 1, 1]
+        );
+        this.humanoid.rightLowerLeg.localTransform = mat4_from_rotation_translation_scale(
+            kneeBendRot, [0, -0.45, 0], [1, 1, 1]
+        );
+    }
+
+    private animateDance(time: number) {
+        const danceSpeed = 2.5;
+        const cycle = time * danceSpeed;
+        
+        // Hip rotation
+        const hipRotation = Math.sin(cycle) * 0.3;
+        const hipRot = quat_from_axis_angle([0, 1, 0], hipRotation);
+        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
+            hipRot, [0, 0.9, 0], [1, 1, 1]
+        );
+        
+        // Shoulder shimmy
+        const shoulderShimmy = Math.sin(cycle * 2) * 0.2;
+        const leftShoulderRot = quat_from_axis_angle([0, 0, 1], shoulderShimmy);
+        const rightShoulderRot = quat_from_axis_angle([0, 0, 1], -shoulderShimmy);
+        
+        this.humanoid.leftShoulder.localTransform = mat4_from_rotation_translation_scale(
+            leftShoulderRot, [-0.18, 0, 0], [1, 1, 1]
+        );
+        this.humanoid.rightShoulder.localTransform = mat4_from_rotation_translation_scale(
+            rightShoulderRot, [0.18, 0, 0], [1, 1, 1]
+        );
+        
+        // Alternating arm raises
+        const leftArmRaise = Math.max(0, Math.sin(cycle)) * -1.2;
+        const rightArmRaise = Math.max(0, Math.sin(cycle + Math.PI)) * -1.2;
+        
+        const leftArmRot = quat_from_axis_angle([0, 0, 1], leftArmRaise);
+        const rightArmRot = quat_from_axis_angle([0, 0, 1], rightArmRaise);
+        
+        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
+        );
+        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
+            rightArmRot, [0.28, 0, 0], [1, 1, 1]
+        );
+    }
+
     private setupUI() {
         const tab = this.api.UI.createTab({
-            title: "Character Gen",
+            title: "Character Creator",
             onRender: () => {
-                Entropy.UI.Widget.label(tab, { text: "👤 Procedural Character Creator", bold: true });
+                Entropy.UI.Widget.label(tab, { text: "👤 Realistic Character Creator", bold: true });
+                Entropy.UI.Widget.separator(tab);
+                
                 this.renderComponentUI(tab, () => this.generateCharacter());
                 
+                Entropy.UI.Widget.separator(tab);
+                Entropy.UI.Widget.label(tab, { text: "Animation Controls", bold: true });
+                
                 Entropy.UI.Widget.dropdown(tab, {
-                    label: "Animation",
-                    options: ["Idle", "Walk", "Wave"],
-                    selectedIndex: ["Idle", "Walk", "Wave"].indexOf(this.currentParams.activeAnimation),
-                    onChange: (idx) => { this.currentParams.activeAnimation = ["Idle", "Walk", "Wave"][parseInt(idx)] as any; }
+                    label: "Active Animation",
+                    options: ["Idle", "Walk", "Wave", "Jump", "Dance"],
+                    selectedIndex: ["Idle", "Walk", "Wave", "Jump", "Dance"].indexOf(this.currentParams.activeAnimation),
+                    onChange: (idx) => { 
+                        this.currentParams.activeAnimation = ["Idle", "Walk", "Wave", "Jump", "Dance"][parseInt(idx)] as any;
+                    }
                 });
 
+                Entropy.UI.Widget.separator(tab);
+                Entropy.UI.Widget.label(tab, { text: "Morphology", bold: true });
+                
                 Entropy.UI.Widget.button(tab, {
-                    text: "🎲 Randomize Proportions",
+                    text: "🎲 Randomize Character",
                     onClick: () => {
-                        this.currentParams.headScale = 0.5 + Math.random();
+                        this.currentParams.headScale = 0.8 + Math.random() * 0.4;
+                        this.currentParams.bodyScale = 0.85 + Math.random() * 0.3;
+                        this.currentParams.armLength = 0.9 + Math.random() * 0.2;
                         this.generateCharacter();
                     }
                 });
