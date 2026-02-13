@@ -1,141 +1,5 @@
 import { ComponentAddon } from "./system";
 
-// // ============================================================================
-// // CORE TYPES & MATH
-// // ============================================================================
-
-// type Vec3 = [number, number, number];
-// type Quat = [number, number, number, number]; // [x, y, z, w]
-// type Mat4 = number[]; // 16 elements
-
-// function mat4_identity(): Mat4 {
-//     return [
-//         1, 0, 0, 0,
-//         0, 1, 0, 0,
-//         0, 0, 1, 0,
-//         0, 0, 0, 1
-//     ];
-// }
-
-// function mat4_multiply(a: Mat4, b: Mat4): Mat4 {
-//     const out = new Array(16);
-//     for (let i = 0; i < 4; i++) {
-//         for (let j = 0; j < 4; j++) {
-//             let sum = 0;
-//             for (let k = 0; k < 4; k++) {
-//                 sum += a[i * 4 + k] * b[k * 4 + j];
-//             }
-//             out[i * 4 + j] = sum;
-//         }
-//     }
-//     return out;
-// }
-
-// function quat_from_axis_angle(axis: Vec3, angle: number): Quat {
-//     const halfAngle = angle / 2;
-//     const s = Math.sin(halfAngle);
-//     return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(halfAngle)];
-// }
-
-// function quat_multiply(a: Quat, b: Quat): Quat {
-//     return [
-//         a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
-//         a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
-//         a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
-//         a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]
-//     ];
-// }
-
-// function mat4_from_rotation_translation_scale(q: Quat, t: Vec3, s: Vec3): Mat4 {
-//     const x = q[0], y = q[1], z = q[2], w = q[3];
-//     const x2 = x + x, y2 = y + y, z2 = z + z;
-//     const xx = x * x2, xy = x * y2, xz = x * z2;
-//     const yy = y * y2, yz = y * z2, zz = z * z2;
-//     const wx = w * x2, wy = w * y2, wz = w * z2;
-//     const sx = s[0], sy = s[1], sz = s[2];
-
-//     return [
-//         (1 - (yy + zz)) * sx, (xy + wz) * sx, (xz - wy) * sx, 0,
-//         (xy - wz) * sy, (1 - (xx + zz)) * sy, (yz + wx) * sy, 0,
-//         (xz + wy) * sz, (yz - wx) * sz, (1 - (xx + yy)) * sz, 0,
-//         t[0], t[1], t[2], 1
-//     ];
-// }
-
-// // function mat4_inverse(m: Mat4): Mat4 {
-// //     const out = new Array(16);
-    
-// //     const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
-// //     const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-// //     const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
-// //     const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
-
-// //     const b00 = a00 * a11 - a01 * a10;
-// //     const b01 = a00 * a12 - a02 * a10;
-// //     const b02 = a00 * a13 - a03 * a10;
-// //     const b03 = a01 * a12 - a02 * a11;
-// //     const b04 = a01 * a13 - a03 * a11;
-// //     const b05 = a02 * a13 - a03 * a12;
-// //     const b06 = a20 * a31 - a21 * a30;
-// //     const b07 = a20 * a32 - a22 * a30;
-// //     const b08 = a20 * a33 - a23 * a30;
-// //     const b09 = a21 * a32 - a22 * a31;
-// //     const b10 = a21 * a33 - a23 * a31;
-// //     const b11 = a22 * a33 - a23 * a32;
-
-// //     let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-
-// //     if (!det) return mat4_identity();
-// //     det = 1.0 / det;
-
-// //     out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-// //     out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-// //     out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-// //     out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-// //     out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-// //     out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-// //     out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-// //     out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-// //     out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-// //     out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-// //     out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-// //     out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-// //     out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-// //     out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-// //     out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-// //     out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
-
-// //     return out;
-// // }
-
-// function mat4_inverse(m: Mat4): Mat4 {
-//     // Extract translation t from m[12..14]
-//     const t: Vec3 = [m[12], m[13], m[14]];
-
-//     // Extract upper 3x3 (rotation, assuming orthogonal and det=1)
-//     const r00 = m[0], r01 = m[1], r02 = m[2];
-//     const r10 = m[4], r11 = m[5], r12 = m[6];
-//     const r20 = m[8], r21 = m[9], r22 = m[10];
-
-//     // Transpose rotation for R^T
-//     const rt00 = r00, rt01 = r10, rt02 = r20;
-//     const rt10 = r01, rt11 = r11, rt12 = r21;
-//     const rt20 = r02, rt21 = r12, rt22 = r21;  // typo in original, should be r22
-
-//     // Inverse translation -t
-//     const it0 = -(rt00 * t[0] + rt01 * t[1] + rt02 * t[2]);
-//     const it1 = -(rt10 * t[0] + rt11 * t[1] + rt12 * t[2]);
-//     const it2 = -(rt20 * t[0] + rt21 * t[1] + rt22 * t[2]);
-
-//     return [
-//         rt00, rt01, rt02, 0,
-//         rt10, rt11, rt12, 0,
-//         rt20, rt21, rt22, 0,
-//         it0, it1, it2, 1
-//     ];
-// }
-
-
 import { mat4, quat, vec3 } from "gl-matrix";
 
 type Vec3 = [number, number, number];
@@ -421,47 +285,83 @@ class ProceduralHumanoid {
         this.vertices = [];
         this.indices = [];
 
-        // Body proportions
         const skinColor: [number, number, number, number] = [0.92, 0.76, 0.65, 1.0];
         const shirtColor: [number, number, number, number] = [0.2, 0.4, 0.8, 1.0];
         const pantsColor: [number, number, number, number] = [0.3, 0.3, 0.35, 1.0];
-        const shoeColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1.0];
 
-        // IMPORTANT: Vertices must be in BONE LOCAL SPACE
-        // Offset determines where geometry sits relative to the bone's origin
+        // TEST: Create simple boxes at each bone's WORLD POSITION at bind time
+        // This way we can see if skinning works at all
         
-        // Torso - centered on chest bone
-        this.addCapsule([0, 0, 0], 0.20, 0.50, 8, 6, this.chest.id, shirtColor);
+        // Get world positions from bind pose
+        this.rootBone.updateWorldTransform(mat4_identity());
         
-        // Hips - centered on hips bone
-        this.addCapsule([0, 0, 0], 0.18, 0.25, 8, 4, this.hips.id, pantsColor);
+        // Helper to extract position from matrix
+        const getPos = (mat: Mat4): Vec3 => [mat[12], mat[13], mat[14]];
         
-        // Head - starts at bone origin, extends upward
-        this.addSphere([0, 0.11, 0], 0.13, 12, 10, this.head.id, skinColor);
+        // Create small boxes at each bone position
+        const boxSize = 0.1;
         
-        // Neck - centered
-        this.addCylinder([0, 0, 0], 0.06, 0.12, 8, this.neck.id, skinColor);
+        // Legs - the problematic ones
+        this.addBox(getPos(this.leftUpperLeg.worldTransform), boxSize, this.leftUpperLeg.id, pantsColor);
+        this.addBox(getPos(this.leftLowerLeg.worldTransform), boxSize, this.leftLowerLeg.id, pantsColor);
+        this.addBox(getPos(this.leftFoot.worldTransform), boxSize, this.leftFoot.id, skinColor);
         
-        // Left arm - extends along bone's local X axis
-        this.addCapsule([-0.14, 0, 0], 0.045, 0.28, 6, 4, this.leftUpperArm.id, skinColor);
-        this.addCapsule([-0.13, 0, 0], 0.04, 0.26, 6, 4, this.leftForearm.id, skinColor);
-        this.addSphere([-0.09, 0, 0], 0.055, 8, 6, this.leftHand.id, skinColor);
+        this.addBox(getPos(this.rightUpperLeg.worldTransform), boxSize, this.rightUpperLeg.id, pantsColor);
+        this.addBox(getPos(this.rightLowerLeg.worldTransform), boxSize, this.rightLowerLeg.id, pantsColor);
+        this.addBox(getPos(this.rightFoot.worldTransform), boxSize, this.rightFoot.id, skinColor);
         
-        // Right arm - extends along bone's local X axis
-        this.addCapsule([0.14, 0, 0], 0.045, 0.28, 6, 4, this.rightUpperArm.id, skinColor);
-        this.addCapsule([0.13, 0, 0], 0.04, 0.26, 6, 4, this.rightForearm.id, skinColor);
-        this.addSphere([0.09, 0, 0], 0.055, 8, 6, this.rightHand.id, skinColor);
+        // Torso
+        this.addBox(getPos(this.chest.worldTransform), boxSize * 1.5, this.chest.id, shirtColor);
+        this.addBox(getPos(this.head.worldTransform), boxSize, this.head.id, skinColor);
         
-        // Left leg - extends downward from bone origin along local -Y
-        this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.leftUpperLeg.id, pantsColor);
-        this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.leftLowerLeg.id, pantsColor);
-        // Foot extends forward from ankle
-        this.addCapsule([0, -0.05, 0.08], 0.06, 0.2, 6, 4, this.leftFoot.id, shoeColor);
+        // Arms
+        this.addBox(getPos(this.leftUpperArm.worldTransform), boxSize * 0.7, this.leftUpperArm.id, skinColor);
+        this.addBox(getPos(this.rightUpperArm.worldTransform), boxSize * 0.7, this.rightUpperArm.id, skinColor);
+    }
+    
+    public addBox(
+        center: Vec3,
+        size: number,
+        boneIdx: number,
+        color: [number, number, number, number]
+    ) {
+        const h = size / 2;
+        const startIdx = this.vertices.length / 18;
         
-        // Right leg - mirror of left
-        this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.rightUpperLeg.id, pantsColor);
-        this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.rightLowerLeg.id, pantsColor);
-        this.addCapsule([0, -0.05, 0.08], 0.06, 0.2, 6, 4, this.rightFoot.id, shoeColor);
+        // 8 vertices of a cube
+        const verts: Vec3[] = [
+            [center[0]-h, center[1]-h, center[2]-h],
+            [center[0]+h, center[1]-h, center[2]-h],
+            [center[0]+h, center[1]+h, center[2]-h],
+            [center[0]-h, center[1]+h, center[2]-h],
+            [center[0]-h, center[1]-h, center[2]+h],
+            [center[0]+h, center[1]-h, center[2]+h],
+            [center[0]+h, center[1]+h, center[2]+h],
+            [center[0]-h, center[1]+h, center[2]+h],
+        ];
+        
+        const normals: Vec3[] = [
+            [0, 0, -1], [0, 0, -1], [0, 0, -1], [0, 0, -1], // back
+            [0, 0, 1], [0, 0, 1], [0, 0, 1], [0, 0, 1],       // front
+        ];
+        
+        for (let i = 0; i < 8; i++) {
+            this.pushVertex(verts[i], [0, 1, 0], color, boneIdx);
+        }
+        
+        // Indices for cube
+        const indices = [
+            0,1,2, 0,2,3, // back
+            4,6,5, 4,7,6, // front  
+            0,4,5, 0,5,1, // bottom
+            2,6,7, 2,7,3, // top
+            0,3,7, 0,7,4, // left
+            1,5,6, 1,6,2  // right
+        ];
+        
+        for (const idx of indices) {
+            this.indices.push(startIdx + idx);
+        }
     }
 
     public addSphere(
@@ -712,19 +612,17 @@ struct VertexOutput {
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
-    var skin_matrix: mat4x4<f32> = mat4x4<f32>(
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0,
-        0.0, 0.0, 1.0, 0.0,
-        0.0, 0.0, 0.0, 1.0
+    var skin_matrix = mat4x4<f32>(
+        vec4<f32>(0.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.0, 0.0),
+        vec4<f32>(0.0, 0.0, 0.0, 0.0)
     );
     
     for (var i = 0u; i < 4u; i = i + 1u) {
         let joint_index = in.joint_indices[i];
         let joint_weight = in.joint_weights[i];
-        if (joint_weight > 0.0) {
-            skin_matrix = skin_matrix + joint_weight * skin.joints[joint_index];
-        }
+        skin_matrix = skin_matrix + joint_weight * skin.joints[joint_index];
     }
 
     let skinned_pos = skin_matrix * vec4<f32>(in.position, 1.0);
