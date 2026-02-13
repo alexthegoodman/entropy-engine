@@ -161,7 +161,6 @@ impl NPC {
         let stateful_behavior = StatefulBehavior::new(behavior_config);
         let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
-        // TODO: add a customizable ScriptedBehavior which ties into the Rhai scripting more
         let mut transform = None;
         if let Some(config) = visual_config {
             let rotation = if let Some(rot) = config.rotation {
