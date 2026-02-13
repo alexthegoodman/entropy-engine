@@ -173,6 +173,7 @@ export abstract class EntropyAddon<TState = any> {
 
   // API Proxies
   get Model() { return this.api.Model; }
+  get Visual() { return this.api.Visual; }
   get Landscape() { return this.api.Landscape; }
   get Noise() { return this.api.Noise; }
   get Texture() { return this.api.Texture; }

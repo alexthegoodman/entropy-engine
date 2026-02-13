@@ -126,6 +126,32 @@ globalThis.Entropy = {
                         ops.op_model_set_bone_transform(config);
                     }
                 },
+                Visual: {
+                    load: (config) => {
+                        const id = config.id || null;
+                        if (id && config.visualName) {
+                            globalThis.Entropy._entityVisuals = globalThis.Entropy._entityVisuals || {};
+                            globalThis.Entropy._entityVisuals[id] = config.visualName;
+                        }
+
+                        ops.op_model_load(getAddonName(), {
+                            id: id,
+                            visual_type: "customMesh",
+                            visualName: config.visualName,
+                            modelId: config.meshId, // Maps meshId to modelId for the Rust op
+                            position: config.position || [0, 0, 0],
+                            rotation: config.rotation || [0, 0, 0],
+                            scale: config.scale || [1, 1, 1],
+                            pipeline_id: config.pipelineId || null,
+                            render_role: config.renderRole || null,
+                            physics: config.physics || null,
+                            player: config.player || null,
+                            npc: config.npc || null,
+                            behaviorId: config.behaviorId || null,
+                            isNpc: config.isNpc || null
+                        });
+                    }
+                },
                 Landscape: {
                     create: (config) => {
                         ops.op_landscape_create(getAddonName(), {

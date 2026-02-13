@@ -839,11 +839,10 @@ class WorldManager {
         const visualId = addon.getVisual("humanoid_character");
         
         if (visualId) {
-            addon.Model.load({
+            addon.Visual.load({
                 id: gameState.playerId,
-                visualType: "customMesh",
                 visualName: "humanoid_character",
-                modelId: visualId, // In customMesh mode, modelId is the meshId
+                meshId: visualId,
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
                 physics: {
@@ -869,7 +868,7 @@ class WorldManager {
                 player: {
                     modelId: gameState.playerId
                 }
-            } as any);
+            });
         }
         
         Entropy.println("[Player] Spawned at center");
@@ -910,11 +909,10 @@ class WorldManager {
         const visualId = addon.getVisual("humanoid_character");
 
         if (visualId) {
-            addon.Model.load({
+            addon.Visual.load({
                 id: id,
-                visualType: "customMesh",
                 visualName: "humanoid_character",
-                modelId: visualId,
+                meshId: visualId,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
                 isNpc: true,
@@ -936,7 +934,7 @@ class WorldManager {
                     colliderShape: "capsule",
                     mass: 100
                 }
-            } as any);
+            });
         }
     }
     
@@ -952,10 +950,9 @@ class WorldManager {
             const y = addon.Landscape.getHeightAt(x, z);
             
             if (visualId) {
-                addon.Model.load({
-                    visualType: "customMesh",
+                addon.Visual.load({
                     visualName: "humanoid_character",
-                    modelId: visualId,
+                    meshId: visualId,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,
                     isNpc: true,
@@ -974,7 +971,7 @@ class WorldManager {
                         bodyType: "dynamic",
                         colliderShape: "capsule"
                     }
-                } as any);
+                });
             }
         }
     }
