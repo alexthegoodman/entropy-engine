@@ -25,10 +25,15 @@ class MeshBuilder {
   
   private vertexCount = 0;
   
-  addVertex(pos: Vec3, normal: Vec3, uv: Vec2): number {
+  addVertex(pos: Vec3, normal: Vec3, uv: Vec2, color: [number, number, number, number] = [1, 1, 1, 1]): number {
+    // Position (3)
     this.vertices.push(pos.x, pos.y, pos.z);
+    // Normal (3)
     this.vertices.push(normal.x, normal.y, normal.z);
+    // UV (2)
     this.vertices.push(uv.x, uv.y);
+    // Color (4)
+    this.vertices.push(color[0], color[1], color[2], color[3]);
     return this.vertexCount++;
   }
   
