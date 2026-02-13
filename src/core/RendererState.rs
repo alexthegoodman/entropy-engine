@@ -1949,7 +1949,7 @@ impl RendererState {
                 }
 
                 if visual_type == Some(VisualType::CustomMesh) {
-                    println!("adding customesh collider");
+                    // println!("adding customesh collider");
                     // Try CustomMesh
                     // for meshes in self.addon_meshes.values_mut() {
                         if let Some(mesh) = self.npcs.iter_mut().find(|m| m.id == component_id) {
@@ -1962,9 +1962,9 @@ impl RendererState {
                                 existion_pos.z,
                             );
 
-                            println!("STILL adding customesh collider and rigid_body_handle");
-
                             if let Ok(uuid) = Uuid::from_str(&component_id) {
+                                println!("ADDING CustomMesh NPC collider and rigid_body_handle");
+
                                 let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
                                     .friction(0.7)
                                     .restitution(0.0)
