@@ -683,6 +683,9 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
     public jointBufferId: string | null = null;
     public animationTime: number = 0;
 
+    // Track state for multiple instances (NPCs/Player)
+    private instances: Map<string, { animation: string, jointBufferId: string }> = new Map();
+
     constructor() {
         super({
             name: "Character Creator",
@@ -713,9 +716,27 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         });
 
         this.generateCharacter();
-        if (this.meshId) {
-            this.registerVisual("humanoid_character", this.meshId);
-        }
+        
+        this.registerVisual("humanoid_character", {
+            meshId: this.meshId!,
+            onAnimate: (id, anim) => {
+                const instance = this.instances.get(id);
+                if (instance) instance.animation = anim;
+            },
+            onSpawn: (id, pos) => {
+                // Create a dedicated joint buffer for this NPC instance
+                const bufferId = this.api.Buffer.create({
+                    size: 16384,
+                    usage: "Uniform"
+                });
+                this.instances.set(id, { animation: "Idle", jointBufferId: bufferId });
+                
+                // We actually need to tell the engine to use this buffer for the specific mesh instance.
+                // For now, let's assume the engine handles binding by meshId.
+                // In a multi-instance scenario, the engine would need per-instance uniform support.
+            }
+        });
+
         this.setupUI();
 
         this.api.onUpdate((time) => {
@@ -748,28 +769,27 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
     }
 
     public animate(time: number) {
+        // 1. Animate the main preview character (for UI)
+        this.animateInstance(time, this.currentParams.activeAnimation, this.jointBufferId!);
+
+        // 2. Animate all spawned instances (NPCs/Player)
+        for (const [id, state] of this.instances) {
+            this.animateInstance(time, state.animation as any, state.jointBufferId);
+        }
+    }
+
+    private animateInstance(time: number, animation: string, bufferId: string) {
         // First, reset to bind pose
         this.humanoid.resetPose();
-
-        const params = this.currentParams;
         
         // Then apply animation modifications
-        switch (params.activeAnimation) {
-            case "Idle":
-                this.animateIdle(time);
-                break;
-            case "Walk":
-                this.animateWalk(time);
-                break;
-            case "Wave":
-                this.animateWave(time);
-                break;
-            case "Jump":
-                this.animateJump(time);
-                break;
-            case "Dance":
-                this.animateDance(time);
-                break;
+        switch (animation) {
+            case "Idle": this.animateIdle(time); break;
+            case "Walk": case "Walking": this.animateWalk(time); break;
+            case "Wave": this.animateWave(time); break;
+            case "Jump": this.animateJump(time); break;
+            case "Dance": this.animateDance(time); break;
+            default: this.animateIdle(time); break;
         }
 
         // Update world transforms from root
@@ -777,7 +797,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         
         // Upload joint matrices to GPU
         const matrices = this.humanoid.getJointMatrices();
-        this.api.Buffer.write(this.jointBufferId!, new Float32Array(matrices));
+        this.api.Buffer.write(bufferId, new Float32Array(matrices));
     }
 
     // Helper to apply rotation to a bone while preserving its translation

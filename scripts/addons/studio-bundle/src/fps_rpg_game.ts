@@ -842,6 +842,7 @@ class WorldManager {
             addon.Model.load({
                 id: gameState.playerId,
                 visualType: "customMesh" as any,
+                visualName: "humanoid_character",
                 modelId: visualId, // In customMesh mode, modelId is the meshId
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
@@ -912,6 +913,7 @@ class WorldManager {
             addon.Model.load({
                 id: id,
                 visualType: "customMesh" as any,
+                visualName: "humanoid_character",
                 modelId: visualId,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
@@ -952,6 +954,7 @@ class WorldManager {
             if (visualId) {
                 addon.Model.load({
                     visualType: "customMesh" as any,
+                    visualName: "humanoid_character",
                     modelId: visualId,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,

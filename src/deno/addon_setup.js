@@ -57,9 +57,17 @@ globalThis.Entropy = {
                 },
                 Model: {
                     load: (config) => {
+                        const id = config.id || null;
+                        if (id && config.visualName) {
+                            globalThis.Entropy._entityVisuals = globalThis.Entropy._entityVisuals || {};
+                            globalThis.Entropy._entityVisuals[id] = config.visualName;
+                        }
+
                         ops.op_model_load(getAddonName(), {
-                            id: config.id || null,
+                            id: id,
                             path: config.path,
+                            visual_type: config.visualType || null,
+                            modelId: config.modelId || null,
                             position: config.position || [0, 0, 0],
                             rotation: config.rotation || [0, 0, 0],
                             scale: config.scale || [1, 1, 1],
@@ -389,7 +397,22 @@ globalThis.Entropy = {
             ops.op_entity_set_xz_velocity(id, velocity);
         },
         playAnimation: (id, animName) => {
+            globalThis.Entropy._entityAnimations = globalThis.Entropy._entityAnimations || {};
+            globalThis.Entropy._entityAnimations[id] = animName;
+            
+            // Trigger Visual Provider if applicable
+            const visualName = globalThis.Entropy._entityVisuals?.[id];
+            if (visualName && globalThis.__ENTROPY_ADDONS__) {
+                const provider = globalThis.__ENTROPY_ADDONS__.getVisualProvider(visualName);
+                if (provider && provider.onAnimate) {
+                    provider.onAnimate(id, animName);
+                }
+            }
+
             ops.op_entity_play_animation(id, animName);
+        },
+        getAnimation: (id) => {
+            return globalThis.Entropy._entityAnimations?.[id] || "Idle";
         },
         setStats: (id, stats) => {
             ops.op_entity_set_stats(id, stats);

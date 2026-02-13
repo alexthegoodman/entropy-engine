@@ -9,6 +9,7 @@ class AddonRegistry {
   private tools: Map<string, ToolRegistration> = new Map();
   private components: Map<string, ComponentRegistration> = new Map();
   private visuals: Map<string, string> = new Map(); // visualName -> meshId
+  private visualProviders: Map<string, VisualProvider> = new Map();
   
   register(addon: EntropyAddon<any>) {
     this.addons.set(addon.name, addon);
@@ -37,13 +38,27 @@ class AddonRegistry {
     return Array.from(this.components.values()).filter(c => c.addonName === addonName);
   }
 
-  registerVisual(name: string, meshId: string) {
-    this.visuals.set(name, meshId);
+  registerVisual(name: string, provider: string | VisualProvider) {
+    if (typeof provider === "string") {
+        this.visuals.set(name, provider);
+    } else {
+        this.visualProviders.set(name, provider);
+    }
   }
 
   getVisual(name: string): string | undefined {
     return this.visuals.get(name);
   }
+
+  getVisualProvider(name: string): VisualProvider | undefined {
+    return this.visualProviders.get(name);
+  }
+}
+
+export interface VisualProvider {
+    meshId: string;
+    onAnimate?: (entityId: string, animName: string) => void;
+    onSpawn?: (entityId: string, position: [number, number, number]) => void;
 }
 
 const AddonContext = new AddonRegistry();
@@ -114,8 +129,9 @@ export abstract class EntropyAddon<TState = any> {
   protected tool(name: string): ToolBuilder { return new ToolBuilder(this.name, name); }
   protected component(id: string): ComponentBuilder { return new ComponentBuilder(this.name, id); }
   protected getAddon(name: string): EntropyAddon<any> | undefined { return AddonContext.getAddon(name); }
-  protected registerVisual(name: string, meshId: string) { AddonContext.registerVisual(name, meshId); }
+  protected registerVisual(name: string, provider: string | VisualProvider) { AddonContext.registerVisual(name, provider); }
   protected getVisual(name: string): string | undefined { return AddonContext.getVisual(name); }
+  protected getVisualProvider(name: string): VisualProvider | undefined { return AddonContext.getVisualProvider(name); }
   
   protected onInit?(): void;
   protected onUpdate?(time: number, pos: Position, dir: Position): void;
