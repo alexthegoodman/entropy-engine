@@ -36,7 +36,6 @@ pub fn create_addon_pipeline(
 
             struct ModelUniform {
                 model_matrix: mat4x4<f32>,
-                normal_matrix: mat4x4<f32>,
             };
             @group(1) @binding(0)
             var<uniform> model: ModelUniform;
@@ -53,7 +52,7 @@ pub fn create_addon_pipeline(
                 let world_pos = model.model_matrix * vec4<f32>(input.position, 1.0);
                 out.clip_position = camera.view_proj * world_pos;
                 out.world_position = world_pos.xyz;
-                out.world_normal = (model.normal_matrix * vec4<f32>(input.normal, 0.0)).xyz;
+                out.world_normal = (model.model_matrix * vec4<f32>(input.normal, 0.0)).xyz;
                 out.color = input.color;
                 return out;
             }

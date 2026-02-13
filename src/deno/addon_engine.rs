@@ -1871,7 +1871,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
             layouts = vec![
                 ctx.bind_group_layouts[0].as_ref(), // Camera
                 ctx.bind_group_layouts[1].as_ref(), // Model/Mesh Transform
-                ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices
+                // ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices (can be set in JS side instead)
             ];
         } else if config.form.as_deref() == Some("composite") {
             if ctx.composite_layout.is_none() {
@@ -1930,7 +1930,7 @@ fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) -> R
                 layouts = vec![
                     ctx.bind_group_layouts[0].as_ref(), // Camera
                     ctx.bind_group_layouts[1].as_ref(), // Model
-                    ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices
+                    // ctx.skinned_layout.as_ref().unwrap().as_ref(), // Joint Matrices (can be set in JS side instead)
                 ];
             } else if config.form.as_deref() == Some("composite") {
                 layouts = vec![
