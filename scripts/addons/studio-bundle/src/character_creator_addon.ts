@@ -62,50 +62,77 @@ function mat4_from_rotation_translation_scale(q: Quat, t: Vec3, s: Vec3): Mat4 {
     ];
 }
 
-function mat4_inverse(m: Mat4): Mat4 {
-    const out = new Array(16);
+// function mat4_inverse(m: Mat4): Mat4 {
+//     const out = new Array(16);
     
-    const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
-    const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
-    const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
-    const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
+//     const a00 = m[0], a01 = m[1], a02 = m[2], a03 = m[3];
+//     const a10 = m[4], a11 = m[5], a12 = m[6], a13 = m[7];
+//     const a20 = m[8], a21 = m[9], a22 = m[10], a23 = m[11];
+//     const a30 = m[12], a31 = m[13], a32 = m[14], a33 = m[15];
 
-    const b00 = a00 * a11 - a01 * a10;
-    const b01 = a00 * a12 - a02 * a10;
-    const b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11;
-    const b04 = a01 * a13 - a03 * a11;
-    const b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30;
-    const b07 = a20 * a32 - a22 * a30;
-    const b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31;
-    const b10 = a21 * a33 - a23 * a31;
-    const b11 = a22 * a33 - a23 * a32;
+//     const b00 = a00 * a11 - a01 * a10;
+//     const b01 = a00 * a12 - a02 * a10;
+//     const b02 = a00 * a13 - a03 * a10;
+//     const b03 = a01 * a12 - a02 * a11;
+//     const b04 = a01 * a13 - a03 * a11;
+//     const b05 = a02 * a13 - a03 * a12;
+//     const b06 = a20 * a31 - a21 * a30;
+//     const b07 = a20 * a32 - a22 * a30;
+//     const b08 = a20 * a33 - a23 * a30;
+//     const b09 = a21 * a32 - a22 * a31;
+//     const b10 = a21 * a33 - a23 * a31;
+//     const b11 = a22 * a33 - a23 * a32;
 
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+//     let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
 
-    if (!det) return mat4_identity();
-    det = 1.0 / det;
+//     if (!det) return mat4_identity();
+//     det = 1.0 / det;
 
-    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
+//     out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+//     out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+//     out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+//     out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+//     out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+//     out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+//     out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+//     out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+//     out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+//     out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+//     out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+//     out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+//     out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+//     out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+//     out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+//     out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
 
-    return out;
+//     return out;
+// }
+
+function mat4_inverse(m: Mat4): Mat4 {
+    // Extract translation t from m[12..14]
+    const t: Vec3 = [m[12], m[13], m[14]];
+
+    // Extract upper 3x3 (rotation, assuming orthogonal and det=1)
+    const r00 = m[0], r01 = m[1], r02 = m[2];
+    const r10 = m[4], r11 = m[5], r12 = m[6];
+    const r20 = m[8], r21 = m[9], r22 = m[10];
+
+    // Transpose rotation for R^T
+    const rt00 = r00, rt01 = r10, rt02 = r20;
+    const rt10 = r01, rt11 = r11, rt12 = r21;
+    const rt20 = r02, rt21 = r12, rt22 = r21;  // typo in original, should be r22
+
+    // Inverse translation -t
+    const it0 = -(rt00 * t[0] + rt01 * t[1] + rt02 * t[2]);
+    const it1 = -(rt10 * t[0] + rt11 * t[1] + rt12 * t[2]);
+    const it2 = -(rt20 * t[0] + rt21 * t[1] + rt22 * t[2]);
+
+    return [
+        rt00, rt01, rt02, 0,
+        rt10, rt11, rt12, 0,
+        rt20, rt21, rt22, 0,
+        it0, it1, it2, 1
+    ];
 }
 
 // ============================================================================
@@ -359,40 +386,44 @@ class ProceduralHumanoid {
         const pantsColor: [number, number, number, number] = [0.3, 0.3, 0.35, 1.0];
         const shoeColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1.0];
 
-        // Torso (chest + spine)
-        this.addCapsule([0, 0.35, 0], 0.20, 0.45, 8, 6, this.chest.id, shirtColor);
+        // IMPORTANT: Vertices must be in BONE LOCAL SPACE
+        // Offset determines where geometry sits relative to the bone's origin
         
-        // Hips
-        this.addCapsule([0, 0, 0], 0.18, 0.22, 8, 4, this.hips.id, pantsColor);
+        // Torso - centered on chest bone
+        this.addCapsule([0, 0, 0], 0.20, 0.50, 8, 6, this.chest.id, shirtColor);
         
-        // Head
-        this.addSphere([0, 0.12, 0], 0.13, 12, 10, this.head.id, skinColor);
+        // Hips - centered on hips bone
+        this.addCapsule([0, 0, 0], 0.18, 0.25, 8, 4, this.hips.id, pantsColor);
         
-        // Neck
-        this.addCylinder([0, 0.06, 0], 0.06, 0.12, 8, this.neck.id, skinColor);
+        // Head - starts at bone origin, extends upward
+        this.addSphere([0, 0.11, 0], 0.13, 12, 10, this.head.id, skinColor);
         
-        // Left arm
+        // Neck - centered
+        this.addCylinder([0, 0, 0], 0.06, 0.12, 8, this.neck.id, skinColor);
+        
+        // Left arm - extends along bone's local X axis
         this.addCapsule([-0.14, 0, 0], 0.045, 0.28, 6, 4, this.leftUpperArm.id, skinColor);
         this.addCapsule([-0.13, 0, 0], 0.04, 0.26, 6, 4, this.leftForearm.id, skinColor);
         this.addSphere([-0.09, 0, 0], 0.055, 8, 6, this.leftHand.id, skinColor);
         
-        // Right arm
+        // Right arm - extends along bone's local X axis
         this.addCapsule([0.14, 0, 0], 0.045, 0.28, 6, 4, this.rightUpperArm.id, skinColor);
         this.addCapsule([0.13, 0, 0], 0.04, 0.26, 6, 4, this.rightForearm.id, skinColor);
         this.addSphere([0.09, 0, 0], 0.055, 8, 6, this.rightHand.id, skinColor);
         
-        // Left leg
+        // Left leg - extends downward from bone origin along local -Y
         this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.leftUpperLeg.id, pantsColor);
         this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.leftLowerLeg.id, pantsColor);
-        this.addCapsule([0, 0, 0.08], 0.06, 0.2, 6, 4, this.leftFoot.id, shoeColor);
+        // Foot extends forward from ankle
+        this.addCapsule([0, -0.05, 0.08], 0.06, 0.2, 6, 4, this.leftFoot.id, shoeColor);
         
-        // Right leg
+        // Right leg - mirror of left
         this.addCapsule([0, -0.225, 0], 0.08, 0.45, 8, 6, this.rightUpperLeg.id, pantsColor);
         this.addCapsule([0, -0.215, 0], 0.065, 0.43, 8, 6, this.rightLowerLeg.id, pantsColor);
-        this.addCapsule([0, 0, 0.08], 0.06, 0.2, 6, 4, this.rightFoot.id, shoeColor);
+        this.addCapsule([0, -0.05, 0.08], 0.06, 0.2, 6, 4, this.rightFoot.id, shoeColor);
     }
 
-    private addSphere(
+    public addSphere(
         offset: Vec3,
         radius: number,
         segments: number,
@@ -436,7 +467,7 @@ class ProceduralHumanoid {
         }
     }
 
-    private addCapsule(
+    public addCapsule(
         offset: Vec3,
         radius: number,
         height: number,
@@ -520,7 +551,7 @@ class ProceduralHumanoid {
         }
     }
 
-    private addCylinder(
+    public addCylinder(
         offset: Vec3,
         radius: number,
         height: number,
@@ -560,7 +591,7 @@ class ProceduralHumanoid {
         }
     }
 
-    private pushVertex(
+    public pushVertex(
         pos: Vec3,
         normal: Vec3,
         color: [number, number, number, number],
@@ -750,7 +781,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         });
     }
 
-    private generateCharacter() {
+    public generateCharacter() {
         if (this.meshId) this.api.Model.clearMesh(this.meshId);
         
         this.humanoid.generateMesh();
@@ -768,11 +799,13 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         });
     }
 
-    private animate(time: number) {
+    public animate(time: number) {
+        // First, reset to bind pose
         this.humanoid.resetPose();
 
         const params = this.currentParams;
         
+        // Then apply animation modifications
         switch (params.activeAnimation) {
             case "Idle":
                 this.animateIdle(time);
@@ -791,164 +824,194 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
                 break;
         }
 
+        // Update world transforms from root
         this.humanoid.rootBone.updateWorldTransform(mat4_identity());
         
+        // Upload joint matrices to GPU
         const matrices = this.humanoid.getJointMatrices();
         this.api.Buffer.write(this.jointBufferId!, new Float32Array(matrices));
     }
 
-    private animateIdle(time: number) {
+    // Helper to apply rotation to a bone while preserving its translation
+    public rotateBone(bone: Bone, rotation: Quat, translation?: Vec3) {
+        // Get original translation from the bind pose
+        const tx = bone.localTransform[12];
+        const ty = bone.localTransform[13];
+        const tz = bone.localTransform[14];
+        
+        // Apply new rotation with preserved (or overridden) translation
+        const trans: Vec3 = translation || [tx, ty, tz];
+        bone.localTransform = mat4_from_rotation_translation_scale(
+            rotation, trans, [1, 1, 1]
+        );
+    }
+
+    public animateIdle(time: number) {
         // Subtle breathing
         const breathCycle = Math.sin(time * 1.5) * 0.02;
-        const currentChestTransform = this.humanoid.chest.localTransform;
         const breathScale = [1.0, 1.0 + breathCycle, 1.0] as Vec3;
         
         // Head sway
         const headSway = Math.sin(time * 0.8) * 0.03;
         const headRot = quat_from_axis_angle([0, 1, 0], headSway);
-        this.humanoid.head.localTransform = mat4_from_rotation_translation_scale(
-            headRot, [0, 0.23, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.head, headRot);
         
         // Gentle arm sway
         const armSway = Math.sin(time * 1.2) * 0.05;
         const leftArmRot = quat_from_axis_angle([0, 0, 1], armSway);
         const rightArmRot = quat_from_axis_angle([0, 0, 1], -armSway);
         
-        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
-        );
-        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            rightArmRot, [0.28, 0, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.leftUpperArm, leftArmRot);
+        this.rotateBone(this.humanoid.rightUpperArm, rightArmRot);
     }
 
-    private animateWalk(time: number) {
-        const walkSpeed = 4.0;
+    public animateWalk(time: number) {
+        const walkSpeed = 3.0;
         const cycle = time * walkSpeed;
-        const legSwing = Math.sin(cycle) * 0.6;
-        const armSwing = Math.sin(cycle) * 0.4;
         
-        // Body bob
-        const bobAmount = Math.abs(Math.sin(cycle * 2)) * 0.03;
-        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
-            [0, 0, 0, 1], [0, 0.9 + bobAmount, 0], [1, 1, 1]
-        );
+        // Leg swing goes from -1 to 1
+        const leftLegPhase = Math.sin(cycle);
+        const rightLegPhase = Math.sin(cycle + Math.PI);
         
-        // Left leg (forward when positive)
-        const leftLegRot = quat_from_axis_angle([1, 0, 0], legSwing);
-        this.humanoid.leftUpperLeg.localTransform = mat4_from_rotation_translation_scale(
-            leftLegRot, [-0.10, -0.05, 0], [1, 1, 1]
-        );
+        // Body bob - goes up when both legs are mid-stride
+        const bobAmount = Math.abs(Math.sin(cycle * 2)) * 0.04;
+        const hipHeight = 0.9 - 0.02 + bobAmount;
+        this.rotateBone(this.humanoid.hips, [0, 0, 0, 1], [0, hipHeight, 0]);
         
-        // Left knee bend
-        const leftKneeBend = Math.max(0, -legSwing) * 0.8;
+        // Slight spine lean forward
+        const spineForwardLean = quat_from_axis_angle([1, 0, 0], 0.05);
+        this.rotateBone(this.humanoid.spine, spineForwardLean);
+        
+        // LEFT LEG - Hip rotation
+        const leftHipSwing = leftLegPhase * 0.5;
+        const leftHipRot = quat_from_axis_angle([1, 0, 0], leftHipSwing);
+        this.rotateBone(this.humanoid.leftUpperLeg, leftHipRot);
+        
+        // LEFT LEG - Knee bends when leg is back
+        const leftKneeBend = Math.max(0, -leftLegPhase) * 1.2;
         const leftKneeRot = quat_from_axis_angle([1, 0, 0], leftKneeBend);
-        this.humanoid.leftLowerLeg.localTransform = mat4_from_rotation_translation_scale(
-            leftKneeRot, [0, -0.45, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.leftLowerLeg, leftKneeRot);
         
-        // Right leg (opposite)
-        const rightLegRot = quat_from_axis_angle([1, 0, 0], -legSwing);
-        this.humanoid.rightUpperLeg.localTransform = mat4_from_rotation_translation_scale(
-            rightLegRot, [0.10, -0.05, 0], [1, 1, 1]
-        );
+        // LEFT LEG - Foot tilt
+        const leftFootTilt = leftLegPhase * 0.3;
+        const leftFootRot = quat_from_axis_angle([1, 0, 0], -leftFootTilt);
+        this.rotateBone(this.humanoid.leftFoot, leftFootRot);
         
-        const rightKneeBend = Math.max(0, legSwing) * 0.8;
+        // RIGHT LEG - Hip rotation
+        const rightHipSwing = rightLegPhase * 0.5;
+        const rightHipRot = quat_from_axis_angle([1, 0, 0], rightHipSwing);
+        this.rotateBone(this.humanoid.rightUpperLeg, rightHipRot);
+        
+        // RIGHT LEG - Knee bend
+        const rightKneeBend = Math.max(0, -rightLegPhase) * 1.2;
         const rightKneeRot = quat_from_axis_angle([1, 0, 0], rightKneeBend);
-        this.humanoid.rightLowerLeg.localTransform = mat4_from_rotation_translation_scale(
-            rightKneeRot, [0, -0.45, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.rightLowerLeg, rightKneeRot);
         
-        // Arms swing opposite to legs
-        const leftArmRot = quat_from_axis_angle([1, 0, 0], -armSwing);
-        const rightArmRot = quat_from_axis_angle([1, 0, 0], armSwing);
+        // RIGHT LEG - Foot tilt
+        const rightFootTilt = rightLegPhase * 0.3;
+        const rightFootRot = quat_from_axis_angle([1, 0, 0], -rightFootTilt);
+        this.rotateBone(this.humanoid.rightFoot, rightFootRot);
         
-        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
-        );
-        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            rightArmRot, [0.28, 0, 0], [1, 1, 1]
-        );
+        // ARMS - swing opposite to legs
+        const leftArmSwing = -leftLegPhase * 0.35;
+        const leftArmRot = quat_from_axis_angle([1, 0, 0], leftArmSwing);
+        this.rotateBone(this.humanoid.leftUpperArm, leftArmRot);
+        
+        const rightArmSwing = -rightLegPhase * 0.35;
+        const rightArmRot = quat_from_axis_angle([1, 0, 0], rightArmSwing);
+        this.rotateBone(this.humanoid.rightUpperArm, rightArmRot);
+        
+        // Slight elbow bend
+        const elbowBend = quat_from_axis_angle([1, 0, 0], 0.15);
+        this.rotateBone(this.humanoid.leftForearm, elbowBend);
+        this.rotateBone(this.humanoid.rightForearm, elbowBend);
     }
 
-    private animateWave(time: number) {
+    public animateWave(time: number) {
         const waveCycle = time * 3.0;
         
         // Raise right arm
         const shoulderRot = quat_from_axis_angle([0, 0, 1], -1.5);
-        const elbowRot = quat_from_axis_angle([0, 0, 1], -0.5);
+        this.rotateBone(this.humanoid.rightUpperArm, shoulderRot);
         
-        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            shoulderRot, [0.28, 0, 0], [1, 1, 1]
-        );
-        
-        // Wave hand
+        // Wave hand with elbow rotation
+        const elbowBase = quat_from_axis_angle([0, 0, 1], -0.5);
         const waveAngle = Math.sin(waveCycle) * 0.5;
         const waveRot = quat_from_axis_angle([0, 1, 0], waveAngle);
-        const combinedElbowRot = quat_multiply(elbowRot, waveRot);
+        const combinedElbowRot = quat_multiply(elbowBase, waveRot);
         
-        this.humanoid.rightForearm.localTransform = mat4_from_rotation_translation_scale(
-            combinedElbowRot, [0.26, 0, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.rightForearm, combinedElbowRot);
     }
 
-    private animateJump(time: number) {
-        const jumpCycle = (time * 2.0) % 2.0;
+    public animateJump(time: number) {
+        const jumpCycle = (time * 1.5) % 2.5;
         let jumpHeight = 0;
-        let legBend = 0;
+        let hipBend = 0;
+        let kneeBend = 0;
+        let ankleBend = 0;
+        let armRaise = 0;
         
-        if (jumpCycle < 0.3) {
-            // Crouch
-            legBend = (jumpCycle / 0.3) * 0.8;
-            jumpHeight = -(jumpCycle / 0.3) * 0.1;
-        } else if (jumpCycle < 0.8) {
-            // In air
-            const airTime = (jumpCycle - 0.3) / 0.5;
-            jumpHeight = Math.sin(airTime * Math.PI) * 0.4;
-            legBend = 0.2;
+        if (jumpCycle < 0.4) {
+            // Crouch preparation
+            const t = jumpCycle / 0.4;
+            kneeBend = t * 1.3;
+            hipBend = t * 0.3;
+            jumpHeight = -t * 0.15;
+            armRaise = -t * 0.5;
+        } else if (jumpCycle < 1.0) {
+            // Launch and air time
+            const t = (jumpCycle - 0.4) / 0.6;
+            const airPhase = Math.sin(t * Math.PI);
+            jumpHeight = airPhase * 0.5;
+            kneeBend = (1 - t) * 0.4;
+            ankleBend = t * 0.2;
+            armRaise = t * 1.2;
         } else {
             // Landing
-            const landTime = (jumpCycle - 0.8) / 1.2;
-            jumpHeight = -(1 - landTime) * 0.05;
-            legBend = (1 - landTime) * 0.4;
+            const t = (jumpCycle - 1.0) / 1.5;
+            jumpHeight = -Math.pow(1 - t, 2) * 0.1;
+            kneeBend = (1 - t) * 0.8;
+            hipBend = (1 - t) * 0.2;
+            armRaise = (1 - t) * 1.0;
         }
         
-        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
-            [0, 0, 0, 1], [0, 0.9 + jumpHeight, 0], [1, 1, 1]
-        );
+        // Apply transforms using rotateBone
+        const hipRot = quat_from_axis_angle([1, 0, 0], hipBend);
+        this.rotateBone(this.humanoid.hips, hipRot, [0, 0.9 + jumpHeight, 0]);
         
-        const kneeBendRot = quat_from_axis_angle([1, 0, 0], legBend);
-        this.humanoid.leftLowerLeg.localTransform = mat4_from_rotation_translation_scale(
-            kneeBendRot, [0, -0.45, 0], [1, 1, 1]
-        );
-        this.humanoid.rightLowerLeg.localTransform = mat4_from_rotation_translation_scale(
-            kneeBendRot, [0, -0.45, 0], [1, 1, 1]
-        );
+        const legRot = quat_from_axis_angle([1, 0, 0], -hipBend);
+        this.rotateBone(this.humanoid.leftUpperLeg, legRot);
+        this.rotateBone(this.humanoid.rightUpperLeg, legRot);
+        
+        const kneeRot = quat_from_axis_angle([1, 0, 0], kneeBend);
+        this.rotateBone(this.humanoid.leftLowerLeg, kneeRot);
+        this.rotateBone(this.humanoid.rightLowerLeg, kneeRot);
+        
+        const ankleRot = quat_from_axis_angle([1, 0, 0], -ankleBend);
+        this.rotateBone(this.humanoid.leftFoot, ankleRot);
+        this.rotateBone(this.humanoid.rightFoot, ankleRot);
+        
+        const armRot = quat_from_axis_angle([1, 0, 0], armRaise);
+        this.rotateBone(this.humanoid.leftUpperArm, armRot);
+        this.rotateBone(this.humanoid.rightUpperArm, armRot);
     }
 
-    private animateDance(time: number) {
+    public animateDance(time: number) {
         const danceSpeed = 2.5;
         const cycle = time * danceSpeed;
         
         // Hip rotation
         const hipRotation = Math.sin(cycle) * 0.3;
         const hipRot = quat_from_axis_angle([0, 1, 0], hipRotation);
-        this.humanoid.hips.localTransform = mat4_from_rotation_translation_scale(
-            hipRot, [0, 0.9, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.hips, hipRot);
         
         // Shoulder shimmy
         const shoulderShimmy = Math.sin(cycle * 2) * 0.2;
         const leftShoulderRot = quat_from_axis_angle([0, 0, 1], shoulderShimmy);
         const rightShoulderRot = quat_from_axis_angle([0, 0, 1], -shoulderShimmy);
         
-        this.humanoid.leftShoulder.localTransform = mat4_from_rotation_translation_scale(
-            leftShoulderRot, [-0.18, 0, 0], [1, 1, 1]
-        );
-        this.humanoid.rightShoulder.localTransform = mat4_from_rotation_translation_scale(
-            rightShoulderRot, [0.18, 0, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.leftShoulder, leftShoulderRot);
+        this.rotateBone(this.humanoid.rightShoulder, rightShoulderRot);
         
         // Alternating arm raises
         const leftArmRaise = Math.max(0, Math.sin(cycle)) * -1.2;
@@ -957,15 +1020,11 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         const leftArmRot = quat_from_axis_angle([0, 0, 1], leftArmRaise);
         const rightArmRot = quat_from_axis_angle([0, 0, 1], rightArmRaise);
         
-        this.humanoid.leftUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            leftArmRot, [-0.28, 0, 0], [1, 1, 1]
-        );
-        this.humanoid.rightUpperArm.localTransform = mat4_from_rotation_translation_scale(
-            rightArmRot, [0.28, 0, 0], [1, 1, 1]
-        );
+        this.rotateBone(this.humanoid.leftUpperArm, leftArmRot);
+        this.rotateBone(this.humanoid.rightUpperArm, rightArmRot);
     }
 
-    private setupUI() {
+    public setupUI() {
         const tab = this.api.UI.createTab({
             title: "Character Creator",
             onRender: () => {
