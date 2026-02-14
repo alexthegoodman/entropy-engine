@@ -1,4 +1,5 @@
 import type { Entity } from "./addon";
+import { ProceduralHumanoid } from "./humanoid";
 
 const addonInfo = {
     name: "The Fractured Realm",
@@ -838,9 +839,9 @@ Entropy.Behavior.register("shadow_assassin", {
 
 class WorldManager {    
     public playerJointBufferId: string = "";
-    public playerHumanoid: any = null;
+    public playerHumanoid: ProceduralHumanoid | null = null;
     public npcJointBufferId: Record<string, string> = {};
-    public npcHumanoids: Record<string, any> = {};
+    public npcHumanoids: Record<string, ProceduralHumanoid> = {};
     public npcAnimations: Record<string, string> = {};
 
     initialize() {
@@ -865,7 +866,7 @@ class WorldManager {
                 size: 16384,
                 usage: "Uniform"
             });
-            this.playerHumanoid = (Entropy as any).Humanoid.create();
+            this.playerHumanoid = new ProceduralHumanoid();
 
             Entropy.println("--------------------------- FPS RPG PLAYER MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
 
@@ -938,7 +939,7 @@ class WorldManager {
                 size: 16384,
                 usage: "Uniform"
             });
-            this.npcHumanoids[id] = (Entropy as any).Humanoid.create();
+            this.npcHumanoids[id] = new ProceduralHumanoid();
             this.npcAnimations[id] = "Idle";
 
             Entropy.println("--------------------------- FPS RPG NPC MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
@@ -995,7 +996,7 @@ class WorldManager {
                     size: 16384,
                     usage: "Uniform"
                 });
-                this.npcHumanoids[id] = (Entropy as any).Humanoid.create();
+                this.npcHumanoids[id] = new ProceduralHumanoid();
                 this.npcAnimations[id] = "Idle";
 
                 addon.Model.createMesh({
@@ -1403,7 +1404,7 @@ Entropy.onGameStopped(() => {
 addon.onUpdatePlus("Game Composer", (time) => {
     Entropy.Composer?.enableGameComposerOverride();
 
-    // Entropy.println("Rendering humanoids " + worldManager.npcHumanoids.length + " time: " + time);
+    // Entropy.println("Rendering humanoids " + Object.keys(worldManager.npcHumanoids).length + " time: " + time);
 
     // Animate player
     if (worldManager.playerHumanoid) {
@@ -1425,6 +1426,8 @@ addon.onUpdatePlus("Game Composer", (time) => {
             addon.Buffer.write(bufferId, new Float32Array(matrices));
         }
     }
+
+    // Entropy.println("Fomosj bro");
 
     Entropy.Composer?.disableGameComposerOverride();
 });
