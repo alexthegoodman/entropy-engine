@@ -738,9 +738,18 @@ Entropy.Behavior.register("crimson_soldier", {
         if (factions[Faction.CRIMSON_GUARD].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 9.5;
+                
+                let velocityX = (dx / dist) * speed;
+                let velocityZ = (dz / dist) * speed;
+
                 Entropy.Entity.setXZVelocity(entity.id, [
-                    (dx / dist) * speed, (dz / dist) * speed
+                    velocityX, velocityZ
                 ]);
+
+                // Face movement direction
+                const angle = Math.atan2(velocityX, velocityZ);
+                Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+
                 Entropy.Entity.playAnimation(entity.id, "Walking");
                 worldManager.npcAnimations[entity.id] = "Walk";
             } else {
@@ -757,9 +766,18 @@ Entropy.Behavior.register("crimson_soldier", {
             
             if (wdist > 1.0) {
                 const speed = 6.5;
+                
+                let velocityX = (dx / dist) * speed;
+                let velocityZ = (dz / dist) * speed;
+                
                 Entropy.Entity.setXZVelocity(entity.id, [
-                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                    velocityX, velocityZ
                 ]);
+
+                // Face movement direction
+                const angle = Math.atan2(velocityX, velocityZ);
+                Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+
                 Entropy.Entity.playAnimation(entity.id, "Walking");
                 worldManager.npcAnimations[entity.id] = "Walk";
             } else {
@@ -838,9 +856,18 @@ Entropy.Behavior.register("azure_soldier", {
         if (factions[Faction.AZURE_ORDER].reputation < -20 && dist < 30) {
             if (dist > 2.5) {
                 const speed = 9.5;
+                
+                let velocityX = (dx / dist) * speed;
+                let velocityZ = (dz / dist) * speed;
+                
                 Entropy.Entity.setXZVelocity(entity.id, [
-                    (dx / dist) * speed, (dz / dist) * speed
+                    velocityX, velocityZ
                 ]);
+
+                // Face movement direction
+                const angle = Math.atan2(velocityX, velocityZ);
+                Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+
                 Entropy.Entity.playAnimation(entity.id, "Walking");
                 worldManager.npcAnimations[entity.id] = "Walk";
             } else {
@@ -855,9 +882,18 @@ Entropy.Behavior.register("azure_soldier", {
             
             if (wdist > 1.0) {
                 const speed = 6.5;
+                
+                let velocityX = (dx / dist) * speed;
+                let velocityZ = (dz / dist) * speed;
+                
                 Entropy.Entity.setXZVelocity(entity.id, [
-                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                    velocityX, velocityZ
                 ]);
+
+                // Face movement direction
+                const angle = Math.atan2(velocityX, velocityZ);
+                Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+
                 Entropy.Entity.playAnimation(entity.id, "Walking");
                 worldManager.npcAnimations[entity.id] = "Walk";
             } else {
@@ -959,9 +995,18 @@ Entropy.Behavior.register("shadow_assassin", {
             
             if (wdist > 1.0) {
                 const speed = 2.0; // Assassins are a bit faster
+                
+                let velocityX = (dx / dist) * speed;
+                let velocityZ = (dz / dist) * speed;
+                
                 Entropy.Entity.setXZVelocity(entity.id, [
-                    (wdx / wdist) * speed, (wdz / wdist) * speed
+                    velocityX, velocityZ
                 ]);
+
+                // Face movement direction
+                const angle = Math.atan2(velocityX, velocityZ);
+                Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+
                 Entropy.Entity.playAnimation(entity.id, "Walking");
                 worldManager.npcAnimations[entity.id] = "Walk";
             } else {
