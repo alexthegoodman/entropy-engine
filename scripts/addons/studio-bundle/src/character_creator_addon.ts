@@ -716,28 +716,26 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         });
 
         this.generateCharacter();
-        
-        this.registerVisual("humanoid_character", {
-            meshId: this.meshId!,
-            onAnimate: (id, anim) => {
-                const instance = this.instances.get(id);
-                if (instance) instance.animation = anim;
-            },
-            onSpawn: (id, pos) => {
-                // Create a dedicated joint buffer for this NPC instance
-                const bufferId = this.api.Buffer.create({
-                    size: 16384,
-                    usage: "Uniform"
-                });
-                this.instances.set(id, { animation: "Idle", jointBufferId: bufferId });
-                
-                // We actually need to tell the engine to use this buffer for the specific mesh instance.
-                // For now, let's assume the engine handles binding by meshId.
-                // In a multi-instance scenario, the engine would need per-instance uniform support.
-            }
-        });
 
-        Entropy.println("Registered humanoid_character " + JSON.stringify(this.getVisual("humanoid_character")));
+        if (this.meshId) {
+            this.registerVisual("humanoid_character", {
+                meshId: this.meshId,
+                onAnimate: (id, anim) => {
+                    const instance = this.instances.get(id);
+                    if (instance) instance.animation = anim;
+                },
+                onSpawn: (id, pos) => {
+                    // Create a dedicated joint buffer for this NPC instance
+                    const bufferId = this.api.Buffer.create({
+                        size: 16384,
+                        usage: "Uniform"
+                    });
+                    this.instances.set(id, { animation: "Idle", jointBufferId: bufferId });                    
+                }
+            });
+
+            Entropy.println("Registered humanoid_character " + JSON.stringify(this.getVisualProvider("humanoid_character")));
+        }
 
         this.setupUI();
 
@@ -762,12 +760,12 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
             bindings: [
                 { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.jointBufferId! } } }
             ],
-            physics: {
-                bodyType: "dynamic",
-                colliderShape: "capsule",
-                mass: 70
-            }
-        } as any);
+            // physics: {
+            //     bodyType: "dynamic",
+            //     colliderShape: "capsule",
+            //     mass: 70
+            // }
+        });
     }
 
     public animate(time: number) {

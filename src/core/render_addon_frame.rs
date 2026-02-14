@@ -667,9 +667,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
                     }
 
+                    // if renderer_state.npcs.len() > 0 {
+                    //     println!("NPCS: {:?} and {:?}", renderer_state.npcs.len(), entities_to_render.len());    
+                    // }
+
                     for (template_id, transform, model_bg, skin_bg) in entities_to_render {
                         // Find Template (CustomMesh or Model)
                         if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
+                            // println!("Mesh load {:?}", template_id);
                             render_pass.set_pipeline(&mesh.pipeline);
                             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                             if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }

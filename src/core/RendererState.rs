@@ -2213,11 +2213,17 @@ impl RendererState {
 
         let squad_id = npc_properties.squad_id.clone();
 
+        let mesh_id = if let Some(config) = visual_config.clone() {
+            config.template_id
+        } else {
+            model_component_id.clone()
+        };
+
         let mut npc = NPC::new(
             &gpu_resources.device,
             &gpu_resources.queue,
             model_component_id.clone(),
-            model_component_id.clone(),
+            mesh_id.clone(),
             visual_type.clone(),
             npc_rigid_body_handle,
             npc_properties.behavior.clone(),
