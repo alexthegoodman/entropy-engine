@@ -1,7 +1,7 @@
 // *** Entropy Addon Class System ***
 // Standardized architecture for high-performance addons
 
-import type { AddonMetadata, Position, ScopedAPI } from "./addon";
+import type { AddonMetadata, BindingConfig, Position, ScopedAPI } from "./addon";
 
 // Global addon registry
 class AddonRegistry {
@@ -55,11 +55,15 @@ class AddonRegistry {
   }
 }
 
+// share vertex data to recreate mesh many times (better for small meshes)
 export interface VisualProvider {
-    meshId: string;
-    pipelineId?: string;
-    onAnimate?: (entityId: string, animName: string) => void;
-    onSpawn?: (entityId: string, position: [number, number, number]) => void;
+    meshId?: string;
+    pipelineId: string;
+    // onAnimate?: (entityId: string, animName: string) => void;
+    // onSpawn?: (entityId: string, position: [number, number, number]) => void;
+    vertexData: number[]; 
+    indexData: number[]; 
+    bindings?: BindingConfig[] 
 }
 
 const AddonContext = new AddonRegistry();

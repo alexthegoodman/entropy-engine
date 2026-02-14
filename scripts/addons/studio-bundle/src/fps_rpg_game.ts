@@ -821,6 +821,8 @@ Entropy.Behavior.register("shadow_assassin", {
 // --- World Manager ---
 
 class WorldManager {    
+    public playerJointBufferId: string = "";
+
     initialize() {
         this.spawnPlayer();
         this.populateWorld();
@@ -836,24 +838,47 @@ class WorldManager {
         gameState.playerId = Entropy.generateUUID();
         
         // Try to use the humanoid character from CharacterCreator addon
-        const visualId = addon.getVisualProvider("humanoid_character");
+        const visual = addon.getVisualProvider("humanoid_character");
         
-        if (visualId) {
-            addon.Visual.load({
+        if (visual) {
+            // addon.Visual.load({
+            //     id: gameState.playerId,
+            //     visualName: "humanoid_character",
+            //     meshId: visualId.meshId,
+            //     pipelineId: visualId.pipelineId,
+            //     position: [spawnX, y + 2, spawnZ],
+            //     scale: [1, 1, 1],
+            //     physics: {
+            //         bodyType: "dynamic",
+            //         colliderShape: "capsule",
+            //         mass: 80
+            //     },
+            //     player: {
+            //         modelId: gameState.playerId
+            //     }
+            // });
+            this.playerJointBufferId = addon.Buffer.create({
+                size: 16384,
+                usage: "Uniform"
+            });
+
+            Entropy.println("--------------------------- FPS RPG PLAYER MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
+
+            addon.Model.createMesh({
                 id: gameState.playerId,
-                visualName: "humanoid_character",
-                meshId: visualId.meshId,
-                pipelineId: visualId.pipelineId,
-                position: [spawnX, y + 2, spawnZ],
-                scale: [1, 1, 1],
-                physics: {
-                    bodyType: "dynamic",
-                    colliderShape: "capsule",
-                    mass: 80
-                },
-                player: {
-                    modelId: gameState.playerId
-                }
+                // position: [spawnX, y + 2, spawnZ],
+                position: [0, 0, 0],
+                vertexData: visual.vertexData,
+                indexData: visual.indexData,
+                pipelineId: visual.pipelineId,
+                bindings: [
+                    { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.playerJointBufferId! } } }
+                ],
+                // physics: {
+                //     bodyType: "dynamic",
+                //     colliderShape: "capsule",
+                //     mass: 70
+                // }
             });
         } else {
             addon.Model.load({
@@ -899,6 +924,8 @@ class WorldManager {
         
         Entropy.println("[World] Populated with NPCs and items");
     }
+
+    public npcJointBufferId: any = {};
     
     spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, behaviorId: string) {
         const angle = Math.random() * Math.PI * 2;
@@ -907,22 +934,47 @@ class WorldManager {
         const z = territory.z + Math.sin(angle) * dist;
         const y = addon.Landscape.getHeightAt(x, z);
         
-        const visualId = addon.getVisualProvider("humanoid_character");
+        const visual = addon.getVisualProvider("humanoid_character");
 
-        if (visualId) {
-            addon.Visual.load({
+        if (visual) {
+            // addon.Visual.load({
+            //     id: id,
+            //     visualName: "humanoid_character",
+            //     meshId: visualId.meshId,
+            //     pipelineId: visualId.pipelineId,
+            //     position: [x, y + 1, z],
+            //     behaviorId: behaviorId,
+            //     isNpc: true,
+            //     physics: {
+            //         bodyType: "dynamic",
+            //         colliderShape: "capsule",
+            //         mass: 100
+            //     }
+            // });
+
+            this.npcJointBufferId[id] = addon.Buffer.create({
+                size: 16384,
+                usage: "Uniform"
+            });
+
+            Entropy.println("--------------------------- FPS RPG NPC MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
+
+
+            addon.Model.createMesh({
                 id: id,
-                visualName: "humanoid_character",
-                meshId: visualId.meshId,
-                pipelineId: visualId.pipelineId,
-                position: [x, y + 1, z],
-                behaviorId: behaviorId,
-                isNpc: true,
-                physics: {
-                    bodyType: "dynamic",
-                    colliderShape: "capsule",
-                    mass: 100
-                }
+                // position: [x, y + 1, z],
+                position: [0, 0, 0],
+                vertexData: visual.vertexData,
+                indexData: visual.indexData,
+                pipelineId: visual.pipelineId,
+                bindings: [
+                    { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
+                ],
+                // physics: {
+                //     bodyType: "dynamic",
+                //     colliderShape: "capsule",
+                //     mass: 70
+                // }
             });
         } else {
             addon.Model.load({
@@ -942,27 +994,50 @@ class WorldManager {
     
     spawnFactionGuards(faction: Faction, model: string, behaviorId: string, count: number) {
         const territory = factions[faction].territory;
-        const visualId = addon.getVisualProvider("humanoid_character");
+        const visual = addon.getVisualProvider("humanoid_character");
         
         for (let i = 0; i < count; i++) {
+            let id = Entropy.generateUUID();
+
             const angle = (i / count) * Math.PI * 2;
             const dist = territory.radius * (0.5 + Math.random() * 0.4);
             const x = territory.x + Math.cos(angle) * dist;
             const z = territory.z + Math.sin(angle) * dist;
             const y = addon.Landscape.getHeightAt(x, z);
             
-            if (visualId) {
-                addon.Visual.load({
-                    visualName: "humanoid_character",
-                    meshId: visualId.meshId,
-                    pipelineId: visualId.pipelineId,
+            if (visual) {
+                // addon.Visual.load({
+                //     visualName: "humanoid_character",
+                //     meshId: visualId.meshId,
+                //     pipelineId: visualId.pipelineId,
+                //     position: [x, y + 1, z],
+                //     behaviorId: behaviorId,
+                //     isNpc: true,
+                //     physics: {
+                //         bodyType: "dynamic",
+                //         colliderShape: "capsule"
+                //     }
+                // });
+
+                this.npcJointBufferId[id] = addon.Buffer.create({
+                    size: 16384,
+                    usage: "Uniform"
+                });
+
+                addon.Model.createMesh({
+                    id,
                     position: [x, y + 1, z],
-                    behaviorId: behaviorId,
-                    isNpc: true,
-                    physics: {
-                        bodyType: "dynamic",
-                        colliderShape: "capsule"
-                    }
+                    vertexData: visual.vertexData,
+                    indexData: visual.indexData,
+                    pipelineId: visual.pipelineId,
+                    bindings: [
+                        { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
+                    ],
+                    // physics: {
+                    //     bodyType: "dynamic",
+                    //     colliderShape: "capsule",
+                    //     mass: 70
+                    // }
                 });
             } else {
                 addon.Model.load({

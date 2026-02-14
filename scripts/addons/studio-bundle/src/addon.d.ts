@@ -132,10 +132,13 @@ export interface ToolDefinition {
 }
 
 export interface VisualProvider {
-    meshId: string;
-    pipelineId?: string;
-    onAnimate?: (entityId: string, animName: string) => void;
-    onSpawn?: (entityId: string, position: [number, number, number]) => void;
+    meshId?: string;
+    pipelineId: string;
+    // onAnimate?: (entityId: string, animName: string) => void;
+    // onSpawn?: (entityId: string, position: [number, number, number]) => void;
+    vertexData: number[]; 
+    indexData: number[]; 
+    bindings?: BindingConfig[] 
 }
 
 export interface PhysicsConfig {

@@ -566,25 +566,30 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
                     }
 
+                    // println!("Pbr Meshes {:?}", pbr_meshes.len());
+                    // println!("Pbr mesh 10th position {:?}", pbr_meshes.get(10).and_then(|m| Some(m.transform.position)));
+
                     for mesh in &pbr_meshes {
                         let mut pipeline_set = false;
 
                         // 1. Check Role Override
-                        if let Some(role) = &mesh.render_role {
-                            if let Some(pid) = ctx.render_roles.get(role) {
-                                if let Some(p) = ctx.pipelines.get(pid) {
-                                    render_pass.set_pipeline(p);
-                                    pipeline_set = true;
-                                }
-                            }
-                        }
+                        // if let Some(role) = &mesh.render_role {
+                        //     if let Some(pid) = ctx.render_roles.get(role) {
+                        //         if let Some(p) = ctx.pipelines.get(pid) {
+                        //             render_pass.set_pipeline(p);
+                        //             pipeline_set = true;
+                        //         }
+                        //     }
+                        // }
 
                         if !pipeline_set {
                             if mesh.pipeline_id == "default" {
                                 render_pass.set_pipeline(geometry_pipeline);
                                 pipeline_set = true;
+                                // println!("default");
                             } else {
                                 render_pass.set_pipeline(&mesh.pipeline);
+                                // println!("custom");
                             }
                         }
                         

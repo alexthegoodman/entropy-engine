@@ -703,6 +703,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         this.pipelineId = Entropy.Pipeline.create({
             name: "Realistic_Skinned_Pipeline",
             layout: "skinned",
+            pbr: true,
             vertexShader: SKINNED_SHADER,
             fragmentShader: SKINNED_SHADER,
             extraBindGroups: [
@@ -719,23 +720,28 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
 
         if (this.meshId) {
             this.registerVisual("humanoid_character", {
-                meshId: this.meshId,
+                // meshId: this.meshId,
+                vertexData: this.humanoid.vertices,
+                indexData: this.humanoid.indices,
                 pipelineId: this.pipelineId,
-                onAnimate: (id, anim) => {
-                    const instance = this.instances.get(id);
-                    if (instance) instance.animation = anim;
-                },
-                onSpawn: (id, pos) => {
-                    // Create a dedicated joint buffer for this NPC instance
-                    const bufferId = this.api.Buffer.create({
-                        size: 16384,
-                        usage: "Uniform"
-                    });
-                    this.instances.set(id, { animation: "Idle", jointBufferId: bufferId });                    
-                }
+                bindings: [
+                    { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.jointBufferId! } } }
+                ],
+                // onAnimate: (id, anim) => {
+                //     const instance = this.instances.get(id);
+                //     if (instance) instance.animation = anim;
+                // },
+                // onSpawn: (id, pos) => {
+                //     // Create a dedicated joint buffer for this NPC instance
+                //     const bufferId = this.api.Buffer.create({
+                //         size: 16384,
+                //         usage: "Uniform"
+                //     });
+                //     this.instances.set(id, { animation: "Idle", jointBufferId: bufferId });                    
+                // }
             });
 
-            Entropy.println("Registered humanoid_character " + JSON.stringify(this.getVisualProvider("humanoid_character")));
+            // Entropy.println("Registered humanoid_character " + JSON.stringify(this.getVisualProvider("humanoid_character")));
         }
 
         this.setupUI();
