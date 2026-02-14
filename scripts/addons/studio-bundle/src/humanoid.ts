@@ -585,13 +585,17 @@ export class ProceduralHumanoid {
     }
 
     public animate(time: number, animation: string) {
+        // Entropy.println(`Animating humanoid with ${animation} at time ${time}`);
         // First, reset to bind pose
         this.resetPose();
         
         // Then apply animation modifications
         switch (animation) {
             case "Idle": this.animateIdle(time); break;
-            case "Walk": case "Walking": this.animateWalk(time); break;
+            case "Walk": case "Walking": 
+                // Entropy.println("Performing Walk animation");
+                this.animateWalk(time); 
+                break;
             case "Wave": this.animateWave(time); break;
             case "Jump": this.animateJump(time); break;
             case "Dance": this.animateDance(time); break;

@@ -3378,6 +3378,36 @@ impl AddonEngine {
             }
         }
         
+        // 0.25 Addon Meshes
+        for meshes in renderer_state.addon_meshes.values() {
+            for mesh in meshes {
+                if processed_ids.contains(&mesh.id) { continue; }
+                if let Some(bid) = &mesh.behavior_id {
+                    let pos = if let Some(rb_handle) = mesh.rigid_body_handle {
+                        if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                            let p = rb.translation();
+                            [p.x, p.y, p.z]
+                        } else {
+                            [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
+                        }
+                    } else {
+                        [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z]
+                    };
+
+                    entity_behaviors.push((
+                        bid.clone(),
+                        EntityWrapper {
+                            id: mesh.id.clone(),
+                            position: pos,
+                            health: 100.0,
+                            stamina: 100.0,
+                            is_dead: false,
+                        }
+                    ));
+                    processed_ids.insert(mesh.id.clone());
+                }
+            }
+        }
 
         // 0.3 Collectables
         for coll in &renderer_state.collectables {
