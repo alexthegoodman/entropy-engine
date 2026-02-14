@@ -675,7 +675,11 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         // Find Template (CustomMesh or Model)
                         if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
                             // println!("Mesh load {:?}", template_id);
-                            render_pass.set_pipeline(&mesh.pipeline);
+                            if mesh.pipeline_id == "default" {
+                                render_pass.set_pipeline(geometry_pipeline);
+                            } else {
+                                render_pass.set_pipeline(&mesh.pipeline);
+                            }
                             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                             if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
                             if let Some(bg) = skin_bg { render_pass.set_bind_group(2, bg, &[]); }
