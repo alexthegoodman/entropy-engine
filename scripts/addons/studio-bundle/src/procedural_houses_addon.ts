@@ -8,18 +8,18 @@ import type { AddonMetadata } from "./addon";
 // GEOMETRY UTILITIES
 // ============================================================================
 
-interface Vec3 { x: number; y: number; z: number; }
-interface Vec2 { x: number; y: number; }
+export interface Vec3 { x: number; y: number; z: number; }
+export interface Vec2 { x: number; y: number; }
 
-function vec3(x: number, y: number, z: number): Vec3 {
+export function vec3(x: number, y: number, z: number): Vec3 {
   return { x, y, z };
 }
 
-function vec2(x: number, y: number): Vec2 {
+export function vec2(x: number, y: number): Vec2 {
   return { x, y };
 }
 
-class MeshBuilder {
+export class MeshBuilder {
   vertices: number[] = [];
   indices: number[] = [];
   
@@ -59,7 +59,7 @@ class MeshBuilder {
 // FLOOR PLAN STRUCTURES
 // ============================================================================
 
-class Rect {
+export class Rect {
   constructor(
     public x: number,
     public y: number,
@@ -173,9 +173,9 @@ class Rect {
   }
 }
 
-type RoomType = "living_room" | "kitchen" | "bedroom" | "bathroom" | "hallway" | "dining_room" | "office";
+export type RoomType = "living_room" | "kitchen" | "bedroom" | "bathroom" | "hallway" | "dining_room" | "office";
 
-class Room {
+export class Room {
   type: RoomType = "bedroom";
   connectedRooms: Room[] = [];
   
@@ -184,7 +184,7 @@ class Room {
   get area() { return this.bounds.width * this.bounds.height; }
 }
 
-interface Doorway {
+export interface Doorway {
   position: Vec2;
   width: number;
   axis: 'x' | 'y'; // Direction the door opens
@@ -192,14 +192,14 @@ interface Doorway {
   room2: Room;
 }
 
-interface Window {
+export interface Window {
   position: Vec2;
   width: number;
   height: number;
   wallNormal: Vec2;
 }
 
-interface StairConfig {
+export interface StairConfig {
   position: Vec2;
   direction: Vec2;
   width: number;
@@ -209,7 +209,7 @@ interface StairConfig {
 // HOUSE PARAMETERS
 // ============================================================================
 
-const HOUSE_SHADER = `
+export const HOUSE_SHADER = `
 struct Camera {
     view_proj: mat4x4<f32>,
     view_pos: vec4<f32>,
@@ -312,7 +312,7 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
 }
 `;
 
-interface HouseParams {
+export interface HouseParams {
   // Footprint
   width: number;
   depth: number;
@@ -353,7 +353,7 @@ interface HouseParams {
 // SEEDED RANDOM
 // ============================================================================
 
-class SeededRandom {
+export class SeededRandom {
   private seed: number;
   
   constructor(seed: number) {
@@ -378,7 +378,7 @@ class SeededRandom {
 // FLOOR PLAN GENERATOR
 // ============================================================================
 
-class FloorPlan {
+export class FloorPlan {
   rooms: Room[] = [];
   doorways: Doorway[] = [];
   windows: Window[] = [];
@@ -615,7 +615,7 @@ class FloorPlan {
 // GEOMETRY GENERATION
 // ============================================================================
 
-class HouseGeometry {
+export class HouseGeometry {
   static generateWall(
     start: Vec3,
     end: Vec3,
