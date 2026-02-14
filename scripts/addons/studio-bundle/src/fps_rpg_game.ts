@@ -361,6 +361,7 @@ const doWander = (entity: Entity, system: any, state: any) => {
         if (state.waitTime > 0) {
             state.waitTime--;
             Entropy.Entity.playAnimation(entity.id, "Idle");
+            worldManager.npcAnimations[entity.id] = "Idle";
             return state;
         }
         
@@ -388,10 +389,12 @@ const doWander = (entity: Entity, system: any, state: any) => {
             (wdx / wdist) * speed, (wdz / wdist) * speed
         ]);
         Entropy.Entity.playAnimation(entity.id, "Walking");
+        worldManager.npcAnimations[entity.id] = "Walk";
     } else {
         state.wanderTarget = null;
         state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
         Entropy.Entity.playAnimation(entity.id, "Idle");
+        worldManager.npcAnimations[entity.id] = "Idle";
     }
     
     
@@ -595,6 +598,7 @@ Entropy.Behavior.register("crimson_soldier", {
             if (state.waitTime > 0) {
                 state.waitTime--;
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
                 return state;
             }
             
@@ -617,8 +621,10 @@ Entropy.Behavior.register("crimson_soldier", {
                     (dx / dist) * speed, (dz / dist) * speed
                 ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
+                worldManager.npcAnimations[entity.id] = "Walk";
             } else {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
+                worldManager.npcAnimations[entity.id] = "Wave"; // Attack placeholder
             }
         } else {
             // Wander behavior
@@ -634,10 +640,12 @@ Entropy.Behavior.register("crimson_soldier", {
                     (wdx / wdist) * speed, (wdz / wdist) * speed
                 ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
+                worldManager.npcAnimations[entity.id] = "Walk";
             } else {
                 state.wanderTarget = null;
                 state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
             }
         }
         
@@ -678,6 +686,7 @@ Entropy.Behavior.register("azure_soldier", {
             if (state.waitTime > 0) {
                 state.waitTime--;
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
                 return state;
             }
             
@@ -699,8 +708,10 @@ Entropy.Behavior.register("azure_soldier", {
                     (dx / dist) * speed, (dz / dist) * speed
                 ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
+                worldManager.npcAnimations[entity.id] = "Walk";
             } else {
                 Entropy.Entity.playAnimation(entity.id, "Attack");
+                worldManager.npcAnimations[entity.id] = "Wave"; // Placeholder
             }
         } else {
             // Wander behavior
@@ -714,10 +725,12 @@ Entropy.Behavior.register("azure_soldier", {
                     (wdx / wdist) * speed, (wdz / wdist) * speed
                 ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
+                worldManager.npcAnimations[entity.id] = "Walk";
             } else {
                 state.wanderTarget = null;
                 state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
             }
         }
         
@@ -763,6 +776,7 @@ Entropy.Behavior.register("shadow_assassin", {
             if (state.waitTime > 0) {
                 state.waitTime--;
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
                 return state;
             }
             
@@ -802,10 +816,12 @@ Entropy.Behavior.register("shadow_assassin", {
                     (wdx / wdist) * speed, (wdz / wdist) * speed
                 ]);
                 Entropy.Entity.playAnimation(entity.id, "Walking");
+                worldManager.npcAnimations[entity.id] = "Walk";
             } else {
                 state.wanderTarget = null;
                 state.waitTime = 30 + Math.random() * 60; // Wait 0.5-1.5 seconds
                 Entropy.Entity.playAnimation(entity.id, "Idle");
+                worldManager.npcAnimations[entity.id] = "Idle";
             }
         }
         
@@ -822,6 +838,10 @@ Entropy.Behavior.register("shadow_assassin", {
 
 class WorldManager {    
     public playerJointBufferId: string = "";
+    public playerHumanoid: any = null;
+    public npcJointBufferId: Record<string, string> = {};
+    public npcHumanoids: Record<string, any> = {};
+    public npcAnimations: Record<string, string> = {};
 
     initialize() {
         this.spawnPlayer();
@@ -841,44 +861,23 @@ class WorldManager {
         const visual = addon.getVisualProvider("humanoid_character");
         
         if (visual) {
-            // addon.Visual.load({
-            //     id: gameState.playerId,
-            //     visualName: "humanoid_character",
-            //     meshId: visualId.meshId,
-            //     pipelineId: visualId.pipelineId,
-            //     position: [spawnX, y + 2, spawnZ],
-            //     scale: [1, 1, 1],
-            //     physics: {
-            //         bodyType: "dynamic",
-            //         colliderShape: "capsule",
-            //         mass: 80
-            //     },
-            //     player: {
-            //         modelId: gameState.playerId
-            //     }
-            // });
             this.playerJointBufferId = addon.Buffer.create({
                 size: 16384,
                 usage: "Uniform"
             });
+            this.playerHumanoid = (Entropy as any).Humanoid.create();
 
             Entropy.println("--------------------------- FPS RPG PLAYER MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
 
             addon.Model.createMesh({
                 id: gameState.playerId,
-                // position: [spawnX, y + 2, spawnZ],
                 position: [0, 0, 0],
                 vertexData: visual.vertexData,
                 indexData: visual.indexData,
                 pipelineId: visual.pipelineId,
                 bindings: [
                     { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.playerJointBufferId! } } }
-                ],
-                // physics: {
-                //     bodyType: "dynamic",
-                //     colliderShape: "capsule",
-                //     mass: 70
-                // }
+                ]
             });
         } else {
             addon.Model.load({
@@ -924,8 +923,6 @@ class WorldManager {
         
         Entropy.println("[World] Populated with NPCs and items");
     }
-
-    public npcJointBufferId: any = {};
     
     spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, behaviorId: string) {
         const angle = Math.random() * Math.PI * 2;
@@ -937,43 +934,31 @@ class WorldManager {
         const visual = addon.getVisualProvider("humanoid_character");
 
         if (visual) {
-            // addon.Visual.load({
-            //     id: id,
-            //     visualName: "humanoid_character",
-            //     meshId: visualId.meshId,
-            //     pipelineId: visualId.pipelineId,
-            //     position: [x, y + 1, z],
-            //     behaviorId: behaviorId,
-            //     isNpc: true,
-            //     physics: {
-            //         bodyType: "dynamic",
-            //         colliderShape: "capsule",
-            //         mass: 100
-            //     }
-            // });
-
             this.npcJointBufferId[id] = addon.Buffer.create({
                 size: 16384,
                 usage: "Uniform"
             });
+            this.npcHumanoids[id] = (Entropy as any).Humanoid.create();
+            this.npcAnimations[id] = "Idle";
 
             Entropy.println("--------------------------- FPS RPG NPC MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
 
 
             addon.Model.createMesh({
                 id: id,
-                // position: [x, y + 1, z],
-                position: [0, 0, 0],
+                position: [x, y + 1, z],
                 vertexData: visual.vertexData,
                 indexData: visual.indexData,
                 pipelineId: visual.pipelineId,
                 bindings: [
                     { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                 ],
+                behaviorId: behaviorId,
+                isNpc: true,
                 // physics: {
                 //     bodyType: "dynamic",
                 //     colliderShape: "capsule",
-                //     mass: 70
+                //     mass: 100
                 // }
             });
         } else {
@@ -1006,23 +991,12 @@ class WorldManager {
             const y = addon.Landscape.getHeightAt(x, z);
             
             if (visual) {
-                // addon.Visual.load({
-                //     visualName: "humanoid_character",
-                //     meshId: visualId.meshId,
-                //     pipelineId: visualId.pipelineId,
-                //     position: [x, y + 1, z],
-                //     behaviorId: behaviorId,
-                //     isNpc: true,
-                //     physics: {
-                //         bodyType: "dynamic",
-                //         colliderShape: "capsule"
-                //     }
-                // });
-
                 this.npcJointBufferId[id] = addon.Buffer.create({
                     size: 16384,
                     usage: "Uniform"
                 });
+                this.npcHumanoids[id] = (Entropy as any).Humanoid.create();
+                this.npcAnimations[id] = "Idle";
 
                 addon.Model.createMesh({
                     id,
@@ -1033,10 +1007,12 @@ class WorldManager {
                     bindings: [
                         { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                     ],
+                    behaviorId: behaviorId,
+                    isNpc: true,
                     // physics: {
                     //     bodyType: "dynamic",
                     //     colliderShape: "capsule",
-                    //     mass: 70
+                    //     mass: 100
                     // }
                 });
             } else {
@@ -1420,6 +1396,37 @@ Entropy.onGameStopped(() => {
     gameState.save();
     gameState.isGameActive = false;
     worldManager.cleanup();
+});
+
+// --- Animation Update Loop ---
+
+addon.onUpdatePlus("Game Composer", (time) => {
+    Entropy.Composer?.enableGameComposerOverride();
+
+    // Entropy.println("Rendering humanoids " + worldManager.npcHumanoids.length + " time: " + time);
+
+    // Animate player
+    if (worldManager.playerHumanoid) {
+        worldManager.playerHumanoid.animate(time, "Idle"); // Player idle for now
+        const matrices = worldManager.playerHumanoid.getJointMatrices();
+        addon.Buffer.write(worldManager.playerJointBufferId, new Float32Array(matrices));
+    }
+
+    // Entropy.println("Continue bro");
+
+    // Animate NPCs
+    for (const id in worldManager.npcHumanoids) {
+        const humanoid = worldManager.npcHumanoids[id];
+        const animation = worldManager.npcAnimations[id] || "Idle";
+        humanoid.animate(time, animation);
+        const matrices = humanoid.getJointMatrices();
+        const bufferId = worldManager.npcJointBufferId[id];
+        if (bufferId) {
+            addon.Buffer.write(bufferId, new Float32Array(matrices));
+        }
+    }
+
+    Entropy.Composer?.disableGameComposerOverride();
 });
 
 // --- UI ---

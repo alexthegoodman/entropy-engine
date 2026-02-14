@@ -113,7 +113,9 @@ globalThis.Entropy = {
                             pipelineId: config.pipelineId,
                             render_role: config.renderRole || null,
                             instanceCount: config.instanceCount || 1,
-                            bindings: config.bindings || []
+                            bindings: config.bindings || [],
+                            behaviorId: config.behaviorId || null,
+                            isNpc: config.isNpc || null
                         });
                     },
                     clearMesh: (meshId) => {

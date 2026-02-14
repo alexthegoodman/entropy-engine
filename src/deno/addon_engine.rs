@@ -29,8 +29,10 @@ use crate::core::Texture::Texture;
 use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
+use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
+use crate::model_components::NPC::NPC;
 use crate::procedural_grass::grass::Grass;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
@@ -117,6 +119,8 @@ pub struct MeshConfig {
     pub instance_count: Option<u32>,
     pub bindings: Option<Vec<BindingConfig>>,
     pub physics: Option<PhysicsConfig>,
+    pub behavior_id: Option<String>,
+    pub is_npc: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4094,7 +4098,7 @@ impl AddonEngine {
         }
 
         if !pending_meshes.is_empty() {
-            if let Some(gpu) = &renderer_state.gpu_resources {
+            if let gpu = &gpu_resources {
                                 for (addon_name, config) in pending_meshes {
                                      let (pipeline, pipeline_id) = {
                                          let op_state = self.runtime.op_state();
@@ -4197,6 +4201,36 @@ impl AddonEngine {
                          }
 
                          mesh.render_role = config.render_role;
+                         mesh.behavior_id = config.behavior_id.clone();
+
+                         if config.is_npc == Some(true) {
+                             let npc = NPC::new(
+                                 &gpu.device,
+                                 &gpu.queue,
+                                 id.clone(),
+                                 id.clone(),
+                                 VisualType::CustomMesh,
+                                 None,
+                                 BehaviorConfig::default(),
+                                 None,
+                                 Some(VisualConfig {
+                                    id: Some(id.clone()),
+                                    visual_name: "New NPC".to_string(),
+                                    template_id: id.clone(),
+                                    position: config.position.clone(),
+                                    rotation: config.rotation.clone(),
+                                    scale: config.scale.clone(),
+                                    pipeline_id: Some(config.pipeline_id),
+                                    render_role: None,
+                                    physics: None,
+                                    player: None,
+                                    is_npc: config.is_npc,
+                                    behavior_id: config.behavior_id
+                                 })
+                             );
+                             renderer_state.npcs.push(npc);
+                             renderer_state.add_collider(id.clone(), ComponentKind::NPC, Some(VisualType::CustomMesh));
+                         }
 
                          let meshes = renderer_state.addon_meshes.entry(addon_name).or_insert_with(Vec::new);
                          if let Some(pos) = meshes.iter().position(|m| m.id == id) {

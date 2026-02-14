@@ -215,7 +215,9 @@ export interface ScopedAPI {
           pipelineId: string; 
           renderRole?: string;
           instanceCount?: number;
-          bindings?: BindingConfig[] 
+          bindings?: BindingConfig[];
+          behaviorId?: string;
+          isNpc?: boolean;
       }) => void;
       clearMeshes: () => void;
       clearMesh: (meshId: string) => void;
@@ -675,6 +677,9 @@ export interface EntropyAPI {
   _dispatchGameStopped: () => void;
   _process_events: (eventIds: string[]) => void;
   setGameMode: (enabled: boolean) => void;
+  Humanoid: {
+    create: () => any; // Returns ProceduralHumanoid instance
+  };
   Camera: {
     getTransform: () => [[number, number, number], [number, number, number]];
     screenToWorldRay: (screenX: number, screenY: number) => Ray;
