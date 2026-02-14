@@ -873,6 +873,7 @@ class WorldManager {
             addon.Model.createMesh({
                 id: gameState.playerId,
                 position: [0, y + 2, 0],
+                scale: [2, 2, 2],
                 vertexData: visual.vertexData,
                 indexData: visual.indexData,
                 pipelineId: visual.pipelineId,
@@ -951,6 +952,7 @@ class WorldManager {
             addon.Model.createMesh({
                 id: id,
                 position: [x, y + 1, z],
+                scale: [2, 2, 2],
                 vertexData: visual.vertexData,
                 indexData: visual.indexData,
                 pipelineId: visual.pipelineId,
@@ -1004,6 +1006,7 @@ class WorldManager {
 
                 addon.Model.createMesh({
                     id,
+                    scale: [2, 2, 2],
                     position: [x, y + 1, z],
                     vertexData: visual.vertexData,
                     indexData: visual.indexData,
