@@ -690,8 +690,21 @@ Entropy.Behavior.register("neutral_wanderer", {
 // --- Enemy Behaviors ---
 
 Entropy.Behavior.register("crimson_soldier", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+    onUpdate: (entity, system, _s) => {
+        if (entity.isDead) return _s;
+
+        // Get or create state for THIS specific entity
+        if (!npcWanderStates.has(entity.id)) {
+            npcWanderStates.set(entity.id, {});
+        }
+        const state = npcWanderStates.get(entity.id);
+        const entityPos = entity.position;
+
+        // Initialize anchor point (where the NPC "lives")
+        if (!state.anchorPoint) {
+            state.anchorPoint = [...entityPos];
+            Entropy.println(`Entity ${entity.id} anchor initialized: ` + JSON.stringify(state.anchorPoint));
+        }
 
         // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
         
@@ -780,9 +793,22 @@ Entropy.Behavior.register("crimson_soldier", {
 });
 
 Entropy.Behavior.register("azure_soldier", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+    onUpdate: (entity, system, _s) => {
+        if (entity.isDead) return _s;
         
+        // Get or create state for THIS specific entity
+        if (!npcWanderStates.has(entity.id)) {
+            npcWanderStates.set(entity.id, {});
+        }
+        const state = npcWanderStates.get(entity.id);
+        const entityPos = entity.position;
+
+        // Initialize anchor point (where the NPC "lives")
+        if (!state.anchorPoint) {
+            state.anchorPoint = [...entityPos];
+            Entropy.println(`Entity ${entity.id} anchor initialized: ` + JSON.stringify(state.anchorPoint));
+        }
+
         const [playerPos] = Entropy.Camera.getTransform();
         const dx = playerPos[0] - entity.position[0];
         const dz = playerPos[2] - entity.position[2];
@@ -870,8 +896,21 @@ Entropy.Behavior.register("azure_soldier", {
 });
 
 Entropy.Behavior.register("shadow_assassin", {
-    onUpdate: (entity, system, state) => {
-        if (entity.isDead) return state;
+    onUpdate: (entity, system, _s) => {
+        if (entity.isDead) return _s;
+
+        // Get or create state for THIS specific entity
+        if (!npcWanderStates.has(entity.id)) {
+            npcWanderStates.set(entity.id, {});
+        }
+        const state = npcWanderStates.get(entity.id);
+        const entityPos = entity.position;
+
+        // Initialize anchor point (where the NPC "lives")
+        if (!state.anchorPoint) {
+            state.anchorPoint = [...entityPos];
+            Entropy.println(`Entity ${entity.id} anchor initialized: ` + JSON.stringify(state.anchorPoint));
+        }
         
         const [playerPos] = Entropy.Camera.getTransform();
         const dx = playerPos[0] - entity.position[0];
