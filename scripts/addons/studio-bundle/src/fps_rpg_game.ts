@@ -1,5 +1,5 @@
 import type { Entity } from "./addon";
-import { ProceduralHumanoid } from "./humanoid";
+import { ProceduralHumanoid } from "./humanoid_v2";
 
 const addonInfo = {
     name: "The Fractured Realm",
@@ -872,7 +872,7 @@ class WorldManager {
 
             addon.Model.createMesh({
                 id: gameState.playerId,
-                position: [0, 0, 0],
+                position: [0, y + 2, 0],
                 vertexData: visual.vertexData,
                 indexData: visual.indexData,
                 pipelineId: visual.pipelineId,
