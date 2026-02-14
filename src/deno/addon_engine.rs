@@ -121,6 +121,7 @@ pub struct MeshConfig {
     pub physics: Option<PhysicsConfig>,
     pub behavior_id: Option<String>,
     pub is_npc: Option<bool>,
+    pub player: Option<crate::helpers::saved_data::PlayerProperties>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -4230,6 +4231,18 @@ impl AddonEngine {
                              );
                              renderer_state.npcs.push(npc);
                              renderer_state.add_collider(id.clone(), ComponentKind::NPC, Some(VisualType::CustomMesh));
+                         }
+                         if let Some(mut player_props) = config.player.clone() {
+                            player_props.visual_type = Some(VisualType::CustomMesh);
+                            renderer_state.add_player_character(
+                                &gpu.device,
+                                &gpu.queue,
+                                id.clone(),
+                            Isometry3::translation(config.position[0], config.position[1], config.position[2]),
+                            Vector3::from(config.scale.unwrap_or([1.0, 1.0, 1.0])),
+                                camera,
+                                player_props
+                            );
                          }
 
                          let meshes = renderer_state.addon_meshes.entry(addon_name).or_insert_with(Vec::new);

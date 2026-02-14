@@ -878,7 +878,10 @@ class WorldManager {
                 pipelineId: visual.pipelineId,
                 bindings: [
                     { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.playerJointBufferId! } } }
-                ]
+                ],
+                player: {
+                    modelId: gameState.playerId
+                }
             });
         } else {
             addon.Model.load({

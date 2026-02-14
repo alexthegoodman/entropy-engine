@@ -218,6 +218,10 @@ export interface ScopedAPI {
           bindings?: BindingConfig[];
           behaviorId?: string;
           isNpc?: boolean;
+          player?: {
+              modelId?: string;
+              defaultWeaponId?: string;
+          };
       }) => void;
       clearMeshes: () => void;
       clearMesh: (meshId: string) => void;

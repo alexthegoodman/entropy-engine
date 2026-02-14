@@ -646,6 +646,7 @@ impl RendererState {
 
         // Update camera position if needed
         if self.game_mode {
+            // println!("Game mode step {:?}", self.player_character.is_some());
             if let Some(player_character) = &self.player_character {
                 if let Some(rb_handle) = player_character.movement_rigid_body_handle {
                     if let Some(rb) = self.rigid_body_set.get(rb_handle) {
@@ -737,6 +738,7 @@ impl RendererState {
                             // first / 1st person camera with lookaround
                             // Retrieve player position
                             let pos = rb.translation();
+                            // println!("Game mode first person step {:?}", pos);
 
                             // --- Mouse Input and Angle Update ---
                             let delta = if let (Some(current), Some(last)) = (
@@ -919,10 +921,75 @@ impl RendererState {
    
                 //     // ... the rest of the logic (Behavior, Health, Suspicion) follows using the extracted pointers safely
                 // }
+
+                if let Some(meshes) = self.addon_meshes.get_mut("Game Composer") {
+                    if let Some(character) = &mut self.player_character {
+                    if let Some(model_id) = character.model_id.clone() { // character.model_id is the component id of the PlayerCharacter
+
+                        if let Some(instance_model_data) = meshes
+                            .iter_mut()
+                            .find(|m| m.id == model_id.to_string())
+                        {
+                                    // if model_id == component_id.to_string() {
+                                        // Update is_moving based on velocity
+                                        if let Some(rb_handle) = character.movement_rigid_body_handle {
+                                            if let Some(rb) = self.rigid_body_set.get(rb_handle) {
+                                                let velocity = rb.linvel();
+                                                let horizontal_speed = (velocity.x * velocity.x + velocity.z * velocity.z).sqrt();
+                                                character.is_moving = horizontal_speed > 0.1;
+                                            }
+                                        }
+
+                                        // instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                                            instance_model_data.transform
+                                                .update_position([position.x, position.y, position.z]);
+                                            
+                                            if self.game_mode && !self.game_settings.third_person {
+                                                // In first-person mode, the player model should face the camera direction.
+                                                // We use -self.camera_yaw to align the model with the camera's horizontal rotation.
+                                                instance_model_data.transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
+                                            } else {
+                                                // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // update rotation based on direction of travel instead
+                                            }
+                                        // });
+                                    }
+
+
+                                    
+                                   
+                                }
+                            }
+
+                            if let Some(instance_model_data) = meshes
+                                        .iter_mut()
+                                        .find(|m| m.id == component_id.to_string())
+                                    {
+                                        if let Some(instance_npc_data) = self
+                                            .npcs
+                                            .iter_mut()
+                                            .find(|m| m.model_id == component_id.to_string())
+                                        {
+                                            // instance_model_data.meshes.iter_mut().for_each(|mesh| {
+                                            if (instance_model_data.transform.initial_position.is_none()) {
+                                                // println!("Set initial position {:?}", position);
+                                                instance_model_data.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
+                                            }
+
+                                            // println!("Update NPC position {:?}", position);
+
+                                            instance_model_data.transform
+                                                .update_position([position.x, position.y, position.z]);
+                                            // });
+                                        }
+                                    }
+
+                }
             
 
             if let Some(models) = self
                 .addon_models.get_mut("Game Composer") {
+
+                
 
             // Update models
             if let Some(instance_model_data) = models

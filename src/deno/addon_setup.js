@@ -115,7 +115,8 @@ globalThis.Entropy = {
                             instanceCount: config.instanceCount || 1,
                             bindings: config.bindings || [],
                             behaviorId: config.behaviorId || null,
-                            isNpc: config.isNpc || null
+                            isNpc: config.isNpc || null,
+                            player: config.player || null
                         });
                     },
                     clearMesh: (meshId) => {
