@@ -436,6 +436,9 @@ globalThis.Entropy = {
         setXZVelocity: (id, velocity) => {
             ops.op_entity_set_xz_velocity(id, velocity);
         },
+        setRotation: (id, rotation) => {
+            ops.op_entity_set_rotation(id, rotation);
+        },
         playAnimation: (id, animName) => {
             globalThis.Entropy._entityAnimations = globalThis.Entropy._entityAnimations || {};
             globalThis.Entropy._entityAnimations[id] = animName;

@@ -2032,7 +2032,7 @@ impl RendererState {
                             );
 
                             if let Ok(uuid) = Uuid::from_str(&component_id) {
-                                println!("ADDING CustomMesh NPC collider and rigid_body_handle");
+                                // println!("ADDING CustomMesh NPC collider and rigid_body_handle");
 
                                 let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
                                     .friction(0.7)

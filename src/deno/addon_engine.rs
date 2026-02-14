@@ -463,6 +463,7 @@ pub struct AddonContext {
     pub pending_entity_impulses: Vec<(String, [f32; 3])>,
     pub pending_entity_velocities: Vec<(String, [f32; 3])>,
     pub pending_entity_xz_velocities: Vec<(String, [f32; 2])>,
+    pub pending_entity_rotations: Vec<(String, [f32; 3])>,
     pub pending_animation_plays: Vec<(String, String)>,
     pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
     pub pending_bone_transforms: Vec<BoneTransformConfig>,
@@ -635,6 +636,15 @@ fn op_entity_set_xz_velocity(state: &mut OpState, #[string] id: String, #[serde]
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if velocity.len() >= 2 {
             ctx.pending_entity_xz_velocities.push((id, [velocity[0], velocity[1]]));
+        }
+    }
+}
+
+#[op2]
+fn op_entity_set_rotation(state: &mut OpState, #[string] id: String, #[serde] rotation: Vec<f32>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if rotation.len() >= 3 {
+            ctx.pending_entity_rotations.push((id, [rotation[0], rotation[1], rotation[2]]));
         }
     }
 }
@@ -2729,6 +2739,7 @@ extension!(
         op_entity_apply_impulse,
         op_entity_set_velocity,
         op_entity_set_xz_velocity,
+        op_entity_set_rotation,
         op_entity_play_animation,
         op_entity_set_stats,
         op_model_set_bone_transform
@@ -2983,6 +2994,7 @@ impl AddonEngine {
             window_size: [1920, 1080],
             selected_entity_id: None,
             pending_bone_transforms: Vec::new(),
+            pending_entity_rotations: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3564,6 +3576,7 @@ impl AddonEngine {
             pending_impulses, 
             pending_velocities, 
             pending_xz_velocities,
+            pending_entity_rotations,
             pending_animations, 
             pending_stats,
             pending_bone_transforms,
@@ -3587,6 +3600,7 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_entity_impulses),
                     std::mem::take(&mut ctx.pending_entity_velocities),
                     std::mem::take(&mut ctx.pending_entity_xz_velocities),
+                    std::mem::take(&mut ctx.pending_entity_rotations),
                     std::mem::take(&mut ctx.pending_animation_plays),
                     std::mem::take(&mut ctx.pending_stat_updates),
                     std::mem::take(&mut ctx.pending_bone_transforms),
@@ -3607,6 +3621,7 @@ impl AddonEngine {
                     None, 
                     Vec::new(), 
                     Vec::new(), 
+                    Vec::new(),
                     Vec::new(), 
                     Vec::new(), 
                     Vec::new(), 
@@ -3618,71 +3633,6 @@ impl AddonEngine {
 
         if let Some(enabled) = pending_game_mode {
             renderer_state.game_mode = enabled;
-        }
-
-        // 2.0.1 Apply Entity Actions
-        if !pending_visuals.is_empty() {
-            if let gpu = gpu_resources {
-                for (addon_name, config) in pending_visuals {
-                    let id = config.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-                    
-                    // 1. Determine Visual Type
-                    let mut visual_type = VisualType::Model;
-                    if renderer_state.addon_meshes.values().any(|v| v.iter().any(|m| m.id == config.template_id)) {
-                        visual_type = VisualType::CustomMesh;
-                    }
-
-                    // 2. Create Entity
-                    if let Some(player_props) = config.player {
-                        renderer_state.add_player_character(
-                            &gpu.device,
-                            &gpu.queue,
-                            id.clone(),
-                            Isometry3::translation(config.position[0], config.position[1], config.position[2]),
-                            Vector3::from(config.scale.unwrap_or([1.0, 1.0, 1.0])),
-                            camera,
-                            player_props
-                        );
-                        renderer_state.initialize_player_visual(&gpu.device, &gpu.queue, &config.template_id, visual_type.clone());
-                        if let Some(player) = &mut renderer_state.player_character {
-                            player.model_id = Some(config.template_id.clone());
-                            player.visual_type = visual_type;
-                            player.behavior_id = config.behavior_id;
-                        }
-                    } else if config.is_npc.unwrap_or(false) {
-                        let npc_props = crate::helpers::saved_data::NPCProperties {
-                            visual_type: Some(visual_type.clone()),
-                            squad_id: None,
-                            behavior: crate::game_behaviors::stateful::BehaviorConfig::default(),
-                            model_id: String::new()
-                        };
-                        renderer_state.add_npc(
-                            id.clone(),
-                            npc_props,
-                            config.behavior_id.clone(),
-                            Some(config.clone())
-                        );
-                        renderer_state.initialize_npc_visual(&gpu.device, &gpu.queue, &id, &config.template_id, visual_type.clone());
-                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                            npc.model_id = config.template_id.clone();
-                            npc.visual_type = visual_type;
-                            npc.behavior_id = config.behavior_id;
-                        }
-                    }
-
-                    // 3. Set Visual-specific transform if provided
-                    if let Some(rot) = config.rotation {
-                        if let Some(player) = &mut renderer_state.player_character {
-                            if player.id == id {
-                                if let Some(t) = &mut player.transform { t.update_rotation(rot); }
-                            }
-                        }
-                        if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                            if let Some(t) = &mut npc.transform { t.update_rotation(rot); }
-                        }
-                    }
-                }
-            }
         }
 
         for (id, impulse) in pending_impulses {
@@ -3727,7 +3677,7 @@ impl AddonEngine {
 
         for (id, velocity_xz) in pending_xz_velocities {
             // Apply to NPC
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                     let current_vel = rb.linvel();
                     rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
@@ -3741,6 +3691,26 @@ impl AddonEngine {
                             let current_vel = rb.linvel();
                             rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
                         }
+                    }
+                }
+            }
+        }
+
+        for (id, rotation) in pending_entity_rotations {
+            // Apply to NPC
+            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+                if let Some(mesh) = renderer_state.addon_meshes.values_mut().flatten().find(|n| n.id == id) {
+                    if let Some(transform) = &mut npc.transform {
+                        transform.update_rotation(rotation);
+                        mesh.transform.update_rotation(rotation);
+                    }
+                } 
+            } 
+            // Apply to Player
+            else if let Some(player) = &mut renderer_state.player_character {
+                if player.id == id {
+                    if let Some(transform) = &mut player.transform {
+                        transform.update_rotation(rotation);
                     }
                 }
             }

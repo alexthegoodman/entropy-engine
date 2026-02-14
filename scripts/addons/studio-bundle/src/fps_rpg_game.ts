@@ -346,58 +346,142 @@ const gameState = new GameState();
 
 // --- NPC Behaviors ---
 
+// const doWander = (entity: Entity, system: any, state: any) => {
+//     if (entity.isDead) return state;
+
+//     // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
+    
+//     const [playerPos] = Entropy.Camera.getTransform();
+//     const dx = playerPos[0] - entity.position[0];
+//     const dz = playerPos[2] - entity.position[2];
+//     const dist = Math.sqrt(dx * dx + dz * dz);
+    
+//     // Initialize wander state
+//     if (!state.wanderTarget || state.waitTime > 0) {
+//         state.waitTime = state.waitTime || 0;
+//         if (state.waitTime > 0) {
+//             state.waitTime--;
+//             Entropy.Entity.playAnimation(entity.id, "Idle");
+//             worldManager.npcAnimations[entity.id] = "Idle";
+//             return state;
+//         }
+        
+//         // Pick a random point in territory
+//         const territory = factions[Faction.CRIMSON_GUARD].territory;
+//         const angle = Math.random() * Math.PI * 2;
+//         const r = Math.random() * territory.radius;
+//         state.wanderTarget = [
+//             territory.x + Math.cos(angle) * r,
+//             0,
+//             territory.z + Math.sin(angle) * r
+//         ];
+//     }
+
+//     // Wander behavior
+//     const wdx = state.wanderTarget[0] - entity.position[0];
+//     const wdz = state.wanderTarget[2] - entity.position[2];
+//     const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
+
+//     // Entropy.println("DO WANDER: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
+    
+//     if (wdist > 1.0) {
+//         const speed = 6.5;
+//         Entropy.Entity.setXZVelocity(entity.id, [
+//             (wdx / wdist) * speed, (wdz / wdist) * speed
+//         ]);
+//         Entropy.Entity.playAnimation(entity.id, "Walking");
+//         worldManager.npcAnimations[entity.id] = "Walk";
+//     } else {
+//         state.wanderTarget = null;
+//         state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+//         Entropy.Entity.playAnimation(entity.id, "Idle");
+//         worldManager.npcAnimations[entity.id] = "Idle";
+//     }
+    
+    
+//     return state;
+// };
+
 const doWander = (entity: Entity, system: any, state: any) => {
     if (entity.isDead) return state;
 
-    // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
-    
-    const [playerPos] = Entropy.Camera.getTransform();
-    const dx = playerPos[0] - entity.position[0];
-    const dz = playerPos[2] - entity.position[2];
-    const dist = Math.sqrt(dx * dx + dz * dz);
-    
-    // Initialize wander state
-    if (!state.wanderTarget || state.waitTime > 0) {
-        state.waitTime = state.waitTime || 0;
-        if (state.waitTime > 0) {
-            state.waitTime--;
-            Entropy.Entity.playAnimation(entity.id, "Idle");
-            worldManager.npcAnimations[entity.id] = "Idle";
-            return state;
-        }
-        
-        // Pick a random point in territory
-        const territory = factions[Faction.CRIMSON_GUARD].territory;
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * territory.radius;
-        state.wanderTarget = [
-            territory.x + Math.cos(angle) * r,
-            0,
-            territory.z + Math.sin(angle) * r
-        ];
+    // Initialize anchor point (where the NPC "lives")
+    if (!state.anchorPoint) {
+        state.anchorPoint = [...entity.position];
     }
-
-    // Wander behavior
+    
+    // Get wander config from entity data (or use defaults)
+    const wanderRadius = 15;
+    const patrolPoints = [
+        [100, 0, 200],  // Behind counter
+        [102, 0, 198],  // Check inventory
+        [98, 0, 202],   // Greet customers area
+        [100, 0, 200]   // Back to counter
+    ];
+    const waitTimeMin = 60;
+    const waitTimeMax = 180;
+    const wanderSpeed = 4.5;
+    
+    // Handle waiting
+    if (state.waitTime > 0) {
+        state.waitTime--;
+        Entropy.Entity.setXZVelocity(entity.id, [0, 0]);
+        Entropy.Entity.playAnimation(entity.id, "Idle");
+        worldManager.npcAnimations[entity.id] = "Idle";
+        return state;
+    }
+    
+    // Pick new target if needed
+    if (!state.wanderTarget) {
+        if (patrolPoints && patrolPoints.length > 0) {
+            // Use patrol points
+            state.currentPatrolIndex = state.currentPatrolIndex || 0;
+            state.wanderTarget = [...patrolPoints[state.currentPatrolIndex]];
+        } else {
+            // Random wander around anchor point
+            const angle = Math.random() * Math.PI * 2;
+            const r = Math.random() * wanderRadius;
+            state.wanderTarget = [
+                state.anchorPoint[0] + Math.cos(angle) * r,
+                state.anchorPoint[1],
+                state.anchorPoint[2] + Math.sin(angle) * r
+            ];
+        }
+    }
+    
+    // Calculate distance to target
     const wdx = state.wanderTarget[0] - entity.position[0];
     const wdz = state.wanderTarget[2] - entity.position[2];
     const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
-
-    // Entropy.println("DO WANDER: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
     
     if (wdist > 1.0) {
-        const speed = 6.5;
-        Entropy.Entity.setXZVelocity(entity.id, [
-            (wdx / wdist) * speed, (wdz / wdist) * speed
-        ]);
+        // Move toward target
+        const velocityX = (wdx / wdist) * wanderSpeed;
+        const velocityZ = (wdz / wdist) * wanderSpeed;
+        
+        Entropy.Entity.setXZVelocity(entity.id, [velocityX, velocityZ]);
+        
+        // Face movement direction
+        const angle = Math.atan2(velocityX, velocityZ);
+        Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+        
         Entropy.Entity.playAnimation(entity.id, "Walking");
         worldManager.npcAnimations[entity.id] = "Walk";
     } else {
+        // Reached target
+        Entropy.Entity.setXZVelocity(entity.id, [0, 0]);
+        
+        // Move to next patrol point or pick new random spot
+        if (patrolPoints && patrolPoints.length > 0) {
+            state.currentPatrolIndex = (state.currentPatrolIndex + 1) % patrolPoints.length;
+        }
+        
         state.wanderTarget = null;
-        state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
+        state.waitTime = waitTimeMin + Math.random() * (waitTimeMax - waitTimeMin);
+        
         Entropy.Entity.playAnimation(entity.id, "Idle");
         worldManager.npcAnimations[entity.id] = "Idle";
     }
-    
     
     return state;
 };

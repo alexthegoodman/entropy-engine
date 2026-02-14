@@ -17,3 +17,13 @@ Frame time breakdown
 Draw call counter
 Memory usage monitor
 Entity count tracker
+
+### Future API
+
+const { 
+    startGame 
+} = world(config)
+    .landscape(config)
+    .models(vec) // includes collectables, fixed objects, animated player or NPCs
+    .meshes(vec) // essentially just dynamic models, not glb origin
+    .setup();
