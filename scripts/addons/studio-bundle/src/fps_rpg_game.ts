@@ -843,6 +843,7 @@ class WorldManager {
                 id: gameState.playerId,
                 visualName: "humanoid_character",
                 meshId: visualId.meshId,
+                pipelineId: visualId.pipelineId,
                 position: [spawnX, y + 2, spawnZ],
                 scale: [1, 1, 1],
                 physics: {
@@ -913,6 +914,7 @@ class WorldManager {
                 id: id,
                 visualName: "humanoid_character",
                 meshId: visualId.meshId,
+                pipelineId: visualId.pipelineId,
                 position: [x, y + 1, z],
                 behaviorId: behaviorId,
                 isNpc: true,
@@ -953,6 +955,7 @@ class WorldManager {
                 addon.Visual.load({
                     visualName: "humanoid_character",
                     meshId: visualId.meshId,
+                    pipelineId: visualId.pipelineId,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,
                     isNpc: true,

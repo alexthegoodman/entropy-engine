@@ -57,6 +57,7 @@ class AddonRegistry {
 
 export interface VisualProvider {
     meshId: string;
+    pipelindId?: string;
     onAnimate?: (entityId: string, animName: string) => void;
     onSpawn?: (entityId: string, position: [number, number, number]) => void;
 }

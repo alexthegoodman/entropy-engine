@@ -720,6 +720,7 @@ export class CharacterCreator extends ComponentAddon<CharacterParams> {
         if (this.meshId) {
             this.registerVisual("humanoid_character", {
                 meshId: this.meshId,
+                pipelineId: this.pipelineId,
                 onAnimate: (id, anim) => {
                     const instance = this.instances.get(id);
                     if (instance) instance.animation = anim;

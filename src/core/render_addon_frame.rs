@@ -674,7 +674,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     for (template_id, transform, model_bg, skin_bg) in entities_to_render {
                         // Find Template (CustomMesh or Model)
                         if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
-                            // println!("Mesh load {:?}", template_id);
+                            // println!("Mesh load {:?} {:?} {:?}", template_id, mesh.pipeline_id, transform.position);
                             if mesh.pipeline_id == "default" {
                                 render_pass.set_pipeline(geometry_pipeline);
                             } else {
