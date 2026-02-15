@@ -1,6 +1,6 @@
 import type { Entity } from "./addon";
 import { ProceduralHumanoid } from "./humanoid_v2";
-import { FPSUI, type DialogueState } from "./fps_ui";
+import { FPSUI, type DialogueOption, type DialogueState } from "./fps_ui";
 import { 
     FloorPlan, 
     HouseGeometry, 
@@ -279,6 +279,27 @@ class GameState {
         options: [],
         selectedIndex: 0
     };
+
+    openDialogue(npcName: string, text: string, options: DialogueOption[]) {
+        this.dialogue.npcName = npcName;
+        this.dialogue.text = text;
+        this.dialogue.options = options;
+        this.dialogue.isOpen = true;
+        this.dialogue.selectedIndex = 0;
+        this.uiDirty = true;
+    }
+
+    closeDialogue() {
+        this.dialogue.isOpen = false;
+        this.uiDirty = true;
+    }
+
+    navigateDialogue(delta: number) {
+        if (!this.dialogue.isOpen || this.dialogue.options.length === 0) return;
+        const count = this.dialogue.options.length;
+        this.dialogue.selectedIndex = (this.dialogue.selectedIndex + delta + count) % count;
+        this.uiDirty = true;
+    }
 
     private uiDirty = true;
 
@@ -640,55 +661,78 @@ Entropy.Behavior.register("quest_giver_vex", {
     onUpdate: doWander,
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.CRIMSON_GUARD].reputation;
+        const currentNode = dialogue.get_node();
         
+        let text = "";
+        let options: DialogueOption[] = [];
+
         if (rep < -30) {
-            dialogue.show("You dare approach me, traitor? Leave before I have you executed!");
-            dialogue.add_option("Leave", "exit");
+            text = "You dare approach me, traitor? Leave before I have you executed!";
+            options = [{ text: "Leave", next_node: "exit" }];
         } else if (!quests["crimson_welcome"].isActive && !quests["crimson_welcome"].isCompleted) {
-            dialogue.show("Welcome, warrior. The Crimson Guard values strength. Prove yourself worthy.");
-            dialogue.add_option("How can I prove myself?", "quest_offer");
-            dialogue.add_option("Maybe later", "exit");
+            text = "Welcome, warrior. The Crimson Guard values strength. Prove yourself worthy.";
+            options = [
+                { text: "How can I prove myself?", next_node: "quest_offer" },
+                { text: "Maybe later", next_node: "exit" }
+            ];
         } else if (quests["crimson_welcome"].isActive && !quests["crimson_welcome"].isCompleted) {
             const killed = gameState.enemyKills.azure >= 5;
             const hasInsignias = gameState.hasItem("azure_insignia", 5);
             
             if (killed && hasInsignias) {
-                dialogue.show("Impressive work. You've proven your strength. The Crimson Guard welcomes you.");
+                text = "Impressive work. You've proven your strength. The Crimson Guard welcomes you.";
                 gameState.completeQuest("crimson_welcome");
-                dialogue.add_option("What's next?", "quest_artifact");
+                options = [{ text: "What's next?", next_node: "quest_artifact" }];
             } else {
-                dialogue.show(`Progress: ${gameState.enemyKills.azure}/5 Azure defeated, ${gameState.inventory["azure_insignia"] || 0}/5 insignias collected.`);
-                dialogue.add_option("I'll continue", "exit");
+                text = `Progress: ${gameState.enemyKills.azure}/5 Azure defeated, ${gameState.inventory["azure_insignia"] || 0}/5 insignias collected.`;
+                options = [{ text: "I'll continue", next_node: "exit" }];
             }
         } else if (quests["crimson_artifact"].isActive && !quests["crimson_artifact"].isCompleted) {
             if (gameState.hasItem("crimson_relic")) {
-                dialogue.show("You found it! The ancient Crimson Relic. With this, we can turn the tide of war.");
+                text = "You found it! The ancient Crimson Relic. With this, we can turn the tide of war.";
                 gameState.completeQuest("crimson_artifact");
-                dialogue.add_option("For the Guard!", "exit");
+                options = [{ text: "For the Guard!", next_node: "exit" }];
             } else {
-                dialogue.show("The relic lies in Shadow territory. Be careful, they don't take kindly to intruders.");
-                dialogue.add_option("I'm on it", "exit");
+                text = "The relic lies in Shadow territory. Be careful, they don't take kindly to intruders.";
+                options = [{ text: "I'm on it", next_node: "exit" }];
             }
         } else {
-            dialogue.show("You've done well, warrior. Rest and prepare for what's to come.");
-            dialogue.add_option("Farewell", "exit");
+            text = "You've done well, warrior. Rest and prepare for what's to come.";
+            options = [{ text: "Farewell", next_node: "exit" }];
         }
         
-        if (dialogue.get_node() === "quest_offer") {
-            dialogue.show("Defeat five Azure Order soldiers and bring me their insignias. Show no mercy.");
-            dialogue.add_option("I accept", "quest_accept");
-            dialogue.add_option("That's too much", "exit");
+        if (currentNode === "quest_offer") {
+            text = "Defeat five Azure Order soldiers and bring me their insignias. Show no mercy.";
+            options = [
+                { text: "I accept", next_node: "quest_accept" },
+                { text: "That's too much", next_node: "exit" }
+            ];
         }
         
-        if (dialogue.get_node() === "quest_accept") {
+        if (currentNode === "quest_accept") {
             gameState.startQuest("crimson_welcome");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
         
-        if (dialogue.get_node() === "quest_artifact") {
+        if (currentNode === "quest_artifact") {
             gameState.startQuest("crimson_artifact");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
+
+        if (currentNode === "exit") {
+            gameState.closeDialogue();
+            dialogue.close();
+            return;
+        }
+
+        gameState.openDialogue(entity.name || "Commander Vex", text, options);
+        // Still call engine dialogue for internal state tracking if needed
+        dialogue.show(text);
+        options.forEach(o => dialogue.add_option(o.text, o.next_node));
     }
 });
 
@@ -696,119 +740,177 @@ Entropy.Behavior.register("quest_giver_lyra", {
     onUpdate: doWander,
     onInteract: (entity, dialogue) => {
         const rep = factions[Faction.AZURE_ORDER].reputation;
+        const currentNode = dialogue.get_node();
 
-        Entropy.println("Interaction with quest giver");
+        let text = "";
+        let options: DialogueOption[] = [];
         
         if (rep < -30) {
-            dialogue.show("Your violent reputation precedes you. The Azure Order seeks peace, not chaos.");
-            dialogue.add_option("I understand", "exit");
+            text = "Your violent reputation precedes you. The Azure Order seeks peace, not chaos.";
+            options = [{ text: "I understand", next_node: "exit" }];
         } else if (!quests["azure_welcome"].isActive && !quests["azure_welcome"].isCompleted) {
-            dialogue.show("Greetings, traveler. The Azure Order seeks knowledge and wisdom. Will you aid our cause?");
-            dialogue.add_option("Tell me more", "quest_offer");
-            dialogue.add_option("Not interested", "exit");
+            text = "Greetings, traveler. The Azure Order seeks knowledge and wisdom. Will you aid our cause?";
+            options = [
+                { text: "Tell me more", next_node: "quest_offer" },
+                { text: "Not interested", next_node: "exit" }
+            ];
         } else if (quests["azure_welcome"].isActive && !quests["azure_welcome"].isCompleted) {
             const scrolls = gameState.inventory["ancient_scroll"] || 0;
             if (scrolls >= 3) {
-                dialogue.show("Wonderful! These scrolls contain knowledge lost for centuries. You have my gratitude.");
+                text = "Wonderful! These scrolls contain knowledge lost for centuries. You have my gratitude.";
                 gameState.completeQuest("azure_welcome");
-                dialogue.add_option("What now?", "quest_peace");
+                options = [{ text: "What now?", next_node: "quest_peace" }];
             } else {
-                dialogue.show(`You've found ${scrolls}/3 Ancient Scrolls. They're scattered across the realm.`);
-                dialogue.add_option("I'll keep searching", "exit");
+                text = `You've found ${scrolls}/3 Ancient Scrolls. They're scattered across the realm.`;
+                options = [{ text: "I'll keep searching", next_node: "exit" }];
             }
         } else {
-            dialogue.show("Thank you for your help. The path to wisdom is long, but you walk it well.");
-            dialogue.add_option("Farewell", "exit");
+            text = "Thank you for your help. The path to wisdom is long, but you walk it well.";
+            options = [{ text: "Farewell", next_node: "exit" }];
         }
         
-        if (dialogue.get_node() === "quest_offer") {
-            dialogue.show("Ancient scrolls are scattered across the realm. Bring me three, and I'll share our knowledge.");
-            dialogue.add_option("I'll find them", "quest_accept");
-            dialogue.add_option("Too tedious", "exit");
+        if (currentNode === "quest_offer") {
+            text = "Ancient scrolls are scattered across the realm. Bring me three, and I'll share our knowledge.";
+            options = [
+                { text: "I'll find them", next_node: "quest_accept" },
+                { text: "Too tedious", next_node: "exit" }
+            ];
         }
         
-        if (dialogue.get_node() === "quest_accept") {
+        if (currentNode === "quest_accept") {
             gameState.startQuest("azure_welcome");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
         
-        if (dialogue.get_node() === "quest_peace") {
+        if (currentNode === "quest_peace") {
             gameState.startQuest("azure_peace");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
+
+        if (currentNode === "exit") {
+            gameState.closeDialogue();
+            dialogue.close();
+            return;
+        }
+
+        gameState.openDialogue(entity.name || "Scholar Lyra", text, options);
+        dialogue.show(text);
+        options.forEach(o => dialogue.add_option(o.text, o.next_node));
     }
 });
 
 Entropy.Behavior.register("quest_giver_whisper", {
     onUpdate: doWander,
     onInteract: (entity, dialogue) => {
-        const rep = factions[Faction.SHADOW_COVENANT].reputation;
+        const currentNode = dialogue.get_node();
 
-        Entropy.println("Interaction with quest giver");
+        let text = "";
+        let options: DialogueOption[] = [];
         
         if (!quests["shadow_welcome"].isActive && !quests["shadow_welcome"].isCompleted) {
-            dialogue.show("*A hooded figure emerges from darkness* Information is power. Are you clever enough to serve us?");
-            dialogue.add_option("I'm interested", "quest_offer");
-            dialogue.add_option("This feels wrong", "exit");
+            text = "*A hooded figure emerges from darkness* Information is power. Are you clever enough to serve us?";
+            options = [
+                { text: "I'm interested", next_node: "quest_offer" },
+                { text: "This feels wrong", next_node: "exit" }
+            ];
         } else if (quests["shadow_welcome"].isActive && !quests["shadow_welcome"].isCompleted) {
             const crimsonSpied = gameState.hasItem("crimson_intel");
             const azureSpied = gameState.hasItem("azure_intel");
             
             if (crimsonSpied && azureSpied) {
-                dialogue.show("Excellent work. You move like a shadow. Perhaps you have a future with us.");
+                text = "Excellent work. You move like a shadow. Perhaps you have a future with us.";
                 gameState.completeQuest("shadow_welcome");
-                dialogue.add_option("What's the plan?", "quest_betrayal");
+                options = [{ text: "What's the plan?", next_node: "quest_betrayal" }];
             } else {
-                dialogue.show("Gather intelligence from both camps. Move unseen, strike unheard.");
-                dialogue.add_option("Understood", "exit");
+                text = "Gather intelligence from both camps. Move unseen, strike unheard.";
+                options = [{ text: "Understood", next_node: "exit" }];
             }
         } else {
-            dialogue.show("The shadows embrace those who serve them well. Continue your work.");
-            dialogue.add_option("Farewell", "exit");
+            text = "The shadows embrace those who serve them well. Continue your work.";
+            options = [{ text: "Farewell", next_node: "exit" }];
         }
         
-        if (dialogue.get_node() === "quest_offer") {
-            dialogue.show("Spy on the Crimson and Azure factions. Learn their secrets. Can you be invisible?");
-            dialogue.add_option("Yes", "quest_accept");
-            dialogue.add_option("No", "exit");
+        if (currentNode === "quest_offer") {
+            text = "Spy on the Crimson and Azure factions. Learn their secrets. Can you be invisible?";
+            options = [
+                { text: "Yes", next_node: "quest_accept" },
+                { text: "No", next_node: "exit" }
+            ];
         }
         
-        if (dialogue.get_node() === "quest_accept") {
+        if (currentNode === "quest_accept") {
             gameState.startQuest("shadow_welcome");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
         
-        if (dialogue.get_node() === "quest_betrayal") {
+        if (currentNode === "quest_betrayal") {
             gameState.startQuest("shadow_betrayal");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
+
+        if (currentNode === "exit") {
+            gameState.closeDialogue();
+            dialogue.close();
+            return;
+        }
+
+        gameState.openDialogue(entity.name || "Whisper Master", text, options);
+        dialogue.show(text);
+        options.forEach(o => dialogue.add_option(o.text, o.next_node));
     }
 });
 
 Entropy.Behavior.register("neutral_wanderer", {
     onUpdate: doWander,
     onInteract: (entity, dialogue) => {
-        Entropy.println("Interaction with quest giver");
+        const currentNode = dialogue.get_node();
 
-        dialogue.show("I've traveled far and wide. The old ruins hold many secrets, if you're brave enough to seek them.");
-        dialogue.add_option("Tell me about the ruins", "ruins_info");
-        dialogue.add_option("Farewell", "exit");
+        let text = "";
+        let options: DialogueOption[] = [];
+
+        text = "I've traveled far and wide. The old ruins hold many secrets, if you're brave enough to seek them.";
+        options = [
+            { text: "Tell me about the ruins", next_node: "ruins_info" },
+            { text: "Farewell", next_node: "exit" }
+        ];
         
-        if (dialogue.get_node() === "ruins_info") {
+        if (currentNode === "ruins_info") {
             if (!quests["explore_ruins"].isActive) {
-                dialogue.show("Five ancient artifacts remain hidden. Find them all, and you'll unlock something... special.");
-                dialogue.add_option("I'll search for them", "quest_accept");
-                dialogue.add_option("Maybe another time", "exit");
+                text = "Five ancient artifacts remain hidden. Find them all, and you'll unlock something... special.";
+                options = [
+                    { text: "I'll search for them", next_node: "quest_accept" },
+                    { text: "Maybe another time", next_node: "exit" }
+                ];
             } else {
-                dialogue.show(`You've found ${gameState.collectablesFound}/5 artifacts. Keep exploring!`);
-                dialogue.add_option("Thanks", "exit");
+                text = `You've found ${gameState.collectablesFound}/5 artifacts. Keep exploring!`;
+                options = [{ text: "Thanks", next_node: "exit" }];
             }
         }
         
-        if (dialogue.get_node() === "quest_accept") {
+        if (currentNode === "quest_accept") {
             gameState.startQuest("explore_ruins");
+            gameState.closeDialogue();
             dialogue.close();
+            return;
         }
+
+        if (currentNode === "exit") {
+            gameState.closeDialogue();
+            dialogue.close();
+            return;
+        }
+
+        gameState.openDialogue(entity.name || "The Wanderer", text, options);
+        dialogue.show(text);
+        options.forEach(o => dialogue.add_option(o.text, o.next_node));
     }
 });
 
@@ -2021,6 +2123,22 @@ addon.onUpdatePlus("Game Composer", (time) => {
     Entropy.Input.onKeyDown((key) => {
         if (!gameState.isGameActive) return;
 
+        if (gameState.dialogue.isOpen) {
+            if (key === "w" || key === "ArrowUp") {
+                gameState.navigateDialogue(-1);
+            }
+            if (key === "s" || key === "ArrowDown") {
+                gameState.navigateDialogue(1);
+            }
+            if (key === "Enter") {
+                const selected = gameState.dialogue.options[gameState.dialogue.selectedIndex];
+                if (selected) {
+                    addon.UI.selectDialogueOption(gameState.dialogue.selectedIndex);
+                }
+            }
+            return;
+        }
+
         if (key === "r") { // Reload
             gameState.setAmmo(gameState.maxAmmo);
             gameState.playReloadSound();
@@ -2035,6 +2153,16 @@ addon.onUpdatePlus("Game Composer", (time) => {
 
     Entropy.Input.onGamepadButton((button, pressed) => {
         if (!gameState.isGameActive || !pressed) return;
+
+        if (gameState.dialogue.isOpen) {
+            if (button === "DPadUp") gameState.navigateDialogue(-1);
+            if (button === "DPadDown") gameState.navigateDialogue(1);
+            if (button === "South") { // Select
+                const selected = gameState.dialogue.options[gameState.dialogue.selectedIndex];
+                // ...
+            }
+            return;
+        }
 
         if (button === "South") { // Jump placeholder / Interact
              // Jump logic

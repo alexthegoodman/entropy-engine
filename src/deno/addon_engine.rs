@@ -1599,6 +1599,19 @@ fn op_dialogue_get_node(state: &mut OpState) -> String {
 }
 
 #[op2(fast)]
+fn op_dialogue_select_option(state: &mut OpState, index: u32) {
+    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+        if let Some(d) = &mut ctx.dialogue_wrapper {
+            if (index as usize) < d.options.len() {
+                let next_node = d.options[index as usize].next_node.clone();
+                d.current_node = next_node;
+                d.changed = true;
+            }
+        }
+    }
+}
+
+#[op2(fast)]
 fn op_landscape_get_height(state: &mut OpState, x: f32, z: f32) -> f32 {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
         if let Some(heights) = &ctx.landscape_heights {
@@ -2836,12 +2849,14 @@ extension!(
         op_dialogue_start_quest,
         op_dialogue_close,
         op_dialogue_get_node,
+        op_dialogue_select_option,
         op_entity_apply_impulse,
         op_entity_set_velocity,
         op_entity_set_xz_velocity,
         op_entity_set_rotation,
         op_entity_play_animation,
         op_entity_set_stats,
+        op_entity_get_stats,
         op_model_set_bone_transform
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
@@ -2860,6 +2875,7 @@ const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bun
 #[serde(rename_all = "camelCase")]
 pub struct EntityWrapper {
     pub id: String,
+    pub name: String,
     pub position: [f32; 3],
     pub health: f32,
     pub stamina: f32,
@@ -3495,6 +3511,7 @@ impl AddonEngine {
                         bid.clone(),
                         EntityWrapper {
                             id: model.id.clone(),
+                            name: "Entity".to_string(),
                             position: pos,
                             health: 100.0,
                             stamina: 100.0,
@@ -3526,6 +3543,7 @@ impl AddonEngine {
                         bid.clone(),
                         EntityWrapper {
                             id: mesh.id.clone(),
+                            name: "Mesh".to_string(),
                             position: pos,
                             health: 100.0,
                             stamina: 100.0,
@@ -3552,6 +3570,7 @@ impl AddonEngine {
                     bid.clone(),
                     EntityWrapper {
                         id: coll.id.clone(),
+                        name: "Collectable".to_string(),
                         position: pos,
                         health: 100.0,
                         stamina: 100.0,

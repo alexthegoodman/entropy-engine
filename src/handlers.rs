@@ -263,107 +263,6 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
 
     let mut movement_direction = Vector3::zeros();
 
-    // Dialogue Navigation
-    if state.dialogue_state.is_open && is_pressed {
-        match key_code {
-            "r" => {
-            if is_pressed {
-                if let Some(player) = &mut renderer_state.player_character {
-                    player.reload();
-                }
-            }
-        },
-        "w" | "ArrowUp" => {
-                if state.dialogue_state.selected_option_index > 0 {
-                    state.dialogue_state.selected_option_index -= 1;
-                    state.dialogue_state.ui_dirty = true;
-                }
-                return;
-            },
-            "s" | "ArrowDown" => {
-                if state.dialogue_state.selected_option_index < state.dialogue_state.options.len().saturating_sub(1) {
-                    state.dialogue_state.selected_option_index += 1;
-                    state.dialogue_state.ui_dirty = true;
-                }
-                return;
-            },
-            "e" | "Enter" => {
-                 // Trigger option
-                 if !state.dialogue_state.options.is_empty() {
-                     let next_node = state.dialogue_state.options[state.dialogue_state.selected_option_index].next_node.clone();
-                     state.dialogue_state.current_node = next_node.clone();
-                     
-                     if next_node == "exit" {
-                         state.dialogue_state.is_open = false;
-                         state.dialogue_state.ui_dirty = true;
-                         if let Some(renderer_state) = state.renderer_state.as_mut() {
-                             if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == state.dialogue_state.current_npc_id) {
-                                 npc.is_talking = false;
-                             }
-                         }
-                     } else {
-                        if let Some(renderer_state) = state.renderer_state.as_mut() {
-                            let target_id = state.dialogue_state.current_npc_id.clone();
-                            let mut target_script_path = None;
-                            
-                            if let Some(world_state) = &state.world_state {
-                                if let Some(levels) = &world_state.levels {
-                                    if let Some(level) = levels.get(0) {
-                                        if let Some(components) = &level.components {
-                                            if let Some(comp) = components.iter().find(|c| c.id == target_id) {
-                                                target_script_path = comp.js_script_path.clone();
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if let Some(script) = target_script_path {
-                                if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
-                                    if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                                        let pos = rb.translation();
-                                        let wrapper = crate::deno::addon_engine::EntityWrapper {
-                                            id: npc.id.clone(),
-                                            position: [pos.x, pos.y, pos.z],
-                                            health: npc.stats.health,
-                                            stamina: npc.stats.stamina,
-                                            is_dead: npc.is_dead,
-                                        };
-                                        let dialogue_res = state.addon_engine.execute_behavior(renderer_state, &script, wrapper, "on_interact", Some(state.dialogue_state.current_node.clone()));
-                                        if let Some(d) = dialogue_res {
-                                            if d.is_open {
-                                                state.dialogue_state.current_text = d.text;
-                                                state.dialogue_state.options = d.options;
-                                                state.dialogue_state.current_node = d.current_node;
-                                                state.dialogue_state.ui_dirty = true;
-                                            } else {
-                                                state.dialogue_state.is_open = false;
-                                                state.dialogue_state.ui_dirty = true;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                     }
-                 } else {
-                     // No options, just close on enter
-                     state.dialogue_state.is_open = false;
-                     state.dialogue_state.ui_dirty = true;
-                     if let Some(renderer_state) = state.renderer_state.as_mut() {
-                         if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.model_id == state.dialogue_state.current_npc_id) {
-                             npc.is_talking = false;
-                         }
-                     }
-                 }
-                 return;
-            }
-            _ => {}
-        }
-
-        return;
-    }
-
     match key_code {
         "Shift" => {
              if let Some(player) = &mut renderer_state.player_character {
@@ -1544,7 +1443,7 @@ fn handle_npc_interaction(state: &mut Editor) {
     // println!("target_npc_name... {:?} {:?} {:?}", target_id, target_npc_name, target_script_path);
     
     if let Some(script) = target_script_path {
-        state.dialogue_state.npc_name = target_npc_name;
+        state.dialogue_state.npc_name = target_npc_name.clone();
         state.dialogue_state.current_npc_id = target_id.clone();
         
         if let Some(renderer_state) = state.renderer_state.as_mut() {
@@ -1553,6 +1452,7 @@ fn handle_npc_interaction(state: &mut Editor) {
                     let pos = rb.translation();
                     let wrapper = crate::deno::addon_engine::EntityWrapper {
                         id: npc.id.clone(),
+                        name: target_npc_name.clone(),
                         position: [pos.x, pos.y, pos.z],
                         health: npc.stats.health,
                         stamina: npc.stats.stamina,

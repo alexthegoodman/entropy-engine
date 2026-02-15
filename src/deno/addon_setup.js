@@ -90,6 +90,9 @@ globalThis.Entropy = {
                     },
                     clear: () => {
                         ops.op_ui_clear();
+                    },
+                    selectDialogueOption: (index) => {
+                        ops.op_dialogue_select_option(index);
                     }
                 },
                 Model: {
@@ -1203,6 +1206,7 @@ globalThis._createDialogue = () => {
         start_quest: (id) => ops.op_dialogue_start_quest(id),
         close: () => ops.op_dialogue_close(),
         get_node: () => ops.op_dialogue_get_node(),
+        select_option: (index) => ops.op_dialogue_select_option(index),
     };
 };
 

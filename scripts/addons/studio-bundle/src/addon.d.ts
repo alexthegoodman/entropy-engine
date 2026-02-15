@@ -348,6 +348,7 @@ export interface ScopedAPI {
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;
     clear: () => void;
+    selectDialogueOption: (index: number) => void;
   };
   Lighting: {
     createPointLight: (config: PointLightConfig) => void;
@@ -572,6 +573,7 @@ export interface MeshData {
 // Main Entropy API
 export interface Entity {
   id: string;
+  name: string;
   position: [number, number, number];
   health: number;
   stamina: number;
