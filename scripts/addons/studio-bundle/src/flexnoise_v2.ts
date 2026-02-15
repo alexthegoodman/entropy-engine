@@ -1,8 +1,25 @@
 import { createNoise2D, createNoise3D } from 'simplex-noise';
 import Alea from 'alea';
+import { vec3 } from 'gl-matrix';
+import marchingCubes from 'marching-cubes-fast';
 import { ComponentAddon } from './system';
 import type { PBRMaterialType } from './addon';
-import { generateMesh } from './marching_cubes';
+
+
+var fmcvl = require('marching-cubes-fast/fast-marching-cubes-voxel-list.js');
+var dfsb = require('marching-cubes-fast/df-sub-blocks.js');
+function marchingCubesFast(RES: number, POTENTIAL: any, WORLD_BOUNDS: number[][], printProgress=false){
+    // if(!powerOfTwo(RES)){
+    //     throw 'resolution must be power of 2';
+    // }
+    var ITERS = Math.floor(Math.log2(RES)-1);
+    if(printProgress){console.log('marching cubes: getting sub-blocks...');}
+    var blocks = dfsb.getSubBlocksForBlockIteratedDFunc_edgesOnly(WORLD_BOUNDS, ITERS, POTENTIAL);
+    if(printProgress){console.log(`marching cubes: got ${blocks.length} sub-blocks.`);}
+    var tris = fmcvl.marchingCubes(POTENTIAL, blocks, printProgress); //{faces, vertices}
+    return tris;
+}
+
 
 const TEXTURE_RES = 512;
 
@@ -479,7 +496,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     private async generateTerrain(params: TerrainParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = "default"): Promise<void> {
         if (!params.width || !params.height) return;
 
-        if (params.use3D && params.rockThreshold > 0.7) { // Simple heuristic for cave mode
+        if (params.use3D) { // Simple heuristic for cave mode
              await this.generate3DTerrain(params, id);
              return;
         }
@@ -566,87 +583,125 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     }
 
     private async generate3DTerrain(params: TerrainParams, id: string): Promise<void> {
-        Entropy.println(`Generating Volumetric Terrain (Marching Cubes) for ${id}...`);
-        
-        const vertices: number[] = [];
-        const indices: number[] = [];
+        Entropy.println(`Generating Volumetric Terrain (Marching Cubes Fast) for ${id}...`);
         
         const prng = Alea(params.seed);
         const noise3D = createNoise3D(prng);
-        const noise2D = createNoise2D(prng);
         
-        // Resolution: Higher is smoother but slower
-        // For a full chunk, 32 or 48 is usually good.
-        const res = 48; 
-        const size = params.width / 2;
+        // const res = 48; // Grid resolution
+        const res = 16;
+        // const res = 4; // Grid resolution
+        const halfSize = params.width / 2;
+        const heightScale = params.heightScale * 10;
         
-        const caveColor: [number, number, number, number] = params.terrainColor;
+        // Signed Distance Function (SDF) / Density Field
+        // const sdf = (x: number, y: number, z: number) => {
+        //     let wx = x;
+        //     let wy = y;
+        //     let wz = z;
 
-        const densityFunc = (x: number, y: number, z: number) => {
-            // Base density from 3D noise
-            let density = 0;
-            
-            // Domain warping for "Alien Pillars" if enabled via a flag or heuristic
-            // For now, we'll stick to standard fbm, but we can twist coordinates
-            let wx = x;
-            let wy = y;
-            let wz = z;
+        //     // --- SPIRAL TWIST (Exotic Pillar Effect) ---
+        //     // If frequency is low, assume we want large structures like pillars
+        //     if (params.frequency < 0.015) {
+        //         const twistAmount = 0.1;
+        //         const angle = y * twistAmount;
+        //         const s = Math.sin(angle);
+        //         const c = Math.cos(angle);
+        //         wx = x * c - z * s;
+        //         wz = x * s + z * c;
+        //     }
 
-            // Simple twist if frequency is very low (Alien Pillars preset uses freq=0.01)
-            // if (params.frequency < 0.015 && params.use3D) {
-            //     wx += Math.sin(y * 0.1) * 10;
-            //     wz += Math.cos(y * 0.1) * 10;
-            // }
+        //     // Sample FBM Noise
+        //     let density = 0;
+        //     let amplitude = 1;
+        //     let maxValue = 0;
+        //     let freq = params.frequency;
 
-            let amplitude = 1;
-            let maxValue = 0;
-            let freq = params.frequency;
+        //     for (let i = 0; i < params.octaves; i++) {
+        //         density += noise3D(wx * freq, wy * freq, wz * freq) * amplitude;
+        //         maxValue += amplitude;
+        //         amplitude *= params.persistence;
+        //         freq *= params.lacunarity;
+        //     }
+        //     density /= maxValue;
 
-            for (let i = 0; i < params.octaves; i++) {
-                density += noise3D(wx * freq, wy * freq, wz * freq) * amplitude;
-                maxValue += amplitude;
-                amplitude *= params.persistence;
-                freq *= params.lacunarity;
+        //     // Boundary Constraints (to keep it contained)
+        //     const distFromCenter = Math.sqrt(x*x + z*z);
+        //     const radiusLimit = halfSize * 0.8;
+        //     if (distFromCenter > radiusLimit) {
+        //         density -= (distFromCenter - radiusLimit) * 0.5;
+        //     }
+
+        //     // Height bias (Floor/Ceiling logic)
+        //     // Remap density to create cavernous holes or solid pillars
+        //     // params.rockThreshold remapped to 0.5 center
+        //     return density - (params.rockThreshold - 0.5);
+        // };
+
+        var sdf = function(x: number, y: number, z: number){
+            var s = 20.0
+            return noise3D(x/s,y/s,z/s)+0.5;
+        }
+
+        // scanBounds: [[minX, minY, minZ], [maxX, maxY, maxZ]]
+        // const bounds: [[number, number, number], [number, number, number]] = [
+        //     [-halfSize, 0, -halfSize],
+        //     [halfSize, heightScale, halfSize]
+        // ];
+        const bounds: [[number, number, number], [number, number, number]] = [
+            [0, 0, 0],
+            [params.width, heightScale, params.width]
+        ];
+
+        Entropy.println("⚠️ Time 2 March Tha Cubez. now: " + Date.now());
+
+        // marchingCubes(resolution, sdf, bounds)
+        try {
+            // const mesh = marchingCubes(res, sdf, bounds);
+            const mesh = marchingCubesFast(res, sdf, bounds);
+        
+            if (!mesh || !mesh.positions || mesh.positions.length === 0) {
+                Entropy.println("⚠️ Marching Cubes generated empty mesh. Adjust Rock Threshold.");
+                return;
             }
-            
-            // Normalize roughly -1 to 1
-            density /= maxValue;
 
-            // Apply height bias to make ground solid and sky empty?
-            // For "Floating Islands", we might want a bias that keeps center solid.
-            // For "Deep Caverns", we want solid everywhere except "worms".
-            
-            // Simple bias: Linear fade out at top and bottom if desired
-            // let heightBias = (y + size) / (size * 2); // 0 at bottom, 1 at top
-            // density -= (heightBias - 0.5) * 2.0; // Make bottom solid, top empty
+            Entropy.println("⚠️ Time 2 Push Da Vertex.");
 
-            return density; // > threshold is solid (or < threshold depending on convention)
-        };
+            const vertices: number[] = [];
+            const indices: number[] = [];
+            const caveColor: [number, number, number, number] = params.terrainColor;
 
-        generateMesh(
-            densityFunc,
-            size,
-            res,
-            params.rockThreshold - 0.5, // Remap 0..1 to -0.5..0.5 range roughly
-            (x, y, z, nx, ny, nz) => {
-                // Determine UVs based on position (triplanar-ish or just simple project)
-                const u = x / (size * 2) + 0.5;
-                const v = z / (size * 2) + 0.5;
-                vertices.push(x, y + params.positionY, z, nx, ny, nz, u, v, ...caveColor);
-            },
-            (i1, i2, i3) => {
-                indices.push(i1, i2, i3);
+            // Process positions and calculate normals using gl-matrix
+            for (let i = 0; i < mesh.positions.length; i++) {
+                const p = mesh.positions[i];
+                const n = mesh.normals ? mesh.normals[i] : [0, 1, 0];
+                
+                // vertices: pos(3), normal(3), uv(2), color(4)
+                vertices.push(
+                    p[0], p[1] + params.positionY, p[2], // Position
+                    n[0], n[1], n[2],                   // Normal
+                    p[0] / params.width + 0.5,           // U
+                    p[2] / params.width + 0.5,           // V
+                    ...caveColor                         // Color
+                );
             }
-        );
 
-        this.api.Landscape3D.create({
-            id,
-            vertices,
-            indices,
-            position: [0, 0, 0], // Position baked into vertices for now to handle Y-offset correctly in density
-            pipelineId: params.pipelineId || "default",
-            renderRole: "Terrain"
-        });
+            // Indices
+            for (const face of mesh.cells) {
+                indices.push(face[0], face[1], face[2]);
+            }
+
+            this.api.Landscape3D.create({
+                id,
+                vertices,
+                indices,
+                position: [0, 0, 0],
+                pipelineId: params.pipelineId || "default",
+                renderRole: "Terrain"
+            });
+        } catch (error) {
+            Entropy.println("Error on 3D Landscape: " + JSON.stringify(error));
+        }
     }
 
     private fbm3D(noise3D: (x: number, y: number, z: number) => number, x: number, y: number, z: number, octaves: number, frequency: number, persistence: number, lacunarity: number): number {
@@ -663,6 +718,23 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         }
 
         return total / maxValue;
+    }
+
+    // ==================== UTILS ====================
+
+    private getVertexCountEstimate(): string {
+        if (this.currentParams.use3D && this.currentParams.rockThreshold > 0.7) {
+            // Marching Cubes estimate
+            // res^3 cells * avg triangles per cell (approx 1.5) * 3 vertices
+            const res = 48;
+            const cells = Math.pow(res, 3);
+            const est = Math.floor(cells * 1.5 * 3);
+            return `${(est / 1000000).toFixed(2)}M (Volumetric)`;
+        } else {
+            // Heightmap estimate
+            const est = this.currentParams.width * this.currentParams.height;
+            return `${(est / 1000000).toFixed(2)}M (Heightmap)`;
+        }
     }
 
     // ==================== UPDATE LOOP ====================
@@ -925,6 +997,13 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
 
     private renderTerrainParamsUI(tab: string): void {
         Entropy.UI.Widget.label(tab, { text: "🎲 Noise Parameters", bold: true });
+
+        const est = this.getVertexCountEstimate();
+        const color = est.includes("Heightmap") ? "Green" : "Orange";
+        Entropy.UI.Widget.label(tab, { 
+            text: `Estimated Vertices: ${est}`, 
+            bold: true 
+        });
         
         Entropy.UI.Widget.numericInput(tab, {
             label: "Seed",
@@ -1128,7 +1207,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         Entropy.UI.Widget.label(tab, { text: "🎭 Terrain Presets", bold: true });
         
         Entropy.UI.Widget.button(tab, {
-            text: "🏔️ Sharp Mountains",
+            text: "🏔️ Sharp Mountains (~1M)",
             onClick: () => {
                 this.currentParams.frequency = 0.01;
                 this.currentParams.octaves = 8;
@@ -1139,7 +1218,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "🏜️ Rolling Hills",
+            text: "🏜️ Rolling Hills (~1M)",
             onClick: () => {
                 this.currentParams.frequency = 0.003;
                 this.currentParams.octaves = 4;
@@ -1150,7 +1229,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "🌊 Sea Bed",
+            text: "🌊 Sea Bed (~1M)",
             onClick: () => {
                 this.currentParams.frequency = 0.002;
                 this.currentParams.octaves = 3;
@@ -1161,7 +1240,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "🏚️ Deep Caverns (3D)",
+            text: "🏚️ Deep Caverns (~0.5M 3D)",
             onClick: () => {
                 this.currentParams.use3D = true;
                 this.currentParams.rockThreshold = 0.8;
@@ -1173,7 +1252,7 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
         });
 
         Entropy.UI.Widget.button(tab, {
-            text: "☁️ Floating Islands (3D)",
+            text: "☁️ Floating Islands (~0.5M 3D)",
             onClick: () => {
                 this.currentParams.use3D = true;
                 this.currentParams.rockThreshold = 0.8;
@@ -1181,6 +1260,32 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                 this.currentParams.octaves = 6;
                 this.currentParams.heightScale = 5.0;
                 this.currentParams.positionY = 50.0;
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🌀 Alien Pillars (~0.5M 3D)",
+            onClick: () => {
+                this.currentParams.use3D = true;
+                this.currentParams.rockThreshold = 0.6;
+                this.currentParams.frequency = 0.01;
+                this.currentParams.octaves = 2;
+                this.currentParams.heightScale = 8.0;
+                this.currentParams.positionY = 0.0;
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🏛️ Ruined Arches (~0.5M 3D)",
+            onClick: () => {
+                this.currentParams.use3D = true;
+                this.currentParams.rockThreshold = 0.7;
+                this.currentParams.frequency = 0.03;
+                this.currentParams.octaves = 1;
+                this.currentParams.heightScale = 4.0;
+                this.currentParams.positionY = 0.0;
                 this.generateTerrain(this.currentParams, this.state.activeComponentId);
             }
         });
