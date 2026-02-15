@@ -187,7 +187,33 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             );
         }
 
-        editor.addon_engine.update(renderer_state, camera, current_time, gpu_resources, addon_name.to_string());
+        {
+            let Editor {
+                ref mut addon_engine,
+                ref mut ui_polygons,
+                ref mut ui_textboxes,
+                ref font_manager,
+                ref ui_model_bind_group_layout,
+                ref group_bind_group_layout,
+                ..
+            } = *editor;
+
+            let ui_model_layout = ui_model_bind_group_layout.as_ref().expect("No ui model layout");
+            let group_layout = group_bind_group_layout.as_ref().expect("No group layout");
+
+            addon_engine.update(
+                renderer_state, 
+                ui_polygons,
+                ui_textboxes,
+                font_manager,
+                ui_model_layout,
+                group_layout,
+                camera, 
+                current_time, 
+                gpu_resources, 
+                addon_name.to_string()
+            );
+        }
 
         // Update procedural sky and directional light from addon or world state
         let mut current_procedural_sky_config = editor

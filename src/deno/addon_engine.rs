@@ -34,11 +34,14 @@ use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
 use crate::model_components::NPC::NPC;
 use crate::procedural_grass::grass::Grass;
+use crate::renderer_text::fonts::FontManager;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
 use crate::core::SimpleCamera::SimpleCamera;
 use crate::core::custom_mesh::CustomMesh;
+use crate::shape_primitives::polygon::{Polygon, Stroke};
+use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
 use egui;
@@ -435,6 +438,30 @@ pub struct EngineContext {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct UiRectConfig {
+    pub position: [f32; 2],
+    pub size: [f32; 2],
+    pub color: [f32; 4],
+    pub stroke_thickness: f32,
+    pub stroke_color: [f32; 4],
+    pub layer: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UiTextConfig {
+    pub text: String,
+    pub font_family: String,
+    pub font_size: u32,
+    pub position: [f32; 2],
+    pub dimensions: [f32; 2],
+    pub color: [f32; 4],
+    pub background_fill: [f32; 4],
+    pub layer: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct BoneTransformConfig {
     pub model_id: String,
     pub bone_name: String,
@@ -481,6 +508,9 @@ pub struct AddonContext {
     pub pending_animation_plays: Vec<(String, String)>,
     pub pending_stat_updates: Vec<(String, crate::helpers::saved_data::CharacterStats)>,
     pub pending_bone_transforms: Vec<BoneTransformConfig>,
+    pub pending_ui_rects: Vec<(String, UiRectConfig)>,
+    pub pending_ui_texts: Vec<(String, UiTextConfig)>,
+    pub pending_ui_clear: bool,
     pub active_gizmo: Option<GizmoState>,
     pub noise_generators: HashMap<String, NoiseConfig>,
     pub on_init_callbacks: Vec<(String, v8::Global<v8::Function>)>,
@@ -750,6 +780,27 @@ fn op_script_write(state: &mut OpState, #[string] filename: String, #[string] co
 
     } else {
         Err(deno_error::JsErrorBox::generic("Script file not found"))
+    }
+}
+
+#[op2]
+fn op_ui_rect_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: UiRectConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_ui_rects.push((addon_name, config));
+    }
+}
+
+#[op2]
+fn op_ui_text_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: UiTextConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_ui_texts.push((addon_name, config));
+    }
+}
+
+#[op2(fast)]
+fn op_ui_clear(state: &mut OpState) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_ui_clear = true;
     }
 }
 
@@ -2750,6 +2801,9 @@ extension!(
         op_camera_screen_to_world,
         op_window_get_size,
         op_selection_get_selected,
+        op_ui_rect_create,
+        op_ui_text_create,
+        op_ui_clear,
         op_mesh_get_data,
         op_behavior_register,
         op_system_spawn_particles,
@@ -3017,7 +3071,10 @@ impl AddonEngine {
             window_size: [1920, 1080],
             selected_entity_id: None,
             pending_bone_transforms: Vec::new(),
-            pending_entity_rotations: Vec::new()
+            pending_entity_rotations: Vec::new(),
+            pending_ui_rects: Vec::new(),
+            pending_ui_texts: Vec::new(),
+            pending_ui_clear: false
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3318,7 +3375,19 @@ impl AddonEngine {
         (bind_groups, uniform_buffers, samplers, time_buffer)
     }
 
-    pub fn update(&mut self, renderer_state: &mut RendererState, camera: &SimpleCamera, current_time: f64, gpu_resources: &Arc<GpuResources>, current_addon_name: String) {
+    pub fn update(
+        &mut self, 
+        renderer_state: &mut RendererState, 
+        ui_polygons: &mut Vec<Polygon>,
+        ui_textboxes: &mut Vec<TextRenderer>,
+        font_manager: &FontManager,
+        ui_model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
+        camera: &SimpleCamera, 
+        current_time: f64, 
+        gpu_resources: &Arc<GpuResources>, 
+        current_addon_name: String
+    ) {
         // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
         let mut landscape_view = renderer_state.addon_landscapes
@@ -3603,6 +3672,9 @@ impl AddonEngine {
             pending_animations, 
             pending_stats,
             pending_bone_transforms,
+            pending_ui_rects,
+            pending_ui_texts,
+            pending_ui_clear,
             pending_visuals
         ) = {
             let mut op_state = self.runtime.op_state();
@@ -3627,6 +3699,9 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_animation_plays),
                     std::mem::take(&mut ctx.pending_stat_updates),
                     std::mem::take(&mut ctx.pending_bone_transforms),
+                    std::mem::take(&mut ctx.pending_ui_rects),
+                    std::mem::take(&mut ctx.pending_ui_texts),
+                    std::mem::replace(&mut ctx.pending_ui_clear, false),
                     std::mem::take(&mut ctx.pending_visuals),
                 )
             } else {
@@ -3649,6 +3724,9 @@ impl AddonEngine {
                     Vec::new(), 
                     Vec::new(), 
                     Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
                     Vec::new()
                 )
             }
@@ -3817,6 +3895,108 @@ impl AddonEngine {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        if pending_ui_clear {
+            ui_polygons.clear();
+            ui_textboxes.clear();
+        }
+
+        if !pending_ui_rects.is_empty() {
+            if let gpu = &gpu_resources {
+                let window_size = crate::core::editor::WindowSize {
+                    width: camera.viewport.width as u32,
+                    height: camera.viewport.height as u32,
+                };
+                // let ui_model_bind_group_layout = ui_model_bind_group_layout.as_ref().expect("No ui model layout");
+                // let group_bind_group_layout = group_bind_group_layout.as_ref().expect("No group layout");
+
+                for (_addon_name, config) in pending_ui_rects {
+                    let poly_bg_pos = Point { 
+                        x: config.position[0] + (config.size[0] / 2.0), 
+                        y: config.position[1] + (config.size[1] / 2.0) 
+                    };
+                    
+                    let id = Uuid::new_v4();
+                    let rect = Polygon::new(
+                        &window_size,
+                        &gpu.device,
+                        &gpu.queue,
+                        ui_model_bind_group_layout,
+                        group_bind_group_layout,
+                        camera,
+                        vec![Point{x:0.0, y:0.0}, Point{x:1.0, y:0.0}, Point{x:1.0, y:1.0}, Point{x:0.0, y:1.0}],
+                        (config.size[0], config.size[1]),
+                        poly_bg_pos,
+                        (0.0, 0.0, 0.0),
+                        0.0,
+                        config.color,
+                        Stroke { thickness: config.stroke_thickness, fill: config.stroke_color },
+                        config.layer,
+                        "JS UI Rect".to_string(),
+                        id,
+                        Uuid::nil(),
+                    );
+                    ui_polygons.push(rect);
+                }
+            }
+        }
+
+        if !pending_ui_texts.is_empty() {
+            if let gpu = &gpu_resources {
+                let window_size = crate::core::editor::WindowSize {
+                    width: camera.viewport.width as u32,
+                    height: camera.viewport.height as u32,
+                };
+                // let ui_model_bind_group_layout = ui_model_bind_group_layout.as_ref().expect("No ui model layout");
+                // let group_bind_group_layout = group_bind_group_layout.as_ref().expect("No group layout");
+
+                for (_addon_name, config) in pending_ui_texts {
+                    let id = Uuid::new_v4();
+                    let font_bytes = font_manager.get_font_by_name(&config.font_family)
+                        .unwrap_or_else(|| &font_manager.font_data[0].1);
+
+                    let text_config = TextRendererConfig {
+                        id,
+                        name: "JS UI Text".to_string(),
+                        text: config.text.clone(),
+                        font_family: config.font_family,
+                        font_size: config.font_size as i32,
+                        dimensions: (config.dimensions[0], config.dimensions[1]),
+                        position: Point { x: config.position[0], y: config.position[1] },
+                        layer: config.layer,
+                        color: [
+                            (config.color[0] * 255.0) as i32,
+                            (config.color[1] * 255.0) as i32,
+                            (config.color[2] * 255.0) as i32,
+                            (config.color[3] * 255.0) as i32,
+                        ],
+                        background_fill: [
+                            (config.background_fill[0] * 255.0) as i32,
+                            (config.background_fill[1] * 255.0) as i32,
+                            (config.background_fill[2] * 255.0) as i32,
+                            (config.background_fill[3] * 255.0) as i32,
+                        ],
+                    };
+                    
+                    let mut text_renderer = TextRenderer::new(
+                        &gpu.device,
+                        &gpu.queue,
+                        ui_model_bind_group_layout,
+                        group_bind_group_layout,
+                        font_bytes,
+                        &window_size,
+                        config.text,
+                        text_config,
+                        id,
+                        Uuid::nil(),
+                        camera
+                    );
+
+                    text_renderer.render_text(&gpu.device, &gpu.queue);
+                    ui_textboxes.push(text_renderer);
                 }
             }
         }

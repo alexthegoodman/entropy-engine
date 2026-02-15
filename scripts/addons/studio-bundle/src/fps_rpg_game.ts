@@ -260,15 +260,87 @@ class GameState {
         shadow: 0
     };
     collectablesFound = 0;
+    isInventoryOpen = false;
+    lastInventoryToggleTime = 0;
     
     addItem(itemId: string, quantity: number = 1) {
         this.inventory[itemId] = (this.inventory[itemId] || 0) + quantity;
         addon.Inventory.addItem(this.playerId!, itemId, quantity);
         Entropy.println(`[Inventory] +${quantity} ${itemId}`);
+        if (this.isInventoryOpen) this.renderInventory();
     }
     
     hasItem(itemId: string, quantity: number = 1): boolean {
         return (this.inventory[itemId] || 0) >= quantity;
+    }
+
+    toggleInventory() {
+        const now = Date.now();
+        if (now - this.lastInventoryToggleTime < 200) return;
+        this.lastInventoryToggleTime = now;
+
+        this.isInventoryOpen = !this.isInventoryOpen;
+        if (this.isInventoryOpen) {
+            this.renderInventory();
+        } else {
+            addon.UI.clear();
+        }
+    }
+
+    renderInventory() {
+        addon.UI.clear();
+        
+        const width = 1920; 
+        const height = 1080;
+        const bgWidth = 800;
+        const bgHeight = 600;
+        const x = (width - bgWidth) / 2;
+        const y = (height - bgHeight) / 2;
+
+        // Background
+        addon.UI.drawRect({
+            position: [x, y],
+            size: [bgWidth, bgHeight],
+            color: [0.1, 0.1, 0.1, 0.9],
+            strokeThickness: 2,
+            strokeColor: [0.8, 0.8, 0.8, 1],
+            layer: 200
+        });
+
+        // Title
+        addon.UI.drawText({
+            text: "INVENTORY",
+            position: [x + 50, y + 30],
+            dimensions: [300, 50],
+            fontSize: 48,
+            color: [1, 1, 1, 1],
+            layer: 201
+        });
+
+        // Items
+        let i = 0;
+        for (const [itemId, quantity] of Object.entries(this.inventory)) {
+            addon.UI.drawText({
+                text: `${itemId}: ${quantity}`,
+                position: [x + 60, y + 100 + (i * 40)],
+                dimensions: [400, 30],
+                fontSize: 24,
+                color: [0.8, 0.8, 0.8, 1],
+                layer: 201
+            });
+            i++;
+        }
+
+        if (Object.keys(this.inventory).length === 0) {
+            addon.UI.drawText({
+                text: "Empty",
+                position: [x + 60, y + 100],
+                dimensions: [400, 30],
+                fontSize: 24,
+                color: [0.5, 0.5, 0.5, 1],
+                layer: 201
+            });
+        }
     }
     
     updateReputation(faction: Faction, amount: number) {
@@ -1868,6 +1940,11 @@ Entropy.onGameStopped(() => {
 
 addon.onUpdatePlus("Game Composer", (time) => {
     Entropy.Composer?.enableGameComposerOverride();
+
+    // Check for inventory toggle
+    if (Entropy.Input.isKeyPressed("i")) {
+        gameState.toggleInventory();
+    }
 
     // Entropy.println("Rendering humanoids " + Object.keys(worldManager.npcHumanoids).length + " time: " + time);
 

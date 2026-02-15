@@ -66,6 +66,31 @@ globalThis.Entropy = {
                         const tabId = ops.op_ui_create_tab(metadata.name, config, config.onRender);
                         return tabId;
                     },
+                    drawRect: (config) => {
+                        ops.op_ui_rect_create(metadata.name, {
+                            position: config.position || [0, 0],
+                            size: config.size || [100, 100],
+                            color: config.color || [1, 1, 1, 1],
+                            strokeThickness: config.strokeThickness || 0,
+                            strokeColor: config.strokeColor || [0, 0, 0, 1],
+                            layer: config.layer || 200
+                        });
+                    },
+                    drawText: (config) => {
+                        ops.op_ui_text_create(metadata.name, {
+                            text: config.text || "",
+                            fontFamily: config.fontFamily || "Basic",
+                            fontSize: config.fontSize || 24,
+                            position: config.position || [0, 0],
+                            dimensions: config.dimensions || [200, 50],
+                            color: config.color || [1, 1, 1, 1],
+                            backgroundFill: config.backgroundFill || [0, 0, 0, 0],
+                            layer: config.layer || 201
+                        });
+                    },
+                    clear: () => {
+                        ops.op_ui_clear();
+                    }
                 },
                 Model: {
                     load: (config) => {

@@ -207,15 +207,16 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
             }
         }
     } else if key_code == "i" {
-        if is_pressed {
-            let game_mode = state.renderer_state.as_ref().map(|r| r.game_mode).unwrap_or(false);
-            if game_mode {
-                let gpu_resources = state.gpu_resources.clone();
-                if let Some(gpu_resources) = gpu_resources {
-                    crate::game_ui::inventory_ui::toggle_inventory_menu(state, &gpu_resources.device, &gpu_resources.queue);
-                }
-            }
-        }
+        // Now handled JS-side
+        // if is_pressed {
+        //     let game_mode = state.renderer_state.as_ref().map(|r| r.game_mode).unwrap_or(false);
+        //     if game_mode {
+        //         let gpu_resources = state.gpu_resources.clone();
+        //         if let Some(gpu_resources) = gpu_resources {
+        //             crate::game_ui::inventory_ui::toggle_inventory_menu(state, &gpu_resources.device, &gpu_resources.queue);
+        //         }
+        //     }
+        // }
         return;
     } else if key_code == "Delete" {
         if is_pressed {

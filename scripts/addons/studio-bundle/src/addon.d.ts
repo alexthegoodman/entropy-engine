@@ -345,6 +345,9 @@ export interface ScopedAPI {
   };
   UI: {
     createTab: (config: TabConfig) => string;
+    drawRect: (config: UIRectConfig) => void;
+    drawText: (config: UITextConfig) => void;
+    clear: () => void;
   };
   Lighting: {
     createPointLight: (config: PointLightConfig) => void;
@@ -428,6 +431,26 @@ export interface TabConfig {
 export interface LabelConfig {
   text: string;
   bold?: boolean;
+}
+
+export interface UIRectConfig {
+  position?: [number, number];
+  size?: [number, number];
+  color?: [number, number, number, number];
+  strokeThickness?: number;
+  strokeColor?: [number, number, number, number];
+  layer?: number;
+}
+
+export interface UITextConfig {
+  text?: string;
+  fontFamily?: string;
+  fontSize?: number;
+  position?: [number, number];
+  dimensions?: [number, number];
+  color?: [number, number, number, number];
+  backgroundFill?: [number, number, number, number];
+  layer?: number;
 }
 
 export interface ColorInputConfig {
@@ -593,6 +616,9 @@ export interface EntropyAPI {
     createWindow: (config: WindowConfig) => string;
     createTab: (config: TabConfig) => string;
     miniMap: (windowId: string, config: MiniMapConfig) => void;
+    drawRect: (config: UIRectConfig) => void;
+    drawText: (config: UITextConfig) => void;
+    clear: () => void;
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
