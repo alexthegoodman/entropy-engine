@@ -139,44 +139,6 @@ impl UiPipeline {
             }
         }
 
-        // Render health bar
-        if let Some(health_bar) = &editor.health_bar {
-            // Background
-            health_bar.background.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &health_bar.background.bind_group, &[]);
-            render_pass.set_bind_group(3, &health_bar.background.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, health_bar.background.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(health_bar.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..health_bar.background.indices.len() as u32, 0, 0..1);
-
-            // Bar
-            health_bar.bar.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &health_bar.bar.bind_group, &[]);
-            render_pass.set_bind_group(3, &health_bar.bar.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, health_bar.bar.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(health_bar.bar.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..health_bar.bar.indices.len() as u32, 0, 0..1);
-        }
-
-        // Render enemy health bar
-        if let Some(enemy_health_bar) = &editor.enemy_health_bar {
-            // Background
-            enemy_health_bar.background.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &enemy_health_bar.background.bind_group, &[]);
-            render_pass.set_bind_group(3, &enemy_health_bar.background.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, enemy_health_bar.background.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(enemy_health_bar.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..enemy_health_bar.background.indices.len() as u32, 0, 0..1);
-
-            // Bar
-            enemy_health_bar.bar.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &enemy_health_bar.bar.bind_group, &[]);
-            render_pass.set_bind_group(3, &enemy_health_bar.bar.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, enemy_health_bar.bar.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(enemy_health_bar.bar.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..enemy_health_bar.bar.indices.len() as u32, 0, 0..1);
-        }
-
         // Render MiniMap
         if let Some(mini_map) = &editor.mini_map {
             if mini_map.visible {
@@ -219,37 +181,6 @@ impl UiPipeline {
                         render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
                     }
                 }
-            }
-        }
-
-        // Render Crosshair
-        if let Some(crosshair) = &editor.crosshair {
-            // Vertical
-            crosshair.vertical.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &crosshair.vertical.bind_group, &[]);
-            render_pass.set_bind_group(3, &crosshair.vertical.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, crosshair.vertical.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(crosshair.vertical.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..crosshair.vertical.indices.len() as u32, 0, 0..1);
-
-            // Horizontal
-            crosshair.horizontal.transform.update_uniform_buffer(queue);
-            render_pass.set_bind_group(1, &crosshair.horizontal.bind_group, &[]);
-            render_pass.set_bind_group(3, &crosshair.horizontal.group_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, crosshair.horizontal.vertex_buffer.slice(..));
-            render_pass.set_index_buffer(crosshair.horizontal.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            render_pass.draw_indexed(0..crosshair.horizontal.indices.len() as u32, 0, 0..1);
-        }
-
-        // Render Ammo Display
-        if let Some(ammo_display) = &editor.ammo_display {
-            if !ammo_display.text_renderer.hidden {
-                ammo_display.text_renderer.transform.update_uniform_buffer(queue);
-                render_pass.set_bind_group(1, &ammo_display.text_renderer.bind_group, &[]);
-                render_pass.set_bind_group(3, &ammo_display.text_renderer.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, ammo_display.text_renderer.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(ammo_display.text_renderer.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..ammo_display.text_renderer.indices.len() as u32, 0, 0..1);
             }
         }
     }

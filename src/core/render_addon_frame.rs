@@ -19,7 +19,6 @@ use crate::{
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
-use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
 use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
 use egui::StrokeKind;
@@ -56,7 +55,6 @@ use crate::shape_primitives::Sphere::Sphere;
 // use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
-use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
@@ -124,19 +122,19 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         }
 
         // Sync enemy health to UI
-        if let Some(target_id) = &editor.current_enemy_target {
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
-                 if let Some(health_bar) = &mut editor.enemy_health_bar {
-                    health_bar.update_health(queue, npc.stats.health);
-                }
-            }
-        }
+        // if let Some(target_id) = &editor.current_enemy_target {
+        //     if let Some(npc) = renderer_state.npcs.iter().find(|n| &n.id == target_id) {
+        //          if let Some(health_bar) = &mut editor.enemy_health_bar {
+        //             health_bar.update_health(queue, npc.stats.health);
+        //         }
+        //     }
+        // }
 
         // Sync player health to UI
         if let Some(player) = &mut renderer_state.player_character {
-            if let Some(health_bar) = &mut editor.health_bar {
-                health_bar.update_health(queue, player.stats.health);
-            }
+            // if let Some(health_bar) = &mut editor.health_bar {
+            //     health_bar.update_health(queue, player.stats.health);
+            // }
 
             // Update Aim
             player.update_aim(0.016);
@@ -146,20 +144,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             // Better call it here to be safe, but update() is called in step_physics_pipeline?
             // step_physics_pipeline calls camera.update()
             
-            // Update Ammo UI
-            if let Some(ammo_display) = &mut editor.ammo_display {
-                 let mut ammo = None;
-                 let mut max = None;
-                 if let Some(weapon) = &player.inventory.equipped_weapon {
-                     if let Some(props) = &weapon.collectable_properties {
-                         ammo = props.ammo;
-                         max = props.max_ammo;
-                     }
-                 }
-                 
-                 ammo_display.update(device, queue, ammo, max);
-            }
-
             if let Some(mini_map) = &mut editor.mini_map {
                 if let Some(rb_handle) = player.movement_rigid_body_handle {
                      if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {

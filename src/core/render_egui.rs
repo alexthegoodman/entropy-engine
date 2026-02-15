@@ -19,7 +19,6 @@ use crate::{
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
-use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
 use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
 use egui::StrokeKind;
@@ -56,7 +55,6 @@ use crate::shape_primitives::Sphere::Sphere;
 // use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
-use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
  pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
@@ -248,7 +246,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                             let new_tabs = editor.addon_engine.consume_new_tabs();
                             for (tab_id, title, addon_name) in new_tabs {
                                 let dock_state = pipeline.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
-                                    let mut ds = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Chat]);
+                                    let mut ds = DockState::new(vec![Tab::Viewport]);
                                     ds
                                 });
                                 let surface = dock_state.main_surface_mut();

@@ -21,7 +21,6 @@ use crate::{
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
-use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
 use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
 use egui::StrokeKind;
@@ -68,7 +67,6 @@ use crate::shape_primitives::Sphere::Sphere;
 // use crate::deno::script_engine::{ComponentChanges, DenoEngine};
 use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
-use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 // use super::chat::Chat;
@@ -1318,54 +1316,7 @@ impl EntropyPipeline {
         );
 
         // if game_mode {
-            export_editor.health_bar = Some(HealthBar::new(
-                &device,
-                &queue,
-                &ui_model_bind_group_layout,
-                &group_bind_group_layout,
-                &camera,
-                &camera.viewport.window_size,
-                Point { x: 150.0, y: 50.0 }, // Top-left area
-                200.0,
-                30.0,
-                100.0,
-            ));
 
-            export_editor.enemy_health_bar = Some(HealthBar::new(
-                &device,
-                &queue,
-                &ui_model_bind_group_layout,
-                &group_bind_group_layout,
-                &camera,
-                &camera.viewport.window_size,
-                Point { x: video_width as f32 - 150.0, y: 50.0 }, // Top-right area
-                200.0,
-                30.0,
-                100.0,
-            ));
-
-            export_editor.crosshair = Some(Crosshair::new(
-                &device,
-                &queue,
-                &ui_model_bind_group_layout,
-                &group_bind_group_layout,
-                &camera,
-                &camera.viewport.window_size,
-            ));
-
-            // Load Basic font for AmmoDisplay
-            let font_bytes = export_editor.font_manager.get_font_by_name("Basic")
-                .unwrap_or_else(|| &export_editor.font_manager.font_data[0].1);
-
-            export_editor.ammo_display = Some(AmmoDisplay::new(
-                &device,
-                &queue,
-                &ui_model_bind_group_layout,
-                &group_bind_group_layout,
-                &camera,
-                &camera.viewport.window_size,
-                font_bytes,
-            ));
         // }
 
         let mut grids = Vec::new();
@@ -1699,19 +1650,6 @@ impl EntropyPipeline {
             let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get editor");
             // if editor.viewport_tab_rect.is_none() {
                 let window_size = WindowSize { width: new_size.width, height: new_size.height };
-
-                if let Some(enemy_health_bar) = &mut editor.enemy_health_bar {
-                    enemy_health_bar.bar.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
-                    enemy_health_bar.background.transform.update_position([new_size.width as f32 - 150.0, 50.0, 0.0]);
-                }
-
-                if let Some(crosshair) = &mut editor.crosshair {
-                    crosshair.resize(&gpu_resources.queue, &window_size);
-                }
-
-                if let Some(ammo_display) = &mut editor.ammo_display {
-                    ammo_display.resize(&gpu_resources.queue, &window_size);
-                }
 
                 if let Some(mini_map) = &mut editor.mini_map {
                     mini_map.resize(&gpu_resources.queue, &window_size);

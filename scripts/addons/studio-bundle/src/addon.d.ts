@@ -728,6 +728,9 @@ export interface EntropyAPI {
   _dispatchGameStopped: () => void;
   _process_events: (eventIds: string[]) => void;
   setGameMode: (enabled: boolean) => void;
+  Window: {
+    getSize: () => [number, number];
+  };
   Humanoid: {
     create: () => any; // Returns ProceduralHumanoid instance
   };

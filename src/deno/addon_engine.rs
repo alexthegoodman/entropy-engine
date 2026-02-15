@@ -24,13 +24,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::art_assets::Model::read_model;
-use crate::core::HealthBar::HealthBar;
 use crate::core::Texture::Texture;
 use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::game_behaviors::stateful::BehaviorConfig;
-use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
 use crate::model_components::NPC::NPC;
 use crate::procedural_grass::grass::Grass;
@@ -704,6 +702,29 @@ fn op_entity_play_animation(state: &mut OpState, #[string] id: String, #[string]
 fn op_entity_set_stats(state: &mut OpState, #[string] id: String, #[serde] stats: crate::helpers::saved_data::CharacterStats) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_stat_updates.push((id, stats));
+    }
+}
+
+#[op2]
+#[serde]
+fn op_entity_get_stats(state: &mut OpState, #[string] id: String) -> Option<crate::helpers::saved_data::CharacterStats> {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        // We need to find the entity in the renderer state
+        // This is a bit complex as renderer_state is not directly in AddonContext
+        // But we might be able to find it in the OpState if we are in a behavior execution
+        // However, op_entity_get_stats is called from JS normally.
+        
+        // Actually, we can look into the editor's renderer_state
+        // But AddonContext doesn't have a direct link to Editor.
+        // Wait, EngineContext is used during behavior execution.
+        
+        // Let's look at how other ops get data from the world.
+        // op_landscape_get_height uses AddonContext.landscape_heights.
+        
+        // We might need to sync stats to AddonContext as well.
+        None // Placeholder for now, I'll need to check where stats are stored
+    } else {
+        None
     }
 }
 

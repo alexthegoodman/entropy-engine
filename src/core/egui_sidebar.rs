@@ -17,7 +17,6 @@ use crate::{
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
-use crate::core::HealthBar::HealthBar;
 use crate::core::editor::Point;
 use std::{fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};

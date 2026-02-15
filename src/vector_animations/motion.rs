@@ -23,7 +23,6 @@ use crate::helpers::timelines::{SavedTimelineStateConfig, TrackType};
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
-use crate::core::HealthBar::HealthBar;
 use crate::renderer_videos::st_video::StVideo;
 use crate::screen_capture::capture::{MousePosition, SourceData};
 // use crate::renderer_videos::st_video::StVideo;
@@ -32,7 +31,6 @@ use crate::vector_animations::animations::{AnimationData, AnimationProperty, Bac
 use crate::shape_primitives::Cube::Cube;
 // use crate::deno::script_engine::DenoEngine;
 use crate::game_ui::dialogue_state::DialogueState;
-use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 use crate::vector_animations::motion_arrow::MotionArrow;
 use crate::vector_animations::motion_path::MotionPath;
 

@@ -10,7 +10,6 @@ use wgpu::{BindGroupLayout, TextureView};
 
 use crate::art_assets::ScatteredModel::ScatteredModel;
 use crate::core::AnimationState::AnimationState;
-use crate::core::HealthBar::HealthBar;
 use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
 use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
@@ -18,7 +17,6 @@ use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::deno::addon_engine::VisualConfig;
 use crate::game_behaviors::stateful::BehaviorState;
-use crate::game_ui::hud::{AmmoDisplay, Crosshair};
 use crate::handlers::EntropyPosition;
 use crate::helpers::saved_data::{GameSettings, PhysicsConfig, ScatterSettings, VisualType};
 use crate::heightfield_landscapes::QuadNode::QuadNode;
@@ -225,11 +223,6 @@ pub struct RendererState {
 
     pub quest_state: QuestState,
     pub pending_loot_drops: Vec<(Vector3<f32>, ComponentData)>,
-
-    // pub health_bar: Option<HealthBar>,
-    // pub enemy_health_bar: Option<HealthBar>,
-    // pub crosshair: Option<Crosshair>,
-    // pub ammo_display: Option<AmmoDisplay>,
 }
 
 // impl<'a> RendererState<'a> {
@@ -441,11 +434,6 @@ impl RendererState {
             alt_active: false,
             ui_model_bind_group_layout,
             pending_loot_drops: Vec::new(),
-
-            // health_bar: None,
-            // enemy_health_bar: None,
-            // crosshair: None,
-            // ammo_display: None,
         }
     }
 

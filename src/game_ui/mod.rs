@@ -5,4 +5,3 @@ pub mod quest_state;
 pub mod quest_ui;
 pub mod controls_ui;
 pub mod mini_map;
-pub mod hud;

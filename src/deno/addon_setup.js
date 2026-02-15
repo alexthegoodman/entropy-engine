@@ -939,6 +939,11 @@ globalThis.Entropy = {
     setGameMode: (enabled) => {
         ops.op_set_game_mode(enabled);
     },
+    Window: {
+        getSize: () => {
+            return ops.op_window_get_size();
+        }
+    },
     Camera: {
         getTransform: () => {
             return ops.op_camera_get_transform();

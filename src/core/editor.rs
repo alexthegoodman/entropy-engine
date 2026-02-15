@@ -23,7 +23,6 @@ use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
-use crate::core::HealthBar::HealthBar;
 use crate::renderer_videos::st_video::StVideo;
 use crate::screen_capture::capture::{MousePosition, SourceData};
 // use crate::renderer_videos::st_video::StVideo;
@@ -33,7 +32,6 @@ use crate::shape_primitives::Cube::Cube;
 // use crate::deno::script_engine::DenoEngine;
 use crate::deno::addon_engine::AddonEngine;
 use crate::game_ui::dialogue_state::DialogueState;
-use crate::game_ui::hud::{Crosshair, AmmoDisplay};
 
 use cgmath::SquareMatrix;
 
@@ -323,10 +321,6 @@ pub struct Editor {
     pub ui_images: Vec<StImage>,
     pub stunts_images: Vec<StImage>,
     pub stunts_videos: Vec<crate::renderer_videos::st_video::StVideo>,
-    pub health_bar: Option<HealthBar>,
-    pub enemy_health_bar: Option<HealthBar>,
-    pub crosshair: Option<Crosshair>,
-    pub ammo_display: Option<AmmoDisplay>,
     pub current_enemy_target: Option<String>,
     
     // Inventory UI
@@ -737,10 +731,6 @@ impl Editor {
             ui_images: Vec::new(),
             stunts_images: Vec::new(),
             stunts_videos: Vec::new(),
-            health_bar: None,
-            enemy_health_bar: None,
-            crosshair: None,
-            ammo_display: None,
             current_enemy_target: None,
             is_inventory_open: false,
             inventory_ui_ids: Vec::new(),

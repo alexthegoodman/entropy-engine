@@ -1,5 +1,6 @@
 import type { Entity } from "./addon";
 import { ProceduralHumanoid } from "./humanoid_v2";
+import { FPSUI, type DialogueState } from "./fps_ui";
 import { 
     FloorPlan, 
     HouseGeometry, 
@@ -24,6 +25,7 @@ const addonInfo = {
 };
 
 const addon = Entropy.Addon.register(addonInfo);
+const fpsUI = new FPSUI(addon);
 
 // --- Game Configuration ---
 // const LANDSCAPE_SIZE = 4096; // Configurable
@@ -262,6 +264,21 @@ class GameState {
     collectablesFound = 0;
     isInventoryOpen = false;
     lastInventoryToggleTime = 0;
+    
+    // Stats
+    health = 100;
+    maxHealth = 100;
+    ammo = 30;
+    maxAmmo = 30;
+
+    // Dialogue
+    dialogue: DialogueState = {
+        isOpen: false,
+        npcName: "",
+        text: "",
+        options: [],
+        selectedIndex: 0
+    };
     
     addItem(itemId: string, quantity: number = 1) {
         this.inventory[itemId] = (this.inventory[itemId] || 0) + quantity;
@@ -1942,6 +1959,22 @@ Entropy.onGameStopped(() => {
 
 addon.onUpdatePlus("Game Composer", (time) => {
     Entropy.Composer?.enableGameComposerOverride();
+
+    if (gameState.isGameActive && !gameState.isInventoryOpen) {
+        addon.UI.clear();
+        
+        const [width, height] = Entropy.Window.getSize();
+        
+        // Render HUD
+        fpsUI.renderHealthBar(gameState.health, gameState.maxHealth);
+        fpsUI.renderAmmo(gameState.ammo, gameState.maxAmmo);
+        
+        fpsUI.renderCrosshair(width, height); 
+        
+        if (gameState.dialogue.isOpen) {
+            fpsUI.renderDialogue(gameState.dialogue, width, height);
+        }
+    }
 
     // Check for inventory toggle
     if (Entropy.Input.isKeyPressed("i")) {
