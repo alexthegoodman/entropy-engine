@@ -478,6 +478,11 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     private async generateTerrain(params: TerrainParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }, id: string = "default"): Promise<void> {
         if (!params.width || !params.height) return;
 
+        if (params.use3D && params.rockThreshold > 0.7) { // Simple heuristic for cave mode
+             await this.generate3DTerrain(params, id);
+             return;
+        }
+
         Entropy.println(`Regenerating FlexNoise Terrain (${id}): ${params.width}x${params.height}...`);
 
         const prng = Alea(params.seed);
@@ -557,6 +562,95 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
 
         this.restoreLayerTextures("FlexNoise Terrain", params);
         this.restoreLayerTextures("Game Composer", params);
+    }
+
+    private async generate3DTerrain(params: TerrainParams, id: string): Promise<void> {
+        Entropy.println(`Generating 3D Noise Terrain for ${id}...`);
+        
+        const vertices: number[] = [];
+        const indices: number[] = [];
+        
+        const prng = Alea(params.seed);
+        const noise3D = createNoise3D(prng);
+        
+        const res = 32; // Resolution of the 3D grid
+        const size = params.width / 2;
+        const heightBase = params.positionY;
+        const heightScale = params.heightScale * 20;
+        
+        const caveColor: [number, number, number, number] = params.terrainColor;
+
+        // Helper to add a vertex
+        const addVertex = (x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number) => {
+            // pos(3), normal(3), uv(2), color(4) = 12 floats per vertex
+            vertices.push(x, y, z, nx, ny, nz, u, v, ...caveColor);
+        };
+
+        // We'll generate two surfaces: a floor and a ceiling
+        // Driven by 3D noise to create "pockets" and "caverns"
+        for (let z = 0; z < res; z++) {
+            for (let x = 0; x < res; x++) {
+                const xf = (x / (res - 1)) * 2 - 1;
+                const zf = (z / (res - 1)) * 2 - 1;
+                
+                const worldX = xf * size;
+                const worldZ = zf * size;
+
+                // Sample noise at this horizontal position for different heights
+                const nFloor = this.fbm3D(noise3D, worldX, 0, worldZ, params.octaves, params.frequency, params.persistence, params.lacunarity);
+                const nCeil = this.fbm3D(noise3D, worldX, heightScale, worldZ, params.octaves, params.frequency, params.persistence, params.lacunarity);
+
+                const floorY = heightBase + nFloor * (heightScale * 0.5);
+                const ceilY = heightBase + heightScale + nCeil * (heightScale * 0.5);
+
+                // Add floor vertex
+                addVertex(worldX, floorY, worldZ, 0, 1, 0, x / res, z / res);
+                // Add ceiling vertex (index offset by res*res)
+                addVertex(worldX, ceilY, worldZ, 0, -1, 0, x / res, z / res);
+            }
+        }
+
+        // Generate indices for both surfaces
+        for (let z = 0; z < res - 1; z++) {
+            for (let x = 0; x < res - 1; x++) {
+                const i = (z * res + x) * 2; // Each loop step adds 2 vertices (floor and ceil)
+                const nextZ = ((z + 1) * res + x) * 2;
+                
+                // Floor triangles (even indices)
+                indices.push(i, nextZ, i + 2);
+                indices.push(i + 2, nextZ, nextZ + 2);
+
+                // Ceiling triangles (odd indices, inverted winding)
+                indices.push(i + 1, i + 3, nextZ + 1);
+                indices.push(i + 3, nextZ + 3, nextZ + 1);
+            }
+        }
+
+        // const target = globalThis.__entropy_current_addon_context_override || this.name;
+        this.api.Landscape3D.create({
+            id,
+            vertices,
+            indices,
+            position: [0, 0, 0],
+            pipelineId: params.pipelineId || "default",
+            renderRole: "Terrain"
+        });
+    }
+
+    private fbm3D(noise3D: (x: number, y: number, z: number) => number, x: number, y: number, z: number, octaves: number, frequency: number, persistence: number, lacunarity: number): number {
+        let total = 0;
+        let amplitude = 1;
+        let maxValue = 0;
+        let freq = frequency;
+
+        for (let i = 0; i < octaves; i++) {
+            total += noise3D(x * freq, y * freq, z * freq) * amplitude;
+            maxValue += amplitude;
+            amplitude *= persistence;
+            freq *= lacunarity;
+        }
+
+        return total / maxValue;
     }
 
     // ==================== UPDATE LOOP ====================
@@ -848,6 +942,14 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                     this.generateTerrain(this.currentParams, this.state.activeComponentId);
                 }
             });
+
+            Entropy.UI.Widget.button(tab, {
+                text: "🏚️ Generate Cave Prototype",
+                onClick: () => {
+                    this.currentParams.rockThreshold = 0.8; // Trigger 3D logic
+                    this.generateTerrain(this.currentParams, this.state.activeComponentId);
+                }
+            });
         }
 
         Entropy.UI.Widget.slider(tab, {
@@ -1042,6 +1144,31 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
                 this.currentParams.octaves = 3;
                 this.currentParams.persistence = 0.4;
                 this.currentParams.heightScale = 1.25;
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "🏚️ Deep Caverns (3D)",
+            onClick: () => {
+                this.currentParams.use3D = true;
+                this.currentParams.rockThreshold = 0.8;
+                this.currentParams.frequency = 0.02;
+                this.currentParams.octaves = 4;
+                this.currentParams.heightScale = 2.0;
+                this.generateTerrain(this.currentParams, this.state.activeComponentId);
+            }
+        });
+
+        Entropy.UI.Widget.button(tab, {
+            text: "☁️ Floating Islands (3D)",
+            onClick: () => {
+                this.currentParams.use3D = true;
+                this.currentParams.rockThreshold = 0.8;
+                this.currentParams.frequency = 0.01;
+                this.currentParams.octaves = 6;
+                this.currentParams.heightScale = 5.0;
+                this.currentParams.positionY = 50.0;
                 this.generateTerrain(this.currentParams, this.state.activeComponentId);
             }
         });

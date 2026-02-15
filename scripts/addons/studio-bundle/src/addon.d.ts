@@ -273,6 +273,16 @@ export interface ScopedAPI {
     updatePbrTexturePlus: (addonName: string, textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
     getHeightAt: (x: number, z: number) => number;
   };
+  Landscape3D: {
+    create: (config: {
+      id?: string | null;
+      vertices: number[];
+      indices: number[];
+      position?: [number, number, number];
+      pipelineId?: string | null;
+      renderRole?: string | null;
+    }) => void;
+  };
   Noise: {
     create: (config: NoiseConfig) => string;
   };
@@ -634,6 +644,16 @@ export interface EntropyAPI {
   };
   Landscape: {
     create: (config: LandscapeConfig) => string;
+  };
+  Landscape3D: {
+    create: (config: {
+      id?: string | null;
+      vertices: number[];
+      indices: number[];
+      position?: [number, number, number];
+      pipelineId?: string | null;
+      renderRole?: string | null;
+    }) => void;
   };
   Noise: {
     create: (config: NoiseConfig) => string;

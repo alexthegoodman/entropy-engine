@@ -253,6 +253,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_cubes = Vec::new();
         let mut pbr_landscapes = Vec::new();
         let mut non_pbr_landscapes = Vec::new();
+        let mut pbr_landscape3ds = Vec::new();
+        let mut non_pbr_landscape3ds = Vec::new();
         let mut pbr_grasses = Vec::new();
         let mut non_pbr_grasses = Vec::new();
         let mut pbr_meshes = Vec::new();
@@ -320,6 +322,36 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             pbr_landscapes.push(landscape);
                         } else {
                             non_pbr_landscapes.push(landscape);
+                        }
+                    }
+                }
+
+                for (addon_name, landscapes) in &renderer_state.addon_landscape3ds {
+                    if ctx.hidden_addons.contains(addon_name) {
+                        continue;
+                    }
+                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
+                    for landscape in landscapes {
+                        let mut is_pbr = true;
+                        if let Some(pid) = &landscape.pipeline_id {
+                            if pid != "default" {
+                                if let Some(config) = ctx.pipeline_configs.get(pid) {
+                                    is_pbr = config.pbr.unwrap_or(true);
+                                }
+                            }
+                        }
+
+                        if is_pbr {
+                            pbr_landscape3ds.push(landscape);
+                        } else {
+                            non_pbr_landscape3ds.push(landscape);
                         }
                     }
                 }
@@ -414,7 +446,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         }
 
         // 1. Geometry Pass for PBR objects
-        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_grasses.is_empty() || !pbr_meshes.is_empty() {
+        if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_landscape3ds.is_empty() || !pbr_grasses.is_empty() || !pbr_meshes.is_empty() {
             let gbuffer_position_view = pipeline.g_buffer_position_view.as_ref().unwrap();            
             let gbuffer_normal_view = pipeline.g_buffer_normal_view.as_ref().unwrap();
             let gbuffer_albedo_view = pipeline.g_buffer_albedo_view.as_ref().unwrap();
@@ -528,6 +560,45 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
 
                     for landscape in &pbr_landscapes {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &landscape.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            if let Some(pid) = &landscape.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        landscape.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                        render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            landscape.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                    }
+
+                    for landscape in &pbr_landscape3ds {
                         let mut pipeline_set = false;
 
                         // 1. Check Role Override
@@ -980,6 +1051,45 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
 
                     for landscape in &non_pbr_landscapes {
+                        let mut pipeline_set = false;
+
+                        // 1. Check Role Override
+                        if let Some(role) = &landscape.render_role {
+                            if let Some(pid) = ctx.render_roles.get(role) {
+                                if let Some(p) = ctx.pipelines.get(pid) {
+                                    render_pass.set_pipeline(p);
+                                    pipeline_set = true;
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            if let Some(pid) = &landscape.pipeline_id {
+                                if pid != "default" {
+                                    if let Some(custom_pipeline) = ctx.pipelines.get(pid) {
+                                        render_pass.set_pipeline(custom_pipeline);
+                                        pipeline_set = true;
+                                    }
+                                }
+                            }
+                        }
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        landscape.transform.update_uniform_buffer(&queue);
+                        render_pass.set_bind_group(1, &landscape.bind_group, &[]);
+                        render_pass.set_bind_group(3, &landscape.group_bind_group, &[]);
+                        render_pass.set_vertex_buffer(0, landscape.vertex_buffer.slice(..));
+                        render_pass.set_index_buffer(
+                            landscape.index_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                    }
+
+                    for landscape in &non_pbr_landscape3ds {
                         let mut pipeline_set = false;
 
                         // 1. Check Role Override

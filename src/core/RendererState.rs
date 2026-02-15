@@ -55,6 +55,7 @@ use crate::procedural_models::House::{House, HouseConfig};
 use crate::{
     helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
     heightfield_landscapes::Landscape::Landscape,
+    heightfield_landscapes::Landscape3D::Landscape3D,
     art_assets::Model::Model,
     shape_primitives::{Cube::Cube, Pyramid::Pyramid},
     procedural_grass::grass::Grass,
@@ -140,6 +141,7 @@ pub struct RendererState {
     pub terrain_managers: Vec<TerrainManager>,
     pub landscapes: Vec<Landscape>,
     pub addon_landscapes: HashMap<String, Vec<Landscape>>,
+    pub addon_landscape3ds: HashMap<String, Vec<Landscape3D>>,
     pub grasses: Vec<Grass>,
     pub addon_grasses: HashMap<String, Vec<Grass>>,
     pub addon_point_lights: HashMap<String, Vec<PointLight>>,
@@ -339,6 +341,7 @@ impl RendererState {
             procedural_houses,
             landscapes,
             addon_landscapes: HashMap::new(),
+            addon_landscape3ds: HashMap::new(),
             grasses,
             addon_grasses: HashMap::new(),
             addon_point_lights: HashMap::new(),
@@ -1912,6 +1915,31 @@ impl RendererState {
                         );
                         landscape.collider_handle = Some(collider_handle);
                     }
+                }
+            }
+            ComponentKind::Landscape3D => {
+                println!("Adding landscape3d collider");
+
+                let mut found_landscape = None;
+                for landscapes in self.addon_landscape3ds.values_mut() {
+                    if let Some(landscape) = landscapes.iter_mut().find(|l| l.id == component_id) {
+                        found_landscape = Some(landscape);
+                        break;
+                    }
+                }
+
+                if let Some(landscape) = found_landscape {
+                    let rigid_body_handle = self
+                        .rigid_body_set
+                        .insert(landscape.rapier_rigidbody.clone());
+                    landscape.rigid_body_handle = Some(rigid_body_handle);
+
+                    let collider_handle = self.collider_set.insert_with_parent(
+                        landscape.rapier_collider.clone(),
+                        rigid_body_handle,
+                        &mut self.rigid_body_set,
+                    );
+                    landscape.collider_handle = Some(collider_handle);
                 }
             }
             ComponentKind::Model => {

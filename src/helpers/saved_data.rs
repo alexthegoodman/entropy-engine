@@ -36,6 +36,7 @@ pub enum ComponentKind {
     Model, // sometimes active alone
     NPC, // only active alongside a corresponding Model component
     Landscape,
+    Landscape3D,
     PointLight,
     WaterPlane,
     Collectable,

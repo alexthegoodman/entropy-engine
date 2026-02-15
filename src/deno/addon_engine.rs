@@ -239,6 +239,8 @@ pub enum UiWidget {
 
 
 use crate::heightfield_landscapes::Landscape::Landscape;
+use crate::heightfield_landscapes::Landscape3D::Landscape3D;
+use crate::core::vertex::Vertex;
 
 use crate::helpers::landscapes::{self, LandscapePixelData, read_landscape_heightmap_as_texture};
 
@@ -282,6 +284,17 @@ pub struct LandscapeConfig {
     pub height: usize, // resolution (z)
     pub heights: Option<Vec<f32>>, // raw unscaled heights (y)
     pub noise_id: Option<String>,
+    pub position: [f32; 3],
+    pub pipeline_id: Option<String>,
+    pub render_role: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Landscape3DConfig {
+    pub id: Option<String>,
+    pub vertices: Vec<f32>, // Flat array of Vertex data (pos, normal, uv, color)
+    pub indices: Vec<u32>,
     pub position: [f32; 3],
     pub pipeline_id: Option<String>,
     pub render_role: Option<String>,
@@ -454,6 +467,7 @@ pub struct AddonContext {
     pub pending_clears: Vec<String>, // addon_names to clear meshes for
     pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
     pub pending_composites: Vec<(String, CompositeConfig)>,
@@ -1424,6 +1438,13 @@ fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] c
 fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: LandscapeConfig) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscapes.push((addon_name, config));
+    }
+}
+
+#[op2]
+fn op_landscape3d_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: Landscape3DConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_landscape3ds.push((addon_name, config));
     }
 }
 
@@ -2678,6 +2699,7 @@ extension!(
         op_mesh_clear,
         op_meshes_clear,
         op_landscape_create,
+        op_landscape3d_create,
         op_landscape_get_height,
         op_landscape_update_texture,
         op_landscape_update_pbr_texture,
@@ -2940,6 +2962,7 @@ impl AddonEngine {
             pending_clears: Vec::new(),
             pending_mesh_clears: Vec::new(),
             pending_landscapes: Vec::new(),
+            pending_landscape3ds: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
             pending_composites: Vec::new(),
@@ -4391,6 +4414,60 @@ impl AddonEngine {
 
                         renderer_state.add_collider(id.clone(), ComponentKind::Landscape, None);
                     }
+                }
+            }
+        }
+
+        let pending_landscape3ds = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                std::mem::take(&mut ctx.pending_landscape3ds)
+            } else {
+                Vec::new()
+            }
+        };
+
+        if !pending_landscape3ds.is_empty() {
+            if let gpu = &gpu_resources {
+                for (addon_name, config) in pending_landscape3ds {
+                    let mut vertices = Vec::with_capacity(config.vertices.len() / 12);
+                    for chunk in config.vertices.chunks(12) {
+                        if chunk.len() == 12 {
+                            vertices.push(Vertex {
+                                position: [chunk[0], chunk[1], chunk[2]],
+                                normal: [chunk[3], chunk[4], chunk[5]],
+                                tex_coords: [chunk[6], chunk[7]],
+                                color: [chunk[8], chunk[9], chunk[10], chunk[11]],
+                            });
+                        }
+                    }
+
+                    let id = config.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+
+                    let landscape = Landscape3D::new(
+                        &id,
+                        vertices,
+                        config.indices,
+                        &gpu.device,
+                        &gpu.queue,
+                        &renderer_state.model_bind_group_layout,
+                        &renderer_state.group_bind_group_layout,
+                        &renderer_state.texture_render_mode_buffer,
+                        &renderer_state.color_render_mode_buffer,
+                        config.position,
+                        camera,
+                        config.pipeline_id
+                    );
+                    let mut landscape = landscape;
+                    landscape.render_role = config.render_role;
+
+                    renderer_state.addon_landscape3ds
+                        .entry(addon_name)
+                        .or_insert_with(Vec::new)
+                        .push(landscape);
+
+                    renderer_state.add_collider(id.clone(), ComponentKind::Landscape3D, None);
                 }
             }
         }

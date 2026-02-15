@@ -187,6 +187,19 @@ globalThis.Entropy = {
                         return ops.op_landscape_get_height(x, z);
                     }
                 },
+                Landscape3D: {
+                    create: (config) => {
+                        const target = globalThis.__entropy_current_addon_context_override || metadata.name;
+                        ops.op_landscape3d_create(target, {
+                            id: config.id || null,
+                            vertices: config.vertices || [],
+                            indices: config.indices || [],
+                            position: config.position || [0, 0, 0],
+                            pipelineId: config.pipelineId || null,
+                            renderRole: config.renderRole || null
+                        });
+                    }
+                },
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -792,6 +805,19 @@ globalThis.Entropy = {
                 position: config.position || [0, 0, 0],
                 pipelineId: config.pipelineId || null,
                 render_role: config.renderRole || null
+            });
+        }
+    },
+    Landscape3D: {
+        create: (config) => {
+            const target = globalThis.__entropy_current_addon_context_override || "Global";
+            return ops.op_landscape3d_create(target, {
+                id: config.id || null,
+                vertices: config.vertices || [],
+                indices: config.indices || [],
+                position: config.position || [0, 0, 0],
+                pipelineId: config.pipelineId || null,
+                renderRole: config.renderRole || null
             });
         }
     },
