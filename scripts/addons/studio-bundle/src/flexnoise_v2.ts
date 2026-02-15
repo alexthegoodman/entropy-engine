@@ -2,6 +2,7 @@ import { createNoise2D, createNoise3D } from 'simplex-noise';
 import Alea from 'alea';
 import { ComponentAddon } from './system';
 import type { PBRMaterialType } from './addon';
+import { generateMesh } from './marching_cubes';
 
 const TEXTURE_RES = 512;
 
@@ -565,73 +566,84 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
     }
 
     private async generate3DTerrain(params: TerrainParams, id: string): Promise<void> {
-        Entropy.println(`Generating 3D Noise Terrain for ${id}...`);
+        Entropy.println(`Generating Volumetric Terrain (Marching Cubes) for ${id}...`);
         
         const vertices: number[] = [];
         const indices: number[] = [];
         
         const prng = Alea(params.seed);
         const noise3D = createNoise3D(prng);
+        const noise2D = createNoise2D(prng);
         
-        const res = 32; // Resolution of the 3D grid
+        // Resolution: Higher is smoother but slower
+        // For a full chunk, 32 or 48 is usually good.
+        const res = 48; 
         const size = params.width / 2;
-        const heightBase = params.positionY;
-        const heightScale = params.heightScale * 20;
         
         const caveColor: [number, number, number, number] = params.terrainColor;
 
-        // Helper to add a vertex
-        const addVertex = (x: number, y: number, z: number, nx: number, ny: number, nz: number, u: number, v: number) => {
-            // pos(3), normal(3), uv(2), color(4) = 12 floats per vertex
-            vertices.push(x, y, z, nx, ny, nz, u, v, ...caveColor);
+        const densityFunc = (x: number, y: number, z: number) => {
+            // Base density from 3D noise
+            let density = 0;
+            
+            // Domain warping for "Alien Pillars" if enabled via a flag or heuristic
+            // For now, we'll stick to standard fbm, but we can twist coordinates
+            let wx = x;
+            let wy = y;
+            let wz = z;
+
+            // Simple twist if frequency is very low (Alien Pillars preset uses freq=0.01)
+            // if (params.frequency < 0.015 && params.use3D) {
+            //     wx += Math.sin(y * 0.1) * 10;
+            //     wz += Math.cos(y * 0.1) * 10;
+            // }
+
+            let amplitude = 1;
+            let maxValue = 0;
+            let freq = params.frequency;
+
+            for (let i = 0; i < params.octaves; i++) {
+                density += noise3D(wx * freq, wy * freq, wz * freq) * amplitude;
+                maxValue += amplitude;
+                amplitude *= params.persistence;
+                freq *= params.lacunarity;
+            }
+            
+            // Normalize roughly -1 to 1
+            density /= maxValue;
+
+            // Apply height bias to make ground solid and sky empty?
+            // For "Floating Islands", we might want a bias that keeps center solid.
+            // For "Deep Caverns", we want solid everywhere except "worms".
+            
+            // Simple bias: Linear fade out at top and bottom if desired
+            // let heightBias = (y + size) / (size * 2); // 0 at bottom, 1 at top
+            // density -= (heightBias - 0.5) * 2.0; // Make bottom solid, top empty
+
+            return density; // > threshold is solid (or < threshold depending on convention)
         };
 
-        // We'll generate two surfaces: a floor and a ceiling
-        // Driven by 3D noise to create "pockets" and "caverns"
-        for (let z = 0; z < res; z++) {
-            for (let x = 0; x < res; x++) {
-                const xf = (x / (res - 1)) * 2 - 1;
-                const zf = (z / (res - 1)) * 2 - 1;
-                
-                const worldX = xf * size;
-                const worldZ = zf * size;
-
-                // Sample noise at this horizontal position for different heights
-                const nFloor = this.fbm3D(noise3D, worldX, 0, worldZ, params.octaves, params.frequency, params.persistence, params.lacunarity);
-                const nCeil = this.fbm3D(noise3D, worldX, heightScale, worldZ, params.octaves, params.frequency, params.persistence, params.lacunarity);
-
-                const floorY = heightBase + nFloor * (heightScale * 0.5);
-                const ceilY = heightBase + heightScale + nCeil * (heightScale * 0.5);
-
-                // Add floor vertex
-                addVertex(worldX, floorY, worldZ, 0, 1, 0, x / res, z / res);
-                // Add ceiling vertex (index offset by res*res)
-                addVertex(worldX, ceilY, worldZ, 0, -1, 0, x / res, z / res);
+        generateMesh(
+            densityFunc,
+            size,
+            res,
+            params.rockThreshold - 0.5, // Remap 0..1 to -0.5..0.5 range roughly
+            (x, y, z, nx, ny, nz) => {
+                // Determine UVs based on position (triplanar-ish or just simple project)
+                const u = x / (size * 2) + 0.5;
+                const v = z / (size * 2) + 0.5;
+                vertices.push(x, y + params.positionY, z, nx, ny, nz, u, v, ...caveColor);
+            },
+            (i1, i2, i3) => {
+                indices.push(i1, i2, i3);
             }
-        }
+        );
 
-        // Generate indices for both surfaces
-        for (let z = 0; z < res - 1; z++) {
-            for (let x = 0; x < res - 1; x++) {
-                const i = (z * res + x) * 2; // Each loop step adds 2 vertices (floor and ceil)
-                const nextZ = ((z + 1) * res + x) * 2;
-                
-                // Floor triangles (even indices)
-                indices.push(i, nextZ, i + 2);
-                indices.push(i + 2, nextZ, nextZ + 2);
-
-                // Ceiling triangles (odd indices, inverted winding)
-                indices.push(i + 1, i + 3, nextZ + 1);
-                indices.push(i + 3, nextZ + 3, nextZ + 1);
-            }
-        }
-
-        // const target = globalThis.__entropy_current_addon_context_override || this.name;
         this.api.Landscape3D.create({
             id,
             vertices,
             indices,
-            position: [0, 0, 0],
+            position: [0, 0, 0], // Position baked into vertices for now to handle Y-offset correctly in density
             pipelineId: params.pipelineId || "default",
             renderRole: "Terrain"
         });
