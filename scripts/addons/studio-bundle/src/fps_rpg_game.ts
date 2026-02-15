@@ -12,6 +12,7 @@ import {
     MeshBuilder
 } from "./procedural_houses_addon";
 
+// Note: This game currently expects the designer to add a landscape before loading
 const addonInfo = {
     name: "The Fractured Realm",
     version: "1.0.0",
