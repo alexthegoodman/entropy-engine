@@ -300,6 +300,53 @@ class GameState {
         }
     }
 
+    playFireSound() {
+        addon.Audio.playSynth({
+            freq: 40,
+            waveform: "noise",
+            duration: 0.1,
+            cutoff: 2000,
+            gain: 0.4
+        });
+    }
+
+    playReloadSound() {
+        // Double click sound for reload
+        addon.Audio.playSynth({
+            freq: 880,
+            waveform: "square",
+            duration: 0.05,
+            gain: 0.1
+        });
+        setTimeout(() => {
+            addon.Audio.playSynth({
+                freq: 440,
+                waveform: "square",
+                duration: 0.1,
+                gain: 0.1
+            });
+        }, 100);
+    }
+
+    playEmptySound() {
+        addon.Audio.playSynth({
+            freq: 1200,
+            waveform: "sine",
+            duration: 0.05,
+            gain: 0.1
+        });
+    }
+
+    playDamageSound() {
+        addon.Audio.playSynth({
+            freq: 60,
+            waveform: "saw",
+            duration: 0.2,
+            cutoff: 500,
+            gain: 0.3
+        });
+    }
+
     update() {
         if (this.uiDirty) {
             this.renderUI();
@@ -491,62 +538,6 @@ class GameState {
 const gameState = new GameState();
 
 // --- NPC Behaviors ---
-
-// const doWander = (entity: Entity, system: any, state: any) => {
-//     if (entity.isDead) return state;
-
-//     // Entropy.println("crimson soldier update. entity: " + JSON.stringify(entity));
-    
-//     const [playerPos] = Entropy.Camera.getTransform();
-//     const dx = playerPos[0] - entity.position[0];
-//     const dz = playerPos[2] - entity.position[2];
-//     const dist = Math.sqrt(dx * dx + dz * dz);
-    
-//     // Initialize wander state
-//     if (!state.wanderTarget || state.waitTime > 0) {
-//         state.waitTime = state.waitTime || 0;
-//         if (state.waitTime > 0) {
-//             state.waitTime--;
-//             Entropy.Entity.playAnimation(entity.id, "Idle");
-//             worldManager.npcAnimations[entity.id] = "Idle";
-//             return state;
-//         }
-        
-//         // Pick a random point in territory
-//         const territory = factions[Faction.CRIMSON_GUARD].territory;
-//         const angle = Math.random() * Math.PI * 2;
-//         const r = Math.random() * territory.radius;
-//         state.wanderTarget = [
-//             territory.x + Math.cos(angle) * r,
-//             0,
-//             territory.z + Math.sin(angle) * r
-//         ];
-//     }
-
-//     // Wander behavior
-//     const wdx = state.wanderTarget[0] - entity.position[0];
-//     const wdz = state.wanderTarget[2] - entity.position[2];
-//     const wdist = Math.sqrt(wdx * wdx + wdz * wdz);
-
-//     // Entropy.println("DO WANDER: " + JSON.stringify(state.wanderTarget) + " " + JSON.stringify(entity.position) + " " + wdist);
-    
-//     if (wdist > 1.0) {
-//         const speed = 6.5;
-//         Entropy.Entity.setXZVelocity(entity.id, [
-//             (wdx / wdist) * speed, (wdz / wdist) * speed
-//         ]);
-//         Entropy.Entity.playAnimation(entity.id, "Walking");
-//         worldManager.npcAnimations[entity.id] = "Walk";
-//     } else {
-//         state.wanderTarget = null;
-//         state.waitTime = 60 + Math.random() * 120; // Wait 1-3 seconds
-//         Entropy.Entity.playAnimation(entity.id, "Idle");
-//         worldManager.npcAnimations[entity.id] = "Idle";
-//     }
-    
-    
-//     return state;
-// };
 
 const npcWanderStates = new Map();
 
@@ -1794,7 +1785,7 @@ class EnvironmentDecorator {
                 path: houseModels[i % houseModels.length],
                 position: [x, y, z],
                 rotation: [0, angle + Math.PI / 2, 0],
-                scale: [1.2, 1.2, 1.2],
+                scale: [2.2, 2.2, 2.2],
                 physics: {
                     bodyType: "fixed",
                     colliderShape: "cuboid"
@@ -1823,7 +1814,7 @@ class EnvironmentDecorator {
                 path: towerModels[i % towerModels.length],
                 position: [x, y, z],
                 rotation: [0, angle, 0],
-                scale: [1, 1, 1],
+                scale: [4, 4, 4],
                 physics: {
                     bodyType: "fixed",
                     colliderShape: "capsule"
@@ -1859,7 +1850,7 @@ class EnvironmentDecorator {
                 path: propModel,
                 position: [x, y, z],
                 rotation: [0, rotation, 0],
-                scale: [0.8, 0.8, 0.8],
+                scale: [1.8, 1.8, 1.8],
                 physics: {
                     bodyType: "fixed",
                     colliderShape: "cuboid"
@@ -1879,7 +1870,7 @@ class EnvironmentDecorator {
         addon.Model.load({
             path: "LoveDeath_Bridge_Fragment_Art.glb",
             position: [0, y + 5, 0],
-            scale: [2, 2, 2],
+            scale: [6, 6, 6],
             physics: {
                 bodyType: "fixed",
                 colliderShape: "cuboid"
@@ -1945,29 +1936,29 @@ class EnvironmentDecorator {
         // just trees during testing
         this.spawnTrees(30);
         
-        // this.spawnFoliage(80);
+        this.spawnFoliage(20);
         // this.buildCentralBridge();
         
         // // Build outposts for each faction
-        // this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
-        // this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
-        // this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
+        this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
+        this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
+        this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
         
-        // // Add towers
-        // this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
-        // this.buildFactionTowers(Faction.AZURE_ORDER, 4);
-        // this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
+        // Add towers
+        this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
+        this.buildFactionTowers(Faction.AZURE_ORDER, 4);
+        this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
         
-        // // Add weapon displays
-        // this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
-        // this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
-        // this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
+        // Add weapon displays
+        this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
+        this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
+        this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
         
-        // // Scatter props
-        // this.spawnScatteredProps(50);
+        // Scatter props
+        this.spawnScatteredProps(50);
         
-        // // Build a dome at neutral zone
-        // this.buildDomeStructure(-440, 440);
+        // Build a dome at neutral zone
+        this.buildDomeStructure(-240, 0);
 
         this.spawnHouseCluster({
             x: 250, z: 250
@@ -2019,8 +2010,9 @@ addon.onUpdatePlus("Game Composer", (time) => {
         if (button === 0) { // Left Click - Fire
             if (gameState.ammo > 0) {
                 gameState.setAmmo(gameState.ammo - 1);
-                // Trigger muzzle flash/recoil logic here
+                gameState.playFireSound();
             } else {
+                gameState.playEmptySound();
                 Entropy.println("Click! Out of ammo.");
             }
         }
@@ -2031,11 +2023,13 @@ addon.onUpdatePlus("Game Composer", (time) => {
 
         if (key === "r") { // Reload
             gameState.setAmmo(gameState.maxAmmo);
+            gameState.playReloadSound();
             Entropy.println("Reloading...");
         }
 
         if (key === "k") { // Simulation: Take Damage
             gameState.setHealth(Math.max(0, gameState.health - 10));
+            gameState.playDamageSound();
         }
     });
 
@@ -2049,13 +2043,16 @@ addon.onUpdatePlus("Game Composer", (time) => {
         if (button === "RightTrigger") { // Fire
             if (gameState.ammo > 0) {
                 gameState.setAmmo(gameState.ammo - 1);
+                gameState.playFireSound();
             } else {
+                gameState.playEmptySound();
                 Entropy.println("Click! Out of ammo.");
             }
         }
 
         if (button === "West") { // Reload (Square/X)
             gameState.setAmmo(gameState.maxAmmo);
+            gameState.playReloadSound();
             Entropy.println("Reloading (Gamepad)...");
         }
         
