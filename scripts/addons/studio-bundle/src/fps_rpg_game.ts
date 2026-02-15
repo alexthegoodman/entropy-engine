@@ -290,12 +290,14 @@ class GameState {
     renderInventory() {
         addon.UI.clear();
         
-        const width = 1920; 
-        const height = 1080;
+        // const width = 1920; 
+        // const height = 1080;
         const bgWidth = 800;
         const bgHeight = 600;
-        const x = (width - bgWidth) / 2;
-        const y = (height - bgHeight) / 2;
+        // const x = (width - bgWidth) / 2;
+        // const y = (height - bgHeight) / 2;
+        const x = 50;
+        const y = 50;
 
         // Background
         addon.UI.drawRect({

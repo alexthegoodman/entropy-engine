@@ -360,10 +360,10 @@ fn create_rounded_polygon_path(
 
         // let p1_scaled = LyonPoint::new(p1.x * dimensions.0, p1.y * dimensions.1);
 
-        // Scale and center the point
+        // Scale the point (Top-left anchoring)
         let p1_scaled = LyonPoint::new(
-            (p1.x * dimensions.0) - half_width,
-            (p1.y * dimensions.1) - half_height,
+            (p1.x * dimensions.0),
+            (p1.y * dimensions.1),
         );
 
         let corner_start = point(
@@ -539,10 +539,10 @@ impl Polygon {
             y: untranslated.x * rotation_rad.sin() + untranslated.y * rotation_rad.cos(),
         };
 
-        // Center the point and scale to normalized coordinates
+        // Scale to normalized coordinates (Top-left anchoring)
         let local_point = Point {
-            x: (rotated.x + (self.dimensions.0 / 2.0)) / self.dimensions.0,
-            y: (rotated.y + (self.dimensions.1 / 2.0)) / self.dimensions.1,
+            x: rotated.x / self.dimensions.0,
+            y: rotated.y / self.dimensions.1,
         };
 
         local_point

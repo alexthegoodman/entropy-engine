@@ -43,11 +43,6 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         x: (window_size.width as f32 - bg_width) / 2.0, 
         y: (window_size.height as f32 - bg_height) / 2.0 
     };
-    // because it is positioned according to its center, not top-left
-    let poly_bg_pos = Point { 
-        x: bg_pos.x + (bg_width / 2.0), 
-        y: bg_pos.y + (bg_height / 2.0) 
-    };
     
     let bg_id = Uuid::new_v4();
     editor.inventory_ui_ids.push(bg_id);
@@ -63,7 +58,7 @@ fn open_inventory(editor: &mut Editor, device: &wgpu::Device, queue: &wgpu::Queu
         camera,
         vec![Point{x:0.0, y:0.0}, Point{x:1.0, y:0.0}, Point{x:1.0, y:1.0}, Point{x:0.0, y:1.0}],
         (bg_width, bg_height),
-        poly_bg_pos,
+        bg_pos,
         (0.0, 0.0, 0.0),
         0.0,
         [0.1, 0.1, 0.1, 0.9], // Dark background

@@ -3915,9 +3915,14 @@ impl AddonEngine {
                 // let group_bind_group_layout = group_bind_group_layout.as_ref().expect("No group layout");
 
                 for (_addon_name, config) in pending_ui_rects {
+                    // let poly_bg_pos = Point { 
+                    //     x: config.position[0] + (config.size[0] / 2.0), 
+                    //     y: config.position[1] + (config.size[1] / 2.0) 
+                    // };
+
                     let poly_bg_pos = Point { 
-                        x: config.position[0] + (config.size[0] / 2.0), 
-                        y: config.position[1] + (config.size[1] / 2.0) 
+                        x: config.position[0], 
+                        y: config.position[1]
                     };
                     
                     let id = Uuid::new_v4();

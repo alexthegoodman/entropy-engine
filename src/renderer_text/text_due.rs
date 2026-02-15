@@ -433,9 +433,9 @@ impl TextRenderer {
             });
         let total_height = layout.height();
 
-        // Calculate the starting x and y positions to center the text
-        let start_x = -total_width / 2.0;
-        let start_y = -total_height / 2.0;
+        // Total width and height of the text (Top-left anchoring)
+        let start_x = 0.0;
+        let start_y = 0.0;
 
         for glyph in glyphs {
             let key: GlyphRasterConfig = glyph.key; // hashable key
@@ -574,15 +574,11 @@ impl TextRenderer {
             y: point.y - self.transform.position.y,
         };
 
-        // Get the bounds of the rectangle based on dimensions
-        // Since dimensions are (width, height), the rectangle extends from (0,0) to (width, height)
-        let (width, height) = self.dimensions;
-
-        // Check if the point is within -0.5 to 0.5 range
-        untranslated.x >= -0.5 * self.dimensions.0 as f32
-            && untranslated.x <= 0.5 * self.dimensions.0 as f32
-            && untranslated.y >= -0.5 * self.dimensions.1 as f32
-            && untranslated.y <= 0.5 * self.dimensions.1 as f32
+        // Check if the point is within [0, dimensions] range
+        untranslated.x >= 0.0
+            && untranslated.x <= self.dimensions.0 as f32
+            && untranslated.y >= 0.0
+            && untranslated.y <= self.dimensions.1 as f32
     }
 
     pub fn contains_point_with_tolerance(&self, point: &Point, camera: &Camera, tolerance_percent: f32) -> bool {
@@ -592,15 +588,13 @@ impl TextRenderer {
         };
 
         // Apply tolerance expansion to the detection area
-        let tolerance_multiplier = 1.0 + (tolerance_percent / 100.0);
-        let enhanced_width = self.dimensions.0 * tolerance_multiplier;
-        let enhanced_height = self.dimensions.1 * tolerance_multiplier;
-
+        let tolerance_expansion = (self.dimensions.0 + self.dimensions.1) / 2.0 * (tolerance_percent / 100.0);
+        
         // Check if the point is within the enhanced bounds
-        untranslated.x >= -0.5 * enhanced_width as f32
-            && untranslated.x <= 0.5 * enhanced_width as f32
-            && untranslated.y >= -0.5 * enhanced_height as f32
-            && untranslated.y <= 0.5 * enhanced_height as f32
+        untranslated.x >= -tolerance_expansion
+            && untranslated.x <= self.dimensions.0 as f32 + tolerance_expansion
+            && untranslated.y >= -tolerance_expansion
+            && untranslated.y <= self.dimensions.1 as f32 + tolerance_expansion
     }
 
     pub fn to_local_space(&self, world_point: Point, camera: &Camera) -> Point {
@@ -610,11 +604,9 @@ impl TextRenderer {
         };
 
         let local_point = Point {
-            x: untranslated.x / (self.dimensions.0),
-            y: untranslated.y / (self.dimensions.1),
+            x: untranslated.x / self.dimensions.0,
+            y: untranslated.y / self.dimensions.1,
         };
-
-        // println!("local_point {:?} {:?}", self.name, local_point);
 
         local_point
     }
