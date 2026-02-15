@@ -27,10 +27,6 @@ const addonInfo = {
 const addon = Entropy.Addon.register(addonInfo);
 const fpsUI = new FPSUI(addon);
 
-// --- Game Configuration ---
-// const LANDSCAPE_SIZE = 4096; // Configurable
-// const LANDSCAPE_HEIGHT = 50;
-
 // --- Faction System ---
 enum Faction {
     CRIMSON_GUARD = "crimson_guard",
