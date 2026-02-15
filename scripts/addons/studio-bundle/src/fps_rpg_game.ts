@@ -2159,7 +2159,9 @@ addon.onUpdatePlus("Game Composer", (time) => {
             if (button === "DPadDown") gameState.navigateDialogue(1);
             if (button === "South") { // Select
                 const selected = gameState.dialogue.options[gameState.dialogue.selectedIndex];
-                // ...
+                if (selected) {
+                    addon.UI.selectDialogueOption(gameState.dialogue.selectedIndex);
+                }
             }
             return;
         }
