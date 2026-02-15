@@ -279,12 +279,61 @@ class GameState {
         options: [],
         selectedIndex: 0
     };
+
+    private uiDirty = true;
+
+    requestRedraw() {
+        this.uiDirty = true;
+    }
+
+    setHealth(value: number) {
+        if (this.health !== value) {
+            this.health = value;
+            this.uiDirty = true;
+        }
+    }
+
+    setAmmo(value: number) {
+        if (this.ammo !== value) {
+            this.ammo = value;
+            this.uiDirty = true;
+        }
+    }
+
+    update() {
+        if (this.uiDirty) {
+            this.renderUI();
+            this.uiDirty = false;
+        }
+    }
+
+    renderUI() {
+        if (!this.isGameActive) return;
+        
+        addon.UI.clear();
+
+        if (this.isInventoryOpen) {
+            this.renderInventory();
+            return;
+        }
+
+        const [width, height] = Entropy.Window.getSize();
+        
+        // Render HUD via reusable system
+        fpsUI.renderHealthBar(this.health, this.maxHealth);
+        fpsUI.renderAmmo(this.ammo, this.maxAmmo);
+        fpsUI.renderCrosshair(width, height); 
+        
+        if (this.dialogue.isOpen) {
+            fpsUI.renderDialogue(this.dialogue, width, height);
+        }
+    }
     
     addItem(itemId: string, quantity: number = 1) {
         this.inventory[itemId] = (this.inventory[itemId] || 0) + quantity;
         addon.Inventory.addItem(this.playerId!, itemId, quantity);
         Entropy.println(`[Inventory] +${quantity} ${itemId}`);
-        if (this.isInventoryOpen) this.renderInventory();
+        if (this.isInventoryOpen) this.requestRedraw();
     }
     
     hasItem(itemId: string, quantity: number = 1): boolean {
@@ -297,15 +346,11 @@ class GameState {
         this.lastInventoryToggleTime = now;
 
         this.isInventoryOpen = !this.isInventoryOpen;
-        if (this.isInventoryOpen) {
-            this.renderInventory();
-        } else {
-            addon.UI.clear();
-        }
+        this.requestRedraw();
     }
 
     renderInventory() {
-        addon.UI.clear();
+        // addon.UI.clear(); // Handled by renderUI
         
         // const width = 1920; 
         // const height = 1080;
@@ -1960,28 +2005,39 @@ Entropy.onGameStopped(() => {
 addon.onUpdatePlus("Game Composer", (time) => {
     Entropy.Composer?.enableGameComposerOverride();
 
-    if (gameState.isGameActive && !gameState.isInventoryOpen) {
-        addon.UI.clear();
-        
-        const [width, height] = Entropy.Window.getSize();
-        
-        // Render HUD
-        fpsUI.renderHealthBar(gameState.health, gameState.maxHealth);
-        fpsUI.renderAmmo(gameState.ammo, gameState.maxAmmo);
-        
-        fpsUI.renderCrosshair(width, height); 
-        
-        if (gameState.dialogue.isOpen) {
-            fpsUI.renderDialogue(gameState.dialogue, width, height);
-        }
-    }
+    gameState.update();
 
     // Check for inventory toggle
     if (Entropy.Input.isKeyPressed("i")) {
         gameState.toggleInventory();
     }
 
-    // Entropy.println("Rendering humanoids " + Object.keys(worldManager.npcHumanoids).length + " time: " + time);
+    // --- Interaction Hooks ---
+    Entropy.Input.onMouseDown((button) => {
+        if (!gameState.isGameActive || gameState.isInventoryOpen) return;
+        
+        if (button === 0) { // Left Click - Fire
+            if (gameState.ammo > 0) {
+                gameState.setAmmo(gameState.ammo - 1);
+                // Trigger muzzle flash/recoil logic here
+            } else {
+                Entropy.println("Click! Out of ammo.");
+            }
+        }
+    });
+
+    Entropy.Input.onKeyDown((key) => {
+        if (!gameState.isGameActive) return;
+
+        if (key === "r") { // Reload
+            gameState.setAmmo(gameState.maxAmmo);
+            Entropy.println("Reloading...");
+        }
+
+        if (key === "k") { // Simulation: Take Damage
+            gameState.setHealth(Math.max(0, gameState.health - 10));
+        }
+    });
 
     // Animate player
     if (worldManager.playerHumanoid) {
