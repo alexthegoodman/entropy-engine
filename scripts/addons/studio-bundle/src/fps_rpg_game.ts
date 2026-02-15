@@ -2039,6 +2039,31 @@ addon.onUpdatePlus("Game Composer", (time) => {
         }
     });
 
+    Entropy.Input.onGamepadButton((button, pressed) => {
+        if (!gameState.isGameActive || !pressed) return;
+
+        if (button === "South") { // Jump placeholder / Interact
+             // Jump logic
+        }
+
+        if (button === "RightTrigger") { // Fire
+            if (gameState.ammo > 0) {
+                gameState.setAmmo(gameState.ammo - 1);
+            } else {
+                Entropy.println("Click! Out of ammo.");
+            }
+        }
+
+        if (button === "West") { // Reload (Square/X)
+            gameState.setAmmo(gameState.maxAmmo);
+            Entropy.println("Reloading (Gamepad)...");
+        }
+        
+        if (button === "Start") {
+            gameState.toggleInventory();
+        }
+    });
+
     // Animate player
     if (worldManager.playerHumanoid) {
         worldManager.playerHumanoid.animate(time, "Idle"); // Player idle for now

@@ -561,6 +561,8 @@ pub enum InputEvent {
     MouseUp { button: u32 },
     KeyDown { key: String },
     KeyUp { key: String },
+    GamepadButton { button: String, pressed: bool },
+    GamepadAxis { left_stick: [f32; 2], right_stick: [f32; 2] },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

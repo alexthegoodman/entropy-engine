@@ -1647,6 +1647,18 @@ fn handle_collectable_interaction(state: &mut Editor) {
 }
 
 pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32)) {
+    // Push event to Addons
+    {
+        let mut op_state = state.addon_engine.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+            ctx.input_events.push(crate::deno::addon_engine::InputEvent::GamepadAxis { 
+                left_stick: [left_stick.0, left_stick.1], 
+                right_stick: [right_stick.0, right_stick.1] 
+            });
+        }
+    }
+
     let renderer_state = match state.renderer_state.as_mut() {
         Some(rs) => rs,
         None => return,
@@ -1731,6 +1743,18 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
 }
 
 pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
+    // Push event to Addons
+    {
+        let mut op_state = state.addon_engine.runtime.op_state();
+        let mut op_state = op_state.borrow_mut();
+        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+            ctx.input_events.push(crate::deno::addon_engine::InputEvent::GamepadButton { 
+                button: button.to_string(), 
+                pressed 
+            });
+        }
+    }
+
     // Map gamepad buttons to existing key handlers
     match button {
         "South" => {

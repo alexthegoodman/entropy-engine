@@ -750,6 +750,8 @@ export interface EntropyAPI {
     onMouseUp: (callback: (button: number) => void) => void;
     onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => void;
     onKeyUp: (callback: (key: string) => void) => void;
+    onGamepadButton: (callback: (button: string, pressed: boolean) => void) => void;
+    onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number]) => void) => void;
     isKeyPressed: (key: string) => boolean;
     isCtrlPressed: () => boolean;
     isShiftPressed: () => boolean;

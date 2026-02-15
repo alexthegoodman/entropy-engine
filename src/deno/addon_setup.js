@@ -776,6 +776,12 @@ globalThis.Entropy = {
                 case "KeyUp":
                     if (listeners.onKeyUp) listeners.onKeyUp(event.key);
                     break;
+                case "GamepadButton":
+                    if (listeners.onGamepadButton) listeners.onGamepadButton(event.button, event.pressed);
+                    break;
+                case "GamepadAxis":
+                    if (listeners.onGamepadAxis) listeners.onGamepadAxis(event.leftStick, event.rightStick);
+                    break;
             }
         }
     },
@@ -1009,6 +1015,14 @@ globalThis.Entropy = {
         onKeyUp: (callback) => {
             globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
             globalThis._entropy_input_listeners.onKeyUp = callback;
+        },
+        onGamepadButton: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onGamepadButton = callback;
+        },
+        onGamepadAxis: (callback) => {
+            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
+            globalThis._entropy_input_listeners.onGamepadAxis = callback;
         },
         isKeyPressed: (key) => {
             const state = ops.op_input_get_state();
