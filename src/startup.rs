@@ -495,7 +495,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 }
 
                 // Dispatch actions only on press.
-                if event.state.is_pressed() {
+                // if event.state.is_pressed() {
                     if let Key::Named(winit::keyboard::NamedKey::Escape) = event.logical_key.as_ref() {
                         window.window.set_fullscreen(None);
                         window.window.set_cursor_visible(true);
@@ -539,7 +539,7 @@ impl ApplicationHandler<UserEvent> for Application {
                     if let Some(action) = action {
                         self.handle_action(event_loop, window_id, action);
                     }
-                }
+                // }
 
                 
             },

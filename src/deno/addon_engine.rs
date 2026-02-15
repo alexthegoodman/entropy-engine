@@ -1373,6 +1373,7 @@ fn op_input_get_state(state: &mut OpState) -> Result<AddonInputState, deno_error
 }
 
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AddonInputState {
     pub pressed_keys: Vec<String>,
     pub mouse_position: [f32; 2],

@@ -1007,7 +1007,10 @@ globalThis.Entropy = {
         },
         isKeyPressed: (key) => {
             const state = ops.op_input_get_state();
-            return state.pressedKeys.includes(key);
+            if (state.pressedKeys?.length) {
+                globalThis.Entropy.println("state.pressedKeys: " + JSON.stringify(state.pressedKeys));
+            }
+            return state.pressedKeys?.includes(key);
         },
         isCtrlPressed: () => {
             const state = ops.op_input_get_state();
