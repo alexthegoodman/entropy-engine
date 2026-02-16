@@ -289,7 +289,7 @@ export interface ScopedAPI {
   Collectable: {
     create: (config: {
       position: [number, number, number];
-      modelPath?: string;
+      modelPath: string;
       type: "health" | "ammo" | "quest_item" | "currency";
       value?: number;
       questId?: string;

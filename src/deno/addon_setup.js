@@ -234,7 +234,7 @@ globalThis.Entropy = {
                         // For now, we represent collectables as small models/cubes
                         ops.op_model_load(getAddonName(), {
                             id,
-                            path: config.modelPath || "Cube.glb",
+                            path: config.modelPath,
                             position: config.position,
                             scale: [0.5, 0.5, 0.5],
                             physics: {

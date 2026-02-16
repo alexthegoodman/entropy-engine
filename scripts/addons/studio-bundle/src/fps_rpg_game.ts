@@ -398,6 +398,7 @@ class GameState {
         const y = addon.Landscape.getHeightAt(position[0], position[2]);
         addon.Collectable.create({
             position: [position[0], y + 1, position[2]],
+            modelPath: "Barrel1medium.glb",
             type: "quest_item",
             value: 1,
             questId: itemId,
@@ -1118,6 +1119,7 @@ Entropy.Behavior.register("crimson_soldier", {
         addon.Collectable.create({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
+            modelPath: "Barrel1medium.glb",
             value: 1,
             questId: "crimson_insignia",
             onCollect: () => {
@@ -1254,6 +1256,7 @@ Entropy.Behavior.register("azure_soldier", {
         addon.Collectable.create({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
+            modelPath: "Barrel1medium.glb",
             value: 1,
             questId: "azure_insignia",
             onCollect: () => {

@@ -284,6 +284,7 @@ export class CombatSystem {
     
     /**
      * Raycast through scene to find first entity hit
+     * TODO: Should build into more generic library
      */
     private raycast(
         origin: [number, number, number],
@@ -291,26 +292,39 @@ export class CombatSystem {
         maxRange: number,
         ignoredEntityId: string
     ): RaycastHit | null {
+        Entropy.println("raycast");
+
         let closestHit: RaycastHit | null = null;
         let closestDist = maxRange;
         
+        let x = 0;
         for (const [entityId, entity] of this.entities.entries()) {
+            x++;
+
+            if (x < 3) {
+                Entropy.println("raycast " + origin + " " + entityId + " " + ignoredEntityId + " " + entity.isDead + " " + this.getEntityPosition(entityId));
+            }
+
             if (entityId === ignoredEntityId || entity.isDead) continue;
             
             const entityPos = this.getEntityPosition(entityId);
-            if (!entityPos) continue;
+            if (!entityPos) {
+                // Entropy.println("!entityPos");
+                continue;
+            };
             
             // Adjust center mass based on whether it's the player or an NPC
             // Player entityPos is camera pos (eye level), NPCs is foot level
             const isTargetPlayer = this.isPlayerId(entityId);
-            const centerOffset = isTargetPlayer ? -0.8 : 1.0; 
+            // const centerOffset = isTargetPlayer ? -0.8 : 1.0; 
+            const centerOffset = 0.0;
 
             // Check if ray intersects entity sphere (radius ~0.8 for more forgiving hits)
             const hit = this.raySphereIntersect(
                 origin,
                 direction,
                 [entityPos[0], entityPos[1] + centerOffset, entityPos[2]],
-                0.8
+                5.0
             );
             
             if (hit && hit.distance < closestDist) {
@@ -322,6 +336,8 @@ export class CombatSystem {
                 };
             }
         }
+
+        Entropy.println("raycast hit " + JSON.stringify(closestHit));
         
         return closestHit;
     }
@@ -393,17 +409,7 @@ export class CombatSystem {
      * Get player aim ray from camera
      */
     private getPlayerAimRay(): [[number, number, number], [number, number, number]] {
-        const [position, rotation] = this.getCameraTransform();
-        
-        const yaw = rotation[1];
-        const pitch = rotation[0];
-        
-        const direction: [number, number, number] = [
-            Math.sin(yaw) * Math.cos(pitch),
-            -Math.sin(pitch),
-            Math.cos(yaw) * Math.cos(pitch)
-        ];
-        
+        const [position, direction] = this.getCameraTransform();
         return [position, direction];
     }
     
