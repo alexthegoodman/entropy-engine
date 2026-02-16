@@ -374,6 +374,18 @@ class GameState {
         };
     }
 
+    syncPlayerStats() {
+        if (!this.playerId) return;
+        const player = combat.getEntity(this.playerId);
+        if (player) {
+            this.setHealth(player.health);
+            this.maxHealth = player.maxHealth;
+            this.setAmmo(player.weapon.ammo || 0);
+            this.maxAmmo = player.weapon.maxAmmo || 0;
+            this.requestRedraw();
+        }
+    }
+
     dropLoot(position: [number, number, number], itemId: string) {
         const y = addon.Landscape.getHeightAt(position[0], position[2]);
         addon.Collectable.create({
@@ -1435,6 +1447,8 @@ class WorldManager {
             ammo: 30,
             maxAmmo: 30
         }, 100);
+
+        gameState.syncPlayerStats();
     }
     
     populateWorld() {
@@ -2211,6 +2225,7 @@ Entropy.onGameStarted(() => {
     Entropy.println("=== THE FRACTURED REALM ===");
 
     gameState.isGameActive = true;
+    gameState.requestRedraw();
     // worldManager.initialize();
     
     Entropy.println("Choose your path wisely. Every action has consequences.");
@@ -2316,7 +2331,7 @@ addon.onUpdatePlus("Game Composer", (time) => {
              // Jump logic
         }
 
-        if (button === "RightTrigger") { // Fire
+        if (button === "RightTrigger" || button === "RightTrigger2") { // Fire
             if (combat.attack(gameState.playerId!, true)) {
                 combat.playFireSound();
                 const weapon = combat.getWeapon(gameState.playerId!);
