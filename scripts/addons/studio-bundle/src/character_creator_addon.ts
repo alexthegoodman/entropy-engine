@@ -1,5 +1,5 @@
 import { ComponentAddon } from "./system";
-import { ProceduralHumanoid, mat4_identity } from "./humanoid";
+import { ProceduralHumanoid, mat4_identity } from "./humanoid_v2";
 
 // Expose Humanoid API to Entropy for interop
 (Entropy as any).Humanoid = {

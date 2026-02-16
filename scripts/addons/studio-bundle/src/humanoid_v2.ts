@@ -603,11 +603,663 @@ export class ProceduralHumanoid {
             case "defeat": this.animateDefeat(time); break;
             case "stretch": this.animateStretch(time); break;
             case "yoga": this.animateYoga(time); break;
+            case "sprint": this.animateSprint(time); break;
+            case "crouchwalk": this.animateCrouchWalk(time); break;
+            case "slide": this.animateSlide(time); break;
+            case "ads": case "aim": this.animateAimDownSights(time); break;
+            case "recoil": this.animateRecoil(time); break;
+            case "reload": this.animateReload(time); break;
+            case "melee": this.animateMelee(time); break;
+            case "leanleft": this.animateLeanLeft(time); break;
+            case "leanright": this.animateLeanRight(time); break;
+            case "vault": case "mantle": this.animateVault(time); break;
+            case "prone": this.animateProne(time); break;
+            case "hitreaction": case "hit": this.animateHitReaction(time); break;
+            case "death": this.animateDeath(time); break;
             default: this.animateIdle(time); break;
         }
 
         // Update world transforms from root
         this.rootBone.updateWorldTransform(mat4_identity());
+    }
+
+    public animateSprint(time: number) {
+        const sprintSpeed = 6.5;
+        const cycle = time * sprintSpeed;
+        
+        const leftLegPhase = Math.sin(cycle);
+        const rightLegPhase = Math.sin(cycle + Math.PI);
+        
+        // Aggressive forward lean
+        const spineForwardLean = quat_from_axis_angle([1, 0, 0], 0.25);
+        this.rotateBone(this.spine, spineForwardLean);
+        
+        // Head down slightly
+        const headDown = quat_from_axis_angle([1, 0, 0], 0.15);
+        this.rotateBone(this.head, headDown);
+        
+        // Lower body for speed
+        const bobAmount = Math.abs(Math.sin(cycle * 2)) * 0.1;
+        const hipHeight = 0.9 * this.proportions.height - 0.08 + bobAmount;
+        this.rotateBone(this.hips, [0, 0, 0, 1], [0, hipHeight, 0]);
+        
+        // Explosive leg movement
+        const leftHipSwing = leftLegPhase * 1.0;
+        const leftHipRot = quat_from_axis_angle([1, 0, 0], leftHipSwing);
+        this.rotateBone(this.leftUpperLeg, leftHipRot);
+        
+        const leftKneeBend = Math.max(0, -leftLegPhase) * 2.0;
+        const leftKneeRot = quat_from_axis_angle([1, 0, 0], leftKneeBend);
+        this.rotateBone(this.leftLowerLeg, leftKneeRot);
+        
+        const rightHipSwing = rightLegPhase * 1.0;
+        const rightHipRot = quat_from_axis_angle([1, 0, 0], rightHipSwing);
+        this.rotateBone(this.rightUpperLeg, rightHipRot);
+        
+        const rightKneeBend = Math.max(0, -rightLegPhase) * 2.0;
+        const rightKneeRot = quat_from_axis_angle([1, 0, 0], rightKneeBend);
+        this.rotateBone(this.rightLowerLeg, rightKneeRot);
+        
+        // Arms pumping hard - more compact than running
+        const leftArmSwing = -leftLegPhase * 0.8;
+        const leftArmForward = quat_from_axis_angle([1, 0, 0], leftArmSwing);
+        const leftArmIn = quat_from_axis_angle([0, 1, 0], 0.2);
+        const leftArmCombined = quat_multiply(leftArmForward, leftArmIn);
+        this.rotateBone(this.leftUpperArm, leftArmCombined);
+        
+        const rightArmSwing = -rightLegPhase * 0.8;
+        const rightArmForward = quat_from_axis_angle([1, 0, 0], rightArmSwing);
+        const rightArmIn = quat_from_axis_angle([0, 1, 0], -0.2);
+        const rightArmCombined = quat_multiply(rightArmForward, rightArmIn);
+        this.rotateBone(this.rightUpperArm, rightArmCombined);
+        
+        // Aggressive elbow bend
+        const elbowBend = quat_from_axis_angle([1, 0, 0], 1.1);
+        this.rotateBone(this.leftForearm, elbowBend);
+        this.rotateBone(this.rightForearm, elbowBend);
+    }
+
+    public animateCrouchWalk(time: number) {
+        const walkSpeed = 2.0; // Slower than normal walk
+        const cycle = time * walkSpeed;
+        
+        const leftLegPhase = Math.sin(cycle);
+        const rightLegPhase = Math.sin(cycle + Math.PI);
+        
+        // Low body position
+        const hipHeight = 0.5 * this.proportions.height;
+        const bobAmount = Math.abs(Math.sin(cycle * 2)) * 0.02; // Minimal bob
+        this.rotateBone(this.hips, [0, 0, 0, 1], [0, hipHeight + bobAmount, 0]);
+        
+        // Forward spine lean
+        const spineLean = quat_from_axis_angle([1, 0, 0], 0.35);
+        this.rotateBone(this.spine, spineLean);
+        
+        // Knees bent significantly
+        const leftHipBend = quat_from_axis_angle([1, 0, 0], -0.3 + leftLegPhase * 0.3);
+        this.rotateBone(this.leftUpperLeg, leftHipBend);
+        
+        const leftKneeBend = 1.5 + Math.max(0, -leftLegPhase) * 0.5;
+        const leftKneeRot = quat_from_axis_angle([1, 0, 0], leftKneeBend);
+        this.rotateBone(this.leftLowerLeg, leftKneeRot);
+        
+        const rightHipBend = quat_from_axis_angle([1, 0, 0], -0.3 + rightLegPhase * 0.3);
+        this.rotateBone(this.rightUpperLeg, rightHipBend);
+        
+        const rightKneeBend = 1.5 + Math.max(0, -rightLegPhase) * 0.5;
+        const rightKneeRot = quat_from_axis_angle([1, 0, 0], rightKneeBend);
+        this.rotateBone(this.rightLowerLeg, rightKneeRot);
+        
+        // Arms in ready position (like holding weapon)
+        const armReady = quat_from_axis_angle([1, 0, 0], -0.5);
+        const armIn = quat_from_axis_angle([0, 1, 0], 0.3);
+        const leftArmCombined = quat_multiply(armReady, armIn);
+        this.rotateBone(this.leftUpperArm, leftArmCombined);
+        
+        const rightArmInMirror = quat_from_axis_angle([0, 1, 0], -0.3);
+        const rightArmCombined = quat_multiply(armReady, rightArmInMirror);
+        this.rotateBone(this.rightUpperArm, rightArmCombined);
+        
+        // Forearms up (weapon grip)
+        const forearmUp = quat_from_axis_angle([1, 0, 0], 0.9);
+        this.rotateBone(this.leftForearm, forearmUp);
+        this.rotateBone(this.rightForearm, forearmUp);
+    }
+
+    public animateSlide(time: number) {
+        // Slide animation is a short burst, loop every 2 seconds
+        const slideDuration = 1.5;
+        const cycle = (time % slideDuration) / slideDuration;
+        
+        let slidePhase = 0;
+        let legExtension = 0;
+        let bodyRotation = 0;
+        
+        if (cycle < 0.3) {
+            // Entry: dropping down
+            const t = cycle / 0.3;
+            slidePhase = t;
+            legExtension = t * 0.8;
+            bodyRotation = t * 0.2;
+        } else if (cycle < 0.8) {
+            // Middle: full slide
+            slidePhase = 1.0;
+            legExtension = 0.8;
+            bodyRotation = 0.2;
+        } else {
+            // Exit: recovering
+            const t = (cycle - 0.8) / 0.2;
+            slidePhase = 1.0 - t * 0.5;
+            legExtension = 0.8 - t * 0.8;
+            bodyRotation = 0.2 - t * 0.2;
+        }
+        
+        // Very low hip position
+        const hipHeight = 0.25 * this.proportions.height + (1 - slidePhase) * 0.1;
+        const hipTilt = quat_from_axis_angle([1, 0, 0], 0.6 * slidePhase);
+        this.rotateBone(this.hips, hipTilt, [0, hipHeight, 0]);
+        
+        // Lean back
+        const spineLean = quat_from_axis_angle([1, 0, 0], -0.3 * slidePhase);
+        this.rotateBone(this.spine, spineLean);
+        
+        // One leg extended forward, one bent back
+        const leftLegForward = quat_from_axis_angle([1, 0, 0], -0.5 * legExtension);
+        this.rotateBone(this.leftUpperLeg, leftLegForward);
+        
+        const leftKneeExtend = quat_from_axis_angle([1, 0, 0], 0.2 * legExtension);
+        this.rotateBone(this.leftLowerLeg, leftKneeExtend);
+        
+        const rightLegBent = quat_from_axis_angle([1, 0, 0], 1.2 * slidePhase);
+        this.rotateBone(this.rightUpperLeg, rightLegBent);
+        
+        const rightKneeBend = quat_from_axis_angle([1, 0, 0], 1.8 * slidePhase);
+        this.rotateBone(this.rightLowerLeg, rightKneeBend);
+        
+        // Arms out for balance
+        const leftArmOut = quat_from_axis_angle([0, 0, 1], -0.6 * slidePhase);
+        const leftArmBack = quat_from_axis_angle([1, 0, 0], 0.4 * slidePhase);
+        const leftArmCombined = quat_multiply(leftArmOut, leftArmBack);
+        this.rotateBone(this.leftUpperArm, leftArmCombined);
+        
+        const rightArmOut = quat_from_axis_angle([0, 0, 1], 0.6 * slidePhase);
+        const rightArmBack = quat_from_axis_angle([1, 0, 0], 0.4 * slidePhase);
+        const rightArmCombined = quat_multiply(rightArmOut, rightArmBack);
+        this.rotateBone(this.rightUpperArm, rightArmCombined);
+    }
+
+    public animateAimDownSights(time: number) {
+        // Stable aiming stance with minimal movement
+        const breathCycle = Math.sin(time * 1.2) * 0.01;
+        
+        // Slight forward stance
+        const spineLean = quat_from_axis_angle([1, 0, 0], 0.08);
+        this.rotateBone(this.spine, spineLean);
+        
+        // Head aligned with sights
+        const headForward = quat_from_axis_angle([1, 0, 0], 0.05);
+        this.rotateBone(this.head, headForward);
+        
+        // Right arm (primary weapon hold) - shoulder level
+        const rightShoulderRaise = quat_from_axis_angle([0, 0, 1], 0.4);
+        const rightShoulderForward = quat_from_axis_angle([1, 0, 0], -0.6);
+        const rightShoulderIn = quat_from_axis_angle([0, 1, 0], -0.15);
+        let rightArmRot = quat_multiply(rightShoulderRaise, rightShoulderForward);
+        rightArmRot = quat_multiply(rightArmRot, rightShoulderIn);
+        this.rotateBone(this.rightUpperArm, rightArmRot);
+        
+        // Right forearm extended holding weapon
+        const rightForearmExt = quat_from_axis_angle([1, 0, 0], 0.4);
+        this.rotateBone(this.rightForearm, rightForearmExt);
+        
+        // Left arm (support hand) - reaches across
+        const leftShoulderRaise = quat_from_axis_angle([0, 0, 1], -0.3);
+        const leftShoulderForward = quat_from_axis_angle([1, 0, 0], -0.5);
+        const leftShoulderAcross = quat_from_axis_angle([0, 1, 0], 0.4);
+        let leftArmRot = quat_multiply(leftShoulderRaise, leftShoulderForward);
+        leftArmRot = quat_multiply(leftArmRot, leftShoulderAcross);
+        this.rotateBone(this.leftUpperArm, leftArmRot);
+        
+        // Left forearm bent supporting weapon
+        const leftForearmBend = quat_from_axis_angle([1, 0, 0], 1.0);
+        this.rotateBone(this.leftForearm, leftForearmBend);
+        
+        // Subtle breathing sway
+        const sway = quat_from_axis_angle([0, 1, 0], breathCycle);
+        this.rotateBone(this.chest, sway);
+        
+        // Stable leg stance
+        const stanceWidth = 0.05;
+        const leftLegOut = quat_from_axis_angle([0, 1, 0], -0.1);
+        this.rotateBone(this.leftUpperLeg, leftLegOut);
+        
+        const rightLegOut = quat_from_axis_angle([0, 1, 0], 0.1);
+        this.rotateBone(this.rightUpperLeg, rightLegOut);
+    }
+
+    public animateRecoil(time: number) {
+        // Quick recoil snap - plays in about 0.3 seconds
+        const recoilDuration = 0.3;
+        const cycle = (time % recoilDuration) / recoilDuration;
+        
+        let recoilAmount = 0;
+        if (cycle < 0.15) {
+            // Quick kick back
+            recoilAmount = (cycle / 0.15) * 1.0;
+        } else {
+            // Recovery
+            const recoveryPhase = (cycle - 0.15) / 0.85;
+            recoilAmount = (1.0 - recoveryPhase) * 1.0;
+        }
+        
+        // Upper body kicks back
+        const spineKickback = quat_from_axis_angle([1, 0, 0], -0.08 * recoilAmount);
+        this.rotateBone(this.spine, spineKickback);
+        
+        const chestKickback = quat_from_axis_angle([1, 0, 0], -0.12 * recoilAmount);
+        this.rotateBone(this.chest, chestKickback);
+        
+        // Head snaps back slightly
+        const headKickback = quat_from_axis_angle([1, 0, 0], -0.06 * recoilAmount);
+        this.rotateBone(this.head, headKickback);
+        
+        // Right shoulder absorbs recoil
+        const rightShoulderKick = quat_from_axis_angle([1, 0, 0], 0.15 * recoilAmount);
+        const rightShoulderRot = quat_from_axis_angle([0, 0, 1], 0.4); // Base ADS position
+        const rightCombined = quat_multiply(rightShoulderRot, rightShoulderKick);
+        this.rotateBone(this.rightUpperArm, rightCombined);
+        
+        // Weapon muzzle rise (forearm extension)
+        const forearmKick = quat_from_axis_angle([1, 0, 0], -0.1 * recoilAmount);
+        this.rotateBone(this.rightForearm, forearmKick);
+        
+        // Support hand compensates
+        const leftArmBase = quat_from_axis_angle([0, 0, 1], -0.3);
+        const leftArmPull = quat_from_axis_angle([1, 0, 0], 0.08 * recoilAmount);
+        const leftCombined = quat_multiply(leftArmBase, leftArmPull);
+        this.rotateBone(this.leftUpperArm, leftCombined);
+    }
+
+    public animateReload(time: number) {
+        // Reload cycle ~2 seconds
+        const reloadDuration = 2.0;
+        const cycle = (time % reloadDuration) / reloadDuration;
+        
+        let phase = 0;
+        if (cycle < 0.25) {
+            phase = 0; // Magazine release
+        } else if (cycle < 0.5) {
+            phase = 1; // Reach for new mag
+        } else if (cycle < 0.75) {
+            phase = 2; // Insert magazine
+        } else {
+            phase = 3; // Charge handle/bolt release
+        }
+        
+        // Lower weapon slightly
+        const weaponLower = 0.3 + Math.sin(cycle * Math.PI * 2) * 0.15;
+        
+        // Right arm stays on weapon but lowers
+        const rightArmDown = quat_from_axis_angle([1, 0, 0], weaponLower);
+        const rightArmRot = quat_from_axis_angle([0, 0, 1], 0.2);
+        const rightCombined = quat_multiply(rightArmRot, rightArmDown);
+        this.rotateBone(this.rightUpperArm, rightCombined);
+        
+        // Right forearm adjusts
+        const rightForearmBend = quat_from_axis_angle([1, 0, 0], 0.6);
+        this.rotateBone(this.rightForearm, rightForearmBend);
+        
+        // Left arm animates the reload action
+        let leftArmMotion = 0;
+        let leftForearmBend = 0;
+        
+        if (phase === 0) {
+            // Release mag - hand near magwell
+            leftArmMotion = 0.2;
+            leftForearmBend = 1.0;
+        } else if (phase === 1) {
+            // Reach to belt/pouch
+            leftArmMotion = 0.8;
+            leftForearmBend = 1.4;
+        } else if (phase === 2) {
+            // Bring mag to weapon
+            leftArmMotion = 0.3;
+            leftForearmBend = 1.1;
+        } else {
+            // Hit charging handle
+            leftArmMotion = -0.2;
+            leftForearmBend = 0.8;
+        }
+        
+        const leftArmRot = quat_from_axis_angle([1, 0, 0], leftArmMotion);
+        this.rotateBone(this.leftUpperArm, leftArmRot);
+        
+        const leftForearmRot = quat_from_axis_angle([1, 0, 0], leftForearmBend);
+        this.rotateBone(this.leftForearm, leftForearmRot);
+        
+        // Slight head tilt to watch the action
+        const headTilt = quat_from_axis_angle([1, 0, 0], 0.15);
+        this.rotateBone(this.head, headTilt);
+    }
+
+    public animateMelee(time: number) {
+        // Quick melee strike - 0.5 second animation
+        const meleeDuration = 0.5;
+        const cycle = (time % meleeDuration) / meleeDuration;
+        
+        let strikePhase = 0;
+        if (cycle < 0.2) {
+            // Wind up
+            strikePhase = -(cycle / 0.2) * 0.8;
+        } else if (cycle < 0.35) {
+            // Strike forward
+            const t = (cycle - 0.2) / 0.15;
+            strikePhase = -0.8 + t * 1.8;
+        } else {
+            // Recovery
+            const t = (cycle - 0.35) / 0.65;
+            strikePhase = 1.0 - t * 1.0;
+        }
+        
+        // Body rotation into strike
+        const bodyRotation = quat_from_axis_angle([0, 1, 0], strikePhase * -0.3);
+        this.rotateBone(this.chest, bodyRotation);
+        
+        // Aggressive forward lean during strike
+        let spineLean = 0;
+        if (strikePhase > 0) {
+            spineLean = strikePhase * 0.2;
+        }
+        const spineLeanRot = quat_from_axis_angle([1, 0, 0], spineLean);
+        this.rotateBone(this.spine, spineLeanRot);
+        
+        // Right arm (weapon arm) - horizontal slash
+        const shoulderSwing = quat_from_axis_angle([0, 1, 0], strikePhase * 0.8);
+        const shoulderRaise = quat_from_axis_angle([0, 0, 1], 0.4);
+        const shoulderForward = quat_from_axis_angle([1, 0, 0], strikePhase * 0.5);
+        let rightArmRot = quat_multiply(shoulderRaise, shoulderSwing);
+        rightArmRot = quat_multiply(rightArmRot, shoulderForward);
+        this.rotateBone(this.rightUpperArm, rightArmRot);
+        
+        // Forearm extends with strike
+        const forearmExtend = 0.3 + Math.max(0, strikePhase) * 0.5;
+        const rightForearmRot = quat_from_axis_angle([1, 0, 0], forearmExtend);
+        this.rotateBone(this.rightForearm, rightForearmRot);
+        
+        // Left arm pulls back for balance
+        const leftArmPull = quat_from_axis_angle([0, 1, 0], -strikePhase * 0.4);
+        const leftArmBack = quat_from_axis_angle([1, 0, 0], strikePhase * 0.3);
+        const leftArmCombined = quat_multiply(leftArmPull, leftArmBack);
+        this.rotateBone(this.leftUpperArm, leftArmCombined);
+        
+        // Step forward with right leg during strike
+        if (strikePhase > 0) {
+            const rightLegForward = quat_from_axis_angle([1, 0, 0], -strikePhase * 0.4);
+            this.rotateBone(this.rightUpperLeg, rightLegForward);
+        }
+    }
+
+    public animateLeanLeft(time: number) {
+        // Static lean with minimal sway
+        const sway = Math.sin(time * 1.5) * 0.02;
+        
+        // Body leans left
+        const bodyLean = quat_from_axis_angle([0, 0, 1], 0.35 + sway);
+        this.rotateBone(this.spine, bodyLean);
+        
+        // Head compensates to stay level
+        const headCompensate = quat_from_axis_angle([0, 0, 1], -0.15);
+        this.rotateBone(this.head, headCompensate);
+        
+        // Weight on left leg
+        const leftLegStraight = quat_from_axis_angle([0, 0, 1], -0.1);
+        this.rotateBone(this.leftUpperLeg, leftLegStraight);
+        
+        // Right leg bends slightly
+        const rightLegBend = quat_from_axis_angle([1, 0, 0], 0.1);
+        this.rotateBone(this.rightLowerLeg, rightLegBend);
+        
+        // Arms maintain weapon position
+        const rightArmAim = quat_from_axis_angle([0, 0, 1], 0.3);
+        this.rotateBone(this.rightUpperArm, rightArmAim);
+        
+        const leftArmAim = quat_from_axis_angle([0, 0, 1], -0.2);
+        this.rotateBone(this.leftUpperArm, leftArmAim);
+        
+        const forearmReady = quat_from_axis_angle([1, 0, 0], 0.6);
+        this.rotateBone(this.leftForearm, forearmReady);
+        this.rotateBone(this.rightForearm, forearmReady);
+    }
+
+    public animateLeanRight(time: number) {
+        // Static lean with minimal sway (mirrored from left)
+        const sway = Math.sin(time * 1.5) * 0.02;
+        
+        // Body leans right
+        const bodyLean = quat_from_axis_angle([0, 0, 1], -0.35 + sway);
+        this.rotateBone(this.spine, bodyLean);
+        
+        // Head compensates to stay level
+        const headCompensate = quat_from_axis_angle([0, 0, 1], 0.15);
+        this.rotateBone(this.head, headCompensate);
+        
+        // Weight on right leg
+        const rightLegStraight = quat_from_axis_angle([0, 0, 1], 0.1);
+        this.rotateBone(this.rightUpperLeg, rightLegStraight);
+        
+        // Left leg bends slightly
+        const leftLegBend = quat_from_axis_angle([1, 0, 0], 0.1);
+        this.rotateBone(this.leftLowerLeg, leftLegBend);
+        
+        // Arms maintain weapon position
+        const rightArmAim = quat_from_axis_angle([0, 0, 1], 0.3);
+        this.rotateBone(this.rightUpperArm, rightArmAim);
+        
+        const leftArmAim = quat_from_axis_angle([0, 0, 1], -0.2);
+        this.rotateBone(this.leftUpperArm, leftArmAim);
+        
+        const forearmReady = quat_from_axis_angle([1, 0, 0], 0.6);
+        this.rotateBone(this.leftForearm, forearmReady);
+        this.rotateBone(this.rightForearm, forearmReady);
+    }
+
+    public animateVault(time: number) {
+        // Vaulting over obstacle - 1.2 second animation
+        const vaultDuration = 1.2;
+        const cycle = (time % vaultDuration) / vaultDuration;
+        
+        let phase = 0;
+        let vaultHeight = 0;
+        
+        if (cycle < 0.2) {
+            // Approach and plant hands
+            phase = cycle / 0.2;
+            vaultHeight = 0;
+        } else if (cycle < 0.5) {
+            // Launch up and over
+            const t = (cycle - 0.2) / 0.3;
+            phase = 1.0;
+            vaultHeight = Math.sin(t * Math.PI) * 0.6;
+        } else {
+            // Landing
+            const t = (cycle - 0.5) / 0.7;
+            phase = 1.0 - t * 0.5;
+            vaultHeight = Math.max(0, (1 - t) * 0.2);
+        }
+        
+        // Raise body
+        const hipHeight = 0.9 * this.proportions.height + vaultHeight;
+        this.rotateBone(this.hips, [0, 0, 0, 1], [0, hipHeight, 0]);
+        
+        // Forward body rotation during vault
+        const bodyPitch = phase * 0.4;
+        const bodyRot = quat_from_axis_angle([1, 0, 0], bodyPitch);
+        this.rotateBone(this.spine, bodyRot);
+        
+        // Arms reach forward to push off
+        let armReach = -1.2;
+        if (cycle > 0.5) {
+            // Arms return to sides after vault
+            const t = (cycle - 0.5) / 0.7;
+            armReach = -1.2 + t * 1.2;
+        }
+        
+        const leftArmReach = quat_from_axis_angle([0, 0, 1], armReach);
+        const rightArmReach = quat_from_axis_angle([0, 0, 1], -armReach);
+        this.rotateBone(this.leftUpperArm, leftArmReach);
+        this.rotateBone(this.rightUpperArm, rightArmReach);
+        
+        const armExtend = quat_from_axis_angle([1, 0, 0], -0.5 * phase);
+        this.rotateBone(this.leftForearm, armExtend);
+        this.rotateBone(this.rightForearm, armExtend);
+        
+        // Legs tuck up during vault
+        let legTuck = 0;
+        if (cycle >= 0.2 && cycle < 0.6) {
+            const t = (cycle - 0.2) / 0.4;
+            legTuck = Math.sin(t * Math.PI) * 1.5;
+        }
+        
+        const legTuckRot = quat_from_axis_angle([1, 0, 0], legTuck);
+        this.rotateBone(this.leftUpperLeg, legTuckRot);
+        this.rotateBone(this.rightUpperLeg, legTuckRot);
+        
+        const kneeTuckRot = quat_from_axis_angle([1, 0, 0], legTuck * 1.2);
+        this.rotateBone(this.leftLowerLeg, kneeTuckRot);
+        this.rotateBone(this.rightLowerLeg, kneeTuckRot);
+    }
+
+    public animateProne(time: number) {
+        // Lying flat on ground
+        const breathCycle = Math.sin(time * 1.0) * 0.01;
+        
+        // Very low hip position
+        const hipHeight = 0.15 * this.proportions.height;
+        const proneRot = quat_from_axis_angle([1, 0, 0], 1.57); // 90 degrees - lying down
+        this.rotateBone(this.hips, proneRot, [0, hipHeight, 0]);
+        
+        // Spine slightly raised (propped up on elbows)
+        const spineRaise = quat_from_axis_angle([1, 0, 0], -0.3);
+        this.rotateBone(this.spine, spineRaise);
+        
+        // Head up to look forward
+        const headUp = quat_from_axis_angle([1, 0, 0], -0.5);
+        this.rotateBone(this.head, headUp);
+        
+        // Arms supporting upper body
+        const shoulderOut = quat_from_axis_angle([0, 1, 0], 0.6);
+        const shoulderDown = quat_from_axis_angle([0, 0, 1], 0.3);
+        const leftArmCombined = quat_multiply(shoulderOut, shoulderDown);
+        this.rotateBone(this.leftUpperArm, leftArmCombined);
+        
+        const rightShoulderOut = quat_from_axis_angle([0, 1, 0], -0.6);
+        const rightArmCombined = quat_multiply(rightShoulderOut, shoulderDown);
+        this.rotateBone(this.rightUpperArm, rightArmCombined);
+        
+        // Forearms bent (elbows on ground)
+        const forearmBend = quat_from_axis_angle([1, 0, 0], 1.8);
+        this.rotateBone(this.leftForearm, forearmBend);
+        this.rotateBone(this.rightForearm, forearmBend);
+        
+        // Legs straight out behind
+        const legStraight = quat_from_axis_angle([1, 0, 0], 0.1);
+        this.rotateBone(this.leftUpperLeg, legStraight);
+        this.rotateBone(this.rightUpperLeg, legStraight);
+        
+        // Slight knee bend
+        const kneeBend = quat_from_axis_angle([1, 0, 0], 0.2);
+        this.rotateBone(this.leftLowerLeg, kneeBend);
+        this.rotateBone(this.rightLowerLeg, kneeBend);
+    }
+
+    public animateHitReaction(time: number) {
+        // Quick hit reaction - 0.4 seconds
+        const hitDuration = 0.4;
+        const cycle = (time % hitDuration) / hitDuration;
+        
+        let impactPhase = 0;
+        if (cycle < 0.15) {
+            // Initial impact
+            impactPhase = cycle / 0.15;
+        } else {
+            // Recovery
+            impactPhase = 1.0 - ((cycle - 0.15) / 0.85);
+        }
+        
+        // Body jolts backward
+        const spineJolt = quat_from_axis_angle([1, 0, 0], -0.15 * impactPhase);
+        this.rotateBone(this.spine, spineJolt);
+        
+        // Head snaps back
+        const headSnap = quat_from_axis_angle([1, 0, 0], -0.2 * impactPhase);
+        this.rotateBone(this.head, headSnap);
+        
+        // Slight backward step (weight shift)
+        const hipShift = [0, 0, -0.05 * impactPhase] as Vec3;
+        this.rotateBone(this.hips, [0, 0, 0, 1], hipShift);
+        
+        // Arms flail slightly
+        const leftArmFlail = quat_from_axis_angle([0, 0, 1], -0.2 * impactPhase);
+        const leftArmBack = quat_from_axis_angle([1, 0, 0], 0.15 * impactPhase);
+        const leftCombined = quat_multiply(leftArmFlail, leftArmBack);
+        this.rotateBone(this.leftUpperArm, leftCombined);
+        
+        const rightArmFlail = quat_from_axis_angle([0, 0, 1], 0.2 * impactPhase);
+        const rightArmBack = quat_from_axis_angle([1, 0, 0], 0.15 * impactPhase);
+        const rightCombined = quat_multiply(rightArmFlail, rightArmBack);
+        this.rotateBone(this.rightUpperArm, rightCombined);
+        
+        // Slight knee buckle
+        const kneeBuckle = quat_from_axis_angle([1, 0, 0], 0.1 * impactPhase);
+        this.rotateBone(this.leftLowerLeg, kneeBuckle);
+        this.rotateBone(this.rightLowerLeg, kneeBuckle);
+    }
+
+    public animateDeath(time: number) {
+        // Falling death animation - goes to ragdoll start pose
+        const fallDuration = 1.5;
+        const cycle = Math.min(time / fallDuration, 1.0);
+        
+        // Gradual collapse
+        const collapsePhase = cycle;
+        
+        // Hip drops to ground
+        const hipHeight = (0.9 * this.proportions.height) * (1 - collapsePhase);
+        const hipTilt = quat_from_axis_angle([1, 0, 0], 0.5 * collapsePhase);
+        this.rotateBone(this.hips, hipTilt, [0, hipHeight, 0]);
+        
+        // Spine crumples
+        const spineCollapse = quat_from_axis_angle([1, 0, 0], 0.8 * collapsePhase);
+        this.rotateBone(this.spine, spineCollapse);
+        
+        // Head drops
+        const headDrop = quat_from_axis_angle([1, 0, 0], 0.6 * collapsePhase);
+        this.rotateBone(this.head, headDrop);
+        
+        // Legs give out
+        const legCollapse = quat_from_axis_angle([1, 0, 0], 0.4 * collapsePhase);
+        this.rotateBone(this.leftUpperLeg, legCollapse);
+        this.rotateBone(this.rightUpperLeg, legCollapse);
+        
+        const kneeCollapse = quat_from_axis_angle([1, 0, 0], 1.5 * collapsePhase);
+        this.rotateBone(this.leftLowerLeg, kneeCollapse);
+        this.rotateBone(this.rightLowerLeg, kneeCollapse);
+        
+        // Arms fall limply
+        const leftArmFall = quat_from_axis_angle([0, 0, 1], -0.5 * collapsePhase);
+        const leftArmDown = quat_from_axis_angle([1, 0, 0], 0.6 * collapsePhase);
+        const leftCombined = quat_multiply(leftArmFall, leftArmDown);
+        this.rotateBone(this.leftUpperArm, leftCombined);
+        
+        const rightArmFall = quat_from_axis_angle([0, 0, 1], 0.5 * collapsePhase);
+        const rightArmDown = quat_from_axis_angle([1, 0, 0], 0.6 * collapsePhase);
+        const rightCombined = quat_multiply(rightArmFall, rightArmDown);
+        this.rotateBone(this.rightUpperArm, rightCombined);
+        
+        // Forearms bend naturally
+        const forearmBend = quat_from_axis_angle([1, 0, 0], 0.4 * collapsePhase);
+        this.rotateBone(this.leftForearm, forearmBend);
+        this.rotateBone(this.rightForearm, forearmBend);
     }
 
     public animateIdle(time: number) {
