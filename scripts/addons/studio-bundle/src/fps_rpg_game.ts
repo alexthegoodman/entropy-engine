@@ -264,6 +264,14 @@ const quests: Record<string, Quest> = {
     }
 };
 
+// --- Behavior Tracking ---
+const behaviorHooks = new Map<string, any>();
+const originalBehaviorRegister = Entropy.Behavior.register;
+Entropy.Behavior.register = (id: string, hooks: any) => {
+    behaviorHooks.set(id, hooks);
+    originalBehaviorRegister(id, hooks);
+};
+
 // --- Game State ---
 class GameState {
     playerId: string | null = null;
@@ -281,6 +289,12 @@ class GameState {
     lastAttackedEnemyId: string | null = null;
     lastAttackedTime = 0;
     
+    // Tracking for interaction
+    trackedCollectables = new Map<string, { position: [number, number, number], onCollect: (playerId: string) => void }>();
+    npcBehaviors = new Map<string, string>(); // entityId -> behaviorId
+    currentDialogueNpcId: string | null = null;
+    currentDialogueNode: string = "start";
+
     // Stats
     health = 100;
     maxHealth = 100;
@@ -307,6 +321,8 @@ class GameState {
 
     closeDialogue() {
         this.dialogue.isOpen = false;
+        this.currentDialogueNpcId = null;
+        this.currentDialogueNode = "start";
         this.uiDirty = true;
     }
 
@@ -315,6 +331,19 @@ class GameState {
         const count = this.dialogue.options.length;
         this.dialogue.selectedIndex = (this.dialogue.selectedIndex + delta + count) % count;
         this.uiDirty = true;
+    }
+
+    selectDialogueOption() {
+        if (!this.dialogue.isOpen) return;
+        const selected = this.dialogue.options[this.dialogue.selectedIndex];
+        if (selected) {
+            if (selected.next_node === "exit") {
+                this.closeDialogue();
+            } else {
+                this.currentDialogueNode = selected.next_node;
+                this.runDialogue();
+            }
+        }
     }
 
     private uiDirty = true;
@@ -378,6 +407,19 @@ class GameState {
                 }
                 
                 Entropy.println(`[Combat] ${targetId} (${faction}) defeated by ${attackerId}`);
+
+                // Remove the enemy mesh/model after a short delay
+                addon.Model.clearMesh(targetId);
+                combat.unregisterEntity(targetId);
+                entityPositions.delete(targetId);
+                this.npcBehaviors.delete(targetId);
+                
+                // Remove from humanoid tracking if present
+                if (worldManager.npcHumanoids[targetId]) {
+                    delete worldManager.npcHumanoids[targetId];
+                    delete worldManager.npcJointBufferId[targetId];
+                    delete worldManager.npcAnimations[targetId];
+                }
             }
         };
     }
@@ -396,7 +438,7 @@ class GameState {
 
     dropLoot(position: [number, number, number], itemId: string) {
         const y = addon.Landscape.getHeightAt(position[0], position[2]);
-        addon.Collectable.create({
+        this.createTrackedCollectable({
             position: [position[0], y + 1, position[2]],
             modelPath: "Barrel1medium.glb",
             type: "quest_item",
@@ -406,6 +448,105 @@ class GameState {
                 this.addItem(itemId, 1);
             }
         });
+    }
+
+    createTrackedCollectable(config: any) {
+        const onCollect = config.onCollect;
+        const wrappedOnCollect = (playerId: string) => {
+            if (onCollect) onCollect(playerId);
+            this.trackedCollectables.delete(id);
+        };
+        config.onCollect = wrappedOnCollect;
+        const id = addon.Collectable.create(config);
+        this.trackedCollectables.set(id, { position: config.position, onCollect: wrappedOnCollect });
+        return id;
+    }
+
+    interact() {
+        if (!this.isGameActive || this.isInventoryOpen || this.dialogue.isOpen) return;
+
+        const [playerPos] = Entropy.Camera.getTransform();
+        
+        // 1. Check for nearby Collectables (range 5)
+        let closestColId: string | null = null;
+        let minColDist = 5.0;
+
+        for (const [id, col] of this.trackedCollectables.entries()) {
+            const dx = col.position[0] - playerPos[0];
+            const dy = col.position[1] - playerPos[1];
+            const dz = col.position[2] - playerPos[2];
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            
+            if (dist < minColDist) {
+                minColDist = dist;
+                closestColId = id;
+            }
+        }
+
+        if (closestColId) {
+            const col = this.trackedCollectables.get(closestColId)!;
+            col.onCollect(this.playerId!);
+            addon.Collectable.remove(closestColId);
+            this.trackedCollectables.delete(closestColId);
+            Entropy.println("[Interaction] Collected item");
+            return;
+        }
+
+        // 2. Check for nearby NPCs (range 8)
+        let closestNpcId: string | null = null;
+        let minNpcDist = 8.0;
+
+        for (const [id, pos] of entityPositions.entries()) {
+            if (id === this.playerId) continue;
+            
+            const dx = pos[0] - playerPos[0];
+            const dy = pos[1] - playerPos[1];
+            const dz = pos[2] - playerPos[2];
+            const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+
+            if (dist < minNpcDist) {
+                minNpcDist = dist;
+                closestNpcId = id;
+            }
+        }
+
+        if (closestNpcId) {
+            this.currentDialogueNpcId = closestNpcId;
+            this.currentDialogueNode = "start";
+            this.runDialogue();
+        }
+    }
+
+    runDialogue() {
+        if (!this.currentDialogueNpcId) return;
+        
+        const behaviorId = this.npcBehaviors.get(this.currentDialogueNpcId);
+        if (!behaviorId) return;
+
+        const hooks = behaviorHooks.get(behaviorId);
+        if (!hooks || !hooks.onInteract) return;
+
+        const entity = combat.getEntity(this.currentDialogueNpcId);
+        if (!entity || entity.isDead) return;
+
+        const dialogueSystem: any = {
+            show: (text: string) => {}, // GameState.openDialogue called by behavior
+            add_option: (text: string, next_node: string) => {},
+            start_quest: (id: string) => this.startQuest(id),
+            close: () => this.closeDialogue(),
+            get_node: () => this.currentDialogueNode
+        };
+        
+        hooks.onInteract({
+            id: this.currentDialogueNpcId,
+            name: this.currentDialogueNpcId.substring(0, 8),
+            position: entityPositions.get(this.currentDialogueNpcId)!,
+            health: entity.health,
+            stamina: 100,
+            isDead: entity.isDead
+        }, dialogueSystem);
+        
+        Entropy.println(`[Interaction] NPC: ${this.currentDialogueNpcId}, Node: ${this.currentDialogueNode}`);
     }
 
     requestRedraw() {
@@ -1116,7 +1257,7 @@ Entropy.Behavior.register("crimson_soldier", {
         
         // Drop insignia
         const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        addon.Collectable.create({
+        gameState.createTrackedCollectable({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
             modelPath: "Barrel1medium.glb",
@@ -1253,7 +1394,7 @@ Entropy.Behavior.register("azure_soldier", {
         gameState.enemyKills.azure++;
         
         const y = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]);
-        addon.Collectable.create({
+        gameState.createTrackedCollectable({
             position: [entity.position[0], y + 1, entity.position[2]],
             type: "quest_item",
             modelPath: "Barrel1medium.glb",
@@ -1549,6 +1690,8 @@ class WorldManager {
             });
         }
 
+        gameState.npcBehaviors.set(id, behaviorId);
+
         // Register in combat system
         combat.registerEntity(id, faction, {
             type: WeaponType.MELEE,
@@ -1591,15 +1734,11 @@ class WorldManager {
                     ],
                     behaviorId: behaviorId,
                     isNpc: true,
-                    // physics: {
-                    //     bodyType: "dynamic",
-                    //     colliderShape: "capsule",
-                    //     mass: 100
-                    // }
                 });
             } else {
                 addon.Model.load({
                     path: model,
+                    id: id,
                     position: [x, y + 1, z],
                     behaviorId: behaviorId,
                     isNpc: true,
@@ -1609,6 +1748,8 @@ class WorldManager {
                     }
                 });
             }
+
+            gameState.npcBehaviors.set(id, behaviorId);
 
             // Register in combat system
             combat.registerEntity(id, faction, {
@@ -1633,7 +1774,7 @@ class WorldManager {
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.8;
             const y = addon.Landscape.getHeightAt(x, z);
             
-            addon.Collectable.create({
+            this.createTrackedCollectable({
                 modelPath: "Barrel1large.glb",
                 position: [x, y + 1, z],
                 type: "quest_item",
@@ -1651,7 +1792,7 @@ class WorldManager {
         // Crimson Relic in Shadow territory
         const shadowTerr = factions[Faction.SHADOW_COVENANT].territory;
         const relicY = addon.Landscape.getHeightAt(shadowTerr.x, shadowTerr.z);
-        addon.Collectable.create({
+        this.createTrackedCollectable({
             modelPath: "Barrel1medium.glb",
             position: [shadowTerr.x, relicY + 1, shadowTerr.z],
             type: "quest_item",
@@ -1671,7 +1812,7 @@ class WorldManager {
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
             const y = addon.Landscape.getHeightAt(x, z);
             
-            addon.Collectable.create({
+            this.createTrackedCollectable({
                 modelPath: "Barrel1small.glb",
                 position: [x, y + 1, z],
                 type: "quest_item",
@@ -1694,12 +1835,12 @@ class WorldManager {
             const z = (Math.random() - 0.5) * LANDSCAPE_SIZE * 0.9;
             const y = addon.Landscape.getHeightAt(x, z);
             
-            addon.Collectable.create({
+            this.createTrackedCollectable({
                 modelPath: "Barrel1small.glb",
                 position: [x, y + 0.5, z],
                 type: "health",
                 value: 25,
-                onCollect: (playerId) => {
+                onCollect: (playerId: any) => {
                     Entropy.Entity.setStats(playerId, { 
                         health: 100,
                         stamina: 100
@@ -1708,6 +1849,10 @@ class WorldManager {
                 }
             });
         }
+    }
+
+    createTrackedCollectable(config: any) {
+        return gameState.createTrackedCollectable(config);
     }
     
     cleanup() {
@@ -2302,13 +2447,18 @@ addon.onUpdatePlus("Game Composer", (time) => {
             if (key === "s" || key === "ArrowDown") {
                 gameState.navigateDialogue(1);
             }
-            if (key === "Enter") {
-                const selected = gameState.dialogue.options[gameState.dialogue.selectedIndex];
-                if (selected) {
-                    addon.UI.selectDialogueOption(gameState.dialogue.selectedIndex);
+            if (key === "Enter" || key === "e") {
+                if (gameState.dialogue.isOpen) {
+                    gameState.selectDialogueOption();
+                } else if (key === "e") {
+                    gameState.interact();
                 }
             }
             return;
+        }
+
+        if (key === "e") { // Interact
+            gameState.interact();
         }
 
         if (key === "r") { // Reload
@@ -2339,16 +2489,13 @@ addon.onUpdatePlus("Game Composer", (time) => {
             if (button === "DPadUp") gameState.navigateDialogue(-1);
             if (button === "DPadDown") gameState.navigateDialogue(1);
             if (button === "South") { // Select
-                const selected = gameState.dialogue.options[gameState.dialogue.selectedIndex];
-                if (selected) {
-                    addon.UI.selectDialogueOption(gameState.dialogue.selectedIndex);
-                }
+                gameState.selectDialogueOption();
             }
             return;
         }
 
         if (button === "South") { // Jump placeholder / Interact
-             // Jump logic
+             gameState.interact();
         }
 
         if (button === "RightTrigger" || button === "RightTrigger2") { // Fire
