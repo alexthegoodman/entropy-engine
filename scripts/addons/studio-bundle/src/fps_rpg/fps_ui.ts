@@ -1,4 +1,4 @@
-import type { ScopedAPI } from "./addon";
+import type { ScopedAPI } from "../addon";
 
 export interface DialogueOption {
     text: string;
