@@ -410,6 +410,7 @@ class GameState {
 
                 // Remove the enemy mesh/model after a short delay
                 addon.Model.clearMesh(targetId);
+                Entropy.Composer?.clearMesh(targetId); // also clear from Game Composer
                 combat.unregisterEntity(targetId);
                 entityPositions.delete(targetId);
                 this.npcBehaviors.delete(targetId);

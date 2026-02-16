@@ -635,6 +635,7 @@ export interface EntropyAPI {
     };
   };
   Composer?: {
+    clearMesh: (meshId: string) => void;
       registerEditor: (addonName: string, renderFn: (windowId: string, overrideKey: string) => void) => void;
       getEditor: (addonName: string) => ((windowId: string, overrideKey: string) => void) | undefined;
       registerRenderer: (addonName: string, renderFn: (id: string, params: any) => void) => void;

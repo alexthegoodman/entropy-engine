@@ -1127,6 +1127,9 @@ globalThis.Entropy.Composer = {
             yOffset: -200
         }
     },
+    clearMesh: (meshId) => {
+        ops.op_mesh_clear("Game Composer", meshId);
+    },
     registerEditor: (addonName, renderFn) => {
         globalThis.Entropy.Composer.editors[addonName] = renderFn;
     },

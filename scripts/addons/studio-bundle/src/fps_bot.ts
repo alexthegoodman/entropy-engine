@@ -83,3 +83,342 @@
 // to separate file outside of character_creator_addon.ts, and then use that file inside character_creator_addon.ts)
 // There should be a synth sound every time a weapon fires (see DAW addon)
 // Make sure that these guys dont walk off the edge of the map :)
+
+// We will want this exhaustive list of animations and state to be implemented here JS-side
+
+/// Exhaustive animation state enum for a realistic FPS character
+// #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+// pub enum FPSCharacterAnimation {
+//     // ===== IDLE STATES =====
+//     IdleStand,
+//     IdleStandBreathing,
+//     IdleStandFidget1, // Check watch
+//     IdleStandFidget2, // Adjust gear
+//     IdleStandFidget3, // Neck crack
+//     IdleStandFidget4, // Shoulder roll
+//     IdleStandWeaponInspect,
+//     IdleCrouch,
+//     IdleCrouchBreathing,
+//     IdleProne,
+//     IdleProneBreathing,
+//     IdleInjured, // Holding wound
+//     IdleExhausted, // Hands on knees
+    
+//     // ===== MOVEMENT - WALKING =====
+//     WalkForward,
+//     WalkBackward,
+//     WalkLeft,
+//     WalkRight,
+//     WalkForwardLeft,
+//     WalkForwardRight,
+//     WalkBackwardLeft,
+//     WalkBackwardRight,
+    
+//     // ===== MOVEMENT - SPRINTING =====
+//     SprintForward,
+//     SprintForwardLeft,
+//     SprintForwardRight,
+//     SprintTactical, // Weapon up
+    
+//     // ===== MOVEMENT - CROUCHED =====
+//     CrouchWalkForward,
+//     CrouchWalkBackward,
+//     CrouchWalkLeft,
+//     CrouchWalkRight,
+//     CrouchWalkForwardLeft,
+//     CrouchWalkForwardRight,
+//     CrouchWalkBackwardLeft,
+//     CrouchWalkBackwardRight,
+    
+//     // ===== MOVEMENT - PRONE =====
+//     ProneForward,
+//     ProneBackward,
+//     ProneLeft,
+//     ProneRight,
+    
+//     // ===== STANCE TRANSITIONS =====
+//     StandToCrouch,
+//     CrouchToStand,
+//     StandToProne,
+//     ProneToStand,
+//     CrouchToProne,
+//     ProneToCrouch,
+    
+//     // ===== JUMPING & AERIAL =====
+//     JumpStart,
+//     JumpRising,
+//     JumpApex,
+//     JumpFalling,
+//     JumpLandLight,
+//     JumpLandMedium,
+//     JumpLandHeavy,
+//     JumpLandRoll,
+//     JumpForward,
+//     JumpBackward,
+//     JumpLeft,
+//     JumpRight,
+//     DoubleJump,
+//     WallJump,
+    
+//     // ===== MANTLING & CLIMBING =====
+//     VaultLow,
+//     VaultMedium,
+//     VaultHigh,
+//     MantleLow,
+//     MantleMedium,
+//     MantleHigh,
+//     ClimbLadderUp,
+//     ClimbLadderDown,
+//     ClimbLadderIdle,
+//     ClimbLadderDismountTop,
+//     ClimbLadderDismountBottom,
+//     ClimbRope,
+//     ClimbWall,
+//     Parkour,
+    
+//     // ===== LEANING =====
+//     LeanLeft,
+//     LeanRight,
+//     LeanLeftAim,
+//     LeanRightAim,
+//     LeanReturn,
+//     PeekCornerLeft,
+//     PeekCornerRight,
+    
+//     // ===== SLIDING & DODGING =====
+//     SlideStart,
+//     SlideLoop,
+//     SlideEnd,
+//     DodgeLeft,
+//     DodgeRight,
+//     DodgeForward,
+//     DodgeBackward,
+//     DiveForward,
+//     DiveSide,
+//     Roll,
+    
+//     // ===== WEAPON HANDLING - DRAW/HOLSTER =====
+//     DrawPrimaryWeapon,
+//     DrawSecondaryWeapon,
+//     DrawMeleeWeapon,
+//     DrawGrenade,
+//     HolsterPrimary,
+//     HolsterSecondary,
+//     QuickSwapPrimaryToSecondary,
+//     QuickSwapSecondaryToPrimary,
+    
+//     // ===== WEAPON HANDLING - AIMING =====
+//     AimDownSights,
+//     AimDownSightsIdle,
+//     AimDownSightsExit,
+//     AimHipFire,
+//     AimOverShoulder,
+    
+//     // ===== WEAPON HANDLING - FIRING =====
+//     FireSingle,
+//     FireBurst,
+//     FireFullAuto,
+//     FireFromHip,
+//     FireWhileMoving,
+//     FireWhileSprinting,
+//     FireWhileCrouched,
+//     FireWhileProne,
+//     FireWhileJumping,
+//     FireWhileSliding,
+//     FireLastRound,
+//     FireDryFire,
+    
+//     // ===== WEAPON HANDLING - RELOADING =====
+//     ReloadStandard,
+//     ReloadTactical,
+//     ReloadEmpty,
+//     ReloadPartial,
+//     ReloadWhileMoving,
+//     ReloadWhileCrouched,
+//     ReloadWhileProne,
+//     ReloadCancel,
+//     ReloadShotgunSingle,
+//     ReloadShotgunLoop,
+//     ReloadShotgunEnd,
+//     ReloadRevolverOpen,
+//     ReloadRevolverLoad,
+//     ReloadRevolverClose,
+//     ReloadCheckMagazine,
+    
+//     // ===== WEAPON HANDLING - RECOIL =====
+//     RecoilLight,
+//     RecoilMedium,
+//     RecoilHeavy,
+//     RecoilVertical,
+//     RecoilHorizontalLeft,
+//     RecoilHorizontalRight,
+//     RecoilRecovery,
+    
+//     // ===== WEAPON HANDLING - MELEE =====
+//     MeleeSlash,
+//     MeleeStab,
+//     MeleeBash,
+//     MeleeButtstroke,
+//     MeleeUppercut,
+//     MeleeCombo1,
+//     MeleeCombo2,
+//     MeleeCombo3,
+//     MeleeChargeUp,
+//     MeleeChargingAttack,
+//     MeleeExecutionStart,
+//     MeleeExecutionLoop,
+    
+//     // ===== GRENADES & THROWABLES =====
+//     GrenadeDrawPin,
+//     GrenadePullPin,
+//     GrenadeHold,
+//     GrenadeThrowOverhand,
+//     GrenadeThrowUnderhand,
+//     GrenadeThrowRoll,
+//     GrenadeCookLoop,
+//     ThrowFlashbang,
+//     ThrowSmoke,
+//     ThrowMolotov,
+//     ThrowKnife,
+    
+//     // ===== EQUIPMENT & GADGETS =====
+//     PlaceClaymore,
+//     PlaceC4,
+//     DetonateExplosive,
+//     DeployShield,
+//     DeployBipod,
+//     UseMedkit,
+//     UseStimPack,
+//     UseArmorPlate,
+//     DrinkPotion,
+//     EatFood,
+//     UseRadio,
+//     UseTablet,
+//     ThrowDrone,
+//     ControlDrone,
+    
+//     // ===== INTERACTIONS =====
+//     OpenDoor,
+//     CloseDoor,
+//     BreachDoor,
+//     KickDoor,
+//     PickupItem,
+//     DropItem,
+//     ExamineItem,
+//     UseComputer,
+//     FlipSwitch,
+//     PushButton,
+//     TurnValve,
+//     ReviveAlly,
+//     CarryAlly,
+    
+//     // ===== VEHICLE INTERACTIONS =====
+//     EnterVehicleDriver,
+//     EnterVehiclePassenger,
+//     ExitVehicleDriver,
+//     ExitVehiclePassenger,
+//     DriveVehicle,
+//     ShootFromVehicle,
+//     VehicleCollision,
+    
+//     // ===== DAMAGE & REACTIONS =====
+//     HitReactionFront,
+//     HitReactionBack,
+//     HitReactionLeft,
+//     HitReactionRight,
+//     HitReactionHead,
+//     HitReactionChest,
+//     HitReactionStomach,
+//     HitReactionLegs,
+//     StaggerForward,
+//     StaggerBackward,
+//     Stumble,
+//     Flinch,
+//     BlockWithArms,
+    
+//     // ===== INJURY STATES =====
+//     LimpLeft,
+//     LimpRight,
+//     Crawl,
+//     CrawlForward,
+//     CrawlBackward,
+//     KnockdownFront,
+//     KnockdownBack,
+//     GetupFromFront,
+//     GetupFromBack,
+//     Stagger,
+//     Dazed,
+//     Stunned,
+//     BleedingOut,
+    
+//     // ===== DEATH ANIMATIONS =====
+//     DeathHeadshot,
+//     DeathChest,
+//     DeathBack,
+//     DeathExplosion,
+//     DeathFall,
+//     DeathBurn,
+//     DeathDrown,
+//     DeathRagdoll,
+//     DeathSpectacular,
+    
+//     // ===== ENVIRONMENTAL REACTIONS =====
+//     WadeWaterShallow,
+//     WadeWaterDeep,
+//     SwimIdle,
+//     SwimForward,
+//     SwimUnderwater,
+//     SwimSurface,
+//     Tread,
+//     SlipOnIce,
+//     PushThroughBush,
+//     CoverFromWind,
+//     ShieldFromExplosion,
+    
+//     // ===== COVER SYSTEM =====
+//     EnterCoverLeft,
+//     EnterCoverRight,
+//     ExitCoverLeft,
+//     ExitCoverRight,
+//     CoverIdle,
+//     CoverPeekOver,
+//     CoverPeekLeft,
+//     CoverPeekRight,
+//     CoverPeekReturn,
+//     CoverMoveLeft,
+//     CoverMoveRight,
+//     CoverSwapSides,
+//     CoverBlindFire,
+    
+//     // ===== STEALTH =====
+//     StealthIdle,
+//     StealthWalk,
+//     StealthRun,
+//     StealthCrouch,
+//     Takedown,
+//     TakedownLethal,
+//     TakedownNonLethal,
+//     DragBody,
+//     HideInShadows,
+    
+//     // ===== EMOTES & GESTURES =====
+//     PointForward,
+//     PointLeft,
+//     PointRight,
+//     WaveHello,
+//     WaveGoodbye,
+//     Salute,
+//     ThumbsUp,
+//     ThumbsDown,
+//     Shrug,
+//     Nod,
+//     Shake,
+//     Taunt,
+//     Victory,
+//     Surrender,
+//     CallOut,
+//     HandSignalAdvance,
+//     HandSignalStop,
+//     HandSignalCoverMe,
+//     HandSignalRegroup,
+// }
