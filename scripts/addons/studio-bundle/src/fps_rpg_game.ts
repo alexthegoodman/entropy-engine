@@ -1,6 +1,7 @@
 import type { Entity } from "./addon";
 import { ProceduralHumanoid } from "./humanoid_v2";
 import { FPSUI, type DialogueOption, type DialogueState } from "./fps_ui";
+import { CombatSystem, WeaponType } from "./combat";
 import { 
     FloorPlan, 
     HouseGeometry, 
@@ -13,6 +14,7 @@ import {
 } from "./procedural_houses_addon";
 
 // Note: This game currently expects the designer to add a landscape before loading
+
 const addonInfo = {
     name: "The Fractured Realm",
     version: "1.0.0",
@@ -27,6 +29,21 @@ const addonInfo = {
 
 const addon = Entropy.Addon.register(addonInfo);
 const fpsUI = new FPSUI(addon);
+
+// --- Combat System ---
+const entityPositions = new Map<string, [number, number, number]>();
+
+const combat = new CombatSystem(
+    (id) => {
+        if (id === gameState.playerId) {
+            const [pos] = Entropy.Camera.getTransform();
+            return pos;
+        }
+        return entityPositions.get(id) || null;
+    },
+    () => Entropy.Camera.getTransform(),
+    addon.Audio
+);
 
 // --- Faction System ---
 enum Faction {
@@ -300,6 +317,76 @@ class GameState {
 
     private uiDirty = true;
 
+    setupCombat() {
+        combat.onEntityDamaged = (targetId, damage, attackerId) => {
+            if (targetId === this.playerId) {
+                this.setHealth(combat.getEntity(targetId)!.health);
+                combat.playDamageSound();
+            } else if (attackerId === this.playerId) {
+                // Show hit markers or something?
+            }
+        };
+
+        combat.onEntityDeath = (targetId, attackerId) => {
+            const entity = combat.getEntity(targetId);
+            if (!entity) return;
+
+            if (targetId === this.playerId) {
+                Entropy.println("--- YOU HAVE DIED ---");
+                this.setHealth(0);
+                this.requestRedraw();
+                // Reset or Respawn logic?
+            } else {
+                // Handle NPC death
+                const faction = entity.faction as Faction;
+                const pos = entityPositions.get(targetId);
+                
+                if (pos) {
+                    // Spawn particles (matching old onAttack logic)
+                    let color: [number, number, number, number] = [1, 1, 1, 1];
+                    if (faction === Faction.CRIMSON_GUARD) color = [1, 0.2, 0.2, 1];
+                    else if (faction === Faction.AZURE_ORDER) color = [0.2, 0.4, 1, 1];
+                    else if (faction === Faction.SHADOW_COVENANT) color = [0.5, 0.2, 0.8, 1];
+
+                    // Use behavior system to spawn particles if available
+                    // or just use Entropy.Particles if it had a simple emitter
+                    // For now, let's just log and drop loot.
+                    
+                    if (faction === Faction.CRIMSON_GUARD) {
+                        this.enemyKills.crimson++;
+                        this.dropLoot(pos, "crimson_insignia");
+                    } else if (faction === Faction.AZURE_ORDER) {
+                        this.enemyKills.azure++;
+                        this.dropLoot(pos, "azure_insignia");
+                        
+                        // Check quest progress
+                        if (quests["crimson_welcome"].isActive && this.enemyKills.azure >= 5 && this.hasItem("azure_insignia", 5)) {
+                            this.completeObjective("crimson_welcome", 0);
+                            this.completeObjective("crimson_welcome", 1);
+                        }
+                    } else if (faction === Faction.SHADOW_COVENANT) {
+                        this.enemyKills.shadow++;
+                    }
+                }
+                
+                Entropy.println(`[Combat] ${targetId} (${faction}) defeated by ${attackerId}`);
+            }
+        };
+    }
+
+    dropLoot(position: [number, number, number], itemId: string) {
+        const y = addon.Landscape.getHeightAt(position[0], position[2]);
+        addon.Collectable.create({
+            position: [position[0], y + 1, position[2]],
+            type: "quest_item",
+            value: 1,
+            questId: itemId,
+            onCollect: () => {
+                this.addItem(itemId, 1);
+            }
+        });
+    }
+
     requestRedraw() {
         this.uiDirty = true;
     }
@@ -316,53 +403,6 @@ class GameState {
             this.ammo = value;
             this.uiDirty = true;
         }
-    }
-
-    playFireSound() {
-        addon.Audio.playSynth({
-            freq: 40,
-            waveform: "noise",
-            duration: 0.1,
-            cutoff: 2000,
-            gain: 0.4
-        });
-    }
-
-    playReloadSound() {
-        // Double click sound for reload
-        addon.Audio.playSynth({
-            freq: 880,
-            waveform: "square",
-            duration: 0.05,
-            gain: 0.1
-        });
-        setTimeout(() => {
-            addon.Audio.playSynth({
-                freq: 440,
-                waveform: "square",
-                duration: 0.1,
-                gain: 0.1
-            });
-        }, 100);
-    }
-
-    playEmptySound() {
-        addon.Audio.playSynth({
-            freq: 1200,
-            waveform: "sine",
-            duration: 0.05,
-            gain: 0.1
-        });
-    }
-
-    playDamageSound() {
-        addon.Audio.playSynth({
-            freq: 60,
-            waveform: "saw",
-            duration: 0.2,
-            cutoff: 500,
-            gain: 0.3
-        });
     }
 
     update() {
@@ -561,6 +601,9 @@ const npcWanderStates = new Map();
 
 const doWander = (entity: Entity, system: any, state: any) => {
     if (entity.isDead) return state;
+
+    // Track position for combat system
+    entityPositions.set(entity.id, entity.position);
 
     // Get or create state for THIS specific entity
     if (!npcWanderStates.has(entity.id)) {
@@ -919,6 +962,9 @@ Entropy.Behavior.register("crimson_soldier", {
     onUpdate: (entity, system, _s) => {
         if (entity.isDead) return _s;
 
+        // Track position for combat system
+        entityPositions.set(entity.id, entity.position);
+
         // Get or create state for THIS specific entity
         if (!npcWanderStates.has(entity.id)) {
             npcWanderStates.set(entity.id, {});
@@ -938,6 +984,24 @@ Entropy.Behavior.register("crimson_soldier", {
         const dx = playerPos[0] - entity.position[0];
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
+
+        // Update hostility based on reputation
+        const isHostile = factions[Faction.CRIMSON_GUARD].reputation < -20;
+        combat.setEntityHostile(entity.id, isHostile);
+
+        // Combat AI
+        if (isHostile && dist < 30 && gameState.playerId) {
+            const didAttack = combat.updateNPCCombat(entity.id, gameState.playerId);
+            if (didAttack) {
+                Entropy.Entity.playAnimation(entity.id, "Attack");
+                worldManager.npcAnimations[entity.id] = "Wave";
+                
+                const angle = combat.getAimDirection(entity.id, gameState.playerId);
+                if (angle !== null) Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+                
+                return state;
+            }
+        }
         
         // Initialize wander state
         if (!state.wanderTarget || state.waitTime > 0) {
@@ -1040,6 +1104,9 @@ Entropy.Behavior.register("azure_soldier", {
     onUpdate: (entity, system, _s) => {
         if (entity.isDead) return _s;
         
+        // Track position for combat system
+        entityPositions.set(entity.id, entity.position);
+
         // Get or create state for THIS specific entity
         if (!npcWanderStates.has(entity.id)) {
             npcWanderStates.set(entity.id, {});
@@ -1057,6 +1124,24 @@ Entropy.Behavior.register("azure_soldier", {
         const dx = playerPos[0] - entity.position[0];
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
+
+        // Update hostility based on reputation
+        const isHostile = factions[Faction.AZURE_ORDER].reputation < -20;
+        combat.setEntityHostile(entity.id, isHostile);
+
+        // Combat AI
+        if (isHostile && dist < 30 && gameState.playerId) {
+            const didAttack = combat.updateNPCCombat(entity.id, gameState.playerId);
+            if (didAttack) {
+                Entropy.Entity.playAnimation(entity.id, "Attack");
+                worldManager.npcAnimations[entity.id] = "Wave";
+                
+                const angle = combat.getAimDirection(entity.id, gameState.playerId);
+                if (angle !== null) Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+                
+                return state;
+            }
+        }
         
         // Initialize wander state
         if (!state.wanderTarget || state.waitTime > 0) {
@@ -1161,6 +1246,9 @@ Entropy.Behavior.register("shadow_assassin", {
     onUpdate: (entity, system, _s) => {
         if (entity.isDead) return _s;
 
+        // Track position for combat system
+        entityPositions.set(entity.id, entity.position);
+
         // Get or create state for THIS specific entity
         if (!npcWanderStates.has(entity.id)) {
             npcWanderStates.set(entity.id, {});
@@ -1178,6 +1266,23 @@ Entropy.Behavior.register("shadow_assassin", {
         const dx = playerPos[0] - entity.position[0];
         const dz = playerPos[2] - entity.position[2];
         const dist = Math.sqrt(dx * dx + dz * dz);
+
+        // Combat AI (Assassins are hostile if dist < 10)
+        const isHostile = dist < 10;
+        combat.setEntityHostile(entity.id, isHostile);
+
+        if (isHostile && gameState.playerId) {
+            const didAttack = combat.updateNPCCombat(entity.id, gameState.playerId);
+            if (didAttack) {
+                Entropy.Entity.playAnimation(entity.id, "Attack");
+                worldManager.npcAnimations[entity.id] = "Wave";
+                
+                const angle = combat.getAimDirection(entity.id, gameState.playerId!);
+                if (angle !== null) Entropy.Entity.setRotation(entity.id, [0, angle, 0]);
+                
+                return state;
+            }
+        }
 
         // Initialize wander state
         if (!state.wanderTarget || state.waitTime > 0) {
@@ -1262,6 +1367,7 @@ class WorldManager {
     public npcAnimations: Record<string, string> = {};
 
     initialize() {
+        gameState.setupCombat();
         this.spawnPlayer();
         this.populateWorld();
 
@@ -1319,21 +1425,31 @@ class WorldManager {
         }
         
         Entropy.println("[Player] Spawned at center");
+
+        // Register in combat system
+        combat.registerEntity(gameState.playerId, Faction.NEUTRAL, {
+            type: WeaponType.RANGED,
+            damage: 25,
+            range: 100,
+            fireRate: 5,
+            ammo: 30,
+            maxAmmo: 30
+        }, 100);
     }
     
     populateWorld() {
         // Spawn faction leaders (quest givers)
         this.spawnNPC("Commander Vex", Entropy.generateUUID(), "Enemy1b.glb", 
-            factions[Faction.CRIMSON_GUARD].territory, "quest_giver_vex");
+            factions[Faction.CRIMSON_GUARD].territory, "quest_giver_vex", Faction.CRIMSON_GUARD);
         
         this.spawnNPC("Scholar Lyra", Entropy.generateUUID(), "Player1b.glb",
-            factions[Faction.AZURE_ORDER].territory, "quest_giver_lyra");
+            factions[Faction.AZURE_ORDER].territory, "quest_giver_lyra", Faction.AZURE_ORDER);
         
         this.spawnNPC("Whisper Master", Entropy.generateUUID(), "Enemy1b.glb",
-            factions[Faction.SHADOW_COVENANT].territory, "quest_giver_whisper");
+            factions[Faction.SHADOW_COVENANT].territory, "quest_giver_whisper", Faction.SHADOW_COVENANT);
         
         this.spawnNPC("The Wanderer", Entropy.generateUUID(), "Friend1b.glb",
-            { x: 0, z: 0, radius: 5 }, "neutral_wanderer");
+            { x: 0, z: 0, radius: 5 }, "neutral_wanderer", Faction.NEUTRAL);
         
         // Spawn faction soldiers
         this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", "crimson_soldier", 25);
@@ -1346,7 +1462,7 @@ class WorldManager {
         Entropy.println("[World] Populated with NPCs and items");
     }
     
-    spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, behaviorId: string) {
+    spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, behaviorId: string, faction: Faction = Faction.NEUTRAL) {
         const angle = Math.random() * Math.PI * 2;
         const dist = Math.random() * territory.radius * 0.3; // Keep near center
         const x = territory.x + Math.cos(angle) * dist;
@@ -1398,6 +1514,14 @@ class WorldManager {
                 }
             });
         }
+
+        // Register in combat system
+        combat.registerEntity(id, faction, {
+            type: WeaponType.MELEE,
+            damage: 10,
+            range: 3,
+            fireRate: 1
+        }, 100);
     }
     
     spawnFactionGuards(faction: Faction, model: string, behaviorId: string, count: number) {
@@ -1451,6 +1575,16 @@ class WorldManager {
                     }
                 });
             }
+
+            // Register in combat system
+            combat.registerEntity(id, faction, {
+                type: WeaponType.RANGED,
+                damage: 10,
+                range: 40,
+                fireRate: 0.5,
+                ammo: 100,
+                maxAmmo: 100
+            }, 80);
         }
     }
     
@@ -2107,12 +2241,18 @@ addon.onUpdatePlus("Game Composer", (time) => {
         if (!gameState.isGameActive || gameState.isInventoryOpen) return;
         
         if (button === 0) { // Left Click - Fire
-            if (gameState.ammo > 0) {
-                gameState.setAmmo(gameState.ammo - 1);
-                gameState.playFireSound();
+            if (combat.attack(gameState.playerId!, true)) {
+                combat.playFireSound();
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon) {
+                    gameState.setAmmo(weapon.ammo || 0);
+                }
             } else {
-                gameState.playEmptySound();
-                Entropy.println("Click! Out of ammo.");
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
+                    combat.playEmptySound();
+                    Entropy.println("Click! Out of ammo.");
+                }
             }
         }
     });
@@ -2137,14 +2277,23 @@ addon.onUpdatePlus("Game Composer", (time) => {
         }
 
         if (key === "r") { // Reload
-            gameState.setAmmo(gameState.maxAmmo);
-            gameState.playReloadSound();
-            Entropy.println("Reloading...");
+            if (combat.reload(gameState.playerId!)) {
+                combat.playReloadSound();
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon) {
+                    gameState.setAmmo(weapon.ammo || 0);
+                }
+                Entropy.println("Reloading...");
+            }
         }
 
-        if (key === "k") { // Simulation: Take Damage
-            gameState.setHealth(Math.max(0, gameState.health - 10));
-            gameState.playDamageSound();
+        if (key === "k") { // Simulation: Take Damage (now via combat system)
+            const player = combat.getEntity(gameState.playerId!);
+            if (player) {
+                player.health = Math.max(0, player.health - 10);
+                gameState.setHealth(player.health);
+                combat.playDamageSound();
+            }
         }
     });
 
@@ -2168,19 +2317,30 @@ addon.onUpdatePlus("Game Composer", (time) => {
         }
 
         if (button === "RightTrigger") { // Fire
-            if (gameState.ammo > 0) {
-                gameState.setAmmo(gameState.ammo - 1);
-                gameState.playFireSound();
+            if (combat.attack(gameState.playerId!, true)) {
+                combat.playFireSound();
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon) {
+                    gameState.setAmmo(weapon.ammo || 0);
+                }
             } else {
-                gameState.playEmptySound();
-                Entropy.println("Click! Out of ammo.");
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
+                    combat.playEmptySound();
+                    Entropy.println("Click! Out of ammo.");
+                }
             }
         }
 
         if (button === "West") { // Reload (Square/X)
-            gameState.setAmmo(gameState.maxAmmo);
-            gameState.playReloadSound();
-            Entropy.println("Reloading (Gamepad)...");
+            if (combat.reload(gameState.playerId!)) {
+                combat.playReloadSound();
+                const weapon = combat.getWeapon(gameState.playerId!);
+                if (weapon) {
+                    gameState.setAmmo(weapon.ammo || 0);
+                }
+                Entropy.println("Reloading (Gamepad)...");
+            }
         }
         
         if (button === "Start") {
