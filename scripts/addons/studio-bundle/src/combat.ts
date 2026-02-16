@@ -71,6 +71,15 @@ export class CombatSystem {
         this.audioPlayer = audioPlayer;
         this.visualEffects = visualEffects;
     }
+
+    private isPlayerId(id: string): boolean {
+        // Simple heuristic: if the position provider returns camera transform for this ID, it's the player
+        // Better: pass playerId in constructor
+        const pos = this.getEntityPosition(id);
+        const [camPos] = this.getCameraTransform();
+        if (!pos) return false;
+        return pos[0] === camPos[0] && pos[1] === camPos[1] && pos[2] === camPos[2];
+    }
     
     // ================================================================
     // ENTITY MANAGEMENT
@@ -291,12 +300,17 @@ export class CombatSystem {
             const entityPos = this.getEntityPosition(entityId);
             if (!entityPos) continue;
             
-            // Check if ray intersects entity sphere (radius ~0.5)
+            // Adjust center mass based on whether it's the player or an NPC
+            // Player entityPos is camera pos (eye level), NPCs is foot level
+            const isTargetPlayer = this.isPlayerId(entityId);
+            const centerOffset = isTargetPlayer ? -0.8 : 1.0; 
+
+            // Check if ray intersects entity sphere (radius ~0.8 for more forgiving hits)
             const hit = this.raySphereIntersect(
                 origin,
                 direction,
-                [entityPos[0], entityPos[1] + 1, entityPos[2]], // Center mass
-                0.5 // Entity radius
+                [entityPos[0], entityPos[1] + centerOffset, entityPos[2]],
+                0.8
             );
             
             if (hit && hit.distance < closestDist) {

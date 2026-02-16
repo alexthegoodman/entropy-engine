@@ -278,6 +278,8 @@ class GameState {
     collectablesFound = 0;
     isInventoryOpen = false;
     lastInventoryToggleTime = 0;
+    lastAttackedEnemyId: string | null = null;
+    lastAttackedTime = 0;
     
     // Stats
     health = 100;
@@ -323,11 +325,17 @@ class GameState {
                 this.setHealth(combat.getEntity(targetId)!.health);
                 combat.playDamageSound();
             } else if (attackerId === this.playerId) {
-                // Show hit markers or something?
+                this.lastAttackedEnemyId = targetId;
+                this.lastAttackedTime = Date.now();
+                this.requestRedraw();
             }
         };
 
         combat.onEntityDeath = (targetId, attackerId) => {
+            if (targetId === this.lastAttackedEnemyId) {
+                this.lastAttackedEnemyId = null;
+                this.requestRedraw();
+            }
             const entity = combat.getEntity(targetId);
             if (!entity) return;
 
@@ -440,6 +448,15 @@ class GameState {
         fpsUI.renderHealthBar(this.health, this.maxHealth);
         fpsUI.renderAmmo(this.ammo, this.maxAmmo);
         fpsUI.renderCrosshair(width, height); 
+        
+        // Render Enemy Health Bar
+        if (this.lastAttackedEnemyId && Date.now() - this.lastAttackedTime < 5000) {
+            const enemy = combat.getEntity(this.lastAttackedEnemyId);
+            if (enemy && !enemy.isDead) {
+                const name = enemy.id.substring(0, 8); // Fallback to ID slice
+                fpsUI.renderEnemyHealthBar(name, enemy.health, enemy.maxHealth, width, height);
+            }
+        }
         
         if (this.dialogue.isOpen) {
             fpsUI.renderDialogue(this.dialogue, width, height);

@@ -55,6 +55,42 @@ export class FPSUI {
         });
     }
 
+    renderEnemyHealthBar(name: string, health: number, maxHealth: number, screenWidth: number, screenHeight: number) {
+        const width = 400;
+        const height = 15;
+        const x = (screenWidth - width) / 2;
+        const y = 60;
+
+        // Name
+        this.addon.UI.drawText({
+            text: name.toUpperCase(),
+            position: [x, y - 30],
+            dimensions: [width, 25],
+            fontSize: 20,
+            color: [1, 1, 1, 1],
+            layer: 100
+        });
+
+        // Background
+        this.addon.UI.drawRect({
+            position: [x, y],
+            size: [width, height],
+            color: [0.1, 0.1, 0.1, 0.8],
+            strokeThickness: 1,
+            strokeColor: [0.8, 0.8, 0.8, 1],
+            layer: 100
+        });
+
+        // Bar
+        const percentage = Math.max(0, Math.min(1, health / maxHealth));
+        this.addon.UI.drawRect({
+            position: [x, y],
+            size: [width * percentage, height],
+            color: [1.0, 0.4, 0.0, 1.0], // Orange-ish for enemies
+            layer: 101
+        });
+    }
+
     renderCrosshair(screenWidth: number, screenHeight: number, size: number = 24, thickness: number = 2) {
         const x = screenWidth / 2;
         const y = screenHeight / 2;
