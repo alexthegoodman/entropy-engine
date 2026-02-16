@@ -22,7 +22,7 @@ Or use the built-in chat for convenience (best for non-coders). Your choice.
 It is recommended to read the Entropy Book to get started: 
 [Entropy Book](./public/entropy-book/src/SUMMARY.md)
 
-There is an [example FPS-RPG game](./scripts/addons/studio-bundle/src/fps_rpg_game.ts) and an [example tower defense game](./scripts/addons/studio-bundle/src/tower_defense_game.ts) as well, which should make getting started much easier.
+There is an [example FPS-RPG game](./scripts/addons/studio-bundle/src/fps_rpg/index.ts) and an [example tower defense game](./scripts/addons/studio-bundle/src/tower_defense_game.ts) as well, which should make getting started much easier.
 
 You can supply the [Rust-powered JavaScript addon API](./scripts/addons/studio-bundle/src/addon.d.ts) to an LLM to generate games and addons for this engine with incredible ease. Although to load an addon, it will need to be a bundled JavaScript file. I recommend using `deno bundle` to bundle your TypeScript to JavaScript, just as is done with the built-in addons.
 
