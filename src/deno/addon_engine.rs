@@ -592,7 +592,7 @@ impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
 }
 
 pub struct AddonContext {
-    pub registered_addons: HashMap<String, AddonMetadata>,
+    pub registered_addons: Vec<(String, AddonMetadata)>,
     pub behaviors: HashMap<String, BehaviorHooks>,
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub audio_engine: Arc<AudioEngine>,
@@ -1809,7 +1809,9 @@ fn op_behavior_register(
 fn op_addon_register(state: &mut OpState, #[serde] metadata: AddonMetadata) {
     // println!("Registering addon: {:?}", metadata);
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.registered_addons.insert(metadata.name.clone(), metadata);
+        // ctx.registered_addons.insert(metadata.name.clone(), metadata);
+        // we want them to load in the same order every time for predictability
+        ctx.registered_addons.push((metadata.name.clone(), metadata));
     }
 }
 
@@ -3186,7 +3188,7 @@ impl AddonEngine {
         let audio_engine = Arc::new(AudioEngine::new());
 
         let context = AddonContext {
-            registered_addons: HashMap::new(),
+            registered_addons: Vec::new(),
             behaviors: HashMap::new(),
             gpu_resources: None,
             audio_engine,
@@ -5192,7 +5194,7 @@ impl AddonEngine {
         let op_state = self.runtime.op_state();
         let op_state = op_state.borrow();
         if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-            ctx.registered_addons.values().cloned().collect()
+            ctx.registered_addons.clone().into_iter().map(|(name, meta)| meta.clone()).collect()
         } else {
             Vec::new()
         }
