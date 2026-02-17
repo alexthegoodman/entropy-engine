@@ -80,9 +80,11 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
             case 'Set Animation':
             case 'Teleport':
             case 'Dialogue':
+            case 'Play Sound':
                 return [{ id: 'in', name: 'In', pinType: 'flow' }];
             case 'Condition':
             case 'Check Reputation':
+            case 'Check Health':
                 return [
                     { id: 'in', name: 'In', pinType: 'flow' }
                 ];
@@ -106,6 +108,7 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
             case 'Move To':
             case 'Set Animation':
             case 'Teleport':
+            case 'Play Sound':
                 return [{ id: 'out', name: 'Done', pinType: 'flow' }];
             case 'Dialogue':
                 return [
@@ -115,6 +118,7 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
                 ];
             case 'Condition':
             case 'Check Reputation':
+            case 'Check Health':
                 return [
                     { id: 'true', name: 'True', pinType: 'flow' },
                     { id: 'false', name: 'False', pinType: 'flow' }
@@ -157,7 +161,7 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
                     this.api.UI.Widget.separator(windowId);
                     this.api.UI.Widget.label(windowId, { text: `Editing: ${graphId}`, bold: true });
 
-                    this.api.UI.Widget.label(windowId, { text: "Add Nodes:", bold: true });
+                    this.api.UI.Widget.label(windowId, { text: "Action Nodes:", bold: true });
                     this.api.UI.Widget.horizontal(windowId, (ui) => {
                         this.api.UI.Widget.button(windowId, { text: "🏃 Wander", onClick: () => this.addNode(graphId, 'Wander') });
                         this.api.UI.Widget.button(windowId, { text: "⚔️ Combat", onClick: () => this.addNode(graphId, 'Tactical Combat') });
@@ -165,10 +169,17 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
                         this.api.UI.Widget.button(windowId, { text: "🎭 Anim", onClick: () => this.addNode(graphId, 'Set Animation') });
                     });
                     this.api.UI.Widget.horizontal(windowId, (ui) => {
-                        this.api.UI.Widget.button(windowId, { text: "🌲 Sequence", onClick: () => this.addNode(graphId, 'Sequence') });
-                        this.api.UI.Widget.button(windowId, { text: "❓ Condition", onClick: () => this.addNode(graphId, 'Condition') });
                         this.api.UI.Widget.button(windowId, { text: "💬 Dialogue", onClick: () => this.addNode(graphId, 'Dialogue') });
                         this.api.UI.Widget.button(windowId, { text: "✨ Teleport", onClick: () => this.addNode(graphId, 'Teleport') });
+                        this.api.UI.Widget.button(windowId, { text: "🔊 Sound", onClick: () => this.addNode(graphId, 'Play Sound') });
+                    });
+
+                    this.api.UI.Widget.label(windowId, { text: "Logic Nodes:", bold: true });
+                    this.api.UI.Widget.horizontal(windowId, (ui) => {
+                        this.api.UI.Widget.button(windowId, { text: "🌲 Seq", onClick: () => this.addNode(graphId, 'Sequence') });
+                        this.api.UI.Widget.button(windowId, { text: "❓ Cond", onClick: () => this.addNode(graphId, 'Condition') });
+                        this.api.UI.Widget.button(windowId, { text: "🏆 Rep", onClick: () => this.addNode(graphId, 'Check Reputation') });
+                        this.api.UI.Widget.button(windowId, { text: "❤️ HP", onClick: () => this.addNode(graphId, 'Check Health') });
                     });
 
                     this.api.UI.Widget.snarl(windowId, {
@@ -185,7 +196,14 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
                                 !(c.fromNode === fromNode && c.fromPin === fromPin && c.toNode === toNode && c.toPin === toPin)
                             );
                             this.saveToProject();
-                        }
+                        },
+                        // onNodeMoved: (nodeId, position) => {
+                        //     const node = graph.nodes.find(n => n.id === nodeId);
+                        //     if (node) {
+                        //         node.position = position;
+                        //         this.saveToProject();
+                        //     }
+                        // }
                     });
                 }
             }

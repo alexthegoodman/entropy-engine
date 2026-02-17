@@ -238,6 +238,8 @@ pub enum UiWidget {
         id: String,
         graph: BehaviorGraph,
     },
+    StartHorizontal,
+    EndHorizontal,
     Separator,
 }
 
@@ -516,6 +518,77 @@ pub struct BehaviorNodeState {
     pub inputs: Vec<BehaviorPin>,
     pub outputs: Vec<BehaviorPin>,
     pub properties: serde_json::Value,
+}
+
+struct BehaviorViewer {
+    snarl_id: String,
+    events: Arc<Mutex<Vec<String>>>,
+}
+
+impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
+    fn title(&mut self, node: &BehaviorNodeState) -> String {
+        node.name.clone()
+    }
+
+    fn inputs(&mut self, node: &BehaviorNodeState) -> usize {
+        node.inputs.len()
+    }
+
+    fn outputs(&mut self, node: &BehaviorNodeState) -> usize {
+        node.outputs.len()
+    }
+
+    fn show_input(
+        &mut self,
+        pin: &egui_snarl::InPin,
+        ui: &mut egui::Ui,
+        snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
+    ) -> egui_snarl::ui::PinInfo {
+        let node = &snarl[pin.id.node];
+        ui.label(&node.inputs[pin.id.input].name);
+        egui_snarl::ui::PinInfo::circle()
+    }
+
+    fn show_output(
+        &mut self,
+        pin: &egui_snarl::OutPin,
+        ui: &mut egui::Ui,
+        snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
+    ) -> egui_snarl::ui::PinInfo {
+        let node = &snarl[pin.id.node];
+        ui.label(&node.outputs[pin.id.output].name);
+        egui_snarl::ui::PinInfo::circle()
+    }
+
+    fn connect(
+        &mut self,
+        from: &egui_snarl::OutPin,
+        to: &egui_snarl::InPin,
+        _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
+    ) {
+        let payload = format!(
+            "SNARL_CONNECT|{}|{:?}|{:?}|{:?}|{:?}",
+            self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input
+        );
+        if let Ok(mut events) = self.events.lock() {
+            events.push(payload);
+        }
+    }
+
+    fn disconnect(
+        &mut self,
+        from: &egui_snarl::OutPin,
+        to: &egui_snarl::InPin,
+        _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
+    ) {
+        let payload = format!(
+            "SNARL_DISCONNECT|{}|{:?}|{:?}|{:?}|{:?}",
+            self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input
+        );
+        if let Ok(mut events) = self.events.lock() {
+            events.push(payload);
+        }
+    }
 }
 
 pub struct AddonContext {
@@ -1942,6 +2015,20 @@ fn op_ui_widget_snarl(
 }
 
 #[op2(fast)]
+fn op_ui_widget_start_horizontal(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::StartHorizontal);
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_end_horizontal(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::EndHorizontal);
+    }
+}
+
+#[op2(fast)]
 fn op_ui_widget_separator(state: &mut OpState, #[string] window_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Separator);
@@ -2872,6 +2959,8 @@ extension!(
         op_ui_widget_code_editor,
         op_ui_widget_mini_map,
         op_ui_widget_snarl,
+        op_ui_widget_start_horizontal,
+        op_ui_widget_end_horizontal,
         op_ui_widget_separator,
         op_addon_save_data,
         op_addon_save_image,
@@ -5266,187 +5355,20 @@ impl AddonEngine {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                let mut sorted_windows: Vec<_> = context.ui_windows.iter().collect();
-                sorted_windows.sort_by(|a, b| a.0.cmp(b.0));
+                let mut sorted_windows: Vec<_> = context.ui_windows.iter().map(|(id, (config, _))| (id.clone(), config.clone())).collect();
+                sorted_windows.sort_by(|a, b| a.0.cmp(&b.0));
 
-                for (id, (config, _)) in sorted_windows {
+                for (id, config) in sorted_windows {
                     let mut open = true;
                     egui::Window::new(&config.title)
-                        .id(egui::Id::new(id))
+                        .id(egui::Id::new(&id))
                         .resizable(config.resizable)
                         .default_size([config.default_size.width, config.default_size.height])
                         .open(&mut open)
                         .show(ctx, |ui| {
-                             if let Some(widgets) = context.ui_widgets.get(id) {
-                                 for widget in widgets {
-                                     match widget {
-                                         UiWidget::Label { text, bold } => {
-                                             let mut txt = egui::RichText::new(text);
-                                             if bold.unwrap_or(false) { txt = txt.strong(); }
-                                             ui.label(txt);
-                                         }
-                                         UiWidget::Button { text, id: btn_id, label: _ } => {
-                                             if ui.button(text).clicked() {
-                                                 events_to_push.push(btn_id.clone());
-                                             }
-                                         }
-                                         UiWidget::ColorInput { id: color_id, label, color } => {
-                                             ui.horizontal(|ui| {
-                                                 ui.label(label);
-                                                 let mut current_color = *color;
-                                                 if ui.color_edit_button_rgba_unmultiplied(&mut current_color).changed() {
-                                                     let payload = format!("{}|{},{},{},{}", color_id, current_color[0], current_color[1], current_color[2], current_color[3]);
-                                                     events_to_push.push(payload);
-                                                 }
-                                             });
-                                         }
-                                         UiWidget::Slider { id: slider_id, label, value, min, max } => {
-                                             ui.horizontal(|ui| {
-                                                 ui.label(label);
-                                                 let mut current_value = *value;
-                                                 if ui.add(egui::Slider::new(&mut current_value, *min..=*max)).changed() {
-                                                     let payload = format!("{}|{}", slider_id, current_value);
-                                                     events_to_push.push(payload);
-                                                 }
-                                             });
-                                         }
-                                         UiWidget::NumericInput { id: num_id, label, value } => {
-                                             ui.horizontal(|ui| {
-                                                 ui.label(label);
-                                                 let mut current_value = *value;
-                                                 if ui.add(egui::DragValue::new(&mut current_value)).changed() {
-                                                     let payload = format!("{}|{}", num_id, current_value);
-                                                     events_to_push.push(payload);
-                                                 }
-                                             });
-                                         }
-                                         UiWidget::Dropdown { id: drop_id, label, options, selected_index } => {
-                                             ui.horizontal(|ui| {
-                                                 ui.label(label);
-                                                 let mut current_selected = *selected_index;
-                                                 let mut changed = false;
-                                                 egui::ComboBox::from_id_source(drop_id)
-                                                     .selected_text(&options[current_selected])
-                                                     .show_ui(ui, |ui| {
-                                                         for (i, option) in options.iter().enumerate() {
-                                                             if ui.selectable_value(&mut current_selected, i, option).clicked() {
-                                                                 changed = true;
-                                                             }
-                                                         }
-                                                     });
-                                                 
-                                                 if changed {
-                                                     let payload = format!("{}|{}", drop_id, current_selected);
-                                                     events_to_push.push(payload);
-                                                 }
-                                             });
-                                         }
-                                         UiWidget::Checkbox { id: check_id, label, value } => {
-                                            let mut current_value = *value;
-                                            if ui.checkbox(&mut current_value, label).changed() {
-                                                let payload = format!("{}|{}", check_id, current_value);
-                                                events_to_push.push(payload);
-                                            }
-                                        }
-                                        UiWidget::CodeEditor { id: editor_id, label, content, language } => {
-                                            ui.label(label);
-                                            let syntax = if language == "javascript" || language == "js" {
-                                                egui_code_editor::Syntax::lua()
-                                            } else {
-                                                egui_code_editor::Syntax::rust()
-                                            };
-           
-                                            let mut current_content = content.clone();
-                                            let response = egui_code_editor::CodeEditor::default()
-                                                .id_source(editor_id)
-                                                .with_syntax(syntax)
-                                                .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
-                                                .with_numlines(true)
-                                                .show(ui, &mut current_content);
-           
-                                            if response.response.changed() {
-                                                let payload = format!("{}|{}", editor_id, current_content);
-                                                events_to_push.push(payload);
-                                            }
-                                        }
-                                        UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers, polylines } => {
-                                            let texture_id = if let Some(view) = &context.landscape_texture_view {
-                                                let key = format!("landscape_{}", mm_id);
-                                                if let Some(tid) = context.egui_textures.get(&key) {
-                                                    *tid
-                                                } else {
-                                                    let tid = egui_renderer.register_native_texture(&context.gpu_resources.as_ref().unwrap().device, view, wgpu::FilterMode::Linear);
-                                                    context.egui_textures.insert(key, tid);
-                                                    tid
-                                                }
-                                            } else {
-                                                ui.label("Waiting for landscape texture...");
-                                                continue;
-                                            };
-           
-                                            let mm_size = ui.available_size();
-                                            let mm_size = mm_size.x.min(mm_size.y);
-                                            let (rect, response) = ui.allocate_exact_size(egui::vec2(mm_size, mm_size), egui::Sense::click_and_drag());
-                                            
-                                            // Draw the landscape texture
-                                            ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-           
-                                            // Interaction: Drawing
-                                            if response.dragged() {
-                                                if let Some(pointer_pos) = response.interact_pointer_pos() {
-                                                    let local_pos = pointer_pos - rect.min;
-                                                    let x = local_pos.x / rect.width();
-                                                    let y = local_pos.y / rect.height();
-                                                    let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
-                                                    events_to_push.push(payload);
-                                                }
-                                            } else if response.clicked() {
-                                                if let Some(pointer_pos) = response.interact_pointer_pos() {
-                                                    let local_pos = pointer_pos - rect.min;
-                                                    let x = local_pos.x / rect.width();
-                                                    let y = local_pos.y / rect.height();
-                                                    let payload = format!("CLICK|{}|{},{},{}", mm_id, x, y, brush_size);
-                                                    events_to_push.push(payload);
-                                                }
-                                            }
-           
-                                            // Draw polylines
-                                            if let Some(polylines) = polylines {
-                                                for polyline in polylines {
-                                                    if polyline.points.len() >= 2 {
-                                                        let points: Vec<egui::Pos2> = polyline.points.iter().map(|p| {
-                                                            rect.min + egui::vec2(p[0] * rect.width(), p[1] * rect.height())
-                                                        }).collect();
-                                                        
-                                                        let color = polyline.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::WHITE);
-                                                        let stroke_width = polyline.width.unwrap_or(2.0);
-                                                        
-                                                        for i in 0..points.len() - 1 {
-                                                            ui.painter().line_segment([points[i], points[i+1]], egui::Stroke::new(stroke_width, color));
-                                                        }
-                                                    }
-                                                }
-                                            }
-
-                                            // Draw markers
-                                            for marker in markers {
-                                                let m_pos = rect.min + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
-                                                let m_color = marker.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::RED);
-                                                
-                                                ui.painter().circle_filled(m_pos, 5.0, m_color);
-                                                if let Some(label) = &marker.label {
-                                                    ui.painter().text(m_pos + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.0), egui::Color32::WHITE);
-                                                }
-                                            }
-                                        }
-                                        UiWidget::Separator => {
-                                            ui.separator();
-                                        }
-                                        _ => {
-                                            ui.separator();
-                                        }
-                                    }
-                                 }
+                             let widgets = context.ui_widgets.remove(&id);
+                             if let Some(widgets) = widgets {
+                                 Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
                              }
                         });
                 }
@@ -5462,6 +5384,342 @@ impl AddonEngine {
                     events.extend(events_to_push);
                 }
             }
+        }
+    }
+
+    fn render_widgets(
+        ui: &mut egui::Ui,
+        widgets: &[UiWidget],
+        events_to_push: &mut Vec<String>,
+        context: &mut AddonContext,
+        egui_renderer: &mut egui_wgpu::Renderer,
+    ) {
+        let mut i = 0;
+        while i < widgets.len() {
+            match &widgets[i] {
+                UiWidget::Label { text, bold } => {
+                    let mut txt = egui::RichText::new(text);
+                    if bold.unwrap_or(false) {
+                        txt = txt.strong();
+                    }
+                    ui.label(txt);
+                }
+                UiWidget::Button {
+                    text,
+                    id: btn_id,
+                    label: _,
+                } => {
+                    if ui.button(text).clicked() {
+                        events_to_push.push(btn_id.clone());
+                    }
+                }
+                UiWidget::ColorInput {
+                    id: color_id,
+                    label,
+                    color,
+                } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut current_color = *color;
+                        if ui
+                            .color_edit_button_rgba_unmultiplied(&mut current_color)
+                            .changed()
+                        {
+                            let payload = format!(
+                                "{}|{},{},{},{}",
+                                color_id,
+                                current_color[0],
+                                current_color[1],
+                                current_color[2],
+                                current_color[3]
+                            );
+                            events_to_push.push(payload);
+                        }
+                    });
+                }
+                UiWidget::Slider {
+                    id: slider_id,
+                    label,
+                    value,
+                    min,
+                    max,
+                } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut current_value = *value;
+                        if ui
+                            .add(egui::Slider::new(&mut current_value, *min..=*max))
+                            .changed()
+                        {
+                            let payload = format!("{}|{}", slider_id, current_value);
+                            events_to_push.push(payload);
+                        }
+                    });
+                }
+                UiWidget::NumericInput {
+                    id: num_id,
+                    label,
+                    value,
+                } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut current_value = *value;
+                        if ui.add(egui::DragValue::new(&mut current_value)).changed() {
+                            let payload = format!("{}|{}", num_id, current_value);
+                            events_to_push.push(payload);
+                        }
+                    });
+                }
+                UiWidget::Dropdown {
+                    id: drop_id,
+                    label,
+                    options,
+                    selected_index,
+                } => {
+                    ui.horizontal(|ui| {
+                        ui.label(label);
+                        let mut current_selected = *selected_index;
+                        let mut changed = false;
+                        egui::ComboBox::from_id_source(drop_id)
+                            .selected_text(&options[current_selected])
+                            .show_ui(ui, |ui| {
+                                for (i, option) in options.iter().enumerate() {
+                                    if ui.selectable_value(&mut current_selected, i, option).clicked() {
+                                        changed = true;
+                                    }
+                                }
+                            });
+
+                        if changed {
+                            let payload = format!("{}|{}", drop_id, current_selected);
+                            events_to_push.push(payload);
+                        }
+                    });
+                }
+                UiWidget::Checkbox {
+                    id: check_id,
+                    label,
+                    value,
+                } => {
+                    let mut current_value = *value;
+                    if ui.checkbox(&mut current_value, label).changed() {
+                        let payload = format!("{}|{}", check_id, current_value);
+                        events_to_push.push(payload);
+                    }
+                }
+                UiWidget::CodeEditor {
+                    id: editor_id,
+                    label,
+                    content,
+                    language,
+                } => {
+                    ui.label(label);
+                    let syntax = if language == "javascript" || language == "js" {
+                        egui_code_editor::Syntax::lua()
+                    } else {
+                        egui_code_editor::Syntax::rust()
+                    };
+
+                    let mut current_content = content.clone();
+                    let response = egui_code_editor::CodeEditor::default()
+                        .id_source(editor_id)
+                        .with_syntax(syntax)
+                        .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
+                        .with_numlines(true)
+                        .show(ui, &mut current_content);
+
+                    if response.response.changed() {
+                        let payload = format!("{}|{}", editor_id, current_content);
+                        events_to_push.push(payload);
+                    }
+                }
+                UiWidget::MiniMap {
+                    id: mm_id,
+                    landscape_id: _,
+                    brush_size,
+                    markers,
+                    polylines,
+                } => {
+                    let texture_id = if let Some(view) = &context.landscape_texture_view {
+                        let key = format!("landscape_{}", mm_id);
+                        if let Some(tid) = context.egui_textures.get(&key) {
+                            *tid
+                        } else {
+                            let tid = egui_renderer.register_native_texture(
+                                &context.gpu_resources.as_ref().unwrap().device,
+                                view,
+                                wgpu::FilterMode::Linear,
+                            );
+                            context.egui_textures.insert(key, tid);
+                            tid
+                        }
+                    } else {
+                        ui.label("Waiting for landscape texture...");
+                        i += 1;
+                        continue;
+                    };
+
+                    let mm_size = ui.available_size();
+                    let mm_size = mm_size.x.min(mm_size.y);
+                    let (rect, response) = ui.allocate_exact_size(
+                        egui::vec2(mm_size, mm_size),
+                        egui::Sense::click_and_drag(),
+                    );
+
+                    // Draw the landscape texture
+                    ui.painter().image(
+                        texture_id,
+                        rect,
+                        egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                        egui::Color32::WHITE,
+                    );
+
+                    // Interaction: Drawing
+                    if response.dragged() {
+                        if let Some(pointer_pos) = response.interact_pointer_pos() {
+                            let local_pos = pointer_pos - rect.min;
+                            let x = local_pos.x / rect.width();
+                            let y = local_pos.y / rect.height();
+                            let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
+                            events_to_push.push(payload);
+                        }
+                    } else if response.clicked() {
+                        if let Some(pointer_pos) = response.interact_pointer_pos() {
+                            let local_pos = pointer_pos - rect.min;
+                            let x = local_pos.x / rect.width();
+                            let y = local_pos.y / rect.height();
+                            let payload = format!("CLICK|{}|{},{},{}", mm_id, x, y, brush_size);
+                            events_to_push.push(payload);
+                        }
+                    }
+
+                    // Draw polylines
+                    if let Some(polylines) = polylines {
+                        for polyline in polylines {
+                            if polyline.points.len() >= 2 {
+                                let points: Vec<egui::Pos2> = polyline
+                                    .points
+                                    .iter()
+                                    .map(|p| {
+                                        rect.min
+                                            + egui::vec2(p[0] * rect.width(), p[1] * rect.height())
+                                    })
+                                    .collect();
+
+                                let color = polyline
+                                    .color
+                                    .map(|c| {
+                                        egui::Color32::from_rgba_unmultiplied(
+                                            (c[0] * 255.0) as u8,
+                                            (c[1] * 255.0) as u8,
+                                            (c[2] * 255.0) as u8,
+                                            (c[3] * 255.0) as u8,
+                                        )
+                                    })
+                                    .unwrap_or(egui::Color32::WHITE);
+                                let stroke_width = polyline.width.unwrap_or(2.0);
+
+                                for i in 0..points.len() - 1 {
+                                    ui.painter().line_segment(
+                                        [points[i], points[i + 1]],
+                                        egui::Stroke::new(stroke_width, color),
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    // Draw markers
+                    for marker in markers {
+                        let m_pos = rect.min
+                            + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
+                        let m_color = marker
+                            .color
+                            .map(|c| {
+                                egui::Color32::from_rgba_unmultiplied(
+                                    (c[0] * 255.0) as u8,
+                                    (c[1] * 255.0) as u8,
+                                    (c[2] * 255.0) as u8,
+                                    (c[3] * 255.0) as u8,
+                                )
+                            })
+                            .unwrap_or(egui::Color32::RED);
+
+                        ui.painter().circle_filled(m_pos, 5.0, m_color);
+                        if let Some(label) = &marker.label {
+                            ui.painter().text(
+                                m_pos + egui::vec2(7.0, 0.0),
+                                egui::Align2::LEFT_CENTER,
+                                label,
+                                egui::FontId::proportional(12.0),
+                                egui::Color32::WHITE,
+                            );
+                        }
+                    }
+                }
+                UiWidget::Snarl { id: snarl_id, graph } => {
+                    let snarl = context
+                        .snarl_states
+                        .entry(snarl_id.clone())
+                        .or_insert_with(egui_snarl::Snarl::new);
+
+                    if snarl.nodes().next().is_none() && !graph.nodes.is_empty() {
+                        for node in &graph.nodes {
+                            snarl.insert_node(
+                                egui::Pos2::new(node.position[0], node.position[1]),
+                                BehaviorNodeState {
+                                    id: node.id.clone(),
+                                    name: node.name.clone(),
+                                    node_type: node.node_type.clone(),
+                                    inputs: node.inputs.clone(),
+                                    outputs: node.outputs.clone(),
+                                    properties: node.properties.clone(),
+                                },
+                            );
+                        }
+                    }
+
+                    let mut viewer = BehaviorViewer {
+                        snarl_id: snarl_id.clone(),
+                        events: context.ui_events.clone(),
+                    };
+
+                    snarl.show(
+                        &mut viewer,
+                        &egui_snarl::ui::SnarlStyle::default(),
+                        egui::Id::new(snarl_id),
+                        ui,
+                    );
+                }
+                UiWidget::StartHorizontal => {
+                    // Find matching EndHorizontal
+                    let mut depth = 1;
+                    let mut end_idx = i + 1;
+                    while end_idx < widgets.len() && depth > 0 {
+                        match &widgets[end_idx] {
+                            UiWidget::StartHorizontal => depth += 1,
+                            UiWidget::EndHorizontal => depth -= 1,
+                            _ => {}
+                        }
+                        if depth > 0 {
+                            end_idx += 1;
+                        }
+                    }
+
+                    if end_idx < widgets.len() {
+                        let sub_widgets = &widgets[i + 1..end_idx];
+                        ui.horizontal(|ui| {
+                            Self::render_widgets(ui, sub_widgets, events_to_push, context, egui_renderer);
+                        });
+                        i = end_idx;
+                    }
+                }
+                UiWidget::EndHorizontal => {}
+                UiWidget::Separator => {
+                    ui.separator();
+                }
+            }
+            i += 1;
         }
     }
 
@@ -5526,254 +5784,9 @@ impl AddonEngine {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                 if let Some(widgets) = context.ui_widgets.get(tab_id) {
-                     for widget in widgets {
-                         match widget {
-                             UiWidget::Label { text, bold } => {
-                                 let mut txt = egui::RichText::new(text);
-                                 if bold.unwrap_or(false) { txt = txt.strong(); }
-                                 ui.label(txt);
-                             }
-                             UiWidget::Button { text, id: btn_id, label: _ } => {
-                                 if ui.button(text).clicked() {
-                                     events_to_push.push(btn_id.clone());
-                                 }
-                             }
-                             UiWidget::ColorInput { id: color_id, label, color } => {
-                                 ui.horizontal(|ui| {
-                                     ui.label(label);
-                                     let mut current_color = *color;
-                                     if ui.color_edit_button_rgba_unmultiplied(&mut current_color).changed() {
-                                         let payload = format!("{}|{},{},{},{}", color_id, current_color[0], current_color[1], current_color[2], current_color[3]);
-                                         events_to_push.push(payload);
-                                     }
-                                 });
-                             }
-                             UiWidget::Slider { id: slider_id, label, value, min, max } => {
-                                 ui.horizontal(|ui| {
-                                     ui.label(label);
-                                     let mut current_value = *value;
-                                     if ui.add(egui::Slider::new(&mut current_value, *min..=*max)).changed() {
-                                         let payload = format!("{}|{}", slider_id, current_value);
-                                         events_to_push.push(payload);
-                                     }
-                                 });
-                             }
-                             UiWidget::NumericInput { id: num_id, label, value } => {
-                                 ui.horizontal(|ui| {
-                                     ui.label(label);
-                                     let mut current_value = *value;
-                                     if ui.add(egui::DragValue::new(&mut current_value)).changed() {
-                                         let payload = format!("{}|{}", num_id, current_value);
-                                         events_to_push.push(payload);
-                                     }
-                                 });
-                             }
-                             UiWidget::Dropdown { id: drop_id, label, options, selected_index } => {
-                                 ui.horizontal(|ui| {
-                                     ui.label(label);
-                                     let mut current_selected = *selected_index;
-                                     let mut changed = false;
-                                     egui::ComboBox::from_id_source(drop_id)
-                                         .selected_text(&options[current_selected])
-                                         .show_ui(ui, |ui| {
-                                             for (i, option) in options.iter().enumerate() {
-                                                 if ui.selectable_value(&mut current_selected, i, option).clicked() {
-                                                     changed = true;
-                                                 }
-                                             }
-                                         });
-                                     
-                                     if changed {
-                                         let payload = format!("{}|{}", drop_id, current_selected);
-                                         events_to_push.push(payload);
-                                     }
-                                 });
-                             }
-                             UiWidget::Checkbox { id: check_id, label, value } => {
-                                 let mut current_value = *value;
-                                 if ui.checkbox(&mut current_value, label).changed() {
-                                     let payload = format!("{}|{}", check_id, current_value);
-                                     events_to_push.push(payload);
-                                 }
-                             }
-                             UiWidget::CodeEditor { id: editor_id, label, content, language } => {
-                                 ui.label(label);
-                                 let syntax = if language == "javascript" || language == "js" {
-                                     egui_code_editor::Syntax::lua()
-                                 } else {
-                                     egui_code_editor::Syntax::rust()
-                                 };
-
-                                 let mut current_content = content.clone();
-                                 let response = egui_code_editor::CodeEditor::default()
-                                     .id_source(editor_id)
-                                     .with_syntax(syntax)
-                                     .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
-                                     .with_numlines(true)
-                                     .show(ui, &mut current_content);
-
-                                 if response.response.changed() {
-                                     let payload = format!("{}|{}", editor_id, current_content);
-                                     events_to_push.push(payload);
-                                 }
-                             }
-                             UiWidget::MiniMap { id: mm_id, landscape_id, brush_size, markers, polylines } => {
-                                 let texture_id = if let Some(view) = &context.landscape_texture_view {
-                                     let key = format!("landscape_{}", mm_id);
-                                     if let Some(tid) = context.egui_textures.get(&key) {
-                                         *tid
-                                     } else {
-                                         let tid = egui_renderer.register_native_texture(&context.gpu_resources.as_ref().unwrap().device, view, wgpu::FilterMode::Linear);
-                                         context.egui_textures.insert(key, tid);
-                                         tid
-                                     }
-                                 } else {
-                                     ui.label("Waiting for landscape texture...");
-                                     continue;
-                                 };
-
-                                 let mm_size = ui.available_size();
-                                 let mm_size = mm_size.x.min(mm_size.y);
-                                 let (rect, response) = ui.allocate_exact_size(egui::vec2(mm_size, mm_size), egui::Sense::click_and_drag());
-                                 
-                                 // Draw the landscape texture
-                                 ui.painter().image(texture_id, rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
-
-                                 // Interaction: Drawing
-                                 if response.dragged() {
-                                     if let Some(pointer_pos) = response.interact_pointer_pos() {
-                                         let local_pos = pointer_pos - rect.min;
-                                         let x = local_pos.x / rect.width();
-                                         let y = local_pos.y / rect.height();
-                                         let payload = format!("{}|{},{},{}", mm_id, x, y, brush_size);
-                                         events_to_push.push(payload);
-                                     }
-                                 } else if response.clicked() {
-                                    if let Some(pointer_pos) = response.interact_pointer_pos() {
-                                        let local_pos = pointer_pos - rect.min;
-                                        let x = local_pos.x / rect.width();
-                                        let y = local_pos.y / rect.height();
-                                        let payload = format!("CLICK|{}|{},{},{}", mm_id, x, y, brush_size);
-                                        events_to_push.push(payload);
-                                    }
-                                 } else if response.hovered() {
-                                    if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
-                                        if rect.contains(pointer_pos) {
-                                            let local_pos = pointer_pos - rect.min;
-                                            let x = local_pos.x / rect.width();
-                                            let y = local_pos.y / rect.height();
-                                            let payload = format!("HOVER|{}|{},{},{}", mm_id, x, y, brush_size);
-                                            events_to_push.push(payload);
-                                        }
-                                    }
-                                 }
-
-                                 // Draw polylines
-                                 if let Some(polylines) = polylines {
-                                     for polyline in polylines {
-                                         if polyline.points.len() >= 2 {
-                                             let points: Vec<egui::Pos2> = polyline.points.iter().map(|p| {
-                                                 rect.min + egui::vec2(p[0] * rect.width(), p[1] * rect.height())
-                                             }).collect();
-                                             
-                                             let color = polyline.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::WHITE);
-                                             let stroke_width = polyline.width.unwrap_or(2.0);
-                                             
-                                             for i in 0..points.len() - 1 {
-                                                 ui.painter().line_segment([points[i], points[i+1]], egui::Stroke::new(stroke_width, color));
-                                             }
-                                         }
-                                     }
-                                 }
-
-                                 // Draw markers
-                                 for marker in markers {
-                                     let m_pos = rect.min + egui::vec2(marker.position[0] * rect.width(), marker.position[1] * rect.height());
-                                     let m_color = marker.color.map(|c| egui::Color32::from_rgba_unmultiplied((c[0]*255.0) as u8, (c[1]*255.0) as u8, (c[2]*255.0) as u8, (c[3]*255.0) as u8)).unwrap_or(egui::Color32::RED);
-                                     
-                                     ui.painter().circle_filled(m_pos, 5.0, m_color);
-                                     if let Some(label) = &marker.label {
-                                         ui.painter().text(m_pos + egui::vec2(7.0, 0.0), egui::Align2::LEFT_CENTER, label, egui::FontId::proportional(12.0), egui::Color32::WHITE);
-                                     }
-                                 }
-                             }
-                             UiWidget::Snarl { id: snarl_id, graph } => {
-                                            let snarl = context.snarl_states.entry(snarl_id.clone()).or_insert_with(egui_snarl::Snarl::new);
-                                            
-                                            struct BehaviorViewer {
-                                                snarl_id: String,
-                                                events: Arc<Mutex<Vec<String>>>,
-                                            }
-                                            
-                                            impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
-                                                fn title(&mut self, node: &BehaviorNodeState) -> String {
-                                                    node.name.clone()
-                                                }
-                                                
-                                                fn inputs(&mut self, node: &BehaviorNodeState) -> usize {
-                                                    node.inputs.len()
-                                                }
-                                                
-                                                fn outputs(&mut self, node: &BehaviorNodeState) -> usize {
-                                                    node.outputs.len()
-                                                }
-                                                
-                                                fn show_input(&mut self, pin: &egui_snarl::InPin, ui: &mut egui::Ui, snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) -> egui_snarl::ui::PinInfo {
-                                                    let node = &snarl[pin.id.node];
-                                                    ui.label(&node.inputs[pin.id.input].name);
-                                                    egui_snarl::ui::PinInfo::circle()
-                                                }
-                                                
-                                                fn show_output(&mut self, pin: &egui_snarl::OutPin, ui: &mut egui::Ui, snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) -> egui_snarl::ui::PinInfo {
-                                                    let node = &snarl[pin.id.node];
-                                                    ui.label(&node.outputs[pin.id.output].name);
-                                                    egui_snarl::ui::PinInfo::circle()
-                                                }
-                                                
-                                                fn connect(&mut self, from: &egui_snarl::OutPin, to: &egui_snarl::InPin, _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) {
-                                                    let payload = format!("SNARL_CONNECT|{}|{:?}|{:?}|{:?}|{:?}", 
-                                                        self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input);
-                                                    if let Ok(mut events) = self.events.lock() {
-                                                        events.push(payload);
-                                                    }
-                                                }
-                                                
-                                                fn disconnect(&mut self, from: &egui_snarl::OutPin, to: &egui_snarl::InPin, _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) {
-                                                    let payload = format!("SNARL_DISCONNECT|{}|{:?}|{:?}|{:?}|{:?}", 
-                                                        self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input);
-                                                    if let Ok(mut events) = self.events.lock() {
-                                                        events.push(payload);
-                                                    }
-                                                }
-                                            }
-
-                                            if snarl.nodes().next().is_none() && !graph.nodes.is_empty() {
-                                                for node in &graph.nodes {
-                                                    snarl.insert_node(egui::Pos2::new(node.position[0], node.position[1]), BehaviorNodeState {
-                                                        id: node.id.clone(),
-                                                        name: node.name.clone(),
-                                                        node_type: node.node_type.clone(),
-                                                        inputs: node.inputs.clone(),
-                                                        outputs: node.outputs.clone(),
-                                                        properties: node.properties.clone(),
-                                                    });
-                                                }
-                                            }
-
-                                            let mut viewer = BehaviorViewer {
-                                                snarl_id: snarl_id.clone(),
-                                                events: context.ui_events.clone(),
-                                            };
-                                            
-                                            snarl.show(&mut viewer, &egui_snarl::ui::SnarlStyle::default(), egui::Id::new(snarl_id), ui);
-                                        }
-                                        
-                             UiWidget::Separator => {
-                                 ui.separator();
-                             }
-                         }
-                     }
+                 let widgets = context.ui_widgets.remove(tab_id);
+                 if let Some(widgets) = widgets {
+                    Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
                  }
             }
         }

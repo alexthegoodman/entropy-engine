@@ -650,10 +650,9 @@ globalThis.Entropy = {
                 }
             },
             horizontal: (windowId, render) => {
-                // In this list-based UI approach, we don't have a direct way to 
-                // wrap widgets in a horizontal layout from JS without a special OP.
-                // For now, this just executes the render function.
+                ops.op_ui_widget_start_horizontal(windowId);
                 render(windowId);
+                ops.op_ui_widget_end_horizontal(windowId);
             },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
@@ -663,7 +662,7 @@ globalThis.Entropy = {
 
                 ops.op_ui_widget_snarl(windowId, graph, id);
 
-                if (config?.onConnect || config?.onDisconnect) {
+                if (config?.onConnect || config?.onDisconnect || config?.onNodeMoved) {
                     globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
                     globalThis._entropy_event_listeners[id] = (eventData) => {
                         const parts = eventData.split('|');
@@ -672,6 +671,8 @@ globalThis.Entropy = {
                             config.onConnect(parts.slice(2));
                         } else if (type === "SNARL_DISCONNECT" && config.onDisconnect) {
                             config.onDisconnect(parts.slice(2));
+                        } else if (type === "SNARL_NODE_MOVED" && config.onNodeMoved) {
+                            config.onNodeMoved(parts[2], [parseFloat(parts[3].split(',')[0]), parseFloat(parts[3].split(',')[1])]);
                         }
                     };
                 }

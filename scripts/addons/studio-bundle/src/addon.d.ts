@@ -568,6 +568,7 @@ export interface SnarlConfig {
     graph: BehaviorGraph;
     onConnect?: (params: string[]) => void;
     onDisconnect?: (params: string[]) => void;
+    onNodeMoved?: (nodeId: string, position: [number, number]) => void;
 }
 
 export interface MiniMapMarker {
