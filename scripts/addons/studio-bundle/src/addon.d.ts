@@ -349,6 +349,20 @@ export interface ScopedAPI {
     drawText: (config: UITextConfig) => void;
     clear: () => void;
     selectDialogueOption: (index: number) => void;
+    Widget: {
+      label: (windowId: string, config: LabelConfig) => void;
+      button: (windowId: string, config: ButtonConfig) => void;
+      colorInput: (windowId: string, config: ColorInputConfig) => void;
+      slider: (windowId: string, config: SliderConfig) => void;
+      numericInput: (windowId: string, config: NumericInputConfig) => void;
+      dropdown: (windowId: string, config: DropdownConfig) => void;
+      checkbox: (windowId: string, config: CheckboxConfig) => void;
+      codeEditor: (windowId: string, config: CodeEditorConfig) => void;
+      miniMap: (windowId: string, config: MiniMapConfig) => void;
+      snarl: (windowId: string, config: SnarlConfig) => void;
+      horizontal: (windowId: string, render: (windowId: string) => void) => void;
+      separator: (windowId: string) => void;
+    };
   };
   Lighting: {
     createPointLight: (config: PointLightConfig) => void;
@@ -521,6 +535,41 @@ export interface CheckboxConfig {
     onChange?: (value: boolean) => void;
 }
 
+export interface BehaviorPin {
+    id: string;
+    name: string;
+    pinType: string;
+}
+
+export interface BehaviorNode {
+    id: string;
+    name: string;
+    nodeType: string;
+    position: [number, number];
+    inputs: BehaviorPin[];
+    outputs: BehaviorPin[];
+    properties: any;
+}
+
+export interface BehaviorConnection {
+    fromNode: string;
+    fromPin: string;
+    toNode: string;
+    toPin: string;
+}
+
+export interface BehaviorGraph {
+    nodes: BehaviorNode[];
+    connections: BehaviorConnection[];
+}
+
+export interface SnarlConfig {
+    id?: string;
+    graph: BehaviorGraph;
+    onConnect?: (params: string[]) => void;
+    onDisconnect?: (params: string[]) => void;
+}
+
 export interface MiniMapMarker {
     position: [number, number]; // [x, y] in 0-1 range
     color?: [number, number, number, number];
@@ -631,6 +680,8 @@ export interface EntropyAPI {
       checkbox: (windowId: string, config: CheckboxConfig) => void;
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       miniMap: (windowId: string, config: MiniMapConfig) => void;
+      snarl: (windowId: string, config: SnarlConfig) => void;
+      horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
     };
   };

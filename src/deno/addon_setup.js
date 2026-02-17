@@ -93,7 +93,8 @@ globalThis.Entropy = {
                     },
                     selectDialogueOption: (index) => {
                         ops.op_dialogue_select_option(index);
-                    }
+                    },
+                    Widget: globalThis.Entropy.UI.Widget
                 },
                 Model: {
                     load: (config) => {
@@ -648,6 +649,33 @@ globalThis.Entropy = {
                     globalThis._entropy_click_listeners[id] = config.onClick;
                 }
             },
+            horizontal: (windowId, render) => {
+                // In this list-based UI approach, we don't have a direct way to 
+                // wrap widgets in a horizontal layout from JS without a special OP.
+                // For now, this just executes the render function.
+                render(windowId);
+            },
+            snarl: (windowId, config) => {
+                const graph = config?.graph || { nodes: [], connections: [] };
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_snarl_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
+                ops.op_ui_widget_snarl(windowId, graph, id);
+
+                if (config?.onConnect || config?.onDisconnect) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "SNARL_CONNECT" && config.onConnect) {
+                            config.onConnect(parts.slice(2));
+                        } else if (type === "SNARL_DISCONNECT" && config.onDisconnect) {
+                            config.onDisconnect(parts.slice(2));
+                        }
+                    };
+                }
+            },
             separator: (windowId) => {
                 ops.op_ui_widget_separator(windowId);
             }
@@ -672,6 +700,10 @@ globalThis.Entropy = {
                 const parts = event.split("|");
                 id = parts[1];
                 payload = parts[2];
+            } else if (event.startsWith("SNARL_CONNECT|") || event.startsWith("SNARL_DISCONNECT|")) {
+                const parts = event.split("|");
+                id = parts[1]; // snarl_id
+                payload = event; // pass the whole event to the listener
             } else if (event.includes("|")) {
                 const parts = event.split("|");
                 id = parts[0];

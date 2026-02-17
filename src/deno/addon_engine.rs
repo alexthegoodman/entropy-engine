@@ -234,7 +234,47 @@ pub enum UiWidget {
         markers: Vec<MiniMapMarker>,
         polylines: Option<Vec<MiniMapPolyline>>,
     },
+    Snarl {
+        id: String,
+        graph: BehaviorGraph,
+    },
     Separator,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BehaviorGraph {
+    pub nodes: Vec<BehaviorNode>,
+    pub connections: Vec<BehaviorConnection>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BehaviorNode {
+    pub id: String,
+    pub name: String,
+    pub node_type: String,
+    pub position: [f32; 2],
+    pub inputs: Vec<BehaviorPin>,
+    pub outputs: Vec<BehaviorPin>,
+    pub properties: serde_json::Value,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BehaviorPin {
+    pub id: String,
+    pub name: String,
+    pub pin_type: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BehaviorConnection {
+    pub from_node: String,
+    pub from_pin: String,
+    pub to_node: String,
+    pub to_pin: String,
 }
 
 
@@ -468,6 +508,16 @@ pub struct BoneTransformConfig {
     pub scale: Option<[f32; 3]>,
 }
 
+#[derive(Clone)]
+pub struct BehaviorNodeState {
+    pub id: String,
+    pub name: String,
+    pub node_type: String,
+    pub inputs: Vec<BehaviorPin>,
+    pub outputs: Vec<BehaviorPin>,
+    pub properties: serde_json::Value,
+}
+
 pub struct AddonContext {
     pub registered_addons: HashMap<String, AddonMetadata>,
     pub behaviors: HashMap<String, BehaviorHooks>,
@@ -545,6 +595,7 @@ pub struct AddonContext {
     pub model_cache: HashMap<String, Vec<u8>>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
+    pub snarl_states: HashMap<String, egui_snarl::Snarl<BehaviorNodeState>>,
     pub input_events: Vec<InputEvent>,
     pub pressed_keys: HashSet<String>,
     pub mouse_position: [f32; 2],
@@ -1878,6 +1929,18 @@ fn op_ui_widget_mini_map(
     }
 }
 
+#[op2]
+fn op_ui_widget_snarl(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] graph: BehaviorGraph,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Snarl { id, graph });
+    }
+}
+
 #[op2(fast)]
 fn op_ui_widget_separator(state: &mut OpState, #[string] window_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
@@ -2808,6 +2871,7 @@ extension!(
         op_ui_widget_checkbox,
         op_ui_widget_code_editor,
         op_ui_widget_mini_map,
+        op_ui_widget_snarl,
         op_ui_widget_separator,
         op_addon_save_data,
         op_addon_save_image,
@@ -3104,6 +3168,7 @@ impl AddonEngine {
             registered_tools: HashMap::new(),
             op_addon_on_all_projects_loaded_callbacks: Vec::new(),
             egui_textures: HashMap::new(),
+            snarl_states: HashMap::new(),
             input_events: Vec::new(),
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
@@ -5377,6 +5442,9 @@ impl AddonEngine {
                                         UiWidget::Separator => {
                                             ui.separator();
                                         }
+                                        _ => {
+                                            ui.separator();
+                                        }
                                     }
                                  }
                              }
@@ -5630,6 +5698,77 @@ impl AddonEngine {
                                      }
                                  }
                              }
+                             UiWidget::Snarl { id: snarl_id, graph } => {
+                                            let snarl = context.snarl_states.entry(snarl_id.clone()).or_insert_with(egui_snarl::Snarl::new);
+                                            
+                                            struct BehaviorViewer {
+                                                snarl_id: String,
+                                                events: Arc<Mutex<Vec<String>>>,
+                                            }
+                                            
+                                            impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
+                                                fn title(&mut self, node: &BehaviorNodeState) -> String {
+                                                    node.name.clone()
+                                                }
+                                                
+                                                fn inputs(&mut self, node: &BehaviorNodeState) -> usize {
+                                                    node.inputs.len()
+                                                }
+                                                
+                                                fn outputs(&mut self, node: &BehaviorNodeState) -> usize {
+                                                    node.outputs.len()
+                                                }
+                                                
+                                                fn show_input(&mut self, pin: &egui_snarl::InPin, ui: &mut egui::Ui, snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) -> egui_snarl::ui::PinInfo {
+                                                    let node = &snarl[pin.id.node];
+                                                    ui.label(&node.inputs[pin.id.input].name);
+                                                    egui_snarl::ui::PinInfo::circle()
+                                                }
+                                                
+                                                fn show_output(&mut self, pin: &egui_snarl::OutPin, ui: &mut egui::Ui, snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) -> egui_snarl::ui::PinInfo {
+                                                    let node = &snarl[pin.id.node];
+                                                    ui.label(&node.outputs[pin.id.output].name);
+                                                    egui_snarl::ui::PinInfo::circle()
+                                                }
+                                                
+                                                fn connect(&mut self, from: &egui_snarl::OutPin, to: &egui_snarl::InPin, _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) {
+                                                    let payload = format!("SNARL_CONNECT|{}|{:?}|{:?}|{:?}|{:?}", 
+                                                        self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input);
+                                                    if let Ok(mut events) = self.events.lock() {
+                                                        events.push(payload);
+                                                    }
+                                                }
+                                                
+                                                fn disconnect(&mut self, from: &egui_snarl::OutPin, to: &egui_snarl::InPin, _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>) {
+                                                    let payload = format!("SNARL_DISCONNECT|{}|{:?}|{:?}|{:?}|{:?}", 
+                                                        self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input);
+                                                    if let Ok(mut events) = self.events.lock() {
+                                                        events.push(payload);
+                                                    }
+                                                }
+                                            }
+
+                                            if snarl.nodes().next().is_none() && !graph.nodes.is_empty() {
+                                                for node in &graph.nodes {
+                                                    snarl.insert_node(egui::Pos2::new(node.position[0], node.position[1]), BehaviorNodeState {
+                                                        id: node.id.clone(),
+                                                        name: node.name.clone(),
+                                                        node_type: node.node_type.clone(),
+                                                        inputs: node.inputs.clone(),
+                                                        outputs: node.outputs.clone(),
+                                                        properties: node.properties.clone(),
+                                                    });
+                                                }
+                                            }
+
+                                            let mut viewer = BehaviorViewer {
+                                                snarl_id: snarl_id.clone(),
+                                                events: context.ui_events.clone(),
+                                            };
+                                            
+                                            snarl.show(&mut viewer, &egui_snarl::ui::SnarlStyle::default(), egui::Id::new(snarl_id), ui);
+                                        }
+                                        
                              UiWidget::Separator => {
                                  ui.separator();
                              }

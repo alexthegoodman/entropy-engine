@@ -201,9 +201,18 @@ export abstract class ComponentAddon<TParams = any> extends EntropyAddon<{
         super(metadata);
     }
 
+    // get currentParams(): TParams {
+    //     const found = this.state.savedComponents.find(c => c.id === this.state.activeComponentId);
+    //     return found ? found.params : this.state.savedComponents[0].params;
+    // }
+
     get currentParams(): TParams {
-        const found = this.state.savedComponents.find(c => c.id === this.state.activeComponentId);
-        return found ? found.params : this.state.savedComponents[0].params;
+      if (this.state.savedComponents.length === 0) {
+          return {} as TParams; // or return a default params object
+      }
+      
+      const found = this.state.savedComponents.find(c => c.id === this.state.activeComponentId);
+      return found ? found.params : this.state.savedComponents[0].params;
     }
 
     protected initComponentState(defaultName: string = "Default") {
