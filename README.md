@@ -4,85 +4,105 @@
 
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-**Lightweight, powerful, sophisticated.**
+**Stop jumping between tools. Start creating.**
 
-Entropy is an end-to-end, native game engine with an API designed for LLM generation and fewer lines of code.
-Create entire games in a single JavaScript file (on top of the fully native Rust-based core). No extra plugins needed.
-Get everything you need, from PBR textures to animations to audio and level design. No extra tools required.
+You know the drill: Model in Blender. Texture in Substance. Import. Realize the scale is wrong. Export. Fix. Re-import. Now the materials are broken. Start over. Need to update that texture? Hope you remember which files need re-exporting.
 
-The API is clean enough to paste into any LLM (Claude, ChatGPT, local models) and get reliable code generation. 
-Or use the built-in chat for convenience (best for non-coders). Your choice.
+**Entropy works differently.**
 
-- Complete a game in one .js file - from mechanics to visuals to audio
-- API surface optimized for both humans and LLMs
-- Lightweight runtime - no heavyweight GPU requirements
+Create a PBR texture. Apply it to your landscape. Apply it to your procedurally-generated houses. Change the roughness. *Everything updates.* Because it's all in the same place.
+
+Model terrain with noise. Add FFT water that actually flows. Scatter interactive grass that sways in the wind. Place volumetric fog. Add enemies with behaviors. Test it. Tweak it. No exporting. No re-importing. No wondering which version of which file is the current one.
+
+---
+
+## The Workflow You Actually Want
+
+| **What You're Doing** | **How It Works** |
+|----------------------|------------------|
+| **Creating environments** | Design landscapes, place water systems, add particle effects - all live in the editor |
+| **Making materials** | Build PBR textures visually, apply them anywhere, change once and see everywhere |
+| **Building structures** | Generate procedural houses, scatter props, compose levels - instant feedback |
+| **Adding game logic** | Write clean JavaScript for behaviors and mechanics (perfect for LLMs too) |
+| **Getting AI help** | Optional chat integration - ask to place NPCs, adjust lighting, generate code |
+| **Testing** | Hit play. No build step. No export pipeline. Just your game running. |
+
+---
+
+## What's Actually Included
+
+No hunting for plugins. No "this only works with the paid version." Everything's here:
+
+### Environment & Visuals
+- **FFT Water & Rivers** - Realistic flowing water with physics-based simulation
+- **Terrain System** - Heightmap-based landscapes with texture blending
+- **Procedural Houses** - Generate and customize buildings on the fly
+- **Interactive Grass** - Wind-reactive hair particles that respond to movement
+- **Volumetric Effects** - Fog, dust, atmospheric particles
+- **PBR Material Designer** - Create textures with metallic, roughness, normal maps
+- **Skybox & Lighting** - Point lights, shadow mapping, deferred rendering
+
+### Characters & Animation
+- **Character Creator** - Humanoid system with customization
+- **GLB/GLTF Support** - Import models with full animation support
+- **Transform Gizmo** - Professional 3D manipulation tools
+
+### Game Systems
+- **Physics** - Powered by Rapier for realistic collisions
+- **Behaviors & Mechanics** - Inventory, quests, dialogue, combat, AI
+- **Audio** - DAW-style synth integration
+- **UI Pipeline** - In-game interface system with text rendering
+- **Game Modes** - Tower defense, FPS-RPG, horde mode examples included
+
+---
+
+## Traditional Workflow vs. Entropy
+
+| | **Traditional Engine** | **Entropy** |
+|---|---|---|
+| **Making a texture** | Create in Substance → Export → Import → Apply → Realize it's wrong → Repeat | Create in PBR Designer → Apply → Adjust in real-time |
+| **Terrain + water** | Terrain in World Creator → Water plugin → Hope they work together | Terrain tool + FFT Water → They already work together |
+| **Updating materials** | Find source file → Edit → Re-export → Re-import → Re-apply to all objects | Edit once → Everything updates automatically |
+| **Adding game logic** | Navigate complex GameObject hierarchies → Attach scripts → Debug serialization issues | Write clean JavaScript → It just works |
+| **LLM assistance** | Copy/paste code → Try to adapt it to engine-specific patterns | Give Claude the API → Get working code immediately |
+| **Plugin management** | Search asset store → Check compatibility → Deal with version conflicts → Pay for half of them | Everything included out of the box |
+
+---
+
+## Built for Real Development
+
+**Rust core, JavaScript flexibility**  
+Fast native runtime with a scripting layer that makes sense. No performance overhead from bloated frameworks.
+
+**LLM-optimized API**  
+The entire API is designed to be pasteable into Claude, ChatGPT, or local models for reliable code generation. Clean, consistent, predictable.
+
+**Lightweight**  
+No heavyweight GPU requirements. No gigabytes of dependencies. Just the engine and your creativity.
+
+**Complete examples included**  
+Full FPS-RPG and Tower Defense games with source code. Learn by seeing how real games are built.
+
+---
 
 ## Getting Started
 
-It is recommended to read the Entropy Book to get started: 
-[Entropy Book](./public/entropy-book/src/SUMMARY.md)
+**Read the Book:**  
+[Entropy Book](./public/entropy-book/src/SUMMARY.md) - Complete documentation and tutorials
 
-There is an [example FPS-RPG game](./scripts/addons/studio-bundle/src/fps_rpg/index.ts) and an [example tower defense game](./scripts/addons/studio-bundle/src/tower_defense_game.ts) as well, which should make getting started much easier.
+**Explore Examples:**
+- [FPS-RPG Game](./scripts/addons/studio-bundle/src/fps_rpg/index.ts)
+- [Tower Defense Game](./scripts/addons/studio-bundle/src/tower_defense_game.ts)
 
-You can supply the [Rust-powered JavaScript addon API](./scripts/addons/studio-bundle/src/addon.d.ts) to an LLM to generate games and addons for this engine with incredible ease. Although to load an addon, it will need to be a bundled JavaScript file. I recommend using `deno bundle` to bundle your TypeScript to JavaScript, just as is done with the built-in addons.
+**Use with LLMs:**  
+Supply the [JavaScript API](./scripts/addons/studio-bundle/src/addon.d.ts) to any LLM and generate game code instantly. Bundle TypeScript with `deno bundle` to load as addons.
 
-And you don't need to pay for the chat - you can really use Entropy how you want. You can, for example, add NPCs via chat, via UI, or via JavaScript / TypeScript. You could even fork the engine, if you wish, to evolve the Rust core.
+**Or just use the built-in chat** - Best for non-coders who want to create through conversation.
 
-## Features
+---
 
-### Current Features:
+## The Philosophy
 
-- GLB (gltf) Import
-- GLB (gltf) animations
-- Physics with Rapier
-- Shadow Mapping
-- Magic particle effects (ex. fire from heavens, snow, etc)
-- JavaScript Scripting (for game mechanics and behaviors, not just for creating addons themselves)
-- Professional transform gizmo (as well as egui inputs)
-- Rendered images and videos
-- Rendered text with fonts
-- In-Game UI Pipeline
-- Procedural scattering of models
-- Mini-Map
-- Screen capture
-- Vector animations
-- Video export
-- Do level design via LLM powered chat
-- Wry webview embed for advanced rich text editing
+Level design should be visual. Behaviors should be code. Nothing should require three tools and a file format converter.
 
-### Current Mechanics
-
-There are several configurable mechanics included in the engine, but you can easily write your own in an addon script.
-
-- Basic game behaviors (melee, chase, inventory, quests, etc)
-- Sprinting/Stamina
-- Dialogue (integrates with UI and scripting)
-- Aiming (with crosshair ui), ammo, and reloading
-- NPC Swarm Systems
-- Enemy looting
-- Procedural recoil for ranged weapons
-- Ranged weapon types (manual, semi-automatic, automatic)
-
-### Currently Available In The Default Addon Bundle
-
-The default addon bundle is automatically loaded in for all users without any need to download or install.
-
-- Interactive, windy, hair particles (grass)
-- Deferred rendering / lighting
-- PBR Materials and Creation
-- FFT Water Planes
-- Quadtree landscapes with texture maps
-- Skybox Pipeline
-- Point lighting
-- Heightmap creation CLI (specify features and flat areas too)
-
-### How to approach addons
-
-Addons will act as the "Source of Truth". They should:
-
-* Register a Component: Use Entropy.Composer.registerComponent so their saved data show up in the Game Composer's library.
-* Register a Renderer: Provide a render function (for a mesh, model, or whatever you render) so that it can be rendered in the Game Composer.
-* Register an Editor: Use Entropy.Composer.registerEditor to provide the UI for various properties.
-* Register your tools: Use addon.registerTool to add a handler for LLMs to use via the universal chat.
-
-More info is in the [documentation](./public/entropy-book/src/SUMMARY.md)
+That's Entropy.
