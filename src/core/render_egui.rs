@@ -137,7 +137,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                 // Render Addon Workspaces
                                 if let Some(editor) = &mut viewer.context.export_editor {
                                     let addons = editor.addon_engine.get_registered_addons();
-                                    for addon in addons {
+                                    for addon in addons.iter().rev() {
                                         // Skip addons marked as atoms
                                         if addon.is_atom.unwrap_or(false) {
                                             continue;
