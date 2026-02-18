@@ -1114,6 +1114,8 @@ addon.onInit(async () => {
         });
 
         Entropy.UI.Widget.label(tab, { text: "📦 Components", bold: true });
+
+        // Entropy.println("addonState.activeComponentId " + addonState.activeComponentId);
         
         const activeComp = addonState.savedComponents.find(c => c.id === addonState.activeComponentId);
         if (activeComp) {
@@ -1148,16 +1150,16 @@ addon.onInit(async () => {
             }
         });
 
-        addonState.savedComponents.forEach(comp => {
-            Entropy.UI.Widget.button(tab, {
-                text: `📂 Load & Render: ${comp.name}`,
-                onClick: () => {
-                    addonState.activeComponentId = comp.id;
-                    updateHair(addonState.currentParams, comp.id);
-                    updateOrnaments(addonState.currentParams, comp.id);
-                }
-            });
-        });
+        // addonState.savedComponents.forEach(comp => {
+        //     Entropy.UI.Widget.button(tab, {
+        //         text: `📂 Load & Render: ${comp.name}`,
+        //         onClick: () => {
+        //             addonState.activeComponentId = comp.id;
+        //             updateHair(addonState.currentParams, comp.id);
+        //             updateOrnaments(addonState.currentParams, comp.id);
+        //         }
+        //     });
+        // });
 
         Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
@@ -1435,7 +1437,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Color Variation",
-            value: hairParams.colorVariation,
+            value: addonState.currentParams.colorVariation,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1446,7 +1448,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Color Band Position",
-            value: hairParams.colorBandPosition,
+            value: addonState.currentParams.colorBandPosition,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1457,7 +1459,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Color Band Width",
-            value: hairParams.colorBandWidth,
+            value: addonState.currentParams.colorBandWidth,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1493,7 +1495,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Blade Taper",
-            value: hairParams.bladeTaper,
+            value: addonState.currentParams.bladeTaper,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1529,7 +1531,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Height Variability",
-            value: hairParams.bladeHeightVariability,
+            value: addonState.currentParams.bladeHeightVariability,
             min: 0.0,
             max: 2.0,
             onChange: (val: string) => {
@@ -1540,7 +1542,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Width",
-            value: hairParams.bladeWidth,
+            value: addonState.currentParams.bladeWidth,
             min: 0.001,
             max: 0.5,
             onChange: (val: string) => {
@@ -1554,7 +1556,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Clumping Strength",
-            value: hairParams.clumpingStrength,
+            value: addonState.currentParams.clumpingStrength,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1565,7 +1567,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Clumping Scale",
-            value: hairParams.clumpingScale,
+            value: addonState.currentParams.clumpingScale,
             min: 1.0,
             max: 20.0,
             onChange: (val: string) => {
@@ -1576,7 +1578,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Lean Direction X",
-            value: hairParams.leanDirectionX,
+            value: addonState.currentParams.leanDirectionX,
             min: -2.0,
             max: 2.0,
             onChange: (val: string) => {
@@ -1587,7 +1589,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Lean Direction Z",
-            value: hairParams.leanDirectionZ,
+            value: addonState.currentParams.leanDirectionZ,
             min: -2.0,
             max: 2.0,
             onChange: (val: string) => {
@@ -1601,7 +1603,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Specular Strength",
-            value: hairParams.specularStrength,
+            value: addonState.currentParams.specularStrength,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1612,7 +1614,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Edge Darkening",
-            value: hairParams.edgeDarkening,
+            value: addonState.currentParams.edgeDarkening,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1623,7 +1625,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Subsurface Scattering",
-            value: hairParams.subsurfaceScattering,
+            value: addonState.currentParams.subsurfaceScattering,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1634,7 +1636,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Translucency",
-            value: hairParams.translucency,
+            value: addonState.currentParams.translucency,
             min: 0.0,
             max: 1.0,
             onChange: (val: string) => {
@@ -1645,7 +1647,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Rim Light Strength",
-            value: hairParams.rimLightStrength,
+            value: addonState.currentParams.rimLightStrength,
             min: 0.0,
             max: 2.0,
             onChange: (val: string) => {
@@ -1684,7 +1686,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Grid Size",
-            value: hairParams.gridSize,
+            value: addonState.currentParams.gridSize,
             min: 0.5,
             max: 10.0,
             onChange: (val: string) => {
@@ -1695,7 +1697,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.slider(tab, {
             label: "Render Distance",
-            value: hairParams.renderDistance,
+            value: addonState.currentParams.renderDistance,
             min: 10.0,
             max: 500.0,
             onChange: (val: string) => {
@@ -1706,7 +1708,7 @@ addon.onInit(async () => {
 
         Entropy.UI.Widget.numericInput(tab, {
             label: "Landscape Y Offset",
-            value: hairParams.landscapeYOffset,
+            value: addonState.currentParams.landscapeYOffset,
             onChange: (val: string) => {
                 addonState.currentParams.landscapeYOffset = parseFloat(val);
                 updateHair(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
@@ -1871,7 +1873,8 @@ addon.onInit(async () => {
         const data = addon.IO.load();
         if (data) {
             if (data.savedComponents) addonState.savedComponents = data.savedComponents;
-            if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
+            // if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
+            addonState.activeComponentId = addonState.savedComponents[0].id;
         }
     });
 
