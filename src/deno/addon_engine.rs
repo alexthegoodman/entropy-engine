@@ -437,6 +437,7 @@ pub struct VisualConfig {
 
 #[op2]
 fn op_visual_load(state: &mut OpState, #[string] addon_name: String, #[serde] config: VisualConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_visuals.push((addon_name, config));
     }
@@ -765,6 +766,7 @@ fn op_landscape_update_texture(
     #[string] texture_id: String,
     #[serde] kind: crate::helpers::saved_data::LandscapeTextureKinds,
 ) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     // println!("op_landscape_update_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Regular { texture_id, kind }));
@@ -779,6 +781,7 @@ fn op_landscape_update_pbr_texture(
     #[serde] kind: crate::heightfield_landscapes::Landscape::PBRTextureKind,
     #[serde] material_type: crate::heightfield_landscapes::Landscape::PBRMaterialType,
 ) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     // println!("op_landscape_update_pbr_texture");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape_texture_updates.push((addon_name, LandscapeTextureUpdate::Pbr { texture_id, kind, material_type }));
@@ -1465,6 +1468,7 @@ fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> String 
 
 #[op2]
 fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: PointLightConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         println!("new point light: {:?} {:?}", addon_name, config);
         ctx.pending_point_lights.push((addon_name, config));
@@ -1631,6 +1635,7 @@ pub struct RayData {
 
 #[op2]
 fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: AddonGrassConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         // println!("Create grass xyz");
         ctx.pending_grasses.push((addon_name, config));
@@ -1639,6 +1644,7 @@ fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] c
 
 #[op2]
 fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: LandscapeConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscapes.push((addon_name, config));
     }
@@ -1646,6 +1652,7 @@ fn op_landscape_create(state: &mut OpState, #[string] addon_name: String, #[serd
 
 #[op2]
 fn op_landscape3d_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: Landscape3DConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_landscape3ds.push((addon_name, config));
     }
@@ -2825,6 +2832,7 @@ fn op_compute_dispatch(state: &mut OpState, #[serde] config: ComputeDispatchConf
 
 #[op2]
 fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] config: CubeConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_cubes.push((addon_name, config));
     }
@@ -2832,6 +2840,7 @@ fn op_cube_spawn(state: &mut OpState, #[string] addon_name: String, #[serde] con
 
 #[op2]
 fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: MeshConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     // println!("Adding mesh?");
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_meshes.push((addon_name, config));
@@ -2840,6 +2849,7 @@ fn op_mesh_create(state: &mut OpState, #[string] addon_name: String, #[serde] co
 
 #[op2]
 fn op_model_load(state: &mut OpState, #[string] addon_name: String, #[serde] config: ModelConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_models.push((addon_name, config));
     }
@@ -5223,6 +5233,10 @@ impl AddonEngine {
         } else {
             Vec::new()
         }
+    }
+
+    pub fn is_render_allowed(addon_name: &str) -> bool {
+        addon_name != "__VOID__"
     }
 
     pub fn get_registered_tools(&mut self) -> Vec<ToolDefinition> {

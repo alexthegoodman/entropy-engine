@@ -268,10 +268,12 @@ addon.onInit(async () => {
                  if (Entropy.Composer && Entropy.Composer.editors) {
                      Object.keys(Entropy.Composer.editors).forEach(addonName => {
                          Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
+                             Entropy.Composer!.enableGameComposerOverride();
                              const renderFn = Entropy.Composer!.editors[addonName];
                              if (renderFn) {
                                  renderFn(headerTab, "Game Composer");
                              }
+                             Entropy.Composer!.disableGameComposerOverride();
                          });
                      });
                  }

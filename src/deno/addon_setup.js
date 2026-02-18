@@ -5,7 +5,15 @@ globalThis.Entropy = {
         register: (metadata) => {
             ops.op_addon_register(metadata);
             
-            const getAddonName = () => globalThis.__entropy_current_addon_context_override || metadata.name;
+            const getAddonName = () => {
+                if (globalThis.__entropy_current_addon_context_override) {
+                    return globalThis.__entropy_current_addon_context_override;
+                }
+                if (metadata.isAtom) {
+                    return "__VOID__";
+                }
+                return metadata.name;
+            };
 
             // Return scoped API
             return {

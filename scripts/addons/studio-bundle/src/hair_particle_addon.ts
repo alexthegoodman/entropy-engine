@@ -1096,7 +1096,7 @@ addon.onInit(async () => {
         maxDistance: 50.0
     });
 
-    const renderHairUI = (tab: string) => {
+    const renderHairUI = (tab: string, overrideKey?: string) => {
         Entropy.Addon.setVisibility("Hair Particles with Ornaments", true);
         Entropy.UI.Widget.label(tab, { text: "🌸 Hair & Grass with Ornaments", bold: true });
         
@@ -1162,6 +1162,8 @@ addon.onInit(async () => {
         Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
         // === ORNAMENT CONTROLS ===
+        Entropy.Composer?.enableOverride(overrideKey || "Game Composer");
+
         Entropy.UI.Widget.label(tab, { text: "💎 Ornament System", bold: true });
         
         Entropy.UI.Widget.button(tab, {
@@ -1845,6 +1847,8 @@ addon.onInit(async () => {
                 updateOrnaments(addonState.currentParams, addonState.activeComponentId || Entropy.generateUUID());
             }
         });
+
+        Entropy.Composer?.disableOverride();
     }
 
     if (Entropy.Composer) {
