@@ -360,6 +360,7 @@ export interface ScopedAPI {
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
+      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
     };
@@ -649,6 +650,9 @@ export interface EntropyAPI {
     onCleanup: (callback: CleanupCallback) => void;
     setVisibility: (addonName: string, visible: boolean) => void;
   };
+  AddonAtom: {
+    register: (metadata: AddonMetadata) => ScopedAPI;
+  };
   // Register Behaviors with reusable IDs, then set those IDs on Models, if desired
   Behavior: {
     register: (id: string, hooks: {
@@ -682,11 +686,13 @@ export interface EntropyAPI {
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
+      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
     };
   };
   Composer?: {
+    editors: { [key: string]: any };
     clearMesh: (meshId: string) => void;
       registerEditor: (addonName: string, renderFn: (windowId: string, overrideKey: string) => void) => void;
       getEditor: (addonName: string) => ((windowId: string, overrideKey: string) => void) | undefined;

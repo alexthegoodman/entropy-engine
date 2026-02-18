@@ -579,7 +579,7 @@ class ComputeDustSystem {
 // ADDON REGISTRATION
 // ============================================================================
 
-const api = Entropy.Addon.register(addonInfo);
+const api = Entropy.AddonAtom.register(addonInfo);
 
 const dust = new ComputeDustSystem(api);
 

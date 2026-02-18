@@ -158,6 +158,22 @@ export abstract class EntropyAddon<TState = any> {
     this._registerComponents();
     return this;
   }
+
+  registerAtom() {
+    AddonContext.register(this);
+    this.api = Entropy.AddonAtom.register({ name: this.name, version: this.version, description: this.description, author: this.author, capabilities: this.capabilities });
+    
+    this.setup();
+
+    if (this.onInit) this.api.onInit(() => this.onInit!());
+    if (this.onUpdate) this.api.onUpdate((t, p, d) => this.onUpdate!(t, p, d));
+    if (this.onCleanup) this.api.onCleanup(() => this.onCleanup!());
+    if (this.onProjectChanged) this.api.onProjectChanged((id) => this.onProjectChanged!(id));
+    
+    this._registerTools();
+    this._registerComponents();
+    return this;
+  }
   
   protected abstract setup(): void;
   

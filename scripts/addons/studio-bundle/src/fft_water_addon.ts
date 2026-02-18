@@ -807,7 +807,7 @@ const addonInfo = {
     }
 }
 
-const addon = Entropy.Addon.register(addonInfo);
+const addon = Entropy.AddonAtom.register(addonInfo);
 
 let oceanParams: OceanParams = {
     resolution: 512,

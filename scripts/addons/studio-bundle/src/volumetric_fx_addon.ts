@@ -35,7 +35,7 @@ interface VolumetricConfig {
 
 class VolumetricFX {
   private api: ScopedAPI;
-  private _config: VolumetricConfig;
+  private _config: VolumetricConfig | any;
   
   public get config(): VolumetricConfig {
     const comp = this.savedComponents.find(c => c.id === this.activeComponentId);
@@ -1072,7 +1072,7 @@ interface DustParticle {
 // ADDON REGISTRATION
 // ============================================================================
 
-const api = Entropy.Addon.register({
+const api = Entropy.AddonAtom.register({
     name: "VolumetricFX",
     version: "1.0.0",
     description: "AAA-quality volumetric fog and dust particles with light scattering",

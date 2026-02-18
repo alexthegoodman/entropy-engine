@@ -12,7 +12,7 @@ const addonInfo = {
     }
 };
 
-const addon = Entropy.Addon.register(addonInfo);
+const addon = Entropy.AddonAtom.register(addonInfo);
 
 interface LightParams {
     color: [number, number, number];

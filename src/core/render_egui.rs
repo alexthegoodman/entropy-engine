@@ -138,6 +138,11 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                 if let Some(editor) = &mut viewer.context.export_editor {
                                     let addons = editor.addon_engine.get_registered_addons();
                                     for addon in addons {
+                                        // Skip addons marked as atoms
+                                        if addon.is_atom.unwrap_or(false) {
+                                            continue;
+                                        }
+
                                         // Only show if it has UI/workspace capability (assume yes for now or check metadata)
                                         // We use the first letter of the name as the icon for now
                                         let icon = addon.name.chars().next().unwrap_or('?').to_string();

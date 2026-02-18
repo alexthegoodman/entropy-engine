@@ -57,6 +57,7 @@ use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
+// note: render_addon_frame is used today, while this render_frame is legacy code kept for reference only
 pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool, viewport_rect: Option<[f32; 4]>) {
         let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");

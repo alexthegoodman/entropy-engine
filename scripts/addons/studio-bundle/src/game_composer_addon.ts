@@ -54,7 +54,8 @@ let activeProjectId: string | null = null;
 let sectionsOpen = {
     hierarchy: false,
     inspector: false,
-    library: false
+    library: false,
+    addEntity: false
 };
 
 const availablePipelines = [
@@ -254,6 +255,27 @@ addon.onInit(async () => {
                     }
                 });
             });
+
+             Entropy.UI.Widget.separator(tab);
+
+             // === ADD ENTITY ===
+             Entropy.UI.Widget.button(tab, {
+                 text: (sectionsOpen.addEntity ? "▼ " : "▶ ") + "Add Entity",
+                 onClick: () => { sectionsOpen.addEntity = !sectionsOpen.addEntity; }
+             });
+
+             if (sectionsOpen.addEntity) {
+                 if (Entropy.Composer && Entropy.Composer.editors) {
+                     Object.keys(Entropy.Composer.editors).forEach(addonName => {
+                         Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
+                             const renderFn = Entropy.Composer!.editors[addonName];
+                             if (renderFn) {
+                                 renderFn(headerTab, "Game Composer");
+                             }
+                         });
+                     });
+                 }
+             }
 
              Entropy.UI.Widget.separator(tab);
 

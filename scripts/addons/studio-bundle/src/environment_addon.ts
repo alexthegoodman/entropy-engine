@@ -1,15 +1,14 @@
 // Environment Addon
 // Handles Day/Night cycles, volumetric fog via custom lighting, and ambient soundscapes
 
-const addon = Entropy.Addon.register({
+const addon = Entropy.AddonAtom.register({
     name: "Environment",
     version: "1.0.0",
     description: "Advanced environment controls including Day/Night cycle and Fog",
     author: ["Entropy Engine Team"],
     capabilities: {
         graphics: true,
-        ui: true,
-        audio: true
+        ui: true
     }
 });
 

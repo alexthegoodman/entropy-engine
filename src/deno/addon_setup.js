@@ -456,6 +456,11 @@ globalThis.Entropy = {
             ops.op_addon_set_visibility(addonName, visible);
         }
     },
+    AddonAtom: {
+        register: (metadata) => {
+            return globalThis.Entropy.Addon.register({ ...metadata, isAtom: true });
+        }
+    },
     Behavior: {
         register: (id, hooks) => {
             ops.op_behavior_register(
@@ -676,6 +681,14 @@ globalThis.Entropy = {
                         }
                     };
                 }
+            },
+            collapsingHeader: (windowId, title, render) => {
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = windowId + "_collapsing_" + count;
+                globalThis._entropy_widget_counter = count + 1;
+                ops.op_ui_widget_collapsing_header(windowId, title, id);
+                render(windowId);
+                ops.op_ui_widget_end_collapsing_header(windowId);
             },
             separator: (windowId) => {
                 ops.op_ui_widget_separator(windowId);

@@ -1536,4 +1536,4 @@ class FlexNoiseAddon extends ComponentAddon<TerrainParams> {
 }
 
 // Initialize addon
-new FlexNoiseAddon().register();
+new FlexNoiseAddon().registerAtom();

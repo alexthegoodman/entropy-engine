@@ -47,12 +47,14 @@ use wgpu::util::DeviceExt;
 use egui_wgpu;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AddonMetadata {
     pub name: String,
     pub version: String,
     pub description: String,
     pub author: Vec<String>,
     pub capabilities: HashMap<String, bool>,
+    pub is_atom: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -238,6 +240,8 @@ pub enum UiWidget {
         id: String,
         graph: BehaviorGraph,
     },
+    CollapsingHeader { title: String, id: String },
+    EndCollapsingHeader,
     StartHorizontal,
     EndHorizontal,
     Separator,
@@ -2017,6 +2021,25 @@ fn op_ui_widget_snarl(
 }
 
 #[op2(fast)]
+fn op_ui_widget_collapsing_header(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] title: String,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::CollapsingHeader { title, id });
+    }
+}
+
+#[op2(fast)]
+fn op_ui_widget_end_collapsing_header(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::EndCollapsingHeader);
+    }
+}
+
+#[op2(fast)]
 fn op_ui_widget_start_horizontal(state: &mut OpState, #[string] window_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::StartHorizontal);
@@ -2961,6 +2984,8 @@ extension!(
         op_ui_widget_code_editor,
         op_ui_widget_mini_map,
         op_ui_widget_snarl,
+        op_ui_widget_collapsing_header,
+        op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
         op_ui_widget_end_horizontal,
         op_ui_widget_separator,
@@ -3382,7 +3407,7 @@ impl AddonEngine {
         }
 
         for (group_idx, binding_configs) in sorted_groups {
-            // println!("get_bind_group_layout {:?} {:?} {:?}", id, group_idx, binding_configs);
+            println!("get_bind_group_layout {:?} {:?} {:?}", id, group_idx, binding_configs);
             let layout = pipeline.get_bind_group_layout(group_idx);
             // println!("got it! {:?}", id);
             
@@ -5693,6 +5718,32 @@ impl AddonEngine {
                         ui,
                     );
                 }
+                UiWidget::CollapsingHeader { title, id } => {
+                    // Find matching EndCollapsingHeader
+                    let mut depth = 1;
+                    let mut end_idx = i + 1;
+                    while end_idx < widgets.len() && depth > 0 {
+                        match &widgets[end_idx] {
+                            UiWidget::CollapsingHeader { .. } => depth += 1,
+                            UiWidget::EndCollapsingHeader => depth -= 1,
+                            _ => {}
+                        }
+                        if depth > 0 {
+                            end_idx += 1;
+                        }
+                    }
+
+                    if end_idx < widgets.len() {
+                        let sub_widgets = &widgets[i + 1..end_idx];
+                        egui::CollapsingHeader::new(title)
+                            .id_source(id)
+                            .show(ui, |ui| {
+                                Self::render_widgets(ui, sub_widgets, events_to_push, context, egui_renderer);
+                            });
+                        i = end_idx;
+                    }
+                }
+                UiWidget::EndCollapsingHeader => {}
                 UiWidget::StartHorizontal => {
                     // Find matching EndHorizontal
                     let mut depth = 1;
