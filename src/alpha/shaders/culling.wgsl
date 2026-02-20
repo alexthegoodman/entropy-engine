@@ -54,13 +54,16 @@ struct DrawIndexedIndirect {
 @group(0) @binding(5) var<storage, read> meshlets: array<Meshlet>;
 
 fn is_visible(center: vec3<f32>, radius: f32, model_matrix: mat4x4<f32>) -> bool {
-    let world_center = (model_matrix * vec4<f32>(center, 1.0)).xyz;
-    let clip_pos = camera.view_projection * vec4<f32>(world_center, 1.0);
+
+    return true; // testing
+
+    // let world_center = (model_matrix * vec4<f32>(center, 1.0)).xyz;
+    // let clip_pos = camera.view_projection * vec4<f32>(world_center, 1.0);
     
-    let w = clip_pos.w + radius;
-    return clip_pos.x >= -w && clip_pos.x <= w &&
-           clip_pos.y >= -w && clip_pos.y <= w &&
-           clip_pos.z >= 0.0 && clip_pos.z <= w;
+    // let w = clip_pos.w + radius;
+    // return clip_pos.x >= -w && clip_pos.x <= w &&
+    //        clip_pos.y >= -w && clip_pos.y <= w &&
+    //        clip_pos.z >= 0.0 && clip_pos.z <= w;
 }
 
 @compute @workgroup_size(64)
@@ -82,10 +85,16 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         if (is_visible(center, meshlet.radius, instance.model_matrix)) {
             let cmd_idx = atomicAdd(&draw_count, 1u);
 
-            draw_commands[cmd_idx].index_count = u32(meshlet.index_count);
+            // draw_commands[cmd_idx].index_count = u32(meshlet.index_count);
+            // draw_commands[cmd_idx].instance_count = 1u;
+            // draw_commands[cmd_idx].first_index = u32(meshlet.index_offset);
+            // draw_commands[cmd_idx].base_vertex = i32(meshlet.vertex_offset);
+            // draw_commands[cmd_idx].first_instance = instance_index;
+
+            draw_commands[cmd_idx].index_count    = u32(meshlet.index_count);
             draw_commands[cmd_idx].instance_count = 1u;
-            draw_commands[cmd_idx].first_index = u32(meshlet.index_offset);
-            draw_commands[cmd_idx].base_vertex = i32(meshlet.vertex_offset);
+            draw_commands[cmd_idx].first_index    = u32(meshlet.index_offset);
+            draw_commands[cmd_idx].base_vertex    = 0;  // indices are already global
             draw_commands[cmd_idx].first_instance = instance_index;
         }
     }

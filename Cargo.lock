@@ -1541,6 +1541,7 @@ dependencies = [
  "nalgebra",
  "nalgebra-glm",
  "noise",
+ "ordered-float 5.1.0",
  "pollster 0.3.0",
  "rand 0.8.5",
  "rapier3d",
@@ -4424,6 +4425,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "5.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4779c6901a562440c3786d08192c6fbda7c1c2060edd10006b05ee35d10f2d"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "outref"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5126,7 +5136,7 @@ dependencies = [
  "nalgebra",
  "num-derive",
  "num-traits",
- "ordered-float",
+ "ordered-float 4.6.0",
  "parry3d",
  "rustc-hash 1.1.0",
  "simba",
@@ -7694,7 +7704,7 @@ dependencies = [
  "ndk-sys",
  "objc",
  "once_cell",
- "ordered-float",
+ "ordered-float 4.6.0",
  "parking_lot 0.12.5",
  "portable-atomic",
  "portable-atomic-util",

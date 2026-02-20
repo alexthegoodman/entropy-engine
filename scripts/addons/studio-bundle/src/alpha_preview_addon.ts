@@ -52,6 +52,15 @@ addon.onInit(async () => {
         await loadData();
     });
 
+    addon.Model.createProcedural({
+        type: "cube",
+        // pipelineId: envPipeline,
+        parameters: {
+            position: [1.0, 10.0, 0.0],
+            scale: [1.0, 1.0, 1.0]
+        }
+    });
+
     const tabId = addon.UI.createTab({
         title: "Alpha Preview",
         onRender: () => {

@@ -62,6 +62,6 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     output.position = vec4<f32>(in.world_pos, 1.0);
     output.normal = vec4<f32>(normalize(in.normal), 1.0);
     output.albedo = in.color;
-    output.pbr_material = vec4<f32>(0.0, 0.5, 1.0, 1.0);
+    output.pbr_material = vec4<f32>(0.0, 0.5, 0.35, 1.0);
     return output;
 }

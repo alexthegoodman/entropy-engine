@@ -6,36 +6,6 @@ use bytemuck::{Pod, Zeroable};
 
 pub mod AlphaModel;
 
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-// pub struct AlphaInstanceData {
-//     pub model_matrix: [[f32; 4]; 4],
-//     pub mesh_index: u32,
-//     pub material_index: u32,
-//     pub _padding: [u32; 2],
-// }
-
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-// pub struct MeshDescriptor {
-//     pub meshlet_offset: u32,
-//     pub meshlet_count: u32,
-//     pub _padding: [u32; 2],
-// }
-
-// #[repr(C)]
-// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-// pub struct Meshlet {
-//     pub vertex_offset: u32,
-//     pub index_offset: u32,
-//     pub index_count: u32,
-//     pub radius: f32,
-//     pub center: [f32; 3],
-//     pub lod_error: f32,      // Max geometric error for this LOD
-//     pub parent_error: f32,   // Error of the parent LOD (for transitions)
-//     pub _padding: [u32; 3],
-// }
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct MeshDescriptor {
@@ -308,6 +278,8 @@ impl AlphaRenderer {
     pub fn upload_mesh(&mut self, vertices: &[ModelVertex], indices: &[u32], meshlets: &[Meshlet]) -> u32 {
         let queue = &self.gpu_resources.queue;
 
+        println!("Uploading mesh to alpha {:?} {:?}", vertices.len(), meshlets.len());
+
         let vertex_data = bytemuck::cast_slice(vertices);
         let index_data = bytemuck::cast_slice(indices);
         let meshlet_data = bytemuck::cast_slice(meshlets);
@@ -345,7 +317,7 @@ impl AlphaRenderer {
         queue.write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(&[instance]));
         self.current_instance_count += 1;
 
-        println!("Instance added.");
+        println!("Instance added. {:?} {:?}", self.current_vertex_offset, self.current_meshlet_offset);
     }
 
     pub fn render(
