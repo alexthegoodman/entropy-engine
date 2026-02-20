@@ -52,8 +52,6 @@ addon.onInit(async () => {
         await loadData();
     });
 
-    await loadData();
-
     const tabId = addon.UI.createTab({
         title: "Alpha Preview",
         onRender: () => {
