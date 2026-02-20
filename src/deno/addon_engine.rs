@@ -14,7 +14,7 @@ use deno_core::{
     ModuleId,
 };
 use mint::ColumnMatrix4;
-use nalgebra::{Isometry3, UnitQuaternion, Vector3, Translation3};
+use nalgebra::{Isometry3, Matrix4, Translation3, UnitQuaternion, Vector3};
 use rapier3d::prelude::{ColliderBuilder, LockedAxes, RigidBodyBuilder};
 use uuid::Uuid;
 use std::rc::Rc;
@@ -671,7 +671,6 @@ pub struct AddonContext {
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
     pub model_cache: HashMap<String, Vec<u8>>,
-    pub alpha_renderer: Option<Arc<Mutex<crate::alpha::AlphaRenderer>>>,
     pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
@@ -3326,7 +3325,8 @@ impl AddonEngine {
             pending_entity_rotations: Vec::new(),
             pending_ui_rects: Vec::new(),
             pending_ui_texts: Vec::new(),
-            pending_ui_clear: false
+            pending_ui_clear: false,
+            pending_alpha_models: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3639,7 +3639,7 @@ impl AddonEngine {
         current_time: f64, 
         gpu_resources: &Arc<GpuResources>, 
         current_addon_name: String,
-        alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
+        mut alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
         // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
@@ -4009,10 +4009,11 @@ impl AddonEngine {
                     );
                     
                     let mut model_matrix = isometry.to_homogeneous();
-                    model_matrix.prepend_scaling_mut(&Vector3::new(scale[0], scale[1], scale[2]));
+                    let scale_matrix = Matrix4::new_nonuniform_scaling(&Vector3::new(scale[0], scale[1], scale[2]));
+                    model_matrix = model_matrix * scale_matrix;
 
                     alpha.add_instance(crate::alpha::AlphaInstanceData {
-                        model_matrix: model_matrix.into(),
+                        model_matrix: *model_matrix.as_ref(),
                         mesh_index: model.mesh_index,
                         material_index: 0,
                         _padding: [0, 0],

@@ -200,23 +200,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             );
         }
 
-        // --- Alpha Renderer Pass ---
-        if let Some(alpha) = &mut pipeline.alpha_renderer {
-            // Update camera in alpha renderer
-            let camera_uniform = camera_binding.uniform;
-            queue.write_buffer(&alpha.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
-
-            alpha.render(
-                &mut encoder,
-                pipeline.g_buffer_position_view.as_ref().unwrap(),
-                pipeline.g_buffer_normal_view.as_ref().unwrap(),
-                pipeline.g_buffer_albedo_view.as_ref().unwrap(),
-                pipeline.g_buffer_pbr_material_view.as_ref().unwrap(),
-                pipeline.depth_view.as_ref().unwrap(),
-                alpha.current_instance_count
-            );
-        }
-
         // Update procedural sky and directional light from addon or world state
         let mut current_procedural_sky_config = editor
             .world_state
@@ -276,6 +259,23 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         }
 
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
+        // --- Alpha Renderer Pass ---
+        if let Some(alpha) = &mut pipeline.alpha_renderer {
+            // Update camera in alpha renderer
+            let camera_uniform = camera_binding.uniform;
+            queue.write_buffer(&alpha.camera_buffer, 0, bytemuck::cast_slice(&[camera_uniform]));
+
+            alpha.render(
+                &mut encoder,
+                pipeline.g_buffer_position_view.as_ref().unwrap(),
+                pipeline.g_buffer_normal_view.as_ref().unwrap(),
+                pipeline.g_buffer_albedo_view.as_ref().unwrap(),
+                pipeline.g_buffer_pbr_material_view.as_ref().unwrap(),
+                pipeline.depth_view.as_ref().unwrap(),
+                alpha.current_instance_count
+            );
+        }
         
         let mut pbr_cubes = Vec::new();
         let mut non_pbr_cubes = Vec::new();
