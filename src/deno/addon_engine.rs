@@ -4012,11 +4012,13 @@ impl AddonEngine {
                     let scale_matrix = Matrix4::new_nonuniform_scaling(&Vector3::new(scale[0], scale[1], scale[2]));
                     model_matrix = model_matrix * scale_matrix;
 
+                    println!("Adding alpha model instance");
+
                     alpha.add_instance(crate::alpha::AlphaInstanceData {
                         model_matrix: *model_matrix.as_ref(),
-                        mesh_index: model.mesh_index,
-                        material_index: 0,
-                        _padding: [0, 0],
+                        mesh_index: model.mesh_index as f32,
+                        material_index: 0.0,
+                        _padding: [0.0, 0.0],
                     });
                 }
             }

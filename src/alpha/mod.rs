@@ -6,34 +6,64 @@ use bytemuck::{Pod, Zeroable};
 
 pub mod AlphaModel;
 
-#[repr(C)]
-#[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct AlphaInstanceData {
-    pub model_matrix: [[f32; 4]; 4],
-    pub mesh_index: u32,
-    pub material_index: u32,
-    pub _padding: [u32; 2],
-}
+// #[repr(C)]
+// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+// pub struct AlphaInstanceData {
+//     pub model_matrix: [[f32; 4]; 4],
+//     pub mesh_index: u32,
+//     pub material_index: u32,
+//     pub _padding: [u32; 2],
+// }
+
+// #[repr(C)]
+// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+// pub struct MeshDescriptor {
+//     pub meshlet_offset: u32,
+//     pub meshlet_count: u32,
+//     pub _padding: [u32; 2],
+// }
+
+// #[repr(C)]
+// #[derive(Debug, Copy, Clone, Pod, Zeroable)]
+// pub struct Meshlet {
+//     pub vertex_offset: u32,
+//     pub index_offset: u32,
+//     pub index_count: u32,
+//     pub radius: f32,
+//     pub center: [f32; 3],
+//     pub lod_error: f32,      // Max geometric error for this LOD
+//     pub parent_error: f32,   // Error of the parent LOD (for transitions)
+//     pub _padding: [u32; 3],
+// }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct MeshDescriptor {
-    pub meshlet_offset: u32,
-    pub meshlet_count: u32,
-    pub _padding: [u32; 2],
+    pub meshlet_offset: f32,
+    pub meshlet_count: f32,
+    pub _padding: [f32; 2],
 }
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Meshlet {
-    pub vertex_offset: u32,
-    pub index_offset: u32,
-    pub index_count: u32,
+    pub vertex_offset: f32,
+    pub index_offset: f32,
+    pub index_count: f32,
     pub radius: f32,
     pub center: [f32; 3],
-    pub lod_error: f32,      // Max geometric error for this LOD
-    pub parent_error: f32,   // Error of the parent LOD (for transitions)
-    pub _padding: [u32; 3],
+    pub lod_error: f32,
+    pub parent_error: f32,
+    pub _padding: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct AlphaInstanceData {
+    pub model_matrix: [[f32; 4]; 4],
+    pub mesh_index: f32,
+    pub material_index: f32,
+    pub _padding: [f32; 2],
 }
 
 #[repr(C)]
@@ -288,9 +318,9 @@ impl AlphaRenderer {
 
         let mesh_index = self.mesh_descriptors.len() as u32;
         let descriptor = MeshDescriptor {
-            meshlet_offset: (self.current_meshlet_offset / std::mem::size_of::<Meshlet>() as u64) as u32,
-            meshlet_count: meshlets.len() as u32,
-            _padding: [0, 0],
+            meshlet_offset: (self.current_meshlet_offset / std::mem::size_of::<Meshlet>() as u64) as f32,
+            meshlet_count: meshlets.len() as f32,
+            _padding: [0.0, 0.0],
         };
 
         self.mesh_descriptors.push(descriptor);
@@ -314,6 +344,8 @@ impl AlphaRenderer {
         let offset = (self.current_instance_count as usize * std::mem::size_of::<AlphaInstanceData>()) as u64;
         queue.write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(&[instance]));
         self.current_instance_count += 1;
+
+        println!("Instance added.");
     }
 
     pub fn render(
@@ -357,6 +389,8 @@ impl AlphaRenderer {
             rpass.set_bind_group(0, &self.render_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
+            // println!("multi_draw_indexed_indirect_count.");
             
             // THE GLORIOUS MULTI-DRAW
             rpass.multi_draw_indexed_indirect_count(

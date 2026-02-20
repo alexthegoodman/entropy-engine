@@ -2,31 +2,40 @@ struct CameraUniforms {
     view_projection: mat4x4<f32>,
     view_pos: vec4<f32>,
     window_size: vec2<f32>,
-    _pad: vec2<f32>,
+    _pad0: f32,
+    _pad1: f32,
     inverse_view: mat4x4<f32>,
     inverse_projection: mat4x4<f32>,
 };
 
 struct InstanceData {
     model_matrix: mat4x4<f32>,
-    mesh_index: u32,
-    material_index: u32,
-    _padding: vec2<u32>,
+    mesh_index: f32,
+    material_index: f32,
+    _pad0: f32,
+    _pad1: f32,
 };
 
 struct MeshDescriptor {
-    meshlet_offset: u32,
-    meshlet_count: u32,
-    _padding: vec2<u32>,
+    meshlet_offset: f32,
+    meshlet_count: f32,
+    _pad0: f32,
+    _pad1: f32,
 };
 
 struct Meshlet {
-    vertex_offset: u32,
-    index_offset: u32,
-    index_count: u32,
+    vertex_offset: f32,
+    index_offset: f32,
+    index_count: f32,
     radius: f32,
-    center: vec3<f32>,
-    _padding: u32,
+    center_x: f32,
+    center_y: f32,
+    center_z: f32,
+    lod_error: f32,
+    parent_error: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 };
 
 struct DrawIndexedIndirect {
@@ -48,7 +57,7 @@ fn is_visible(center: vec3<f32>, radius: f32, model_matrix: mat4x4<f32>) -> bool
     let world_center = (model_matrix * vec4<f32>(center, 1.0)).xyz;
     let clip_pos = camera.view_projection * vec4<f32>(world_center, 1.0);
     
-    let w = clip_pos.w + radius; 
+    let w = clip_pos.w + radius;
     return clip_pos.x >= -w && clip_pos.x <= w &&
            clip_pos.y >= -w && clip_pos.y <= w &&
            clip_pos.z >= 0.0 && clip_pos.z <= w;
@@ -62,20 +71,21 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     }
 
     let instance = instances[instance_index];
-    let mesh_desc = mesh_descriptors[instance.mesh_index];
+    let mesh_desc = mesh_descriptors[u32(instance.mesh_index)];
 
-    for (var i = 0u; i < mesh_desc.meshlet_count; i = i + 1u) {
-        let meshlet_index = mesh_desc.meshlet_offset + i;
+    for (var i = 0u; i < u32(mesh_desc.meshlet_count); i = i + 1u) {
+        let meshlet_index = u32(mesh_desc.meshlet_offset) + i;
         let meshlet = meshlets[meshlet_index];
 
-        if (is_visible(meshlet.center, meshlet.radius, instance.model_matrix)) {
+        let center = vec3<f32>(meshlet.center_x, meshlet.center_y, meshlet.center_z);
+
+        if (is_visible(center, meshlet.radius, instance.model_matrix)) {
             let cmd_idx = atomicAdd(&draw_count, 1u);
-            
-            draw_commands[cmd_idx].index_count = meshlet.index_count;
+
+            draw_commands[cmd_idx].index_count = u32(meshlet.index_count);
             draw_commands[cmd_idx].instance_count = 1u;
-            draw_commands[cmd_idx].first_index = meshlet.index_offset;
+            draw_commands[cmd_idx].first_index = u32(meshlet.index_offset);
             draw_commands[cmd_idx].base_vertex = i32(meshlet.vertex_offset);
-            // We store instance_index in first_instance so the vertex shader knows which transform to use
             draw_commands[cmd_idx].first_instance = instance_index;
         }
     }

@@ -142,14 +142,14 @@ impl AlphaModel {
             center /= simplified_indices.len().max(1) as f32;
 
             meshlets.push(Meshlet {
-                vertex_offset: global_v_offset + base_v_idx_local,
-                index_offset: current_global_i_offset,
-                index_count: simplified_indices.len() as u32,
+                vertex_offset: (global_v_offset + base_v_idx_local) as f32,
+                index_offset: current_global_i_offset as f32,
+                index_count: simplified_indices.len() as f32,
                 radius: 2.0, // Placeholder
                 center: [center.x, center.y, center.z],
                 lod_error: 0.0,
                 parent_error: 1000.0,
-                _padding: [0; 3],
+                _padding: [0.0; 3],
             });
 
             current_global_i_offset += simplified_indices.len() as u32;
