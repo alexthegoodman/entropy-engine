@@ -364,9 +364,12 @@ impl EntropyPipeline {
             .request_device(
                 &wgpu::DeviceDescriptor {
                     label: None,
-                    // required_features: wgpu::Features::FLOAT32_FILTERABLE,
                     required_limits: Limits {
-                        max_bind_groups: 8, // bad for wasm :(
+                        max_bind_groups: 8, // bad for wasm, okay for native
+                        ..Default::default()
+                    },
+                    required_features: wgpu::Features {
+                        features_wgpu: wgpu::FeaturesWGPU::MULTI_DRAW_INDIRECT_COUNT,
                         ..Default::default()
                     },
                     ..Default::default()
