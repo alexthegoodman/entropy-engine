@@ -31,7 +31,9 @@ pub struct Meshlet {
     pub index_count: u32,
     pub radius: f32,
     pub center: [f32; 3],
-    pub _padding: u32,
+    pub lod_error: f32,      // Max geometric error for this LOD
+    pub parent_error: f32,   // Error of the parent LOD (for transitions)
+    pub _padding: [u32; 3],
 }
 
 #[repr(C)]
