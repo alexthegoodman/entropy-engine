@@ -171,6 +171,15 @@ export interface ScopedAPI {
   registerVisual: (name: string, provider: string | VisualProvider) => void;
   setVisibility: (visible: boolean) => void;
   registerTool: (definition: ToolDefinition, callback: any) => void;
+  AlphaModel: {
+    load: (config: {
+      id?: string;
+      path: string;
+      position?: number[];
+      rotation?: number[];
+      scale?: number[];
+    }) => void;
+  },
   Model: {
       load: (config: {
           path: string;
