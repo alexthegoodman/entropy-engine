@@ -1,8 +1,9 @@
-use crate::alpha::{AlphaRenderer, Meshlet, AlphaInstanceData}; 
+use crate::alpha::{AlphaRenderer, Meshlet}; 
 use crate::core::vertex::ModelVertex;
-use nalgebra::{Vector3, Matrix4, Isometry3, UnitQuaternion, Quaternion};
+use nalgebra::{Vector3};
 use gltf::Glb;
 use gltf::Gltf;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub struct AlphaModel {
     pub meshlets: Vec<Meshlet>,
@@ -57,62 +58,23 @@ impl AlphaModel {
                     })
                     .collect();
                 
-                all_vertices.extend(primitive_vertices);
-
                 let primitive_indices: Vec<u32> = reader.read_indices()
                     .map(|iter| iter.into_u32().collect())
                     .unwrap_or_default();
 
-                // Generate meshlets for this primitive
-                const MAX_INDICES_PER_MESHLET: usize = 126;
-                let v_offset = (renderer.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as u32 + base_v_idx;
-                let i_offset_base = (renderer.current_index_offset / 4) as u32 + all_indices.len() as u32;
+                // Use the shared partitioner logic
+                let (p_meshlets, p_indices) = Self::partition_geometry(
+                    &primitive_vertices,
+                    &primitive_indices,
+                    base_v_idx,
+                    (renderer.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as u32,
+                    (renderer.current_index_offset / 4) as u32 + all_indices.len() as u32
+                );
 
-                for chunk in primitive_indices.chunks(MAX_INDICES_PER_MESHLET) {
-                    let mut center = Vector3::new(0.0, 0.0, 0.0);
-                    for &idx in chunk {
-                        let v = all_vertices[(base_v_idx + idx) as usize].position;
-                        center += Vector3::new(v[0], v[1], v[2]);
-                    }
-                    center /= chunk.len() as f32;
-
-                    let mut max_dist_sq: f32 = 0.0;
-                    for &idx in chunk {
-                        let v = all_vertices[(base_v_idx + idx) as usize].position;
-                        let dist_sq = (Vector3::new(v[0], v[1], v[2]) - center).magnitude_squared();
-                        if dist_sq > max_dist_sq {
-                            max_dist_sq = dist_sq;
-                        }
-                    }
-
-                    meshlets.push(Meshlet {
-                        vertex_offset: v_offset,
-                        index_offset: i_offset_base + (all_indices.len() as u32 - (i_offset_base - ((renderer.current_index_offset / 4) as u32))),
-                        index_count: chunk.len() as u32,
-                        radius: max_dist_sq.sqrt(),
-                        center: [center.x, center.y, center.z],
-                        _padding: 0,
-                    });
-                    
-                    // Actually we need to fix the index_offset logic here...
-                    // Let's just use a simple running counter.
-                }
-                
-                // Redo index_offset logic for clarity
-                let mut current_mesh_i_offset = i_offset_base;
-                // Wait, meshlets are collected across all primitives. 
-                // Let's just fix it at the end.
-
-                all_indices.extend(primitive_indices);
+                all_vertices.extend(primitive_vertices);
+                all_indices.extend(p_indices);
+                meshlets.extend(p_meshlets);
             }
-        }
-
-        // Finalize meshlet offsets
-        let v_offset_global = (renderer.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as u32;
-        let mut i_offset_running = (renderer.current_index_offset / 4) as u32;
-        for m in &mut meshlets {
-            m.index_offset = i_offset_running;
-            i_offset_running += m.index_count;
         }
 
         let mesh_index = renderer.upload_mesh(&all_vertices, &all_indices, &meshlets);
@@ -123,51 +85,116 @@ impl AlphaModel {
         }
     }
 
+    /// Partitions a primitive into meshlets using BFS growth for spatial coherence
+    /// which is vital for the edge-sharing crack healing technique.
+    fn partition_geometry(
+        vertices: &[ModelVertex],
+        indices: &[u32],
+        base_v_idx_local: u32,
+        global_v_offset: u32,
+        global_i_offset_start: u32
+    ) -> (Vec<Meshlet>, Vec<u32>) {
+        let mut meshlets = Vec::new();
+        let mut out_indices = Vec::new();
+        
+        let tri_count = indices.len() / 3;
+        let mut tri_assigned = vec![false; tri_count];
+        
+        // 1. Build adjacency map (Edge -> [Triangle Indices])
+        let mut edge_to_tris: HashMap<(u32, u32), Vec<usize>> = HashMap::new();
+        for i in 0..tri_count {
+            for j in 0..3 {
+                let v0 = indices[i * 3 + j];
+                let v1 = indices[i * 3 + (j + 1) % 3];
+                let edge = if v0 < v1 { (v0, v1) } else { (v1, v0) };
+                edge_to_tris.entry(edge).or_default().push(i);
+            }
+        }
+
+        // 2. Greedy BFS growth
+        let max_tris_per_meshlet = 42; // Small chunks for fine-grained culling and LOD
+        let mut current_global_i_offset = global_i_offset_start;
+
+        for start_tri in 0..tri_count {
+            if tri_assigned[start_tri] { continue; }
+
+            let mut meshlet_tris = Vec::new();
+            let mut queue = VecDeque::new();
+            queue.push_back(start_tri);
+            tri_assigned[start_tri] = true;
+
+            while let Some(tri_idx) = queue.pop_front() {
+                meshlet_tris.push(tri_idx);
+                if meshlet_tris.len() >= max_tris_per_meshlet { break; }
+
+                // Find neighbors
+                for j in 0..3 {
+                    let v0 = indices[tri_idx * 3 + j];
+                    let v1 = indices[tri_idx * 3 + (j + 1) % 3];
+                    let edge = if v0 < v1 { (v0, v1) } else { (v1, v0) };
+
+                    if let Some(neighbors) = edge_to_tris.get(&edge) {
+                        for &neighbor_idx in neighbors {
+                            if !tri_assigned[neighbor_idx] {
+                                tri_assigned[neighbor_idx] = true;
+                                queue.push_back(neighbor_idx);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Create the Meshlet
+            let mut center = Vector3::new(0.0, 0.0, 0.0);
+            let mut tri_indices = Vec::new();
+            
+            for &tri_idx in &meshlet_tris {
+                for j in 0..3 {
+                    let idx = indices[tri_idx * 3 + j];
+                    tri_indices.push(idx);
+                    let v = vertices[idx as usize].position;
+                    center += Vector3::new(v[0], v[1], v[2]);
+                }
+            }
+            center /= (meshlet_tris.len() * 3) as f32;
+
+            let mut max_dist_sq: f32 = 0.0;
+            for &idx in &tri_indices {
+                let v = vertices[idx as usize].position;
+                let dist_sq = (Vector3::new(v[0], v[1], v[2]) - center).magnitude_squared();
+                if dist_sq > max_dist_sq { max_dist_sq = dist_sq; }
+            }
+
+            meshlets.push(Meshlet {
+                vertex_offset: global_v_offset + base_v_idx_local,
+                index_offset: current_global_i_offset,
+                index_count: tri_indices.len() as u32,
+                radius: max_dist_sq.sqrt(),
+                center: [center.x, center.y, center.z],
+                _padding: 0,
+            });
+
+            current_global_i_offset += tri_indices.len() as u32;
+            out_indices.extend(tri_indices);
+        }
+
+        (meshlets, out_indices)
+    }
+
     pub fn from_geometry(
         renderer: &mut AlphaRenderer,
         vertices: &[ModelVertex],
         indices: &[u32],
     ) -> Self {
-        let mut meshlets = Vec::new();
-        const MAX_INDICES_PER_MESHLET: usize = 126;
-        
-        for chunk in indices.chunks(MAX_INDICES_PER_MESHLET) {
-            let mut center = Vector3::new(0.0, 0.0, 0.0);
-            for &idx in chunk {
-                let v = vertices[idx as usize].position;
-                center += Vector3::new(v[0], v[1], v[2]);
-            }
-            center /= chunk.len() as f32;
+        let (meshlets, p_indices) = Self::partition_geometry(
+            vertices,
+            indices,
+            0,
+            (renderer.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as u32,
+            (renderer.current_index_offset / 4) as u32
+        );
 
-            let mut max_dist_sq: f32 = 0.0;
-            for &idx in chunk {
-                let v = vertices[idx as usize].position;
-                let dist_sq = (Vector3::new(v[0], v[1], v[2]) - center).magnitude_squared();
-                if dist_sq > max_dist_sq {
-                    max_dist_sq = dist_sq;
-                }
-            }
-
-            meshlets.push(Meshlet {
-                vertex_offset: 0,
-                index_offset: 0,
-                index_count: chunk.len() as u32,
-                radius: max_dist_sq.sqrt(),
-                center: [center.x, center.y, center.z],
-                _padding: 0,
-            });
-        }
-
-        let v_offset = (renderer.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as u32;
-        let mut i_offset = (renderer.current_index_offset / 4) as u32;
-
-        for m in &mut meshlets {
-            m.vertex_offset = v_offset;
-            m.index_offset = i_offset;
-            i_offset += m.index_count;
-        }
-
-        let mesh_index = renderer.upload_mesh(vertices, indices, &meshlets);
+        let mesh_index = renderer.upload_mesh(vertices, &p_indices, &meshlets);
 
         AlphaModel {
             meshlets,
