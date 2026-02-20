@@ -141,7 +141,7 @@ impl AlphaRenderer {
 
         let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Alpha Camera Buffer"),
-            size: 64, // mat4x4
+            size: std::mem::size_of::<crate::core::camera::CameraUniform>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });

@@ -32,6 +32,7 @@ import "./game_scripts_addon";
 import "./inorganic_modelling_addon";
 import "./procedural_houses_addon";
 import "./behavior_nodes_addon";
+import "./alpha_preview_addon";
 
 // game logic tier
 // import "./horde_mode_game";

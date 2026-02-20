@@ -178,6 +178,7 @@ pub struct EntropyPipeline {
     pub selected_component_id: Option<String>,
 
     pub vector_motion: Motion,
+    pub alpha_renderer: Option<crate::alpha::AlphaRenderer>,
 }
 
 impl EntropyPipeline {
@@ -210,6 +211,7 @@ impl EntropyPipeline {
         let [_, _] = surface3.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
 
         EntropyPipeline {
+            alpha_renderer: None,
             // device: None,
             // queue: None,
             gpu_resources: None,
@@ -1460,6 +1462,8 @@ impl EntropyPipeline {
         self.shadow_pipeline_data = Some(shadow_pipeline_data);
         self.ui_pipeline = Some(ui_pipeline);
         self.directional_light_position = directional_light_position;
+
+        self.alpha_renderer = Some(crate::alpha::AlphaRenderer::new(gpu_resources.clone()));
     }
 
     pub fn resize(&mut self, new_size: EntropySize) {

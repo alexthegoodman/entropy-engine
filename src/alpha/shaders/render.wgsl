@@ -1,5 +1,10 @@
 struct CameraUniforms {
-    view_projection: mat4x4<f32>
+    view_projection: mat4x4<f32>,
+    view_pos: vec4<f32>,
+    window_size: vec2<f32>,
+    _pad: vec2<f32>,
+    inverse_view: mat4x4<f32>,
+    inverse_projection: mat4x4<f32>,
 };
 
 struct InstanceData {

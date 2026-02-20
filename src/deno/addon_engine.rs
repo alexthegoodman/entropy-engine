@@ -14,7 +14,7 @@ use deno_core::{
     ModuleId,
 };
 use mint::ColumnMatrix4;
-use nalgebra::{Isometry3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, UnitQuaternion, Vector3, Translation3};
 use rapier3d::prelude::{ColliderBuilder, LockedAxes, RigidBodyBuilder};
 use uuid::Uuid;
 use std::rc::Rc;
@@ -671,6 +671,8 @@ pub struct AddonContext {
     pub composite_pipelines: HashMap<String, Arc<wgpu::RenderPipeline>>,
     pub composites: Vec<CompositeInstance>,
     pub model_cache: HashMap<String, Vec<u8>>,
+    pub alpha_renderer: Option<Arc<Mutex<crate::alpha::AlphaRenderer>>>,
+    pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
     pub snarl_states: HashMap<String, egui_snarl::Snarl<BehaviorNodeState>>,
@@ -1719,6 +1721,24 @@ fn op_dialogue_close(state: &mut OpState) {
             d.is_open = false;
             d.changed = true;
         }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AlphaModelConfig {
+    pub id: String,
+    pub path: String,
+    pub position: [f32; 3],
+    pub rotation: Option<[f32; 3]>,
+    pub scale: Option<[f32; 3]>,
+}
+
+#[op2]
+fn op_alpha_model_load(state: &mut OpState, #[string] addon_name: String, #[serde] config: AlphaModelConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_alpha_models.push((addon_name, config));
     }
 }
 
@@ -2967,6 +2987,7 @@ extension!(
         op_buffer_write,
         op_cube_spawn,
         op_model_load,
+        op_alpha_model_load,
         op_visual_load,
         op_mesh_create,
         op_mesh_clear,
@@ -3617,7 +3638,8 @@ impl AddonEngine {
         camera: &SimpleCamera, 
         current_time: f64, 
         gpu_resources: &Arc<GpuResources>, 
-        current_addon_name: String
+        current_addon_name: String,
+        alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
         // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
@@ -3909,7 +3931,8 @@ impl AddonEngine {
             pending_ui_rects,
             pending_ui_texts,
             pending_ui_clear,
-            pending_visuals
+            pending_visuals,
+            pending_alpha_models
         ) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -3937,6 +3960,7 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_ui_texts),
                     std::mem::replace(&mut ctx.pending_ui_clear, false),
                     std::mem::take(&mut ctx.pending_visuals),
+                    std::mem::take(&mut ctx.pending_alpha_models),
                 )
             } else {
                 (
@@ -3961,6 +3985,7 @@ impl AddonEngine {
                     Vec::new(),
                     Vec::new(),
                     false,
+                    Vec::new(),
                     Vec::new()
                 )
             }
@@ -3968,6 +3993,32 @@ impl AddonEngine {
 
         if let Some(enabled) = pending_game_mode {
             renderer_state.game_mode = enabled;
+        }
+
+        for (addon_name, config) in pending_alpha_models {
+            if let Some(alpha) = alpha_renderer.as_mut() {
+                if let Ok(bytes) = read_model(self.project_id.clone().unwrap_or_default(), config.path.clone()) {
+                    let model = crate::alpha::AlphaModel::AlphaModel::from_glb(*alpha, &bytes);
+                    
+                    let rotation = config.rotation.unwrap_or([0.0, 0.0, 0.0]);
+                    let scale = config.scale.unwrap_or([1.0, 1.0, 1.0]);
+                    
+                    let isometry = Isometry3::from_parts(
+                        Translation3::new(config.position[0], config.position[1], config.position[2]),
+                        UnitQuaternion::from_euler_angles(rotation[0], rotation[1], rotation[2])
+                    );
+                    
+                    let mut model_matrix = isometry.to_homogeneous();
+                    model_matrix.prepend_scaling_mut(&Vector3::new(scale[0], scale[1], scale[2]));
+
+                    alpha.add_instance(crate::alpha::AlphaInstanceData {
+                        model_matrix: model_matrix.into(),
+                        mesh_index: model.mesh_index,
+                        material_index: 0,
+                        _padding: [0, 0],
+                    });
+                }
+            }
         }
 
         for (id, impulse) in pending_impulses {

@@ -166,6 +166,17 @@ globalThis.Entropy = {
                         ops.op_model_set_bone_transform(config);
                     }
                 },
+                AlphaModel: {
+                    load: (config) => {
+                        ops.op_alpha_model_load(getAddonName(), {
+                            id: config.id || Entropy.generateUUID(),
+                            path: config.path,
+                            position: config.position || [0, 0, 0],
+                            rotation: config.rotation || [0, 0, 0],
+                            scale: config.scale || [1, 1, 1]
+                        });
+                    }
+                },
                 Visual: {
                     load: (config) => {
                         const id = config.id || null;

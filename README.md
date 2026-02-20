@@ -54,6 +54,10 @@ No hunting for plugins. No "this only works with the paid version." Everything's
 - **UI Pipeline** - In-game interface system with text rendering
 - **Game Modes** - Tower defense, FPS-RPG, horde mode examples included
 
+### Coming Soon
+- **GPU-Driven Renderer** Entropy's "Alpha" renderer avoids CPU-driven draw calls almost entirely
+- **Virtualized Geometry** Load meshes as many tiny meshlets which get rendered at various detail levels
+
 ---
 
 ## Traditional Workflow vs. Entropy
