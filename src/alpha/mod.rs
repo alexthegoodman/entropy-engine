@@ -4,6 +4,8 @@ use crate::core::gpu_resources::GpuResources;
 use crate::core::vertex::ModelVertex;
 use bytemuck::{Pod, Zeroable};
 
+pub mod AlphaModel;
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct AlphaInstanceData {
@@ -16,9 +18,19 @@ pub struct AlphaInstanceData {
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct MeshDescriptor {
-    pub base_vertex: i32,
-    pub first_index: u32,
+    pub meshlet_offset: u32,
+    pub meshlet_count: u32,
+    pub _padding: [u32; 2],
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Meshlet {
+    pub vertex_offset: u32,
+    pub index_offset: u32,
     pub index_count: u32,
+    pub radius: f32,
+    pub center: [f32; 3],
     pub _padding: u32,
 }
 
@@ -46,15 +58,17 @@ pub struct AlphaRenderer {
     pub max_instances: u32,
     pub current_instance_count: u32,
     
-    // Mesh descriptors (placeholders for now)
+    // Meshlet data
+    pub meshlet_buffer: wgpu::Buffer,
+    pub current_meshlet_offset: u64,
+    
+    // Mesh descriptors
     pub mesh_descriptor_buffer: wgpu::Buffer,
     pub mesh_descriptors: Vec<MeshDescriptor>,
     
     // Indirect draw arguments
-    pub draw_args_buffer: wgpu::Buffer,
-    
-    // Visible instance indices
-    pub visible_indices_buffer: wgpu::Buffer,
+    pub draw_commands_buffer: wgpu::Buffer,
+    pub draw_count_buffer: wgpu::Buffer,
     
     // Camera
     pub camera_buffer: wgpu::Buffer,
@@ -69,59 +83,23 @@ pub struct AlphaRenderer {
 }
 
 impl AlphaRenderer {
-    pub fn upload_mesh(&mut self, vertices: &[ModelVertex], indices: &[u32]) -> u32 {
-        let device = &self.gpu_resources.device;
-        let queue = &self.gpu_resources.queue;
-
-        let vertex_data = bytemuck::cast_slice(vertices);
-        let index_data = bytemuck::cast_slice(indices);
-
-        queue.write_buffer(&self.vertex_buffer, self.current_vertex_offset, vertex_data);
-        queue.write_buffer(&self.index_buffer, self.current_index_offset, index_data);
-
-        let mesh_index = self.mesh_descriptors.len() as u32;
-        let descriptor = MeshDescriptor {
-            base_vertex: (self.current_vertex_offset / std::mem::size_of::<ModelVertex>() as u64) as i32,
-            first_index: (self.current_index_offset / 4) as u32,
-            index_count: indices.len() as u32,
-            _padding: 0,
-        };
-
-        self.mesh_descriptors.push(descriptor);
-        
-        self.current_vertex_offset += vertex_data.len() as u64;
-        self.current_index_offset += index_data.len() as u64;
-
-        mesh_index
-    }
-
-    pub fn add_instance(&mut self, instance: AlphaInstanceData) {
-        if self.current_instance_count >= self.max_instances {
-            return;
-        }
-
-        let queue = &self.gpu_resources.queue;
-        let offset = (self.current_instance_count as usize * std::mem::size_of::<AlphaInstanceData>()) as u64;
-        queue.write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(&[instance]));
-        
-        self.current_instance_count += 1;
-    }
     pub fn new(gpu_resources: Arc<GpuResources>) -> Self {
         let device = &gpu_resources.device;
 
         let max_instances = 10000;
+        let max_draws = 100000; // Max visible meshlets
         
         // 1. Buffers
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Alpha Vertex Buffer"),
-            size: 10 * 1024 * 1024, // 10MB placeholder
+            size: 100 * 1024 * 1024, // 100MB
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("Alpha Index Buffer"),
-            size: 10 * 1024 * 1024, // 10MB placeholder
+            size: 100 * 1024 * 1024, // 100MB
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -133,24 +111,31 @@ impl AlphaRenderer {
             mapped_at_creation: false,
         });
 
-        let mesh_descriptor_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Alpha Mesh Descriptor Buffer"),
-            size: 1024,
+        let meshlet_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Alpha Meshlet Buffer"),
+            size: 20 * 1024 * 1024, // 20MB
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let draw_args_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Alpha Draw Args Buffer"),
-            size: std::mem::size_of::<DrawIndexedIndirect>() as u64,
+        let mesh_descriptor_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Alpha Mesh Descriptor Buffer"),
+            size: 1024 * 1024, // 1MB
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let draw_commands_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Alpha Draw Commands Buffer"),
+            size: (max_draws * std::mem::size_of::<DrawIndexedIndirect>()) as u64,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
-        let visible_indices_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Alpha Visible Indices Buffer"),
-            size: (max_instances * 4) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        let draw_count_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Alpha Draw Count Buffer"),
+            size: 4,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::INDIRECT | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
@@ -176,82 +161,20 @@ impl AlphaRenderer {
         let compute_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Alpha Compute Layout"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: false },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: false }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 4, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 5, visibility: wgpu::ShaderStages::COMPUTE, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             ],
         });
 
         let render_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Alpha Render Layout"),
             entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::VERTEX,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Storage { read_only: true },
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
+                wgpu::BindGroupLayoutEntry { binding: 0, visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None }, count: None },
+                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::VERTEX, ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Storage { read_only: true }, has_dynamic_offset: false, min_binding_size: None }, count: None },
             ],
         });
 
@@ -262,8 +185,10 @@ impl AlphaRenderer {
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: instance_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: draw_args_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 3, resource: visible_indices_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 2, resource: draw_count_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 3, resource: draw_commands_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 4, resource: mesh_descriptor_buffer.as_entire_binding() },
+                wgpu::BindGroupEntry { binding: 5, resource: meshlet_buffer.as_entire_binding() },
             ],
         });
 
@@ -273,7 +198,6 @@ impl AlphaRenderer {
             entries: &[
                 wgpu::BindGroupEntry { binding: 0, resource: camera_buffer.as_entire_binding() },
                 wgpu::BindGroupEntry { binding: 1, resource: instance_buffer.as_entire_binding() },
-                wgpu::BindGroupEntry { binding: 2, resource: visible_indices_buffer.as_entire_binding() },
             ],
         });
 
@@ -312,40 +236,15 @@ impl AlphaRenderer {
                 module: &render_shader,
                 entry_point: Some("fs_main"),
                 targets: &[
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float, // Position
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba16Float, // Normal
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm, // Albedo
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
-                    Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Rgba8Unorm, // PBR
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba16Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba16Float, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL }),
+                    Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL }),
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                ..Default::default()
-            },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth24Plus,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+            depth_stencil: Some(wgpu::DepthStencilState { format: wgpu::TextureFormat::Depth24Plus, depth_write_enabled: true, depth_compare: wgpu::CompareFunction::Less, stencil: wgpu::StencilState::default(), bias: wgpu::DepthBiasState::default() }),
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
             cache: None,
@@ -358,18 +257,61 @@ impl AlphaRenderer {
             current_vertex_offset: 0,
             current_index_offset: 0,
             instance_buffer,
-            max_instances,
+            max_instances: max_instances as u32,
             current_instance_count: 0,
+            meshlet_buffer,
+            current_meshlet_offset: 0,
             mesh_descriptor_buffer,
             mesh_descriptors: Vec::new(),
-            draw_args_buffer,
-            visible_indices_buffer,
+            draw_commands_buffer,
+            draw_count_buffer,
             camera_buffer,
             compute_culling_pipeline,
             render_pipeline,
             compute_bind_group,
             render_bind_group,
         }
+    }
+
+    pub fn upload_mesh(&mut self, vertices: &[ModelVertex], indices: &[u32], meshlets: &[Meshlet]) -> u32 {
+        let queue = &self.gpu_resources.queue;
+
+        let vertex_data = bytemuck::cast_slice(vertices);
+        let index_data = bytemuck::cast_slice(indices);
+        let meshlet_data = bytemuck::cast_slice(meshlets);
+
+        queue.write_buffer(&self.vertex_buffer, self.current_vertex_offset, vertex_data);
+        queue.write_buffer(&self.index_buffer, self.current_index_offset, index_data);
+        queue.write_buffer(&self.meshlet_buffer, self.current_meshlet_offset, meshlet_data);
+
+        let mesh_index = self.mesh_descriptors.len() as u32;
+        let descriptor = MeshDescriptor {
+            meshlet_offset: (self.current_meshlet_offset / std::mem::size_of::<Meshlet>() as u64) as u32,
+            meshlet_count: meshlets.len() as u32,
+            _padding: [0, 0],
+        };
+
+        self.mesh_descriptors.push(descriptor);
+        
+        queue.write_buffer(
+            &self.mesh_descriptor_buffer, 
+            (mesh_index as usize * std::mem::size_of::<MeshDescriptor>()) as u64,
+            bytemuck::cast_slice(&[descriptor])
+        );
+
+        self.current_vertex_offset += vertex_data.len() as u64;
+        self.current_index_offset += index_data.len() as u64;
+        self.current_meshlet_offset += meshlet_data.len() as u64;
+
+        mesh_index
+    }
+
+    pub fn add_instance(&mut self, instance: AlphaInstanceData) {
+        if self.current_instance_count >= self.max_instances { return; }
+        let queue = &self.gpu_resources.queue;
+        let offset = (self.current_instance_count as usize * std::mem::size_of::<AlphaInstanceData>()) as u64;
+        queue.write_buffer(&self.instance_buffer, offset, bytemuck::cast_slice(&[instance]));
+        self.current_instance_count += 1;
     }
 
     pub fn render(
@@ -382,19 +324,12 @@ impl AlphaRenderer {
         depth_view: &wgpu::TextureView,
         instance_count: u32,
     ) {
-        // 1. Reset draw arguments (instance_count = 0)
-        self.gpu_resources.queue.write_buffer(
-            &self.draw_args_buffer,
-            4, // Offset to instance_count
-            bytemuck::cast_slice(&[0u32]),
-        );
+        // 1. Reset draw count
+        self.gpu_resources.queue.write_buffer(&self.draw_count_buffer, 0, bytemuck::cast_slice(&[0u32]));
 
-        // 2. Compute Pass (Culling)
+        // 2. Compute Pass (Culling & Command Generation)
         {
-            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Alpha Culling Pass"),
-                timestamp_writes: None,
-            });
+            let mut cpass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor { label: Some("Alpha Culling Pass"), timestamp_writes: None });
             cpass.set_pipeline(&self.compute_culling_pipeline);
             cpass.set_bind_group(0, &self.compute_bind_group, &[]);
             let workgroups = (instance_count + 63) / 64;
@@ -406,51 +341,12 @@ impl AlphaRenderer {
             let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Alpha Render Pass"),
                 color_attachments: &[
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: position_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load, // Assume already cleared
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: normal_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: albedo_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    }),
-                    Some(wgpu::RenderPassColorAttachment {
-                        view: pbr_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    }),
+                    Some(wgpu::RenderPassColorAttachment { view: position_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }, depth_slice: None }),
+                    Some(wgpu::RenderPassColorAttachment { view: normal_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }, depth_slice: None }),
+                    Some(wgpu::RenderPassColorAttachment { view: albedo_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }, depth_slice: None }),
+                    Some(wgpu::RenderPassColorAttachment { view: pbr_view, resolve_target: None, ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }, depth_slice: None }),
                 ],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: depth_view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment { view: depth_view, depth_ops: Some(wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store }), stencil_ops: None }),
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
@@ -459,7 +355,15 @@ impl AlphaRenderer {
             rpass.set_bind_group(0, &self.render_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-            rpass.draw_indexed_indirect(&self.draw_args_buffer, 0);
+            
+            // THE GLORIOUS MULTI-DRAW
+            rpass.multi_draw_indexed_indirect_count(
+                &self.draw_commands_buffer,
+                0,
+                &self.draw_count_buffer,
+                0,
+                100000, // Max draws
+            );
         }
     }
 }
