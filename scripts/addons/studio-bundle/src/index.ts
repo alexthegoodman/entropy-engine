@@ -1,5 +1,4 @@
 // unused addons
-// import "./megaworlds_terrain_addon";
 // import "./water_plane_addon";
 
 // initialize first (tier 0)
@@ -18,6 +17,7 @@ import "./pbr_texture_designer_addon";
 // // tier 2
 // import "./flexnoise_terrain_addon";
 import "./flexnoise_v2";
+import "./megaworlds_terrain_addon";
 import "./hair_particle_addon";
 import "./fft_water_addon";
 // okay, but the automatic flow accumlation is bad
