@@ -33,9 +33,7 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             .register();
     }
 
-    onInit() {
-        this.generateTerrain(this.currentParams, this.state.activeComponentId);
-        
+    onInit() {        
         const windowId = this.UI.createTab({
             title: "Rust Noise",
             onRender: () => this.renderUI(windowId)
@@ -44,6 +42,8 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
 
     onProjectChanged() {
         if (this.loadFromProject()) {
+            Entropy.println("[MEGAWORLDS TERRAIN SYSTEM]: Project loaded successfully");
+            // generate rarely to avoid excessive reload time
             this.generateTerrain(this.currentParams, this.state.activeComponentId);
         }
     }
@@ -71,22 +71,27 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             });
         }
 
+        // let size = 8192;
+        let size = 1024;
+
         this.api.Quadscape.create({
             id: id,
             // roughly rdr2 size (64MB heightmap generation of u8 ints from noise upon load, a bit of time, but normal and light)
             // also must be a power of 2
-            width: 8192,
-            height: 8192,
+            width: size,
+            height: size,
+            size: size,
             noiseId: noiseId,
-            position: [0, 0, 0],
+            position: [0, -10, 0],
             pipelineId: pipelineId,
             renderRole: "Terrain",
-            size: 8192, // roughly rdr2 size
-            scale: 5
+            scale: 10
         } as any);
     }
 
     private renderUI(windowId: string) {
+        Entropy.Addon.setVisibility(this.name, true);
+        
         this.renderComponentUI(windowId, () => {
             this.generateTerrain(this.currentParams, this.state.activeComponentId);
         });

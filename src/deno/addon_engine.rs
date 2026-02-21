@@ -5040,7 +5040,7 @@ impl AddonEngine {
 
                         let id = config.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
 
-                        let terrain = Terrain::new(heights, config.width as u32, config.width as u32, 1.0); // from QuadTree
+                        let terrain = Terrain::new(heights, config.width as u32, config.width as u32, config.scale as f32); // from QuadTree
                         let mut scape = QuadScape::new(terrain);
 
                         // we only want 1 landscape to render at any given time

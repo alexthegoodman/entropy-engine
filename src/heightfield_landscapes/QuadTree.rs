@@ -404,7 +404,8 @@ pub struct Terrain {
     /// Full-res depth (Z, rows).
     pub depth: u32,
     /// World-space units per full-res sample.
-    pub scale: f32,
+    pub height_scale: f32,
+    pub base_scale: f32,
     /// Mip pyramid (LOD 0 = full res, LOD N = coarsest).
     pub pyramid: Vec<MipLevel>,
     /// Static quadtree root.
@@ -419,7 +420,7 @@ impl Terrain {
     /// * `width`     – number of columns (X axis)
     /// * `depth`     – number of rows    (Z axis) — *not* vertical height
     /// * `scale`     – world units per sample (e.g. 1.0 m/sample)
-    pub fn new(altitudes: Vec<u8>, width: u32, depth: u32, scale: f32) -> Self {
+    pub fn new(altitudes: Vec<u8>, width: u32, depth: u32, height_scale: f32) -> Self {
         assert!(
             width.is_power_of_two() && depth.is_power_of_two(),
             "width and depth should be powers of two for clean mip-mapping (got {}×{})",
@@ -441,7 +442,8 @@ impl Terrain {
         Terrain {
             width,
             depth,
-            scale,
+            height_scale,
+            base_scale: 1.0,
             pyramid,
             root,
         }
@@ -454,14 +456,14 @@ impl Terrain {
     /// Sample the altitude (in world Y units) at any world position.
     /// Uses bilinear interpolation on the full-res mip.
     pub fn altitude_at(&self, world_pos: Vector3<f32>) -> f32 {
-        let nx = (world_pos.x / (self.scale * (self.width - 1) as f32)).clamp(0.0, 1.0);
-        let nz = (world_pos.z / (self.scale * (self.depth - 1) as f32)).clamp(0.0, 1.0);
-        self.pyramid[0].sample_normalised(nx, nz) * self.scale
+        let nx = (world_pos.x / (self.base_scale * (self.width - 1) as f32)).clamp(0.0, 1.0);
+        let nz = (world_pos.z / (self.base_scale * (self.depth - 1) as f32)).clamp(0.0, 1.0);
+        self.pyramid[0].sample_normalised(nx, nz) * self.height_scale
     }
 
     /// Return the LOD level of the tile covering `world_pos`.
     pub fn lod_at(&self, world_pos: Vector3<f32>) -> Option<usize> {
-        self.root.lod_at(world_pos, self.scale)
+        self.root.lod_at(world_pos, self.base_scale)
     }
 
     /// Gather all leaf tiles within `radius` world-units of `viewer`.
@@ -469,7 +471,7 @@ impl Terrain {
     pub fn visible_leaves(&self, viewer: Vector3<f32>, radius: f32) -> Vec<&LeafData> {
         let mut out = Vec::new();
         self.root
-            .collect_visible_leaves(viewer, radius, self.scale, &mut out);
+            .collect_visible_leaves(viewer, radius, self.base_scale, &mut out);
         out
     }
 
@@ -483,9 +485,9 @@ impl Terrain {
     #[inline]
     pub fn sample_to_world(&self, x: u32, z: u32, altitude: u8) -> Vector3<f32> {
         Vector3::new(
-            x as f32 * self.scale,
-            altitude as f32 * self.scale,
-            z as f32 * self.scale,
+            x as f32 * self.base_scale,
+            altitude as f32 * self.height_scale,
+            z as f32 * self.base_scale,
         )
     }
 

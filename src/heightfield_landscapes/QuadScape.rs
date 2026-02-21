@@ -40,8 +40,8 @@ pub const PHYSICS_LOD_THRESHOLD: usize = 0;
 pub const VIEW_RADIUS: f32 = 2048.0;
 
 /// Altitude scale: multiply the raw u8 altitude by this to get world-space Y.
-/// Should match `Terrain::scale`.
-pub const ALTITUDE_SCALE: f32 = 1.0;
+/// Should match `Terrain::height_scale`.
+// pub const ALTITUDE_SCALE: f32 = 25.0; // now set dynamically
 
 // ---------------------------------------------------------------------------
 // Per-tile GPU + physics state
@@ -413,8 +413,8 @@ impl QuadScape {
                 base_mip,
                 lod_mip,
                 lod,
-                self.terrain.scale,
-                ALTITUDE_SCALE,
+                self.terrain.base_scale,
+                self.terrain.height_scale,
             );
 
             let mut tile_gpu = upload_tile_gpu(device, &vertices, &indices, lod);
@@ -422,9 +422,9 @@ impl QuadScape {
             // Attach physics only for the finest LOD leaves.
             if lod <= PHYSICS_LOD_THRESHOLD {
                 let origin = Vector3::new(
-                    leaf.bounds.x_min as f32 * self.terrain.scale,
+                    leaf.bounds.x_min as f32 * self.terrain.base_scale,
                     0.0,
-                    leaf.bounds.z_min as f32 * self.terrain.scale,
+                    leaf.bounds.z_min as f32 * self.terrain.base_scale,
                 );
                 attach_physics(
                     &mut tile_gpu,
@@ -506,6 +506,7 @@ pub fn draw_quadscape<'rp>(
     scape: &'rp QuadScape,
     render_pass: &mut wgpu::RenderPass<'rp>,
 ) {
+    // println!("Draw quadscape {:?} {:?}", scape.live_tile_count(), scape.physics_tile_count());
     for (_key, tile) in scape.iter_tiles() {
         render_pass.set_vertex_buffer(0, tile.vertex_buffer.slice(..));
         render_pass.set_index_buffer(
