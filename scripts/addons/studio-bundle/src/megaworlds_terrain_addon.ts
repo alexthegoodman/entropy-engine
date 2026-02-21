@@ -71,13 +71,16 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             });
         }
 
+        // roughly rdr2 size (64MB heightmap generation of u8 ints from noise upon load, a bit of time, but normal and light)
+        // also must be a power of 2
         // let size = 8192;
+
+        // small, super fast
         let size = 1024;
 
         this.api.Quadscape.create({
             id: id,
-            // roughly rdr2 size (64MB heightmap generation of u8 ints from noise upon load, a bit of time, but normal and light)
-            // also must be a power of 2
+            
             width: size,
             height: size,
             size: size,
@@ -91,7 +94,7 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
 
     private renderUI(windowId: string) {
         Entropy.Addon.setVisibility(this.name, true);
-        
+
         this.renderComponentUI(windowId, () => {
             this.generateTerrain(this.currentParams, this.state.activeComponentId);
         });
