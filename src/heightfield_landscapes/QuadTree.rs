@@ -120,6 +120,10 @@ pub fn build_mip_pyramid(base: Vec<u16>, width: u32, depth: u32) -> Vec<MipLevel
                 let is_x_edge = x == 0 || x == new_w - 1;
                 let is_z_edge = z == 0 || z == new_d - 1;
 
+                // 2 vertices thick layer of uncompresssed data
+                // let is_x_edge = x < 2 || x + 2 >= new_w;
+                // let is_z_edge = z < 2 || z + 2 >= new_d;
+
                 let val = if is_x_edge || is_z_edge {
                     // *** Edge preservation ***
                     // Always use the source sample directly so neighbouring
