@@ -151,6 +151,8 @@ pub fn build_tile_mesh(
 
             let is_edge = col == 0 || col == cols - 1 || row == 0 || row == rows - 1;
 
+            // let is_edge = col < 2 || col >= cols - 2 || row < 2 || row >= rows - 2; // edge 2 vertices thick at full res
+
             let altitude_raw = if is_edge {
                 // Edge: always full-resolution sample — guarantees no cracks.
                 base_mip.sample(full_x, full_z)

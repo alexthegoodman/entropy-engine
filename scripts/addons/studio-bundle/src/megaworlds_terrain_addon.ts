@@ -64,10 +64,15 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             // persistence: 0.3,
             // lacunarity: 1.5
 
-            octaves: 6,
-            frequency: 0.007,
-            persistence: 0.5,
-            lacunarity: 4.5
+            octaves: 4,
+            frequency: 0.005,
+            persistence: 0.4,
+            lacunarity: 2.5
+
+            // octaves: 6,
+            // frequency: 0.007,
+            // persistence: 0.5,
+            // lacunarity: 4.5
         });
 
         let pipelineId = "default";
@@ -84,15 +89,8 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             });
         }
 
-        // roughly rdr2 size (64MB heightmap generation of u8 ints from noise upon load, a bit of time, but normal and light)
-        // also must be a power of 2
-        // let size = 8192;
-
-        // medium sized
-        // let size = 4096;
-
-        // small, super fast
-        let size = 1024;
+        // huge, extremely fast
+        let size = 4096;
 
         this.api.Quadscape.create({
             id: id,
