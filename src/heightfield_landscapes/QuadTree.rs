@@ -301,6 +301,8 @@ fn build_node(
     pyramid: &[MipLevel],
     depth_budget: usize, // remaining split budget
 ) -> QuadNode {
+    print!("Build Quad Node {:?} {:?}", bounds, depth_budget);
+
     let w = bounds.width_samples();
     let d = bounds.depth_samples();
 
