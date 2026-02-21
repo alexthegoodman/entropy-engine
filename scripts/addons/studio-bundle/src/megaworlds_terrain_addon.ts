@@ -73,14 +73,16 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
 
         this.api.Quadscape.create({
             id: id,
-            width: 10240, // mega size!
-            height: 10240,
+            // roughly rdr2 size (64MB heightmap generation of u8 ints from noise upon load, a bit of time, but normal and light)
+            // also must be a power of 2
+            width: 8192,
+            height: 8192,
             noiseId: noiseId,
             position: [0, 0, 0],
             pipelineId: pipelineId,
             renderRole: "Terrain",
-            size: 10240, // mega size!
-            scale: 150
+            size: 8192, // roughly rdr2 size
+            scale: 5
         } as any);
     }
 
