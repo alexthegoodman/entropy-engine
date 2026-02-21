@@ -166,7 +166,8 @@ pub fn build_tile_mesh(
             };
 
             let world_x = full_x as f32 * scale;
-            let world_y = altitude_raw as f32 * altitude_scale;
+            // let world_y = altitude_raw as f32 * altitude_scale;
+            let world_y = altitude_raw as f32 / 65535.0 * altitude_scale;
             let world_z = full_z as f32 * scale;
 
             // Flat-shading normal — will be overwritten by a normal-map pass

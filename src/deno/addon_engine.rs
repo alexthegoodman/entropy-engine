@@ -4985,7 +4985,8 @@ impl AddonEngine {
                                     for y in 0..config.height {
                                         for x in 0..config.width {
                                             let val = fbm.get([x as f64, y as f64]);
-                                            generated_heights.push(((val + 1.0) / 2.0) as u8);
+                                            // generated_heights.push(((val + 1.0) / 2.0 * 255.0) as u8); // u8 is choppy, kinda voxel-like
+                                            generated_heights.push(((val + 1.0) / 2.0 * 65535.0) as u16);
                                         }
                                     }
                                     heights = Some(generated_heights);

@@ -50,11 +50,24 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
 
     private async generateTerrain(params: TerrainParams, id: string) {
         const noiseId = this.Noise.create({
+            // type: "fbm",
+            // source: "perlin",
+            // seed: params.seed,
+            // frequency: params.frequency,
+            // octaves: params.octaves
+
             type: "fbm",
-            source: "perlin",
-            seed: params.seed,
-            frequency: params.frequency,
-            octaves: params.octaves
+            source:"perlin",
+            seed: 4815162342,
+            // octaves: 4,
+            // frequency: 0.003,
+            // persistence: 0.3,
+            // lacunarity: 1.5
+
+            octaves: 6,
+            frequency: 0.007,
+            persistence: 0.5,
+            lacunarity: 4.5
         });
 
         let pipelineId = "default";
@@ -75,6 +88,9 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
         // also must be a power of 2
         // let size = 8192;
 
+        // medium sized
+        // let size = 4096;
+
         // small, super fast
         let size = 1024;
 
@@ -88,7 +104,7 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             position: [0, -10, 0],
             pipelineId: pipelineId,
             renderRole: "Terrain",
-            scale: 10
+            scale: 50
         } as any);
     }
 

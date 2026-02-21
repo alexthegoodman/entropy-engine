@@ -28,23 +28,37 @@ pub const MIN_TILE_SIZE: u32 = 16;
 // Mip pyramid  (power-of-two downsamples of the raw heightmap)
 // ---------------------------------------------------------------------------
 
-/// A single level of the mip pyramid.
-/// Width/depth are measured in *samples at this LOD's resolution*.
-#[derive(Debug, Clone)]
+// /// A single level of the mip pyramid.
+// /// Width/depth are measured in *samples at this LOD's resolution*.
+// #[derive(Debug, Clone)]
+// pub struct MipLevel {
+//     pub lod: usize,
+//     /// Horizontal sample count at this resolution.
+//     pub width: u32,
+//     /// Depth (Z-axis) sample count at this resolution.
+//     pub depth: u32,
+//     /// Row-major altitude values (u8, 0..=255).
+//     pub altitudes: Vec<u8>,
+// }
+
 pub struct MipLevel {
     pub lod: usize,
-    /// Horizontal sample count at this resolution.
     pub width: u32,
-    /// Depth (Z-axis) sample count at this resolution.
     pub depth: u32,
-    /// Row-major altitude values (u8, 0..=255).
-    pub altitudes: Vec<u8>,
+    pub altitudes: Vec<u16>, // was u8
 }
 
 impl MipLevel {
-    /// Sample altitude, clamping coords to valid range.
+    // /// Sample altitude, clamping coords to valid range.
+    // #[inline]
+    // pub fn sample(&self, x: u32, z: u32) -> u8 {
+    //     let x = x.min(self.width - 1);
+    //     let z = z.min(self.depth - 1);
+    //     self.altitudes[(z * self.width + x) as usize]
+    // }
+
     #[inline]
-    pub fn sample(&self, x: u32, z: u32) -> u8 {
+    pub fn sample(&self, x: u32, z: u32) -> u16 { // was u8
         let x = x.min(self.width - 1);
         let z = z.min(self.depth - 1);
         self.altitudes[(z * self.width + x) as usize]
@@ -74,7 +88,7 @@ impl MipLevel {
 ///
 /// Each level halves width and depth (rounding up), averaging 2×2 blocks
 /// *except* for edge samples which are preserved to guarantee crack-free borders.
-pub fn build_mip_pyramid(base: Vec<u8>, width: u32, depth: u32) -> Vec<MipLevel> {
+pub fn build_mip_pyramid(base: Vec<u16>, width: u32, depth: u32) -> Vec<MipLevel> {
     assert_eq!(
         base.len(),
         (width * depth) as usize,
@@ -95,7 +109,7 @@ pub fn build_mip_pyramid(base: Vec<u8>, width: u32, depth: u32) -> Vec<MipLevel>
         let prev = &pyramid[lod - 1];
         let new_w = ((prev.width + 1) / 2).max(2);
         let new_d = ((prev.depth + 1) / 2).max(2);
-        let mut data = vec![0u8; (new_w * new_d) as usize];
+        let mut data = vec![0u16; (new_w * new_d) as usize];
 
         for z in 0..new_d {
             for x in 0..new_w {
@@ -112,12 +126,19 @@ pub fn build_mip_pyramid(base: Vec<u8>, width: u32, depth: u32) -> Vec<MipLevel>
                     // tiles share identical border altitudes.
                     prev.sample(sx, sz)
                 } else {
-                    // Average the 2×2 block
-                    let a = prev.sample(sx, sz) as u16;
-                    let b = prev.sample(sx + 1, sz) as u16;
-                    let c = prev.sample(sx, sz + 1) as u16;
-                    let d = prev.sample(sx + 1, sz + 1) as u16;
-                    ((a + b + c + d + 2) / 4) as u8
+                    // // Average the 2×2 block
+                    // let a = prev.sample(sx, sz) as u16;
+                    // let b = prev.sample(sx + 1, sz) as u16;
+                    // let c = prev.sample(sx, sz + 1) as u16;
+                    // let d = prev.sample(sx + 1, sz + 1) as u16;
+                    // ((a + b + c + d + 2) / 4) as u8
+
+                    // was u16 accumulator, now u32 to safely hold 4× u16
+                    let a = prev.sample(sx, sz) as u32;
+                    let b = prev.sample(sx + 1, sz) as u32;
+                    let c = prev.sample(sx, sz + 1) as u32;
+                    let d = prev.sample(sx + 1, sz + 1) as u32;
+                    ((a + b + c + d + 2) / 4) as u16
                 };
 
                 data[(z * new_w + x) as usize] = val;
@@ -188,8 +209,8 @@ impl TileBounds {
 /// Pre-computed altitude range for a tile (used for frustum/occlusion culling later).
 #[derive(Debug, Clone, Copy)]
 pub struct AltitudeRange {
-    pub min: u8,
-    pub max: u8,
+    pub min: u16,
+    pub max: u16,
 }
 
 /// A single node in the quadtree.
@@ -308,8 +329,8 @@ fn build_node(
 
     // Compute altitude range from the finest mip
     let base = &pyramid[0];
-    let mut alt_min = u8::MAX;
-    let mut alt_max = u8::MIN;
+    let mut alt_min = u16::MAX;
+    let mut alt_max = u16::MIN;
     // Sample corners + centre for a cheap range estimate (exact range on leaf)
     let sample_pts = [
         (bounds.x_min, bounds.z_min),
@@ -422,7 +443,7 @@ impl Terrain {
     /// * `width`     – number of columns (X axis)
     /// * `depth`     – number of rows    (Z axis) — *not* vertical height
     /// * `scale`     – world units per sample (e.g. 1.0 m/sample)
-    pub fn new(altitudes: Vec<u8>, width: u32, depth: u32, height_scale: f32) -> Self {
+    pub fn new(altitudes: Vec<u16>, width: u32, depth: u32, height_scale: f32) -> Self {
         assert!(
             width.is_power_of_two() && depth.is_power_of_two(),
             "width and depth should be powers of two for clean mip-mapping (got {}×{})",
@@ -521,7 +542,7 @@ impl Terrain {
 mod tests {
     use super::*;
 
-    fn flat_terrain(size: u32, altitude: u8) -> Terrain {
+    fn flat_terrain(size: u32, altitude: u16) -> Terrain {
         let data = vec![altitude; (size * size) as usize];
         Terrain::new(data, size, size, 1.0)
     }
@@ -540,10 +561,10 @@ mod tests {
     fn test_edge_preservation() {
         // A gradient heightmap — edges must be preserved exactly across mips
         let size = 64u32;
-        let mut data = vec![0u8; (size * size) as usize];
+        let mut data = vec![0u16; (size * size) as usize];
         for z in 0..size {
             for x in 0..size {
-                data[(z * size + x) as usize] = x as u8;
+                data[(z * size + x) as usize] = x as u16;
             }
         }
         let terrain = Terrain::new(data, size, size, 1.0);
