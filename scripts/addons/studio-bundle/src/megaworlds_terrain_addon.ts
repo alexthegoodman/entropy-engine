@@ -17,7 +17,7 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
 
     constructor() {
         super({
-            name: "Simple Procedural Terrain",
+            name: "Megaworlds Quadtree Terrain",
             version: "2.0.0",
             description: "Generates terrain using Rust-side noise"
         });
@@ -27,7 +27,7 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
         this.initComponentState("Default Terrain");
 
         this.component(this.name)
-            .name("Simple Procedural Terrain")
+            .name("Megaworlds Quadtree Terrain")
             .renderer((id, params) => this.generateTerrain(params, id))
             .editor((windowId) => this.renderUI(windowId))
             .register();
@@ -71,16 +71,16 @@ class MegaworldsTerrainAddon extends ComponentAddon<TerrainParams> {
             });
         }
 
-        this.Landscape.create({
+        this.api.Quadscape.create({
             id: id,
-            width: 128,
-            height: 128,
+            width: 10240, // mega size!
+            height: 10240,
             noiseId: noiseId,
             position: [0, 0, 0],
             pipelineId: pipelineId,
             renderRole: "Terrain",
-            size: 512, // Default size
-            scale: 150  // Default scale
+            size: 10240, // mega size!
+            scale: 150
         } as any);
     }
 

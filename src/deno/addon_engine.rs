@@ -29,6 +29,8 @@ use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::game_behaviors::stateful::BehaviorConfig;
+use crate::heightfield_landscapes::QuadScape::QuadScape;
+use crate::heightfield_landscapes::QuadTree::Terrain;
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
 use crate::model_components::NPC::NPC;
 use crate::procedural_grass::grass::Grass;
@@ -620,6 +622,7 @@ pub struct AddonContext {
     pub pending_clears: Vec<String>, // addon_names to clear meshes for
     pub pending_mesh_clears: Vec<(String, String)>, // (addon_name, mesh_id)
     pub pending_landscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
+    pub pending_quadscapes: Vec<(String, LandscapeConfig)>, // (addon_name, config)
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
@@ -1640,6 +1643,14 @@ fn op_grass_create(state: &mut OpState, #[string] addon_name: String, #[serde] c
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         // println!("Create grass xyz");
         ctx.pending_grasses.push((addon_name, config));
+    }
+}
+
+#[op2]
+fn op_quadscape_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: LandscapeConfig) {
+    if !AddonEngine::is_render_allowed(&addon_name) { return; }
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_quadscapes.push((addon_name, config));
     }
 }
 
@@ -3067,7 +3078,8 @@ extension!(
         op_entity_play_animation,
         op_entity_set_stats,
         op_entity_get_stats,
-        op_model_set_bone_transform
+        op_model_set_bone_transform,
+        op_quadscape_create
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -3326,7 +3338,8 @@ impl AddonEngine {
             pending_ui_rects: Vec::new(),
             pending_ui_texts: Vec::new(),
             pending_ui_clear: false,
-            pending_alpha_models: Vec::new()
+            pending_alpha_models: Vec::new(),
+            pending_quadscapes: Vec::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3932,7 +3945,8 @@ impl AddonEngine {
             pending_ui_texts,
             pending_ui_clear,
             pending_visuals,
-            pending_alpha_models
+            pending_alpha_models,
+            pending_quadscapes
         ) = {
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
@@ -3961,6 +3975,7 @@ impl AddonEngine {
                     std::mem::replace(&mut ctx.pending_ui_clear, false),
                     std::mem::take(&mut ctx.pending_visuals),
                     std::mem::take(&mut ctx.pending_alpha_models),
+                    std::mem::take(&mut ctx.pending_quadscapes)
                 )
             } else {
                 (
@@ -3985,6 +4000,7 @@ impl AddonEngine {
                     Vec::new(),
                     Vec::new(),
                     false,
+                    Vec::new(),
                     Vec::new(),
                     Vec::new()
                 )
@@ -4944,6 +4960,97 @@ impl AddonEngine {
                 }
             }
         }
+
+        if !pending_quadscapes.is_empty() {
+            if let gpu = &gpu_resources {
+                for (addon_name, config) in pending_quadscapes {
+                    // let mut heights = config.heights;
+                    let mut heights = None; // only Rust-side for now (also is only pbr for now)
+
+                    // If noise_id is provided, generate heights on the Rust side
+                    if heights.is_none() {
+                        if let Some(noise_id) = &config.noise_id {
+                            let mut op_state = self.runtime.op_state();
+                            let op_state = op_state.borrow();
+                            if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
+                                if let Some(noise_config) = ctx.noise_generators.get(noise_id) {
+                                    // Instantiate noise
+                                    let fbm = Fbm::<Perlin>::new(noise_config.seed)
+                                        .set_frequency(noise_config.frequency)
+                                        .set_octaves(noise_config.octaves)
+                                        .set_persistence(noise_config.persistence)
+                                        .set_lacunarity(noise_config.lacunarity);
+                                    
+                                    let mut generated_heights = Vec::with_capacity(config.width * config.height);
+                                    for y in 0..config.height {
+                                        for x in 0..config.width {
+                                            let val = fbm.get([x as f64, y as f64]);
+                                            generated_heights.push(((val + 1.0) / 2.0) as u8);
+                                        }
+                                    }
+                                    heights = Some(generated_heights);
+                                }
+                            }
+                        }
+                    }
+
+                    {
+                        let mut op_state = self.runtime.op_state();
+                        let mut op_state = op_state.borrow_mut();
+                        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                            ctx.landscape_config = Some([config.size as f32, config.scale as f32, config.size as f32]);
+                        }
+                    }
+
+                    if let Some(heights) = heights {
+                        // let mut scaled_like_image = Vec::new();
+                        // // 1. Find the current range
+                        // if !heights.is_empty() {
+                        //     let mut min_h = heights[0];
+                        //     let mut max_h = heights[0];
+                            
+                        //     for &h in &heights {
+                        //         if h < min_h { min_h = h; }
+                        //         if h > max_h { max_h = h; }
+                        //     }
+
+                        //     let range = max_h - min_h;
+
+                        //     // 2. Scale the values
+                        //     if range > 0.0 {
+                        //         for h in heights.iter() {
+                        //             scaled_like_image.push((*h - min_h) / range);
+                        //         }
+                        //     } else {
+                        //         // If all heights are the same (range == 0), 
+                        //         // set them all to 0.0 (a flat plain)
+                        //         scaled_like_image.fill(0.0);
+                        //     }
+                        // }
+
+                        // let data = crate::helpers::landscapes::generate_landscape_data(
+                        //     config.width,
+                        //     config.height,
+                        //     // heights,
+                        //     scaled_like_image,
+                        //     config.size as f32, // square_size
+                        //     config.size as f32, // square_size
+                        //     config.scale as f32,  // square_height
+                        // );
+
+                        let id = config.id.clone().unwrap_or_else(|| Uuid::new_v4().to_string());
+
+                        let terrain = Terrain::new(heights, config.width as u32, config.width as u32, 1.0); // from QuadTree
+                        let mut scape = QuadScape::new(terrain);
+
+                        // we only want 1 landscape to render at any given time
+                        renderer_state.addon_quadscapes
+                            .insert(addon_name, vec![scape]);
+                    }
+                }
+            }
+        }
+
 
         if !pending_landscape_texture_updates.is_empty() {
             

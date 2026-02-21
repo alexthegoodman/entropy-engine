@@ -4,6 +4,7 @@ use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
+use crate::heightfield_landscapes::QuadScape::draw_quadscape;
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AppExperience, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
@@ -283,6 +284,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let mut non_pbr_landscapes = Vec::new();
         let mut pbr_landscape3ds = Vec::new();
         let mut non_pbr_landscape3ds = Vec::new();
+        let mut pbr_quadscapes = Vec::new();
+        let mut non_pbr_quadscapes = Vec::new();
         let mut pbr_grasses = Vec::new();
         let mut non_pbr_grasses = Vec::new();
         let mut pbr_meshes = Vec::new();
@@ -380,6 +383,36 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             pbr_landscape3ds.push(landscape);
                         } else {
                             non_pbr_landscape3ds.push(landscape);
+                        }
+                    }
+                }
+
+                for (addon_name, landscapes) in &mut renderer_state.addon_quadscapes {
+                    if ctx.hidden_addons.contains(addon_name) {
+                        continue;
+                    }
+                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
+                            continue;
+                        }
+                    } else if addon_name != "Global" {
+                        continue;
+                    }
+
+                    for landscape in landscapes {
+                        let mut is_pbr = true; // all pbr for now on quadscapes
+                        // if let Some(pid) = &landscape.pipeline_id {
+                        //     if pid != "default" {
+                        //         if let Some(config) = ctx.pipeline_configs.get(pid) {
+                        //             is_pbr = config.pbr.unwrap_or(true);
+                        //         }
+                        //     }
+                        // }
+
+                        if is_pbr {
+                            pbr_quadscapes.push(landscape);
+                        } else {
+                            non_pbr_quadscapes.push(landscape);
                         }
                     }
                 }
@@ -663,6 +696,17 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             wgpu::IndexFormat::Uint32,
                         );
                         render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+                    }
+
+                    for landscape in pbr_quadscapes {
+                        let mut pipeline_set = false;
+
+                        if !pipeline_set {
+                            render_pass.set_pipeline(&geometry_pipeline);
+                        }
+
+                        landscape.update(Vector3::new(camera.position.x, camera.position.y, camera.position.z), &device, &mut renderer_state.rigid_body_set, &mut renderer_state.collider_set);
+                        draw_quadscape(landscape, &mut render_pass);
                     }
 
                     // println!("Pbr Meshes {:?}", pbr_meshes.len());

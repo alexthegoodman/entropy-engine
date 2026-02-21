@@ -235,6 +235,22 @@ globalThis.Entropy = {
                         return ops.op_landscape_get_height(x, z);
                     }
                 },
+                Quadscape: {
+                    create: (config) => {
+                        ops.op_quadscape_create(getAddonName(), {
+                            id: config.id || null,
+                            width: config.width,
+                            height: config.height,
+                            heights: config.heights || null,
+                            noiseId: config.noiseId || null,
+                            position: config.position || [0, 0, 0],
+                            pipelineId: config.pipelineId || null,
+                            render_role: config.renderRole || null,
+                            size: config.size,
+                            scale: config.scale
+                        });
+                    },
+                },
                 Landscape3D: {
                     create: (config) => {
                         const target = globalThis.__entropy_current_addon_context_override || metadata.name;

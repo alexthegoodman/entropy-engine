@@ -18,6 +18,7 @@ use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
 use crate::deno::addon_engine::VisualConfig;
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::handlers::EntropyPosition;
+use crate::heightfield_landscapes::QuadScape::QuadScape;
 use crate::helpers::saved_data::{GameSettings, PhysicsConfig, ScatterSettings, VisualType};
 use crate::model_components::Collectable::Collectable;
 use crate::shape_primitives::Sphere::Sphere;
@@ -138,6 +139,7 @@ pub struct RendererState {
     pub landscapes: Vec<Landscape>,
     pub addon_landscapes: HashMap<String, Vec<Landscape>>,
     pub addon_landscape3ds: HashMap<String, Vec<Landscape3D>>,
+    pub addon_quadscapes: HashMap<String, Vec<QuadScape>>,
     pub grasses: Vec<Grass>,
     pub addon_grasses: HashMap<String, Vec<Grass>>,
     pub addon_point_lights: HashMap<String, Vec<PointLight>>,
@@ -333,6 +335,7 @@ impl RendererState {
             landscapes,
             addon_landscapes: HashMap::new(),
             addon_landscape3ds: HashMap::new(),
+            addon_quadscapes: HashMap::new(),
             grasses,
             addon_grasses: HashMap::new(),
             addon_point_lights: HashMap::new(),

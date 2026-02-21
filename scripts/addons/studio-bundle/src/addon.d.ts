@@ -282,6 +282,9 @@ export interface ScopedAPI {
     updatePbrTexturePlus: (addonName: string, textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
     getHeightAt: (x: number, z: number) => number;
   };
+  Quadscape: {
+    create: (config: LandscapeConfig) => void;
+  };
   Landscape3D: {
     create: (config: {
       id?: string | null;
