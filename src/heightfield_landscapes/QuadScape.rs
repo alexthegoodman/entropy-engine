@@ -36,8 +36,21 @@ use crate::heightfield_landscapes::QuadTree::{LeafData, MipLevel, Terrain, TileB
 /// LOD 0 = highest detail, closest to player.
 pub const PHYSICS_LOD_THRESHOLD: usize = 0;
 
-/// World-unit radius around the viewer within which tiles are considered visible.
-pub const VIEW_RADIUS: f32 = 2048.0;
+// /// World-unit radius around the viewer within which tiles are considered visible.
+// pub const VIEW_RADIUS: f32 = 2048.0;
+
+/// World-unit radius boundaries for each LOD ring.
+/// A tile's centre distance from the viewer determines which LOD it renders at.
+/// The final entry effectively doubles as VIEW_RADIUS.
+pub const LOD_RINGS: [f32; LOD_LEVELS] = [
+    128.0,   // LOD 0 — full detail + physics
+    256.0,   // LOD 1
+    512.0,  // LOD 2
+    1024.0,  // LOD 3 — coarsest, matches VIEW_RADIUS
+];
+
+// You can now derive VIEW_RADIUS from the rings instead of a separate constant:
+pub const VIEW_RADIUS: f32 = LOD_RINGS[LOD_LEVELS - 1];
 
 /// Altitude scale: multiply the raw u8 altitude by this to get world-space Y.
 /// Should match `Terrain::height_scale`.
@@ -264,6 +277,8 @@ fn upload_tile_gpu(
         usage: wgpu::BufferUsages::INDEX,
     });
 
+    println!("Upload tile to gpu {:?}", vertices.len());
+
     TileGpu {
         vertex_buffer,
         index_buffer,
@@ -372,16 +387,29 @@ impl QuadScape {
         rigid_body_set: &mut RigidBodySet,
         collider_set: &mut ColliderSet,
     ) {
-        // Collect the desired leaf set for this frame.
         let desired_leaves = self.terrain.visible_leaves(viewer, VIEW_RADIUS);
 
-        // Build a set of the keys we *want* to be live.
-        let desired_keys: HashMap<TileKey, &LeafData> = desired_leaves
+        // Build desired key set, but override LOD based on distance from viewer.
+        let desired_keys: HashMap<TileKey, (&LeafData, usize)> = desired_leaves
             .iter()
-            .map(|l| (TileKey::from_leaf(l), *l))
+            .map(|l| {
+                let cx = (l.bounds.x_min + l.bounds.x_max) as f32 * 0.5 * self.terrain.base_scale;
+                let cz = (l.bounds.z_min + l.bounds.z_max) as f32 * 0.5 * self.terrain.base_scale;
+                let dx = viewer.x - cx;
+                let dz = viewer.z - cz;
+                let dist = (dx * dx + dz * dz).sqrt();
+
+                // Pick the finest LOD ring the tile's centre falls within.
+                let lod = LOD_RINGS
+                    .iter()
+                    .position(|&ring_radius| dist <= ring_radius)
+                    .unwrap_or(LOD_LEVELS - 1);
+
+                (TileKey::from_leaf(l), (*l, lod))
+            })
             .collect();
 
-        // --- Stream out tiles no longer needed ---
+        // --- Stream out stale tiles ---
         let keys_to_remove: Vec<TileKey> = self
             .live_tiles
             .keys()
@@ -394,33 +422,41 @@ impl QuadScape {
                 if tile.has_physics {
                     detach_physics(&mut tile, rigid_body_set, collider_set);
                 }
-                // GPU buffers are dropped here automatically (RAII).
             }
         }
 
-        // --- Stream in newly-needed tiles ---
-        for (key, leaf) in &desired_keys {
-            if self.live_tiles.contains_key(key) {
-                continue; // Already live — nothing to do.
+        // --- Stream in new tiles, or rebuild if LOD changed ---
+        for (key, (leaf, lod)) in &desired_keys {
+            // If the tile is already live at the same LOD, nothing to do.
+            if let Some(existing) = self.live_tiles.get(key) {
+                if existing.lod == *lod {
+                    continue;
+                }
+                // LOD changed (player moved between rings) — rebuild the tile.
+                if let Some(mut old) = self.live_tiles.remove(key) {
+                    if old.has_physics {
+                        detach_physics(&mut old, rigid_body_set, collider_set);
+                    }
+                }
             }
 
-            let lod = leaf.lod;
             let base_mip = &self.terrain.pyramid[0];
-            let lod_mip = &self.terrain.pyramid[lod.min(LOD_LEVELS - 1)];
+            let lx = LOD_LEVELS - 1;
+            let ix = lod.min(&lx);
+            let lod_mip = &self.terrain.pyramid[*ix];
 
             let (vertices, indices) = build_tile_mesh(
                 &leaf.bounds,
                 base_mip,
                 lod_mip,
-                lod,
+                *lod,
                 self.terrain.base_scale,
                 self.terrain.height_scale,
             );
 
-            let mut tile_gpu = upload_tile_gpu(device, &vertices, &indices, lod);
+            let mut tile_gpu = upload_tile_gpu(device, &vertices, &indices, *lod);
 
-            // Attach physics only for the finest LOD leaves.
-            if lod <= PHYSICS_LOD_THRESHOLD {
+            if *lod <= PHYSICS_LOD_THRESHOLD {
                 let origin = Vector3::new(
                     leaf.bounds.x_min as f32 * self.terrain.base_scale,
                     0.0,
