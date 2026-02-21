@@ -517,8 +517,8 @@ pub fn draw_quadscape<'rp>(
 }
 
 // // Once, on startup:
-// let quadtree = QuadTree::new(heightmap_bytes, 1024, 1024, 1.0);
-// let mut scape = QuadScape::new(quadtree);
+// let terrain = Terrain::new(heightmap_bytes, 1024, 1024, 1.0); // from QuadTree
+// let mut scape = QuadScape::new(terrain);
 
 // // Every frame:
 // scape.update(camera.position, &device, &mut rigid_body_set, &mut collider_set);
