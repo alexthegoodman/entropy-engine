@@ -958,6 +958,7 @@ function drawMinimap(): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function drawHUD(): void {
+    // clears in onUpdate
   if (G.gameOver) { drawGameOver(); return; }
 
   G.buttons = []; // reset hit-test list each frame
@@ -1333,7 +1334,6 @@ addon.onInit(() => {
                 setupScene();
                 generateMap();
 
-                drawHUD();
                 setupFactions();
                 setupStartPositions();
 
@@ -1345,7 +1345,27 @@ addon.onInit(() => {
 
 addon.onUpdate((time, pos, dir) => {
   Entropy.UI.clear();
-//   drawHUD();
+
+  // RTS Camera movement
+  const speed = 4.0;
+  if (Entropy.Input.isKeyPressed("w") || Entropy.Input.isKeyPressed("ArrowUp")) G.camZ -= speed;
+  if (Entropy.Input.isKeyPressed("s") || Entropy.Input.isKeyPressed("ArrowDown")) G.camZ += speed;
+  if (Entropy.Input.isKeyPressed("a") || Entropy.Input.isKeyPressed("ArrowLeft")) G.camX -= speed;
+  if (Entropy.Input.isKeyPressed("d") || Entropy.Input.isKeyPressed("ArrowRight")) G.camX += speed;
+
+  // Clamp camera to map bounds
+  G.camX = Math.max(0, Math.min(LANDSCAPE_W, G.camX));
+  G.camZ = Math.max(0, Math.min(LANDSCAPE_H, G.camZ));
+
+  // Set the actual camera position in the engine
+  // Birds-eye view: looking down from 120 units up
+  const camHeight = 120;
+  Entropy.Camera.setTransform(
+    [G.camX, camHeight, G.camZ + 40], // Position (slightly offset in Z for a better angle)
+    [G.camX, 0, G.camZ]               // Target (looking at the map)
+  );
+
+  drawHUD();
 });
 
 addon.onCleanup(() => {

@@ -684,6 +684,8 @@ pub struct AddonContext {
     pub modifiers: Modifiers,
     pub window_size: [u32; 2],
     pub selected_entity_id: Option<String>,
+    pub pending_camera_position: Option<[f32; 3]>,
+    pub pending_camera_target: Option<[f32; 3]>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2940,6 +2942,14 @@ fn op_println(
 }
 
 #[op2]
+fn op_camera_set_transform(state: &mut OpState, #[serde] position: Option<[f32; 3]>, #[serde] target: Option<[f32; 3]>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_camera_position = position;
+        ctx.pending_camera_target = target;
+    }
+}
+
+#[op2]
 #[serde]
 fn op_camera_get_transform(state: &mut OpState) -> Result<([f32; 3], [f32; 3]), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
@@ -3047,6 +3057,7 @@ extension!(
         op_addon_on_project_changed,
         op_addon_set_visibility,
         op_camera_get_transform,
+        op_camera_set_transform,
         op_generate_uuid,
         op_register_composite_texture,
         op_addon_register_tool,
@@ -3333,6 +3344,8 @@ impl AddonEngine {
             modifiers: Modifiers::default(),
             window_size: [1920, 1080],
             selected_entity_id: None,
+            pending_camera_position: None,
+            pending_camera_target: None,
             pending_bone_transforms: Vec::new(),
             pending_entity_rotations: Vec::new(),
             pending_ui_rects: Vec::new(),
@@ -3648,7 +3661,7 @@ impl AddonEngine {
         font_manager: &FontManager,
         ui_model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
         group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
-        camera: &SimpleCamera, 
+        camera: &mut SimpleCamera, 
         current_time: f64, 
         gpu_resources: &Arc<GpuResources>, 
         current_addon_name: String,
@@ -3706,6 +3719,15 @@ impl AddonEngine {
             };
             context.window_size = [camera.viewport.window_size.width, camera.viewport.window_size.height];
             context.selected_entity_id = renderer_state.selected_entity_id.clone();
+
+            // Apply pending camera changes
+            if let Some(pos) = context.pending_camera_position.take() {
+                camera.position = nalgebra::Point3::new(pos[0], pos[1], pos[2]);
+            }
+            if let Some(target) = context.pending_camera_target.take() {
+                camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();
+            }
+            camera.update();
         }
 
         // 0. Execute Entity Behaviors

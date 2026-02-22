@@ -1038,6 +1038,9 @@ globalThis.Entropy = {
         getTransform: () => {
             return ops.op_camera_get_transform();
         },
+        setTransform: (position, target) => {
+            ops.op_camera_set_transform(position || null, target || null);
+        },
         screenToWorldRay: (screenX, screenY) => {
             const [pos, dir] = ops.op_camera_get_transform(); // Default fallback
             try {

@@ -777,6 +777,7 @@ export interface EntropyAPI {
   };
   Camera: {
     getTransform: () => [[number, number, number], [number, number, number]];
+    setTransform: (position?: [number, number, number], target?: [number, number, number]) => void;
     screenToWorldRay: (screenX: number, screenY: number) => Ray;
   };
   Gizmo: {
