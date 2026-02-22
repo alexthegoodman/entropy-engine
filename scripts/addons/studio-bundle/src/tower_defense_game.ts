@@ -252,6 +252,7 @@ function registerEnemyBehavior(type: string, hp: number, speed: number, goldDrop
                 const dropY = addon.Landscape.getHeightAt(entity.position[0], entity.position[2]) + 1;
                 addon.Collectable.create({
                     position: [entity.position[0], dropY, entity.position[2]],
+                    modelPath: "Barrel1small.glb",
                     type: "currency",
                     value: goldDrop,
                     onCollect: (playerId: string) => {
@@ -335,7 +336,7 @@ class WorldManager {
         const waveDef = waves[waveIdx];
         Object.entries(waveDef.enemies).forEach(([etype, count]) => {
             for (let j = 0; j < count; j++) {
-                setTimeout(() => {
+                setTimeout(() => { // TODO: need Entropy.setTimeout that runs functions have set ms time
                     const angle = (j / count) * Math.PI * 2;
                     const offx = Math.cos(angle) * 20;
                     const offz = Math.sin(angle) * 20;
