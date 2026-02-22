@@ -117,12 +117,12 @@ pub fn build_mip_pyramid(base: Vec<u16>, width: u32, depth: u32) -> Vec<MipLevel
                 let sx = (x * 2).min(prev.width - 1);
                 let sz = (z * 2).min(prev.depth - 1);
 
-                let is_x_edge = x == 0 || x == new_w - 1;
-                let is_z_edge = z == 0 || z == new_d - 1;
+                // let is_x_edge = x == 0 || x == new_w - 1;
+                // let is_z_edge = z == 0 || z == new_d - 1;
 
                 // 2 vertices thick layer of uncompresssed data
-                // let is_x_edge = x < 2 || x + 2 >= new_w;
-                // let is_z_edge = z < 2 || z + 2 >= new_d;
+                let is_x_edge = x < 2 || x + 2 >= new_w;
+                let is_z_edge = z < 2 || z + 2 >= new_d;
 
                 let val = if is_x_edge || is_z_edge {
                     // *** Edge preservation ***
@@ -326,7 +326,7 @@ fn build_node(
     pyramid: &[MipLevel],
     depth_budget: usize, // remaining split budget
 ) -> QuadNode {
-    print!("Build Quad Node {:?} {:?}", bounds, depth_budget);
+    // print!("Build Quad Node {:?} {:?}", bounds, depth_budget);
 
     let w = bounds.width_samples();
     let d = bounds.depth_samples();

@@ -146,21 +146,46 @@ pub fn build_tile_mesh(
     for row in 0..rows {
         for col in 0..cols {
             // Full-res sample coordinate for this grid position.
-            let full_x = (bounds.x_min + col * step).min(bounds.x_max);
-            let full_z = (bounds.z_min + row * step).min(bounds.z_max);
+            // let full_x = (bounds.x_min + col * step).min(bounds.x_max);
+            // let full_z = (bounds.z_min + row * step).min(bounds.z_max);
 
-            let is_edge = col == 0 || col == cols - 1 || row == 0 || row == rows - 1;
+            // let is_edge = col == 0 || col == cols - 1 || row == 0 || row == rows - 1;
 
             // let is_edge = col < 2 || col >= cols - 2 || row < 2 || row >= rows - 2; // edge 2 vertices thick at full res
 
+            // let altitude_raw = if is_edge {
+            //     // Edge: always full-resolution sample — guarantees no cracks.
+            //     base_mip.sample(full_x, full_z)
+            // } else {
+            //     // Interior: use the LOD mip for a lower sample density.
+            //     // Map full-res coords into the LOD mip's coordinate space.
+            //     let mip_x = full_x / (1u32 << lod);
+            //     let mip_z = full_z / (1u32 << lod);
+            //     lod_mip.sample(
+            //         mip_x.min(lod_mip.width - 1),
+            //         mip_z.min(lod_mip.depth - 1),
+            //     )
+            // };
+
+            let step = 1 << lod;
+
+            let full_x = (bounds.x_min + col * step).min(bounds.x_max);
+            let full_z = (bounds.z_min + row * step).min(bounds.z_max);
+
+            // two full-res rings in world space
+            let border = step * 2;
+
+            let is_edge =
+                full_x < bounds.x_min + border ||
+                full_x >= bounds.x_max.saturating_sub(border) ||
+                full_z < bounds.z_min + border ||
+                full_z >= bounds.z_max.saturating_sub(border);
+
             let altitude_raw = if is_edge {
-                // Edge: always full-resolution sample — guarantees no cracks.
                 base_mip.sample(full_x, full_z)
             } else {
-                // Interior: use the LOD mip for a lower sample density.
-                // Map full-res coords into the LOD mip's coordinate space.
-                let mip_x = full_x / (1u32 << lod);
-                let mip_z = full_z / (1u32 << lod);
+                let mip_x = full_x / step;
+                let mip_z = full_z / step;
                 lod_mip.sample(
                     mip_x.min(lod_mip.width - 1),
                     mip_z.min(lod_mip.depth - 1),
@@ -180,6 +205,12 @@ pub fn build_tile_mesh(
                 scale, altitude_scale, is_edge,
             );
 
+            let color = if is_edge {
+                [1.0, 0.2, 0.2, 1.0] // red border band
+            } else {
+                [0.7, 0.7, 0.7, 1.0]
+            };
+
             vertices.push(Vertex {
                 position: [world_x, world_y, world_z],
                 normal,
@@ -187,7 +218,7 @@ pub fn build_tile_mesh(
                     (full_x - bounds.x_min) as f32 / (tile_full_w - 1) as f32,
                     (full_z - bounds.z_min) as f32 / (tile_full_d - 1) as f32,
                 ],
-                color: [0.7, 0.7, 0.7, 1.0]
+                color
             });
         }
     }
@@ -200,15 +231,24 @@ pub fn build_tile_mesh(
             let bl = tl + cols;
             let br = bl + 1;
 
-            // Triangle 1: TL, BL, TR
+            // // Triangle 1: TL, BL, TR (upperleft)
+            // indices.push(tl);
+            // indices.push(bl);
+            // indices.push(tr);
+
+            // // Triangle 2: TR, BL, BR (bottomright)
+            // indices.push(tr);
+            // indices.push(bl);
+            // indices.push(br);
+
+            // Alternate triangulation
             indices.push(tl);
             indices.push(bl);
-            indices.push(tr);
-
-            // Triangle 2: TR, BL, BR
-            indices.push(tr);
-            indices.push(bl);
             indices.push(br);
+
+            indices.push(tl);
+            indices.push(br);
+            indices.push(tr);
         }
     }
 
@@ -280,7 +320,7 @@ fn upload_tile_gpu(
         usage: wgpu::BufferUsages::INDEX,
     });
 
-    println!("Upload tile to gpu {:?}", vertices.len());
+    // println!("Upload tile to gpu {:?}", vertices.len());
 
     TileGpu {
         vertex_buffer,
