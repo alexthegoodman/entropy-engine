@@ -25,6 +25,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use crate::art_assets::Model::read_model;
 use crate::core::Texture::Texture;
+use crate::core::camera::CameraBinding;
 use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
@@ -3662,6 +3663,7 @@ impl AddonEngine {
         ui_model_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
         group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
         camera: &mut SimpleCamera, 
+        camera_binding: &mut CameraBinding,
         current_time: f64, 
         gpu_resources: &Arc<GpuResources>, 
         current_addon_name: String,
@@ -3728,6 +3730,7 @@ impl AddonEngine {
                 camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();
             }
             camera.update();
+            camera_binding.update_3d(&gpu_resources.queue, camera);
         }
 
         // 0. Execute Entity Behaviors

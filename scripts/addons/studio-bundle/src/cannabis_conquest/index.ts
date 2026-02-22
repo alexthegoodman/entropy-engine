@@ -1354,7 +1354,7 @@ Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
     const tabs: TabId[] = ["overview","units","cities","tech","diplomacy"];
     G.activeTab = tabs[(tabs.indexOf(G?.activeTab) + 1) % tabs.length];
   }
-  if (key === "w" || key === "W") {
+  if (key === "x" || key === "X") {
     const tabs: TabId[] = ["overview","units","cities","tech","diplomacy"];
     G.activeTab = tabs[(tabs.indexOf(G?.activeTab) + tabs.length - 1) % tabs.length];
   }
@@ -1432,10 +1432,34 @@ addon.onUpdatePlus("Game Composer", (time) => {
 
         // RTS Camera movement
         const speed = 4.0;
-        if (Entropy.Input.isKeyPressed("w") || Entropy.Input.isKeyPressed("ArrowUp")) G.camZ -= speed;
-        if (Entropy.Input.isKeyPressed("s") || Entropy.Input.isKeyPressed("ArrowDown")) G.camZ += speed;
-        if (Entropy.Input.isKeyPressed("a") || Entropy.Input.isKeyPressed("ArrowLeft")) G.camX -= speed;
-        if (Entropy.Input.isKeyPressed("d") || Entropy.Input.isKeyPressed("ArrowRight")) G.camX += speed;
+        Entropy.Input.onKeyDown((key) => {
+            
+            switch (key) {
+                case "w":
+                case "ArrowUp":
+                    G.camZ -= speed;
+                    Entropy.println("[CC] keydown: " + key + " G.camZ: " + G.camZ);
+                    break;
+
+                case "s":
+                case "ArrowDown":
+                    G.camZ += speed;
+                    break;
+
+                case "a":
+                case "ArrowLeft":
+                    G.camX -= speed;
+                    break;
+
+                case "d":
+                case "ArrowRight":
+                    G.camX += speed;
+                    break;
+            
+                default:
+                    break;
+            }
+        });
 
         // Clamp camera to map bounds
         G.camX = Math.max(0, Math.min(LANDSCAPE_W, G?.camX));

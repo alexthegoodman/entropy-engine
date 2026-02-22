@@ -194,6 +194,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 ui_model_layout,
                 group_layout,
                 camera, 
+                camera_binding,
                 current_time, 
                 gpu_resources, 
                 addon_name.to_string(),

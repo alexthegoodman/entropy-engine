@@ -61,149 +61,151 @@ Entropy.onGameStopped((gameName) => {
 
 // --- Animation Update Loop ---
 addon.onUpdatePlus("Game Composer", (time) => {
-    Entropy.Composer?.enableGameComposerOverride();
+    if (gameState.isGameActive) {
+        Entropy.Composer?.enableGameComposerOverride();
 
-    gameState.update();
+        gameState.update();
 
-    // Check for inventory toggle
-    if (Entropy.Input.isKeyPressed("i")) {
-        gameState.toggleInventory();
-    }
-
-    // --- Interaction Hooks ---
-    Entropy.Input.onMouseDown((button) => {
-        if (!gameState.isGameActive || gameState.isInventoryOpen) return;
-        
-        if (button === 0) { // Left Click - Fire
-            if (combat.attack(gameState.playerId!, true)) {
-                combat.playFireSound();
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon) {
-                    gameState.setAmmo(weapon.ammo || 0);
-                }
-            } else {
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
-                    combat.playEmptySound();
-                    Entropy.println("Click! Out of ammo.");
-                }
-            }
-        }
-    });
-
-    Entropy.Input.onKeyDown((key) => {
-        if (!gameState.isGameActive) return;
-
-        if (gameState.dialogue.isOpen) {
-            if (key === "w" || key === "ArrowUp") {
-                gameState.navigateDialogue(-1);
-            }
-            if (key === "s" || key === "ArrowDown") {
-                gameState.navigateDialogue(1);
-            }
-            if (key === "Enter" || key === "e") {
-                if (gameState.dialogue.isOpen) {
-                    gameState.selectDialogueOption();
-                } else if (key === "e") {
-                    gameState.interact();
-                }
-            }
-            return;
-        }
-
-        if (key === "e") { // Interact
-            gameState.interact();
-        }
-
-        if (key === "r") { // Reload
-            if (combat.reload(gameState.playerId!)) {
-                combat.playReloadSound();
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon) {
-                    gameState.setAmmo(weapon.ammo || 0);
-                }
-                Entropy.println("Reloading...");
-            }
-        }
-
-        if (key === "k") { // Simulation: Take Damage (now via combat system)
-            const player = combat.getEntity(gameState.playerId!);
-            if (player) {
-                player.health = Math.max(0, player.health - 10);
-                gameState.setHealth(player.health);
-                combat.playDamageSound();
-            }
-        }
-    });
-
-    Entropy.Input.onGamepadButton((button, pressed) => {
-        if (!gameState.isGameActive || !pressed) return;
-
-        if (gameState.dialogue.isOpen) {
-            if (button === "DPadUp") gameState.navigateDialogue(-1);
-            if (button === "DPadDown") gameState.navigateDialogue(1);
-            if (button === "South") { // Select
-                gameState.selectDialogueOption();
-            }
-            return;
-        }
-
-        if (button === "South") { // Jump placeholder / Interact
-             gameState.interact();
-        }
-
-        if (button === "RightTrigger" || button === "RightTrigger2") { // Fire
-            if (combat.attack(gameState.playerId!, true)) {
-                combat.playFireSound();
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon) {
-                    gameState.setAmmo(weapon.ammo || 0);
-                }
-            } else {
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
-                    combat.playEmptySound();
-                    Entropy.println("Click! Out of ammo.");
-                }
-            }
-        }
-
-        if (button === "West") { // Reload (Square/X)
-            if (combat.reload(gameState.playerId!)) {
-                combat.playReloadSound();
-                const weapon = combat.getWeapon(gameState.playerId!);
-                if (weapon) {
-                    gameState.setAmmo(weapon.ammo || 0);
-                }
-                Entropy.println("Reloading (Gamepad)...");
-            }
-        }
-        
-        if (button === "Start") {
+        // Check for inventory toggle
+        if (Entropy.Input.isKeyPressed("i")) {
             gameState.toggleInventory();
         }
-    });
 
-    // Animate player
-    if (worldManager.playerHumanoid) {
-        worldManager.playerHumanoid.animate(time, "Idle"); // Player idle for now
-        const matrices = worldManager.playerHumanoid.getJointMatrices();
-        addon.Buffer.write(worldManager.playerJointBufferId, new Float32Array(matrices));
-    }
+        // --- Interaction Hooks ---
+        Entropy.Input.onMouseDown((button) => {
+            if (!gameState.isGameActive || gameState.isInventoryOpen) return;
+            
+            if (button === 0) { // Left Click - Fire
+                if (combat.attack(gameState.playerId!, true)) {
+                    combat.playFireSound();
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon) {
+                        gameState.setAmmo(weapon.ammo || 0);
+                    }
+                } else {
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
+                        combat.playEmptySound();
+                        Entropy.println("Click! Out of ammo.");
+                    }
+                }
+            }
+        });
 
-    // Animate NPCs
-    for (const id in worldManager.npcHumanoids) {
-        const humanoid = worldManager.npcHumanoids[id];
-        const animation = worldManager.npcAnimations[id] || "Idle";
-        humanoid.animate(time, animation);
-        const matrices = humanoid.getJointMatrices();
-        const bufferId = worldManager.npcJointBufferId[id];
-        if (bufferId) {
-            addon.Buffer.write(bufferId, new Float32Array(matrices));
+        Entropy.Input.onKeyDown((key) => {
+            if (!gameState.isGameActive) return;
+
+            if (gameState.dialogue.isOpen) {
+                if (key === "w" || key === "ArrowUp") {
+                    gameState.navigateDialogue(-1);
+                }
+                if (key === "s" || key === "ArrowDown") {
+                    gameState.navigateDialogue(1);
+                }
+                if (key === "Enter" || key === "e") {
+                    if (gameState.dialogue.isOpen) {
+                        gameState.selectDialogueOption();
+                    } else if (key === "e") {
+                        gameState.interact();
+                    }
+                }
+                return;
+            }
+
+            if (key === "e") { // Interact
+                gameState.interact();
+            }
+
+            if (key === "r") { // Reload
+                if (combat.reload(gameState.playerId!)) {
+                    combat.playReloadSound();
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon) {
+                        gameState.setAmmo(weapon.ammo || 0);
+                    }
+                    Entropy.println("Reloading...");
+                }
+            }
+
+            if (key === "k") { // Simulation: Take Damage (now via combat system)
+                const player = combat.getEntity(gameState.playerId!);
+                if (player) {
+                    player.health = Math.max(0, player.health - 10);
+                    gameState.setHealth(player.health);
+                    combat.playDamageSound();
+                }
+            }
+        });
+
+        Entropy.Input.onGamepadButton((button, pressed) => {
+            if (!gameState.isGameActive || !pressed) return;
+
+            if (gameState.dialogue.isOpen) {
+                if (button === "DPadUp") gameState.navigateDialogue(-1);
+                if (button === "DPadDown") gameState.navigateDialogue(1);
+                if (button === "South") { // Select
+                    gameState.selectDialogueOption();
+                }
+                return;
+            }
+
+            if (button === "South") { // Jump placeholder / Interact
+                gameState.interact();
+            }
+
+            if (button === "RightTrigger" || button === "RightTrigger2") { // Fire
+                if (combat.attack(gameState.playerId!, true)) {
+                    combat.playFireSound();
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon) {
+                        gameState.setAmmo(weapon.ammo || 0);
+                    }
+                } else {
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon?.type === WeaponType.RANGED && !combat.hasAmmo(gameState.playerId!)) {
+                        combat.playEmptySound();
+                        Entropy.println("Click! Out of ammo.");
+                    }
+                }
+            }
+
+            if (button === "West") { // Reload (Square/X)
+                if (combat.reload(gameState.playerId!)) {
+                    combat.playReloadSound();
+                    const weapon = combat.getWeapon(gameState.playerId!);
+                    if (weapon) {
+                        gameState.setAmmo(weapon.ammo || 0);
+                    }
+                    Entropy.println("Reloading (Gamepad)...");
+                }
+            }
+            
+            if (button === "Start") {
+                gameState.toggleInventory();
+            }
+        });
+
+        // Animate player
+        if (worldManager.playerHumanoid) {
+            worldManager.playerHumanoid.animate(time, "Idle"); // Player idle for now
+            const matrices = worldManager.playerHumanoid.getJointMatrices();
+            addon.Buffer.write(worldManager.playerJointBufferId, new Float32Array(matrices));
         }
-    }
 
-    Entropy.Composer?.disableGameComposerOverride();
+        // Animate NPCs
+        for (const id in worldManager.npcHumanoids) {
+            const humanoid = worldManager.npcHumanoids[id];
+            const animation = worldManager.npcAnimations[id] || "Idle";
+            humanoid.animate(time, animation);
+            const matrices = humanoid.getJointMatrices();
+            const bufferId = worldManager.npcJointBufferId[id];
+            if (bufferId) {
+                addon.Buffer.write(bufferId, new Float32Array(matrices));
+            }
+        }
+
+        Entropy.Composer?.disableGameComposerOverride();
+    }
 });
 
 // --- UI ---
