@@ -821,16 +821,16 @@ globalThis.Entropy = {
     onGameStopped: (cb) => {
         globalThis.Entropy._game_events.stopped.push(cb);
     },
-    _dispatchGameStarted: () => {
+    _dispatchGameStarted: (gameName) => {
         globalThis.Entropy.println("[Game Hooks] Dispatching Game Started. Event Count: " + globalThis.Entropy._game_events.started.length);
         globalThis.Entropy._game_events.started.forEach(cb => {
-            try { cb(); } catch(e) { globalThis.Entropy.println("Error in onGameStarted callback: " + e); }
+            try { cb(gameName); } catch(e) { globalThis.Entropy.println("Error in onGameStarted callback: " + e); }
         });
     },
-    _dispatchGameStopped: () => {
+    _dispatchGameStopped: (gameName) => {
         globalThis.Entropy.println("[Game Hooks] Dispatching Game Stopped. Event Count: " + globalThis.Entropy._game_events.stopped.length);
         globalThis.Entropy._game_events.stopped.forEach(cb => {
-            try { cb(); } catch(e) { globalThis.Entropy.println("Error in onGameStopped callback: " + e); }
+            try { cb(gameName); } catch(e) { globalThis.Entropy.println("Error in onGameStopped callback: " + e); }
         });
     },
     _process_input_events: (events) => {

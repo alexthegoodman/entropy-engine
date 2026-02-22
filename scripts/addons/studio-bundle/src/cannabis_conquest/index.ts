@@ -204,6 +204,7 @@ const FACTION_COLORS: [number,number,number][] = [
 // ─────────────────────────────────────────────────────────────────────────────
 
 const G = {
+isGameActive: false as boolean,
   tiles:          [] as Tile[],
   units:          [] as GameUnit[],
   buildings:      [] as Building[],
@@ -269,7 +270,7 @@ const addon = Entropy.Addon.register(addonInfo);
 // ─────────────────────────────────────────────────────────────────────────────
 
 function tileIndex(x: number, z: number): number { return x + z * GRID_W; }
-function tileAt(x: number, z: number): Tile       { return G.tiles[tileIndex(x, z)]; }
+function tileAt(x: number, z: number): Tile       { return G?.tiles[tileIndex(x, z)]; }
 function inBounds(x: number, z: number): boolean  { return x >= 0 && x < GRID_W && z >= 0 && z < GRID_H; }
 
 function tileWorldPos(tx: number, tz: number): [number, number, number] {
@@ -295,19 +296,19 @@ function adjacentTiles(cx: number, cz: number): { x: number; z: number }[] {
 }
 
 function getUnitAt(x: number, z: number): GameUnit | undefined {
-  return G.units.find(u => u.x === x && u.z === z && u.alive);
+  return G?.units.find(u => u.x === x && u.z === z && u.alive);
 }
 function getBuildingAt(x: number, z: number): Building | undefined {
-  return G.buildings.find(b => b.x === x && b.z === z);
+  return G?.buildings.find(b => b.x === x && b.z === z);
 }
 
-function unitsOfFaction(fIdx: number): GameUnit[]  { return G.units.filter(u => u.faction === fIdx && u.alive); }
-function buildingsOfFaction(fIdx: number): Building[] { return G.buildings.filter(b => b.faction === fIdx); }
-function citiesOfFaction(fIdx: number): Building[]  { return G.buildings.filter(b => b.faction === fIdx && b.type >= 1); }
+function unitsOfFaction(fIdx: number): GameUnit[]  { return G?.units.filter(u => u.faction === fIdx && u.alive); }
+function buildingsOfFaction(fIdx: number): Building[] { return G?.buildings.filter(b => b.faction === fIdx); }
+function citiesOfFaction(fIdx: number): Building[]  { return G?.buildings.filter(b => b.faction === fIdx && b.type >= 1); }
 
-function techUnlocked(fIdx: number, id: string): boolean { return G.unlockedTech[fIdx].has(id); }
+function techUnlocked(fIdx: number, id: string): boolean { return G?.unlockedTech[fIdx].has(id); }
 function earnBud(fIdx: number, amt: number): void  { G.factions[fIdx].bud += amt; }
-function spendBud(fIdx: number, amt: number): void { G.factions[fIdx].bud = Math.max(0, G.factions[fIdx].bud - amt); }
+function spendBud(fIdx: number, amt: number): void { G.factions[fIdx].bud = Math.max(0, G?.factions[fIdx]?.bud - amt); }
 
 function log(msg: string): void { Entropy.println(`[CC] ${msg}`); }
 
@@ -350,26 +351,33 @@ function generateMap(): void {
 let _pipelineId: string | null = null;
 
 function getPipeline(): string {
-  if (_pipelineId) return _pipelineId;
-  _pipelineId = Entropy.Pipeline.create({
-    name: "cc_mesh",
-    vertexShader: `
-      struct VIn  { @location(0) pos: vec3<f32>, @location(1) col: vec4<f32> }
-      struct VOut { @builtin(position) clip: vec4<f32>, @location(0) col: vec4<f32> }
-      @group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;
-      @vertex fn vs(v: VIn) -> VOut {
-        var o: VOut;
-        o.clip = mvp * vec4<f32>(v.pos, 1.0);
-        o.col  = v.col;
-        return o;
-      }`,
-    fragmentShader: `
-      @fragment fn fs(@location(0) col: vec4<f32>) -> @location(0) vec4<f32> {
-        return col;
-      }`,
-    layout: "mesh",
-  });
-  return _pipelineId!;
+    return "default";
+
+//   if (_pipelineId) return _pipelineId;
+//   _pipelineId = Entropy.Pipeline.create({
+//     name: "cc_mesh",
+//     vertexShader: `
+//       struct VIn {
+//         @location(0) pos:    vec3<f32>,
+//         @location(1) normal: vec3<f32>,
+//         @location(2) uv:     vec2<f32>,
+//         @location(3) col:    vec4<f32>,
+//       }
+//       struct VOut { @builtin(position) clip: vec4<f32>, @location(0) col: vec4<f32> }
+//       @group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;
+//       @vertex fn vs_main(v: VIn) -> VOut {
+//         var o: VOut;
+//         o.clip = mvp * vec4<f32>(v.pos, 1.0);
+//         o.col  = v.col;
+//         return o;
+//       }`,
+//     fragmentShader: `
+//       @fragment fn fs_main(@location(0) col: vec4<f32>) -> @location(0) vec4<f32> {
+//         return col;
+//       }`,
+//     layout: "mesh",
+//   });
+//   return _pipelineId!;
 }
 
 function makeBoxGeom(
@@ -377,24 +385,61 @@ function makeBoxGeom(
   w: number, h: number, d: number,
   r: number, g: number, b: number, a: number
 ): { vertexData: number[]; indexData: number[] } {
-  const hw = w/2, hd = d/2;
-  const x0 = cx-hw, x1 = cx+hw;
-  const y0 = cy,    y1 = cy+h;
-  const z0 = cz-hd, z1 = cz+hd;
-  // 8 corners, pos(3)+col(4) = 7 floats each
-  const v = [
-    x0,y0,z0, r,g,b,a,  x1,y0,z0, r,g,b,a,  x1,y0,z1, r,g,b,a,  x0,y0,z1, r,g,b,a,
-    x0,y1,z0, r,g,b,a,  x1,y1,z0, r,g,b,a,  x1,y1,z1, r,g,b,a,  x0,y1,z1, r,g,b,a,
+  const hw = w / 2, hd = d / 2;
+  const x0 = cx - hw, x1 = cx + hw;
+  const y0 = cy,      y1 = cy + h;
+  const z0 = cz - hd, z1 = cz + hd;
+
+  // Helper: pos(3) + normal(3) + uv(2) + color(4) = 12 floats per vertex
+  const vert = (
+    px: number, py: number, pz: number,
+    nx: number, ny: number, nz: number,
+    u: number,  v: number
+  ) => [px, py, pz, nx, ny, nz, u, v, r, g, b, a];
+
+  const verts = [
+    // Bottom face (normal: 0,-1,0)
+    ...vert(x0, y0, z0,  0,-1,0,  0,0),  // 0
+    ...vert(x1, y0, z0,  0,-1,0,  1,0),  // 1
+    ...vert(x1, y0, z1,  0,-1,0,  1,1),  // 2
+    ...vert(x0, y0, z1,  0,-1,0,  0,1),  // 3
+    // Top face (normal: 0,1,0)
+    ...vert(x0, y1, z0,  0,1,0,   0,0),  // 4
+    ...vert(x1, y1, z0,  0,1,0,   1,0),  // 5
+    ...vert(x1, y1, z1,  0,1,0,   1,1),  // 6
+    ...vert(x0, y1, z1,  0,1,0,   0,1),  // 7
+    // Front face (normal: 0,0,-1)
+    ...vert(x0, y0, z0,  0,0,-1,  0,0),  // 8
+    ...vert(x1, y0, z0,  0,0,-1,  1,0),  // 9
+    ...vert(x1, y1, z0,  0,0,-1,  1,1),  // 10
+    ...vert(x0, y1, z0,  0,0,-1,  0,1),  // 11
+    // Back face (normal: 0,0,1)
+    ...vert(x1, y0, z1,  0,0,1,   0,0),  // 12
+    ...vert(x0, y0, z1,  0,0,1,   1,0),  // 13
+    ...vert(x0, y1, z1,  0,0,1,   1,1),  // 14
+    ...vert(x1, y1, z1,  0,0,1,   0,1),  // 15
+    // Right face (normal: 1,0,0)
+    ...vert(x1, y0, z0,  1,0,0,   0,0),  // 16
+    ...vert(x1, y0, z1,  1,0,0,   1,0),  // 17
+    ...vert(x1, y1, z1,  1,0,0,   1,1),  // 18
+    ...vert(x1, y1, z0,  1,0,0,   0,1),  // 19
+    // Left face (normal: -1,0,0)
+    ...vert(x0, y0, z1, -1,0,0,   0,0),  // 20
+    ...vert(x0, y0, z0, -1,0,0,   1,0),  // 21
+    ...vert(x0, y1, z0, -1,0,0,   1,1),  // 22
+    ...vert(x0, y1, z1, -1,0,0,   0,1),  // 23
   ];
+
   const i = [
-    0,1,2, 0,2,3,   // bottom
-    4,5,6, 4,6,7,   // top
-    0,1,5, 0,5,4,   // front
-    2,3,7, 2,7,6,   // back
-    1,2,6, 1,6,5,   // right
-    0,3,7, 0,7,4,   // left
+     0, 1, 2,   0, 2, 3,   // bottom
+     4, 5, 6,   4, 6, 7,   // top
+     8, 9,10,   8,10,11,   // front
+    12,13,14,  12,14,15,   // back
+    16,17,18,  16,18,19,   // right
+    20,21,22,  20,22,23,   // left
   ];
-  return { vertexData: v, indexData: i };
+
+  return { vertexData: verts, indexData: i };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,7 +455,7 @@ function createUnitMesh(unit: GameUnit): void {
   unit.meshId = meshId;
 
   // Point light follows unit — reveals fog of war visually
-  const fc = G.factions[unit.faction].color;
+  const fc = G?.factions[unit.faction].color;
   const vRange = unit.def.visionRange + (techUnlocked(unit.faction, "seed_library") ? 1 : 0);
   Entropy.Lighting.createPointLight({
     position:    [wx, wy + 8, wz],
@@ -435,7 +480,7 @@ function refreshUnitMesh(unit: GameUnit): void {
 
 function createBuildingMesh(bld: Building): void {
   const [wx, wy, wz] = tileWorldPos(bld.x, bld.z);
-  const fc = G.factions[bld.faction].color;
+  const fc = G?.factions[bld.faction].color;
   const heights  = [TILE_SIZE*0.3, TILE_SIZE*0.7, TILE_SIZE*1.4];
   const sizes    = [TILE_SIZE*0.6, TILE_SIZE*0.7, TILE_SIZE*0.8];
   const h  = heights[bld.type] ?? TILE_SIZE*0.3;
@@ -470,7 +515,7 @@ function refreshBuildingMesh(bld: Building): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function updateFog(fIdx: number): void {
-  G.fogVisible[fIdx].fill(false);
+  G?.fogVisible[fIdx].fill(false);
   const extra = techUnlocked(fIdx, "seed_library") ? 1 : 0;
 
   unitsOfFaction(fIdx).forEach(u => {
@@ -507,7 +552,7 @@ function spawnUnit(factionIdx: number, type: string, tx: number, tz: number): Ga
     def,
     meshId:         null,
   };
-  G.units.push(unit);
+  G?.units.push(unit);
   createUnitMesh(unit);
   updateFog(factionIdx);
   return unit;
@@ -535,7 +580,7 @@ function spawnBuilding(factionIdx: number, typeDef: BuildingDef, tx: number, tz:
 
 function checkNationFormation(fIdx: number): void {
   const cities  = citiesOfFaction(fIdx).length;
-  const current = G.nations.filter(n => n.faction === fIdx).length;
+  const current = G?.nations.filter(n => n.faction === fIdx).length;
   const should  = Math.floor(cities / 3);
   if (should <= current) return;
 
@@ -554,13 +599,13 @@ function checkNationFormation(fIdx: number): void {
   newCity.yieldPerTurn = BUILDING_DEFS[2].yieldBonus;
   refreshBuildingMesh(newCity);
 
-  log(`*** ${G.factions[fIdx].name} formed a Nation! Capital at (${newCity.x}, ${newCity.z}) ***`);
+  log(`*** ${G?.factions[fIdx]?.name} formed a Nation! Capital at (${newCity.x}, ${newCity.z}) ***`);
 
   // Check win: Transcendence + 2 Nations
-  if (techUnlocked(fIdx, "transcendence") && G.factions[fIdx].nationCount >= 2) {
+  if (techUnlocked(fIdx, "transcendence") && G?.factions[fIdx].nationCount >= 2) {
     G.gameOver = true;
     G.winner   = fIdx;
-    log(`*** ${G.factions[fIdx].name} achieves Cosmic Transcendence! GAME OVER ***`);
+    log(`*** ${G?.factions[fIdx]?.name} achieves Cosmic Transcendence! GAME OVER ***`);
   }
 }
 
@@ -570,7 +615,7 @@ function checkNationFormation(fIdx: number): void {
 
 function moveUnit(unit: GameUnit, tx: number, tz: number): boolean {
   if (!inBounds(tx, tz))                   return false;
-  if (unit.faction !== G.currentFaction)   return false;
+  if (unit.faction !== G?.currentFaction)   return false;
   if (unit.hasActed)                       return false;
   if (getUnitAt(tx, tz))                  return false;
 
@@ -589,27 +634,27 @@ function foundFarm(unit: GameUnit): boolean {
   const tile = tileAt(unit.x, unit.z);
   if (tile.building)                      return false;
   if (unit.hasActed)                      return false;
-  if (G.factions[unit.faction].bud < 10) return false;
+  if (G?.factions[unit.faction]?.bud < 10) return false;
 
   spendBud(unit.faction, 10);
   unit.hasActed = true;
   spawnBuilding(unit.faction, BUILDING_DEFS[0], unit.x, unit.z);
-  log(`${G.factions[unit.faction].name} founded Farm at (${unit.x}, ${unit.z})`);
+  log(`${G?.factions[unit.faction]?.name} founded Farm at (${unit.x}, ${unit.z})`);
   return true;
 }
 
 function upgradeBuilding(bld: Building): boolean {
-  if (bld.faction !== G.currentFaction) return false;
+  if (bld.faction !== G?.currentFaction) return false;
   if (bld.type >= 1)                    return false; // Farms only manually → City
-  const cost = BUILDING_DEFS[bld.type].budToUpgrade;
-  if (G.factions[bld.faction].bud < cost) return false;
+  const cost = BUILDING_DEFS[bld.type]?.budToUpgrade;
+  if (G?.factions[bld.faction]?.bud < cost) return false;
 
   spendBud(bld.faction, cost);
   bld.type++;
   bld.yieldPerTurn = BUILDING_DEFS[bld.type].yieldBonus;
   refreshBuildingMesh(bld);
   checkNationFormation(bld.faction);
-  log(`${G.factions[bld.faction].name} upgraded to ${BUILDING_DEFS[bld.type].name} at (${bld.x}, ${bld.z})`);
+  log(`${G?.factions[bld.faction]?.name} upgraded to ${BUILDING_DEFS[bld.type]?.name} at (${bld.x}, ${bld.z})`);
   return true;
 }
 
@@ -617,15 +662,15 @@ function recruitUnit(fIdx: number, type: string): boolean {
   const def = UNIT_DEFS[type];
   if (!def) return false;
   if (def.techReq && !techUnlocked(fIdx, def.techReq)) return false;
-  if (G.factions[fIdx].bud < def.budCost) return false;
+  if (G?.factions[fIdx]?.bud < def?.budCost) return false;
   const city = citiesOfFaction(fIdx)[0];
   if (!city) return false;
   const free = adjacentTiles(city.x, city.z).find(t => !getUnitAt(t.x, t.z));
   if (!free) return false;
 
-  spendBud(fIdx, def.budCost);
+  spendBud(fIdx, def?.budCost);
   spawnUnit(fIdx, type, free.x, free.z);
-  log(`${G.factions[fIdx].name} recruited ${def.name}`);
+  log(`${G?.factions[fIdx]?.name} recruited ${def?.name}`);
   return true;
 }
 
@@ -654,13 +699,13 @@ function calcIncome(fIdx: number): number {
   });
 
   unitsOfFaction(fIdx).forEach(u => {
-    total += u.def.budYield * tileAt(u.x, u.z).terrain.yieldMod;
+    total += u.def?.budYield * tileAt(u.x, u.z).terrain.yieldMod;
   });
 
-  G.tradeRoutes
+  G?.tradeRoutes
     .filter(r => r.fromFaction === fIdx || r.toFaction === fIdx)
     .forEach(r => {
-      let t = r.budPerTurn;
+      let t = r?.budPerTurn;
       if (techUnlocked(fIdx, "terpene_diplomacy")) t += 2;
       if (techUnlocked(fIdx, "mycelium_network"))  t *= 1.5;
       total += t;
@@ -677,20 +722,20 @@ function startResearch(fIdx: number, techId: string): boolean {
   const tech = TECH_TREE.find(t => t.id === techId);
   if (!tech)                                                 return false;
   if (techUnlocked(fIdx, techId))                           return false;
-  if (G.techInProgress[fIdx])                               return false;
+  if (G?.techInProgress[fIdx])                               return false;
   if (tech.prereqs.some(p => !techUnlocked(fIdx, p)))       return false;
   const upfront = Math.floor(tech.cost / 4);
-  if (G.factions[fIdx].bud < upfront)                       return false;
+  if (G?.factions[fIdx]?.bud < upfront)                       return false;
 
   spendBud(fIdx, upfront);
   G.techInProgress[fIdx] = techId;
   G.techProgress[fIdx]   = 0;
-  log(`${G.factions[fIdx].name} begins researching: ${tech.name}`);
+  log(`${G?.factions[fIdx]?.name} begins researching: ${tech?.name}`);
   return true;
 }
 
 function advanceTech(fIdx: number): void {
-  const techId = G.techInProgress[fIdx];
+  const techId = G?.techInProgress[fIdx];
   if (!techId) return;
   const tech = TECH_TREE.find(t => t.id === techId)!;
 
@@ -699,11 +744,11 @@ function advanceTech(fIdx: number): void {
       unitsOfFaction(fIdx).some(u => u.type === "GENETICIST")) rate = 2;
 
   G.techProgress[fIdx] += rate;
-  if (G.techProgress[fIdx] >= tech.cost) {
+  if (G?.techProgress[fIdx] >= tech.cost) {
     G.unlockedTech[fIdx].add(techId);
     G.techInProgress[fIdx] = null;
     G.techProgress[fIdx]   = 0;
-    log(`${G.factions[fIdx].name} unlocked: ${tech.name}! (${tech.effect})`);
+    log(`${G?.factions[fIdx]?.name} unlocked: ${tech?.name}! (${tech.effect})`);
     checkNationFormation(fIdx); // transcendence win check
   }
 }
@@ -713,9 +758,9 @@ function advanceTech(fIdx: number): void {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function proposeTradeRoute(from: number, to: number, bpt: number): void {
-  if (G.tradeRoutes.some(r => (r.fromFaction===from && r.toFaction===to) || (r.fromFaction===to && r.toFaction===from))) return;
-  G.tradeRoutes.push({ fromFaction: from, toFaction: to, budPerTurn: bpt });
-  log(`Trade route: ${G.factions[from].name} ↔ ${G.factions[to].name} (+${bpt} bud/turn)`);
+  if (G?.tradeRoutes.some(r => (r.fromFaction===from && r.toFaction===to) || (r.fromFaction===to && r.toFaction===from))) return;
+  G?.tradeRoutes.push({ fromFaction: from, toFaction: to, budPerTurn: bpt });
+  log(`Trade route: ${G?.factions[from]?.name} ↔ ${G?.factions[to]?.name} (+${bpt} bud/turn)`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -730,25 +775,25 @@ function processFactionTurn(fIdx: number): void {
     u.movePointsLeft = u.def.movePoints;
     u.hasActed       = false;
   });
-  if (!G.factions[fIdx].isPlayer) runAI(fIdx);
+  if (!G?.factions[fIdx].isPlayer) runAI(fIdx);
 }
 
 function endTurn(): void {
-  if (G.gameOver) return;
-  processFactionTurn(G.currentFaction);
-  G.currentFaction = (G.currentFaction + 1) % 4;
+  if (G?.gameOver) return;
+  processFactionTurn(G?.currentFaction);
+  G.currentFaction = (G?.currentFaction + 1) % 4;
 
   // Process all AI turns immediately
   let safety = 0;
-  while (!G.factions[G.currentFaction].isPlayer && safety++ < 10) {
-    processFactionTurn(G.currentFaction);
-    G.currentFaction = (G.currentFaction + 1) % 4;
-    if (G.currentFaction === 0) G.turnNumber++;
+  while (!G?.factions[G?.currentFaction].isPlayer && safety++ < 10) {
+    processFactionTurn(G?.currentFaction);
+    G.currentFaction = (G?.currentFaction + 1) % 4;
+    if (G?.currentFaction === 0) G.turnNumber++;
   }
-  if (G.currentFaction === 0) G.turnNumber++;
+  if (G?.currentFaction === 0) G.turnNumber++;
 
   updateFog(0);
-  log(`Your turn. Bud: ${G.factions[0].bud}. Income: ${calcIncome(0)}/turn`);
+  log(`Your turn. Bud: ${G?.factions[0]?.bud}. Income: ${calcIncome(0)}/turn`);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -758,7 +803,7 @@ function endTurn(): void {
 function runAI(fIdx: number): void {
   // 1. Found farms
   unitsOfFaction(fIdx).filter(u => u.type === "FARMER").forEach(u => {
-    if (!u.hasActed && !tileAt(u.x, u.z).building && G.factions[fIdx].bud >= 10) foundFarm(u);
+    if (!u.hasActed && !tileAt(u.x, u.z).building && G?.factions[fIdx]?.bud >= 10) foundFarm(u);
   });
 
   // 2. Move units toward fertile unexplored tiles
@@ -771,7 +816,7 @@ function runAI(fIdx: number): void {
         const nx = u.x + dx, nz = u.z + dz;
         if (!inBounds(nx, nz) || tileAt(nx, nz).building || getUnitAt(nx, nz)) continue;
         const score = tileAt(nx, nz).terrain.yieldMod * 10
-          + (G.fogExplored[fIdx][tileIndex(nx, nz)] ? 0 : 5)
+          + (G?.fogExplored[fIdx][tileIndex(nx, nz)] ? 0 : 5)
           - (Math.abs(dx) + Math.abs(dz));
         if (score > bestScore) { bestScore = score; best = { x: nx, z: nz }; }
       }
@@ -781,15 +826,15 @@ function runAI(fIdx: number): void {
 
   // 3. Upgrade farms
   buildingsOfFaction(fIdx).filter(b => b.type === 0).forEach(b => {
-    if (G.factions[fIdx].bud >= BUILDING_DEFS[0].budToUpgrade) upgradeBuilding(b);
+    if (G?.factions[fIdx]?.bud >= BUILDING_DEFS[0]?.budToUpgrade) upgradeBuilding(b);
   });
 
   // 4. Research
-  if (!G.techInProgress[fIdx]) {
+  if (!G?.techInProgress[fIdx]) {
     const available = TECH_TREE.filter(t =>
       !techUnlocked(fIdx, t.id) &&
       t.prereqs.every(p => techUnlocked(fIdx, p)) &&
-      G.factions[fIdx].bud >= Math.floor(t.cost / 4)
+      G?.factions[fIdx]?.bud >= Math.floor(t.cost / 4)
     ).sort((a, b) => a.tier - b.tier);
     if (available.length > 0) startResearch(fIdx, available[0].id);
   }
@@ -819,15 +864,15 @@ function setupScene(): void {
   });
 
   addon.Landscape.create({
-    width:   256,
-    height:  256,
+    width:   LANDSCAPE_W,
+    height:  LANDSCAPE_W,
     noiseId,
     size:    LANDSCAPE_W,
     scale:   LANDSCAPE_SCALE,
     position:[0, 0, 0],
   });
 
-  Entropy.Lighting.updateSun({
+  addon.Lighting.updateSun({
     horizonColor:  [0.10, 0.20, 0.10],
     zenithColor:   [0.03, 0.06, 0.10],
     sunDirection:  [0.3, -0.7, 0.5],
@@ -836,7 +881,7 @@ function setupScene(): void {
   });
 
   // Ambient world light — dim, moody
-  Entropy.Lighting.createPointLight({
+  addon.Lighting.createPointLight({
     position:    [512, 150, 512],
     color:       [0.05, 0.15, 0.05],
     intensity:   5,
@@ -846,9 +891,9 @@ function setupScene(): void {
 
 function setupFactions(): void {
   for (let i = 0; i < 4; i++) {
-    G.factions.push({ id: i, name: FACTION_NAMES[i], color: FACTION_COLORS[i], bud: 100, isPlayer: i===0, nationCount: 0 });
-    G.fogExplored.push(new Array(GRID_W * GRID_H).fill(false));
-    G.fogVisible.push(new Array(GRID_W * GRID_H).fill(false));
+    G?.factions.push({ id: i, name: FACTION_NAMES[i], color: FACTION_COLORS[i], bud: 100, isPlayer: i===0, nationCount: 0 });
+    G?.fogExplored.push(new Array(GRID_W * GRID_H).fill(false));
+    G?.fogVisible.push(new Array(GRID_W * GRID_H).fill(false));
   }
 }
 
@@ -878,15 +923,15 @@ function setupStartPositions(): void {
 let winW = 1280, winH = 720;
 
 function drawPanel(x: number, y: number, w: number, h: number, col: [number,number,number,number]): void {
-  Entropy.UI.drawRect({ position:[x,y], size:[w,h], color:col });
+  addon.UI.drawRect({ position:[x,y], size:[w,h], color:col });
 }
 
 function drawBorder(x: number, y: number, w: number, h: number, col: [number,number,number,number], thickness=1): void {
-  Entropy.UI.drawRect({ position:[x,y], size:[w,h], color:[0,0,0,0], strokeColor:col, strokeThickness:thickness });
+  addon.UI.drawRect({ position:[x,y], size:[w,h], color:[0,0,0,0], strokeColor:col, strokeThickness:thickness });
 }
 
 function drawText(text: string, x: number, y: number, col: [number,number,number,number], size=13): void {
-  Entropy.UI.drawText({ text, position:[x,y], fontSize:size, color:col });
+  addon.UI.drawText({ text, position:[x,y], fontSize:size, color:col });
 }
 
 function drawButton(label: string, x: number, y: number, w: number, h: number, enabled: boolean, onClick: ()=>void): void {
@@ -895,11 +940,11 @@ function drawButton(label: string, x: number, y: number, w: number, h: number, e
   drawBorder(x, y, w, h, enabled ? C.ACCENT : C.TEXT_DIM);
   const tc = enabled ? C.TEXT_BRIGHT : C.TEXT_DIM;
   drawText(label, x + 6, y + (h - 13) / 2, tc, 12);
-  G.buttons.push({ label, x, y, w, h, enabled, onClick });
+  G?.buttons.push({ label, x, y, w, h, enabled, onClick });
 }
 
 function drawSeparator(x: number, y: number, w: number): void {
-  Entropy.UI.drawRect({ position:[x, y], size:[w, 1], color:C.HEADER });
+  addon.UI.drawRect({ position:[x, y], size:[w, 1], color:C.HEADER });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -909,45 +954,45 @@ function drawSeparator(x: number, y: number, w: number): void {
 const MINIMAP_SAMPLE = 2; // sample every Nth tile for minimap pixel (keeps it fast)
 
 function drawMinimap(): void {
-  const mx = winW - G.minimapW - 10;
-  const my = winH - G.minimapH - 10;
+  const mx = winW - G?.minimapW - 10;
+  const my = winH - G?.minimapH - 10;
   G.minimapX = mx; G.minimapY = my;
 
-  drawPanel(mx, my, G.minimapW, G.minimapH, [0, 0, 0, 200]);
-  drawBorder(mx, my, G.minimapW, G.minimapH, C.ACCENT, 2);
+  drawPanel(mx, my, G?.minimapW, G?.minimapH, [0, 0, 0, 200]);
+  drawBorder(mx, my, G?.minimapW, G?.minimapH, C.ACCENT, 2);
 
   // Draw terrain tiles as tiny rects
-  const pixW = G.minimapW / (GRID_W / MINIMAP_SAMPLE);
-  const pixH = G.minimapH / (GRID_H / MINIMAP_SAMPLE);
+  const pixW = G?.minimapW / (GRID_W / MINIMAP_SAMPLE);
+  const pixH = G?.minimapH / (GRID_H / MINIMAP_SAMPLE);
 
   for (let mz = 0; mz < GRID_H; mz += MINIMAP_SAMPLE) {
     for (let mx2 = 0; mx2 < GRID_W; mx2 += MINIMAP_SAMPLE) {
       const idx = tileIndex(mx2, mz);
-      if (!G.fogExplored[0][idx]) continue;
-      const tile = G.tiles[idx];
+      if (!G?.fogExplored[0][idx]) continue;
+      const tile = G?.tiles[idx];
       const tc = tile.terrain.color;
-      const dimmed = G.fogVisible[0][idx] ? 1.0 : 0.35;
-      const px = mx + (mx2 / GRID_W) * G.minimapW;
-      const py = my + (mz  / GRID_H) * G.minimapH;
+      const dimmed = G?.fogVisible[0][idx] ? 1.0 : 0.35;
+      const px = mx + (mx2 / GRID_W) * G?.minimapW;
+      const py = my + (mz  / GRID_H) * G?.minimapH;
       const col: [number,number,number,number] = [tc[0]*dimmed, tc[1]*dimmed, tc[2]*dimmed, 1];
-      Entropy.UI.drawRect({ position:[px, py], size:[pixW+0.5, pixH+0.5], color:col });
+      addon.UI.drawRect({ position:[px, py], size:[pixW+0.5, pixH+0.5], color:col });
     }
   }
 
   // Draw buildings
-  G.buildings.forEach(b => {
-    if (!G.fogExplored[0][tileIndex(b.x, b.z)]) return;
-    const fc = G.factions[b.faction].color;
-    const px = mx + (b.x / GRID_W) * G.minimapW - 1;
-    const py = my + (b.z / GRID_H) * G.minimapH - 1;
-    Entropy.UI.drawRect({ position:[px, py], size:[4, 4], color:[fc[0], fc[1], fc[2], 1] });
+  G?.buildings.forEach(b => {
+    if (!G?.fogExplored[0][tileIndex(b.x, b.z)]) return;
+    const fc = G?.factions[b.faction].color;
+    const px = mx + (b.x / GRID_W) * G?.minimapW - 1;
+    const py = my + (b.z / GRID_H) * G?.minimapH - 1;
+    addon.UI.drawRect({ position:[px, py], size:[4, 4], color:[fc[0], fc[1], fc[2], 1] });
   });
 
   // Draw player units
   unitsOfFaction(0).forEach(u => {
-    const px = mx + (u.x / GRID_W) * G.minimapW - 1;
-    const py = my + (u.z / GRID_H) * G.minimapH - 1;
-    Entropy.UI.drawRect({ position:[px, py], size:[3, 3], color:[1, 1, 1, 1] });
+    const px = mx + (u.x / GRID_W) * G?.minimapW - 1;
+    const py = my + (u.z / GRID_H) * G?.minimapH - 1;
+    addon.UI.drawRect({ position:[px, py], size:[3, 3], color:[1, 1, 1, 1] });
   });
 
   drawText("MINIMAP", mx+4, my+4, C.TEXT_DIM, 10);
@@ -959,7 +1004,7 @@ function drawMinimap(): void {
 
 function drawHUD(): void {
     // clears in onUpdate
-  if (G.gameOver) { drawGameOver(); return; }
+  if (G?.gameOver) { drawGameOver(); return; }
 
   G.buttons = []; // reset hit-test list each frame
 
@@ -976,16 +1021,19 @@ function drawHUD(): void {
   py += 24;
 
   // ── Status row ──
-  const f     = G.factions[0];
+  const f     = G?.factions[0];
   const income= calcIncome(0);
-  drawText(`Turn ${G.turnNumber}  |  ${f.name}`, px, py, C.TEXT_BRIGHT, 12);  py += LINE_H;
-  drawText(`Bud: ${f.bud}  (+${income}/turn)`, px, py, C.ACCENT2, 12);        py += LINE_H;
+  drawText(`Turn ${G?.turnNumber}  |  ${f?.name}`, px, py, C.TEXT_BRIGHT, 12);  py += LINE_H;
+  drawText(`Bud: ${f?.bud}  (+${income}/turn)`, px, py, C.ACCENT2, 12);        py += LINE_H;
 
   // ── Tech in progress ──
-  const tInProg = G.techInProgress[0];
+  const tInProg = G?.techInProgress[0];
   if (tInProg) {
-    const td = TECH_TREE.find(t => t.id === tInProg)!;
-    drawText(`Research: ${td.name} (${G.techProgress[0]}/${td.cost})`, px, py, C.WARN, 11);
+    const td = TECH_TREE.find(t => t.id === tInProg);
+
+    if (td) {
+        drawText(`Research: ${td?.name} (${G?.techProgress[0]}/${td.cost})`, px, py, C.WARN, 11);
+    }
   } else {
     drawText("No research in progress", px, py, C.TEXT_DIM, 11);
   }
@@ -1004,12 +1052,12 @@ function drawHUD(): void {
   const tabW = Math.floor((HUD_W - HUD_PAD*2) / tabs.length);
   tabs.forEach(([id, label], i) => {
     const tx = px + i * tabW;
-    const active = G.activeTab === id;
+    const active = G?.activeTab === id;
     drawPanel(tx, py, tabW-2, BTN_H, active ? C.HEADER : C.BTN);
     drawBorder(tx, py, tabW-2, BTN_H, active ? C.ACCENT2 : C.ACCENT);
     drawText(label, tx+4, py+6, active ? C.ACCENT2 : C.TEXT, 10);
     const capturedId = id;
-    G.buttons.push({ label, x:tx, y:py, w:tabW-2, h:BTN_H, enabled:true, onClick:()=>{ G.activeTab=capturedId; } });
+    G?.buttons.push({ label, x:tx, y:py, w:tabW-2, h:BTN_H, enabled:true, onClick:()=>{ G.activeTab=capturedId; } });
   });
   py += BTN_H + 6;
 
@@ -1027,13 +1075,13 @@ function drawHUD(): void {
   drawMinimap();
 
   // ── Selected unit tooltip ──
-  if (G.selectedUnitId) {
-    const u = G.units.find(u2 => u2.id === G.selectedUnitId);
-    if (u) {
+  if (G?.selectedUnitId) {
+    const u = G?.units.find(u2 => u2.id === G?.selectedUnitId);
+    if (u && u.def && u.def?.name) {
       const ty = winH - 80;
       drawPanel(HUD_PANEL_X + HUD_W + 10, ty, 260, 70, C.BG);
       drawBorder(HUD_PANEL_X + HUD_W + 10, ty, 260, 70, C.ACCENT);
-      drawText(`Selected: ${u.def.name}  (${u.x}, ${u.z})`, HUD_PANEL_X + HUD_W + 18, ty+8, C.TEXT_BRIGHT, 12);
+      drawText(`Selected: ${u.def?.name}  (${u.x}, ${u.z})`, HUD_PANEL_X + HUD_W + 18, ty+8, C.TEXT_BRIGHT, 12);
       drawText(`MP: ${u.movePointsLeft}/${u.def.movePoints}  |  Vision: ${u.def.visionRange}`, HUD_PANEL_X + HUD_W + 18, ty+24, C.TEXT, 11);
       drawText(u.def.desc, HUD_PANEL_X + HUD_W + 18, ty+40, C.TEXT_DIM, 11);
     }
@@ -1043,26 +1091,26 @@ function drawHUD(): void {
 function drawTabContent(px: number, startY: number, maxY: number): void {
   let py = startY;
 
-  if (G.activeTab === "overview")  py = drawOverviewTab(px, py, maxY);
-  if (G.activeTab === "units")     py = drawUnitsTab(px, py, maxY);
-  if (G.activeTab === "cities")    py = drawCitiesTab(px, py, maxY);
-  if (G.activeTab === "tech")      py = drawTechTab(px, py, maxY);
-  if (G.activeTab === "diplomacy") py = drawDiplomacyTab(px, py, maxY);
+  if (G?.activeTab === "overview")  py = drawOverviewTab(px, py, maxY);
+  if (G?.activeTab === "units")     py = drawUnitsTab(px, py, maxY);
+  if (G?.activeTab === "cities")    py = drawCitiesTab(px, py, maxY);
+  if (G?.activeTab === "tech")      py = drawTechTab(px, py, maxY);
+  if (G?.activeTab === "diplomacy") py = drawDiplomacyTab(px, py, maxY);
 }
 
 function drawOverviewTab(px: number, py: number, maxY: number): number {
   drawText("FACTIONS", px, py, C.ACCENT2, 12); py += LINE_H + 2;
 
-  G.factions.forEach(f => {
+  G?.factions.forEach(f => {
     if (py >= maxY - LINE_H) return;
     const marker = f.isPlayer ? "> " : "  ";
     const fc = f.color;
-    drawText(`${marker}${f.name}`, px, py, [fc[0]*255|0, fc[1]*255|0, fc[2]*255|0, 255] as [number,number,number,number], 11);
+    drawText(`${marker}${f?.name}`, px, py, [fc[0]*255|0, fc[1]*255|0, fc[2]*255|0, 255] as [number,number,number,number], 11);
     py += LINE_H;
     if (py < maxY) {
       const cities  = citiesOfFaction(f.id).length;
-      const nations = G.nations.filter(n => n.faction===f.id).length;
-      drawText(`   Bud:${f.bud}  Cities:${cities}  Nations:${nations}`, px, py, C.TEXT_DIM, 10);
+      const nations = G?.nations.filter(n => n.faction===f.id).length;
+      drawText(`   Bud:${f?.bud}  Cities:${cities}  Nations:${nations}`, px, py, C.TEXT_DIM, 10);
       py += LINE_H;
     }
   });
@@ -1072,7 +1120,7 @@ function drawOverviewTab(px: number, py: number, maxY: number): number {
   drawText("TERRAIN KEY", px, py, C.ACCENT2, 12); py += LINE_H;
   Object.values(TERRAIN).forEach(t => {
     if (py >= maxY - LINE_H) return;
-    drawText(`${t.name}: x${t.yieldMod} yield, ${t.moveCost} move`, px+4, py, C.TEXT_DIM, 10);
+    drawText(`${t?.name}: x${t.yieldMod} yield, ${t.moveCost} move`, px+4, py, C.TEXT_DIM, 10);
     py += LINE_H;
   });
   return py;
@@ -1084,13 +1132,13 @@ function drawUnitsTab(px: number, py: number, maxY: number): number {
 
   myUnits.forEach(u => {
     if (py >= maxY - LINE_H * 2) return;
-    const sel = G.selectedUnitId === u.id;
+    const sel = G?.selectedUnitId === u.id;
     drawPanel(px, py, HUD_W - HUD_PAD*2, LINE_H*2 + 4, sel ? [30,70,35,200] : [20,40,22,150]);
     drawBorder(px, py, HUD_W - HUD_PAD*2, LINE_H*2 + 4, sel ? C.ACCENT2 : C.TEXT_DIM);
-    drawText(`${u.def.name}  (${u.x},${u.z})  MP:${u.movePointsLeft}/${u.def.movePoints}`, px+4, py+2, sel ? C.ACCENT2 : C.TEXT, 11);
+    drawText(`${u.def?.name}  (${u.x},${u.z})  MP:${u.movePointsLeft}/${u.def.movePoints}`, px+4, py+2, sel ? C.ACCENT2 : C.TEXT, 11);
     drawText(u.def.desc, px+4, py+LINE_H, C.TEXT_DIM, 10);
     const uid2 = u.id;
-    G.buttons.push({ label:"", x:px, y:py, w:HUD_W-HUD_PAD*2, h:LINE_H*2+4, enabled:true, onClick:()=>{ G.selectedUnitId = uid2; } });
+    G?.buttons.push({ label:"", x:px, y:py, w:HUD_W-HUD_PAD*2, h:LINE_H*2+4, enabled:true, onClick:()=>{ G.selectedUnitId = uid2; } });
     py += LINE_H * 2 + 8;
   });
 
@@ -1101,9 +1149,9 @@ function drawUnitsTab(px: number, py: number, maxY: number): number {
 
   Object.entries(UNIT_DEFS).forEach(([type, def]) => {
     if (py >= maxY - BTN_H - 2) return;
-    const canRecruit = hasCities && G.factions[0].bud >= def.budCost &&
+    const canRecruit = hasCities && G?.factions[0]?.bud >= def?.budCost &&
       (!def.techReq || techUnlocked(0, def.techReq));
-    drawButton(`${def.name} (${def.budCost}bud)`, px, py, HUD_W - HUD_PAD*2, BTN_H - 2, canRecruit, () => recruitUnit(0, type));
+    drawButton(`${def?.name} (${def?.budCost}bud)`, px, py, HUD_W - HUD_PAD*2, BTN_H - 2, canRecruit, () => recruitUnit(0, type));
     py += BTN_H + 2;
   });
 
@@ -1112,7 +1160,7 @@ function drawUnitsTab(px: number, py: number, maxY: number): number {
 
 function drawCitiesTab(px: number, py: number, maxY: number): number {
   const myBlds = buildingsOfFaction(0);
-  const myNations = G.nations.filter(n => n.faction === 0).length;
+  const myNations = G?.nations.filter(n => n.faction === 0).length;
   drawText(`SETTLEMENTS (${myBlds.length})  Nations: ${myNations}`, px, py, C.ACCENT2, 12); py += LINE_H;
   drawText("3 cities auto-form a nation", px, py, C.TEXT_DIM, 10); py += LINE_H + 4;
 
@@ -1120,14 +1168,14 @@ function drawCitiesTab(px: number, py: number, maxY: number): number {
     if (py >= maxY - LINE_H * 3 - BTN_H) return;
     const tile  = tileAt(bld.x, bld.z);
     const yld   = Math.floor(bld.yieldPerTurn * tile.terrain.yieldMod + tile.resource);
-    const bName = BUILDING_DEFS[bld.type].name;
+    const bName = BUILDING_DEFS[bld.type]?.name;
     drawPanel(px, py, HUD_W - HUD_PAD*2, LINE_H*2 + BTN_H + 8, C.PANEL);
     drawBorder(px, py, HUD_W - HUD_PAD*2, LINE_H*2 + BTN_H + 8, bld.type === 2 ? C.NATION : C.ACCENT);
     drawText(`${bName}  (${bld.x},${bld.z})`, px+4, py+2, bld.type===2 ? C.NATION : C.TEXT_BRIGHT, 11);
-    drawText(`${tile.terrain.name}  |  ${yld} bud/turn`, px+4, py+LINE_H+2, C.TEXT_DIM, 10);
+    drawText(`${tile.terrain?.name}  |  ${yld} bud/turn`, px+4, py+LINE_H+2, C.TEXT_DIM, 10);
     if (bld.type === 0) {
-      const canUp = G.factions[0].bud >= BUILDING_DEFS[0].budToUpgrade;
-      drawButton(`Upgrade->City (${BUILDING_DEFS[0].budToUpgrade}bud)`, px+4, py+LINE_H*2+4, HUD_W-HUD_PAD*2-8, BTN_H-2, canUp, () => upgradeBuilding(bld));
+      const canUp = G?.factions[0]?.bud >= BUILDING_DEFS[0]?.budToUpgrade;
+      drawButton(`Upgrade->City (${BUILDING_DEFS[0]?.budToUpgrade}bud)`, px+4, py+LINE_H*2+4, HUD_W-HUD_PAD*2-8, BTN_H-2, canUp, () => upgradeBuilding(bld));
     } else {
       drawText(bld.type===2 ? "★ Nation Capital" : "City — counts toward nation", px+4, py+LINE_H*2+8, bld.type===2?C.NATION:C.TEXT_DIM, 10);
     }
@@ -1142,11 +1190,11 @@ function drawCitiesTab(px: number, py: number, maxY: number): number {
 }
 
 function drawTechTab(px: number, py: number, maxY: number): number {
-  const inProg = G.techInProgress[0];
+  const inProg = G?.techInProgress[0];
   if (inProg) {
     const td = TECH_TREE.find(t => t.id === inProg)!;
-    const pct = Math.floor((G.techProgress[0] / td.cost) * 100);
-    drawText(`Researching: ${td.name}`, px, py, C.WARN, 11); py += LINE_H;
+    const pct = Math.floor((G?.techProgress[0] / td.cost) * 100);
+    drawText(`Researching: ${td?.name}`, px, py, C.WARN, 11); py += LINE_H;
     // Progress bar
     const bw = HUD_W - HUD_PAD*2;
     drawPanel(px, py, bw, 8, [30,40,30,255]);
@@ -1164,10 +1212,10 @@ function drawTechTab(px: number, py: number, maxY: number): number {
       const unlocked    = techUnlocked(0, tech.id);
       const active      = inProg === tech.id;
       const prereqsMet  = tech.prereqs.every(p => techUnlocked(0, p));
-      const canStart    = !unlocked && !active && prereqsMet && !inProg && G.factions[0].bud >= Math.floor(tech.cost/4);
+      const canStart    = !unlocked && !active && prereqsMet && !inProg && G?.factions[0]?.bud >= Math.floor(tech.cost/4);
       const statusIcon  = unlocked ? "[OK]" : active ? "[..]" : prereqsMet ? "[--]" : "[X]";
       const tc          = unlocked ? C.ACCENT : active ? C.WARN : prereqsMet ? C.TEXT : C.TEXT_DIM;
-      drawText(`${statusIcon} ${tech.icon} ${tech.name}`, px, py, tc, 11); py += LINE_H;
+      drawText(`${statusIcon} ${tech.icon} ${tech?.name}`, px, py, tc, 11); py += LINE_H;
       drawText(`  ${tech.effect}`, px, py, C.TEXT_DIM, 10); py += LINE_H;
       if (canStart) {
         const capturedId = tech.id;
@@ -1182,14 +1230,14 @@ function drawTechTab(px: number, py: number, maxY: number): number {
 
 function drawDiplomacyTab(px: number, py: number, maxY: number): number {
   drawText("TRADE ROUTES", px, py, C.ACCENT2, 12); py += LINE_H;
-  const myRoutes = G.tradeRoutes.filter(r => r.fromFaction===0 || r.toFaction===0);
+  const myRoutes = G?.tradeRoutes.filter(r => r.fromFaction===0 || r.toFaction===0);
   if (myRoutes.length === 0) {
     drawText("No active trade routes.", px, py, C.TEXT_DIM, 11); py += LINE_H;
   } else {
     myRoutes.forEach(r => {
       if (py >= maxY - LINE_H) return;
       const other = r.fromFaction===0 ? r.toFaction : r.fromFaction;
-      drawText(`<-> ${G.factions[other].name}: +${r.budPerTurn} bud/turn`, px, py, C.TEXT, 11); py += LINE_H;
+      drawText(`<-> ${G?.factions[other]?.name}: +${r?.budPerTurn} bud/turn`, px, py, C.TEXT, 11); py += LINE_H;
     });
   }
 
@@ -1199,26 +1247,26 @@ function drawDiplomacyTab(px: number, py: number, maxY: number): number {
   const hasCities = citiesOfFaction(0).length > 0;
   [1, 2, 3].forEach(fIdx => {
     if (py >= maxY - BTN_H - 2) return;
-    const f = G.factions[fIdx];
-    const alreadyTrading = G.tradeRoutes.some(r =>
+    const f = G?.factions[fIdx];
+    const alreadyTrading = G?.tradeRoutes.some(r =>
       (r.fromFaction===0 && r.toFaction===fIdx) || (r.fromFaction===fIdx && r.toFaction===0)
     );
     const theirCities = citiesOfFaction(fIdx).length > 0;
     const canTrade = hasCities && theirCities && !alreadyTrading;
-    drawButton(`Trade w/ ${f.name} (+2/turn)`, px, py, HUD_W-HUD_PAD*2, BTN_H-2, canTrade, () => proposeTradeRoute(0, fIdx, 2));
+    drawButton(`Trade w/ ${f?.name} (+2/turn)`, px, py, HUD_W-HUD_PAD*2, BTN_H-2, canTrade, () => proposeTradeRoute(0, fIdx, 2));
     py += BTN_H + 4;
   });
 
   py += 4; drawSeparator(px, py, HUD_W-HUD_PAD*2); py += 6;
   drawText("STANDINGS", px, py, C.ACCENT2, 12); py += LINE_H;
-  const sorted = [...G.factions].sort((a, b) => {
-    const s = (f: Faction) => citiesOfFaction(f.id).length*10 + G.nations.filter(n=>n.faction===f.id).length*30 + f.bud;
+  const sorted = [...G?.factions].sort((a, b) => {
+    const s = (f: Faction) => citiesOfFaction(f.id).length*10 + G?.nations.filter(n=>n.faction===f.id).length*30 + f?.bud;
     return s(b) - s(a);
   });
   sorted.forEach((f, rank) => {
     if (py >= maxY - LINE_H) return;
-    const s = citiesOfFaction(f.id).length*10 + G.nations.filter(n=>n.faction===f.id).length*30 + f.bud;
-    drawText(`${rank+1}. ${f.isPlayer?"[YOU]":"[AI]"} ${f.name}  Sc:${s}`, px, py, rank===0?C.ACCENT2:C.TEXT_DIM, 10);
+    const s = citiesOfFaction(f.id).length*10 + G?.nations.filter(n=>n.faction===f.id).length*30 + f?.bud;
+    drawText(`${rank+1}. ${f.isPlayer?"[YOU]":"[AI]"} ${f?.name}  Sc:${s}`, px, py, rank===0?C.ACCENT2:C.TEXT_DIM, 10);
     py += LINE_H;
   });
   return py;
@@ -1229,11 +1277,11 @@ function drawGameOver(): void {
   const gx = (winW - w) / 2, gy = (winH - h) / 2;
   drawPanel(gx, gy, w, h, C.BG);
   drawBorder(gx, gy, w, h, C.ACCENT2, 3);
-  const winner = G.factions[G.winner];
+  const winner = G?.factions[G?.winner];
   drawText("GAME OVER", gx + w/2 - 60, gy + 20, C.ACCENT2, 20);
-  drawText(`${winner.name} achieves`, gx + 20, gy + 70, C.TEXT_BRIGHT, 14);
+  drawText(`${winner?.name} achieves`, gx + 20, gy + 70, C.TEXT_BRIGHT, 14);
   drawText("COSMIC TRANSCENDENCE!", gx + 20, gy + 90, C.NATION, 16);
-  drawText(`Turn ${G.turnNumber}`, gx + 20, gy + 130, C.TEXT_DIM, 12);
+  drawText(`Turn ${G?.turnNumber}`, gx + 20, gy + 130, C.TEXT_DIM, 12);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1245,7 +1293,7 @@ Entropy.Input.onMouseMove((x, y) => { G.mouseX = x; G.mouseY = y; });
 Entropy.Input.onMouseDown((button, screenX, screenY) => {
   if (button === 0) {
     // Check HUD buttons first (hit-test against current frame's button list)
-    for (const btn of G.buttons) {
+    for (const btn of G?.buttons) {
       if (!btn.enabled) continue;
       if (screenX >= btn.x && screenX <= btn.x + btn.w &&
           screenY >= btn.y && screenY <= btn.y + btn.h) {
@@ -1280,11 +1328,11 @@ Entropy.Input.onMouseDown((button, screenX, screenY) => {
 });
 
 function handleWorldClick(tx: number, tz: number): void {
-  log(`Clicked tile (${tx}, ${tz}) — ${tileAt(tx, tz).terrain.name}`);
+  log(`Clicked tile (${tx}, ${tz}) — ${tileAt(tx, tz).terrain?.name}`);
   G.selectedTile = { x: tx, z: tz };
 
-  if (G.selectedUnitId) {
-    const unit = G.units.find(u => u.id === G.selectedUnitId);
+  if (G?.selectedUnitId) {
+    const unit = G?.units.find(u => u.id === G?.selectedUnitId);
     if (unit) {
       if (unit.type === "FARMER" && !tileAt(tx, tz).building && tx === unit.x && tz === unit.z) {
         foundFarm(unit);
@@ -1304,16 +1352,16 @@ Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
   if (key === "e" || key === "E") { endTurn(); return; }
   if (key === "Tab" || key === "q" || key === "Q") {
     const tabs: TabId[] = ["overview","units","cities","tech","diplomacy"];
-    G.activeTab = tabs[(tabs.indexOf(G.activeTab) + 1) % tabs.length];
+    G.activeTab = tabs[(tabs.indexOf(G?.activeTab) + 1) % tabs.length];
   }
   if (key === "w" || key === "W") {
     const tabs: TabId[] = ["overview","units","cities","tech","diplomacy"];
-    G.activeTab = tabs[(tabs.indexOf(G.activeTab) + tabs.length - 1) % tabs.length];
+    G.activeTab = tabs[(tabs.indexOf(G?.activeTab) + tabs.length - 1) % tabs.length];
   }
   // Farmer shortcut: F = found farm on selected farmer
   if (key === "f" || key === "F") {
-    if (G.selectedUnitId) {
-      const u = G.units.find(u2 => u2.id === G.selectedUnitId);
+    if (G?.selectedUnitId) {
+      const u = G?.units.find(u2 => u2.id === G?.selectedUnitId);
       if (u) foundFarm(u);
     }
   }
@@ -1324,17 +1372,27 @@ Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 addon.onInit(() => {
-    log("Cannabis Conquest v0.2 initializing...");
+    log("Cannabis Conquest v0.2 initializinG?...");
     const [ww, wh] = Entropy.Window.getSize();
     winW = ww; winH = wh;
 
     if (Entropy.Composer) {
         if (Entropy.Composer.registerGame) {
-            Entropy.Composer.registerGame(addonInfo.name, (id: string, params: any) => {                
+            Entropy.Composer.registerGame(addonInfo?.name, (id: string, params: any) => {  
+                log("Adding CC game");
+                
                 setupScene();
+
+                log("Adding CC map");
+
                 generateMap();
 
+                log("Adding CC factions");
+
                 setupFactions();
+
+                log("Adding CC positions");
+
                 setupStartPositions();
 
                 log("Ready! E=EndTurn  Q/W=Tabs  F=FoundFarm  RightClick=Deselect");
@@ -1343,29 +1401,58 @@ addon.onInit(() => {
     }
 });
 
-addon.onUpdate((time, pos, dir) => {
-  Entropy.UI.clear();
+// --- Game Lifecycle ---
+Entropy.onGameStarted((gameName) => {
+    if (gameName === addonInfo.name) {
+        Entropy.Composer?.enableGameComposerOverride();
 
-  // RTS Camera movement
-  const speed = 4.0;
-  if (Entropy.Input.isKeyPressed("w") || Entropy.Input.isKeyPressed("ArrowUp")) G.camZ -= speed;
-  if (Entropy.Input.isKeyPressed("s") || Entropy.Input.isKeyPressed("ArrowDown")) G.camZ += speed;
-  if (Entropy.Input.isKeyPressed("a") || Entropy.Input.isKeyPressed("ArrowLeft")) G.camX -= speed;
-  if (Entropy.Input.isKeyPressed("d") || Entropy.Input.isKeyPressed("ArrowRight")) G.camX += speed;
+        Entropy.println("=== CANNABIS CONQUEST ===");
 
-  // Clamp camera to map bounds
-  G.camX = Math.max(0, Math.min(LANDSCAPE_W, G.camX));
-  G.camZ = Math.max(0, Math.min(LANDSCAPE_H, G.camZ));
+        G.isGameActive = true;
+        drawHUD();
+        
+        Entropy.println("Become King of a world where cannabis is like gold.");
 
-  // Set the actual camera position in the engine
-  // Birds-eye view: looking down from 120 units up
-  const camHeight = 120;
-  Entropy.Camera.setTransform(
-    [G.camX, camHeight, G.camZ + 40], // Position (slightly offset in Z for a better angle)
-    [G.camX, 0, G.camZ]               // Target (looking at the map)
-  );
+        Entropy.Composer?.disableGameComposerOverride();
+    }
+});
 
-  drawHUD();
+Entropy.onGameStopped((gameName) => {
+    if (gameName === addonInfo.name) {
+        // gameState.save();
+        G.isGameActive = false;
+    }
+});
+
+addon.onUpdatePlus("Game Composer", (time) => {
+    Entropy.Composer?.enableGameComposerOverride();
+    
+    if (G?.isGameActive) {
+        // addon.UI.clear(); // should only clear and redraw when dirty! like fps_rpg/state.ts
+
+        // RTS Camera movement
+        const speed = 4.0;
+        if (Entropy.Input.isKeyPressed("w") || Entropy.Input.isKeyPressed("ArrowUp")) G.camZ -= speed;
+        if (Entropy.Input.isKeyPressed("s") || Entropy.Input.isKeyPressed("ArrowDown")) G.camZ += speed;
+        if (Entropy.Input.isKeyPressed("a") || Entropy.Input.isKeyPressed("ArrowLeft")) G.camX -= speed;
+        if (Entropy.Input.isKeyPressed("d") || Entropy.Input.isKeyPressed("ArrowRight")) G.camX += speed;
+
+        // Clamp camera to map bounds
+        G.camX = Math.max(0, Math.min(LANDSCAPE_W, G?.camX));
+        G.camZ = Math.max(0, Math.min(LANDSCAPE_H, G?.camZ));
+
+        // Set the actual camera position in the engine
+        // Birds-eye view: looking down from 120 units up
+        const camHeight = 120;
+        Entropy.Camera.setTransform(
+            [G?.camX, camHeight, G?.camZ + 40], // Position (slightly offset in Z for a better angle)
+            [G?.camX, 0, G?.camZ]               // Target (looking at the map)
+        );
+
+        // drawHUD();  // should only clear and redraw when dirty! like fps_rpg/state.ts
+    }
+
+    Entropy.Composer?.disableGameComposerOverride();
 });
 
 addon.onCleanup(() => {

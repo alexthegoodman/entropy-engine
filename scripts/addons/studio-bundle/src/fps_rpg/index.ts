@@ -36,23 +36,27 @@ export const combat = new CombatSystem(
 
 
 // --- Game Lifecycle ---
-Entropy.onGameStarted(() => {
-    Entropy.Composer?.enableGameComposerOverride();
+Entropy.onGameStarted((gameName) => {
+    if (gameName === addonInfo.name) {
+        Entropy.Composer?.enableGameComposerOverride();
 
-    Entropy.println("=== THE FRACTURED REALM ===");
+        Entropy.println("=== THE FRACTURED REALM ===");
 
-    gameState.isGameActive = true;
-    gameState.requestRedraw();
-    
-    Entropy.println("Choose your path wisely. Every action has consequences.");
+        gameState.isGameActive = true;
+        gameState.requestRedraw();
+        
+        Entropy.println("Choose your path wisely. Every action has consequences.");
 
-    Entropy.Composer?.disableGameComposerOverride();
+        Entropy.Composer?.disableGameComposerOverride();
+    }
 });
 
-Entropy.onGameStopped(() => {
-    gameState.save();
-    gameState.isGameActive = false;
-    worldManager.cleanup();
+Entropy.onGameStopped((gameName) => {
+    if (gameName === addonInfo.name) {
+        gameState.save();
+        gameState.isGameActive = false;
+        worldManager.cleanup();
+    }
 });
 
 // --- Animation Update Loop ---

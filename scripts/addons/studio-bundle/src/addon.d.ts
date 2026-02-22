@@ -763,10 +763,10 @@ export interface EntropyAPI {
   };
   println: (msg: unknown) => void;
   generateUUID: () => string;
-  onGameStarted: (callback: () => void) => void;
-  onGameStopped: (callback: () => void) => void;
-  _dispatchGameStarted: () => void;
-  _dispatchGameStopped: () => void;
+  onGameStarted: (callback: (gameName: string) => void) => void;
+  onGameStopped: (callback: (gameName: string) => void) => void;
+  _dispatchGameStarted: (gameName: string) => void;
+  _dispatchGameStopped: (gameName: string) => void;
   _process_events: (eventIds: string[]) => void;
   setGameMode: (enabled: boolean) => void;
   Window: {

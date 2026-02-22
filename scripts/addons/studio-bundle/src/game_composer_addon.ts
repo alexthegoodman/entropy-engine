@@ -80,7 +80,8 @@ const sourceAddons = [
 ];
 
 const gameAddons = [
-    "The Fractured Realm"
+    "The Fractured Realm",
+    "Cannabis Conquest"
 ];
 
 function refreshScene() {
@@ -139,6 +140,8 @@ addon.onAllProjectsLoaded(() => {
         refreshScene(); // until we clear, lets avoid this?
     }
 });
+
+let gameAdded: string | null = null;
 
 addon.onInit(async () => {
     Entropy.println("Game Composer 2.0 Initializing...");
@@ -216,45 +219,51 @@ addon.onInit(async () => {
                  onClick: () => refreshScene()
              });
 
-             Entropy.UI.Widget.button(tab, {
-                 text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
-                 onClick: () => {
-                    Entropy.println("Updating game status...");
-
-                    composerState.playMode = !composerState.playMode;
-                    Entropy.setGameMode(composerState.playMode);
-                    
-                    if (composerState.playMode) {
-                        Entropy._dispatchGameStarted();
-                        Entropy.println("Game started!");
-                    } else {
-                        Entropy._dispatchGameStopped();
-                        Entropy.println("Game stopped!");
-                    }
-                 }
-             });
-
-             // in liue of a register system dedicated to the composer
-            // actually, registerGame, then let the user seslect one to restore, bingo
-            gameAddons.forEach((addon) => {
+             if (gameAdded) {
                 Entropy.UI.Widget.button(tab, {
-                    text: "🔄 Add Game: " + addon,
-                    onClick: () => {    
-                        (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+                    text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
+                    onClick: () => {
+                        if (gameAdded) {
+                            Entropy.println("Updating game status...");
 
-                        Entropy.println("Adding game: " + addon);
+                            composerState.playMode = !composerState.playMode;
+                            Entropy.setGameMode(composerState.playMode);
 
-                        const renderer = Entropy.Composer?.getGame(addon);
-
-                        if (renderer) {
-                            Entropy.println("Game Composer Game render ... ");
-                            renderer(addon, {});
+                            if (composerState.playMode) {
+                                Entropy._dispatchGameStarted(gameAdded);
+                                Entropy.println("Game started!");
+                            } else {
+                                Entropy._dispatchGameStopped(gameAdded);
+                                Entropy.println("Game stopped!");
+                            }
                         }
-
-                        (globalThis as any).__entropy_current_addon_context_override = null;
                     }
                 });
-            });
+             } else {
+                // in liue of a register system dedicated to the composer
+                // actually, registerGame, then let the user seslect one to restore, bingo
+                gameAddons.forEach((addon) => {
+                    Entropy.UI.Widget.button(tab, {
+                        text: "🔄 Add Game: " + addon,
+                        onClick: () => {    
+                            (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+
+                            Entropy.println("Adding game: " + addon);
+
+                            const renderer = Entropy.Composer?.getGame(addon);
+
+                            gameAdded = addon;
+
+                            if (renderer) {
+                                Entropy.println("Game Composer Game render ... ");
+                                renderer(addon, {});
+                            }
+
+                            (globalThis as any).__entropy_current_addon_context_override = null;
+                        }
+                    });
+                });
+             }
 
              Entropy.UI.Widget.separator(tab);
 
