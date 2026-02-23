@@ -352,32 +352,6 @@ let _pipelineId: string | null = null;
 
 function getPipeline(): string {
     return "default";
-
-//   if (_pipelineId) return _pipelineId;
-//   _pipelineId = Entropy.Pipeline.create({
-//     name: "cc_mesh",
-//     vertexShader: `
-//       struct VIn {
-//         @location(0) pos:    vec3<f32>,
-//         @location(1) normal: vec3<f32>,
-//         @location(2) uv:     vec2<f32>,
-//         @location(3) col:    vec4<f32>,
-//       }
-//       struct VOut { @builtin(position) clip: vec4<f32>, @location(0) col: vec4<f32> }
-//       @group(0) @binding(0) var<uniform> mvp: mat4x4<f32>;
-//       @vertex fn vs_main(v: VIn) -> VOut {
-//         var o: VOut;
-//         o.clip = mvp * vec4<f32>(v.pos, 1.0);
-//         o.col  = v.col;
-//         return o;
-//       }`,
-//     fragmentShader: `
-//       @fragment fn fs_main(@location(0) col: vec4<f32>) -> @location(0) vec4<f32> {
-//         return col;
-//       }`,
-//     layout: "mesh",
-//   });
-//   return _pipelineId!;
 }
 
 function makeBoxGeom(
