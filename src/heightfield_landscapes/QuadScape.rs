@@ -145,28 +145,6 @@ pub fn build_tile_mesh(
 
     for row in 0..rows {
         for col in 0..cols {
-            // Full-res sample coordinate for this grid position.
-            // let full_x = (bounds.x_min + col * step).min(bounds.x_max);
-            // let full_z = (bounds.z_min + row * step).min(bounds.z_max);
-
-            // let is_edge = col == 0 || col == cols - 1 || row == 0 || row == rows - 1;
-
-            // let is_edge = col < 2 || col >= cols - 2 || row < 2 || row >= rows - 2; // edge 2 vertices thick at full res
-
-            // let altitude_raw = if is_edge {
-            //     // Edge: always full-resolution sample — guarantees no cracks.
-            //     base_mip.sample(full_x, full_z)
-            // } else {
-            //     // Interior: use the LOD mip for a lower sample density.
-            //     // Map full-res coords into the LOD mip's coordinate space.
-            //     let mip_x = full_x / (1u32 << lod);
-            //     let mip_z = full_z / (1u32 << lod);
-            //     lod_mip.sample(
-            //         mip_x.min(lod_mip.width - 1),
-            //         mip_z.min(lod_mip.depth - 1),
-            //     )
-            // };
-
             let step = 1 << lod;
 
             let full_x = (bounds.x_min + col * step).min(bounds.x_max);
@@ -175,11 +153,13 @@ pub fn build_tile_mesh(
             // two full-res rings in world space
             let border = step * 2;
 
-            let is_edge =
-                full_x < bounds.x_min + border ||
-                full_x >= bounds.x_max.saturating_sub(border) ||
-                full_z < bounds.z_min + border ||
-                full_z >= bounds.z_max.saturating_sub(border);
+            // Directional edge flags — each is true when this vertex sits on that border
+            let is_left_edge   = full_x <= bounds.x_min + border;
+            let is_right_edge  = full_x >= bounds.x_max.saturating_sub(border);
+            let is_top_edge    = full_z <= bounds.z_min + border;
+            let is_bottom_edge = full_z >= bounds.z_max.saturating_sub(border);
+
+            let is_edge = is_left_edge || is_right_edge || is_top_edge || is_bottom_edge;
 
             let altitude_raw = if is_edge {
                 base_mip.sample(full_x, full_z)
@@ -193,9 +173,26 @@ pub fn build_tile_mesh(
             };
 
             let world_x = full_x as f32 * scale;
-            // let world_y = altitude_raw as f32 * altitude_scale;
-            let world_y = altitude_raw as f32 / 65535.0 * altitude_scale;
+            let world_y = altitude_raw as f32 / 65535.0 * altitude_scale; // 65535 for u16
             let world_z = full_z as f32 * scale;
+
+            let nudge = 1.0;
+
+            let pos_x = if is_left_edge {
+                world_x - nudge
+            } else if is_right_edge {
+                world_x + nudge
+            } else {
+                world_x
+            };
+
+            let pos_z = if is_top_edge {
+                world_z - nudge
+            } else if is_bottom_edge {
+                world_z + nudge
+            } else {
+                world_z
+            };
 
             // Flat-shading normal — will be overwritten by a normal-map pass
             // later or replaced with smooth normals during the render pass.
@@ -212,7 +209,7 @@ pub fn build_tile_mesh(
             };
 
             vertices.push(Vertex {
-                position: [world_x, world_y, world_z],
+                position: [pos_x, world_y, pos_z],
                 normal,
                 tex_coords: [
                     (full_x - bounds.x_min) as f32 / (tile_full_w - 1) as f32,
@@ -231,17 +228,7 @@ pub fn build_tile_mesh(
             let bl = tl + cols;
             let br = bl + 1;
 
-            // // Triangle 1: TL, BL, TR (upperleft)
-            // indices.push(tl);
-            // indices.push(bl);
-            // indices.push(tr);
-
-            // // Triangle 2: TR, BL, BR (bottomright)
-            // indices.push(tr);
-            // indices.push(bl);
-            // indices.push(br);
-
-            // Alternate triangulation
+            // triangulation
             indices.push(tl);
             indices.push(bl);
             indices.push(br);
