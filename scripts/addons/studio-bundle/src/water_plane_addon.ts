@@ -274,8 +274,15 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let wave_steepness = length(vec2<f32>(normal.x, normal.z));
     let crest_foam = smoothstep(water_config.foam_sparkle_params.x, water_config.foam_sparkle_params.y, wave_steepness);
     
+    // relies on landscape texture interpolation
+    // let foam_pattern = noise(in.world_position.xz * 20.0 + u_time.time);
+    // let foam = max(shoreline_foam, crest_foam) * step(0.5, foam_pattern);
+
+    // more detailed foam?
+    let shoreline_mask = smoothstep(water_config.ripple_foam_params.w, 0.0, water_depth);
     let foam_pattern = noise(in.world_position.xz * 20.0 + u_time.time);
-    let foam = max(shoreline_foam, crest_foam) * step(0.5, foam_pattern);
+    let foam = shoreline_mask * step(0.5, foam_pattern);
+
     final_color = mix(final_color, vec3<f32>(0.9, 0.95, 1.0), foam * 0.7);
     
     // Subsurface
