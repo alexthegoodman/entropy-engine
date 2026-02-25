@@ -38,7 +38,7 @@ import "./alpha_preview_addon";
 // import "./horde_mode_game";
 // import "./wave_spawner_game";
 import "./fps_rpg";
-import "./cannabis_conquest";
+import "./conquest";
 
 // initialize last (tier 3)
 import "./game_composer_addon";

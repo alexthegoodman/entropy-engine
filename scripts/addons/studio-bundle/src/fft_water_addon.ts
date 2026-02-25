@@ -43,6 +43,7 @@ fn gaussian_random(uv: vec2<f32>) -> vec2<f32> {
 }
 
 // Phillips spectrum
+// other spectrums to try include JONSWAP, TMA, Pierson-Moskowitz, and Donelan-Banner
 fn phillips_spectrum(k: vec2<f32>) -> f32 {
     let k_length = length(k);
     if (k_length < 0.0001) {
@@ -70,20 +71,70 @@ fn phillips_spectrum(k: vec2<f32>) -> f32 {
     return phillips;
 }
 
+// JONSWAP spectrum — models fetch-limited seas with a pronounced dominant frequency peak.
+// More physically accurate than Phillips for coastal/stormy conditions.
+//
+// Key addition over Phillips/Pierson-Moskowitz: the "peak enhancement factor" gamma,
+// which sharpens the spectral peak around the dominant frequency omega_p.
+// gamma = 1.0  =>  reduces to Pierson-Moskowitz (fully developed, calm open sea)
+// gamma = 3.3  =>  standard JONSWAP (typical North Sea fetch-limited conditions)
+// gamma = 7.0  =>  very sharp peak (young, stormy, short-fetch sea state)
+fn jonswap_spectrum(wave_vector: vec2<f32>) -> f32 {
+    let wave_number = length(wave_vector);
+    if (wave_number < 0.0001) {
+        return 0.0;
+    }
+
+    // Peak wavenumber: derived from the dominant angular frequency omega_p.
+    // For a fully developed sea: omega_p ≈ 0.87 * g / U (Pierson-Moskowitz).
+    // Via dispersion omega^2 = g*k => k_p = omega_p^2 / g
+    let omega_p = 0.87 * params.gravity / params.wind_speed;
+    let peak_wave_number = (omega_p * omega_p) / params.gravity;
+
+    // Pierson-Moskowitz base shape — broad energy distribution across frequencies.
+    // S_PM(k) = (alpha / k^4) * exp(-beta * (k_p / k)^2)
+    let alpha = 0.0081; // Phillips-Hasselmann constant
+    let beta  = 1.25;
+    let pm_shape = (alpha / (wave_number * wave_number * wave_number * wave_number))
+                 * exp(-beta * pow(peak_wave_number / wave_number, 2.0));
+
+    // JONSWAP peak enhancement — sharpens the spectral peak at k = k_p.
+    // Multiplies the PM base by gamma^(exp(...)), which boosts energy near the peak.
+    let gamma         = 5.3; // Try 1.0 (calm) to 7.0 (stormy) — biggest visual lever
+    let sigma         = select(0.09, 0.07, wave_number <= peak_wave_number); // width of peak (narrower below peak)
+    let peak_exponent = exp(
+        -pow(sqrt(wave_number / peak_wave_number) - 1.0, 2.0)
+        / (2.0 * sigma * sigma)
+    );
+    let peak_enhancement = pow(gamma, peak_exponent);
+
+    // Directional spreading — how energy fans out around wind direction.
+    // Phillips uses dot(k,wind)^2 which is very broad. This is still simple
+    // but you could replace with Donelan-Banner sech^2 for tighter realism.
+    let wind_dir    = normalize(vec2<f32>(params.wind_direction_x, params.wind_direction_y));
+    let k_dir       = wave_vector / wave_number;
+    let directional = max(0.0, dot(k_dir, wind_dir));
+    let spreading   = directional * directional; // ^2 = moderate spreading, ^4 = tight beam
+
+    // Small-wave damping — suppresses wavelengths shorter than a capillary cutoff.
+    // Keeps the surface from getting unphysically noisy at high k.
+    let capillary_cutoff = 0.001;
+    let damping = exp(-wave_number * wave_number * capillary_cutoff * capillary_cutoff);
+
+    return params.amplitude * pm_shape * peak_enhancement * spreading * damping;
+}
+
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let N = u32(params.resolution);
-    
-    // if (id.x >= N || id.y >= N) {
-    //     return;
-    // }
     
     // Wave vector k
     let n = vec2<f32>(f32(id.x) - f32(N) * 0.5, f32(id.y) - f32(N) * 0.5);
     let k = (2.0 * 3.14159265359 * n) / params.ocean_size;
     
     // Phillips spectrum value
-    let ph = phillips_spectrum(k);
+    // let ph = phillips_spectrum(k); // best for semi-calm
+    let ph = jonswap_spectrum(k);
     
     // Gaussian random numbers
     let uv = vec2<f32>(f32(id.x), f32(id.y)) / f32(N);
@@ -144,76 +195,133 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 // `;
 
 const SPECTRUM_UPDATE_SHADER = `
-// Update H(k,t) from H0(k) using dispersion relation
+// Evolves the frequency-domain ocean spectrum H(k,t) forward in time.
+//
+// Each texel (texture pixel) represents one wave vector k. We take the initial spectrum H0(k)
+// (generated offline with an oceanography spectrum, Phillips in our case)
+// and animate it by rotating each complex amplitude in the complex plane at
+// its natural angular frequency omega(k). This gives us the time-varying
+// spectrum H(k,t), which can then be inverse-FFT'd (Fast Fourier Transform) to get real-space
+// surface displacement.
+
 struct TimeParams {
-    time: f32,
-    resolution: f32,
-    ocean_size: f32,
-    gravity: f32,
-    choppiness: f32,
+    time: f32,          // Simulation time in seconds
+    resolution: f32,    // Grid resolution N (texture is N x N)
+    ocean_size: f32,    // Physical size of the ocean tile in meters
+    gravity: f32,       // Gravitational acceleration (m/s^2), typically 9.81
+    choppiness: f32,    // Scales horizontal (Gerstner) displacement
     padding1: f32,
     padding2: f32,
     padding3: f32,
 }
 
 @group(0) @binding(0)
-var input_h0: texture_2d<f32>;
+var initial_spectrum_h0: texture_2d<f32>;
+// Each texel stores two complex numbers packed into rgba:
+//   rg = H0(k)    — the complex amplitude for wave vector k
+//   ba = H0*(-k)  — the conjugate amplitude for the negated wave vector
+// These are generated once at startup and never change.
 
 @group(0) @binding(1)
-var output_ht: texture_storage_2d<rgba16float, write>;
+var output_animated_spectrum: texture_storage_2d<rgba16float, write>;
+// Output: time-evolved spectrum ready for the IFFT pass.
+// Packed as: rg = H(k,t) complex height,  ba = (Dx, Dz) real parts of horizontal displacement
 
 @group(0) @binding(2)
 var<uniform> params: TimeParams;
 
-// Complex multiplication
-fn cmul(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
-    return vec2<f32>(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x);
+// Multiplies two complex numbers represented as vec2(real, imaginary).
+// (a + ib)(c + id) = (ac - bd) + i(ad + bc)
+fn complex_multiply(a: vec2<f32>, b: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(
+        a.x * b.x - a.y * b.y,  // real part
+        a.x * b.y + a.y * b.x   // imaginary part
+    );
 }
 
 @compute @workgroup_size(8, 8, 1)
-fn main(@builtin(global_invocation_id) id: vec3<u32>) {
-    let N = u32(params.resolution);
-    
-    // if (id.x >= N || id.y >= N) {
-    //     return;
-    // }
-    
-    // Wave vector k
-    let n = vec2<f32>(f32(id.x) - f32(N) * 0.5, f32(id.y) - f32(N) * 0.5);
-    let k = (2.0 * 3.14159265359 * n) / params.ocean_size;
-    let k_length = length(k);
-    
-    // Dispersion relation: omega = sqrt(g * |k|)
-    let omega = sqrt(params.gravity * k_length);
-    
-    // Read H0(k) and H0(-k)*
-    let h0_k = textureLoad(input_h0, vec2<i32>(id.xy), 0);
-    let h0_k_val = vec2<f32>(h0_k.x, h0_k.y);
-    let h0_minus_k_conj = vec2<f32>(h0_k.z, h0_k.w);
-    
-    // exp(i * omega * t) = cos(omega*t) + i*sin(omega*t)
-    let omega_t = omega * params.time;
-    let exp_iwt = vec2<f32>(cos(omega_t), sin(omega_t));
-    let exp_minus_iwt = vec2<f32>(cos(omega_t), -sin(omega_t));
-    
-    // H(k,t) = H0(k) * exp(i*omega*t) + H0*(-k) * exp(-i*omega*t)
-    let ht = cmul(h0_k_val, exp_iwt) + cmul(h0_minus_k_conj, exp_minus_iwt);
-    
-    // Also compute displacement derivatives for choppy waves
-    // Dx = -i * kx / |k| * H(k,t)
-    // Dz = -i * kz / |k| * H(k,t)
-    var dx = vec2<f32>(0.0);
-    var dz = vec2<f32>(0.0);
-    
-    if (k_length > 0.0001) {
-        let k_norm = k / k_length;
-        // -i * kx * H(k,t) = -i * (h_real + i*h_imag) * kx = (h_imag * kx, -h_real * kx)
-        dx = vec2<f32>(ht.y, -ht.x) * k_norm.x * params.choppiness;
-        dz = vec2<f32>(ht.y, -ht.x) * k_norm.y * params.choppiness;
+fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let grid_size = u32(params.resolution);
+
+    // Compute the 2D wave vector k for this texel.
+    // We center the grid so that k = 0 is in the middle (DC component),
+    // with negative frequencies on the left/bottom and positive on the right/top.
+    // grid_offset maps [0, N) texel indices to [-N/2, N/2) frequency indices.
+    let grid_offset = vec2<f32>(
+        f32(global_id.x) - f32(grid_size) * 0.5,
+        f32(global_id.y) - f32(grid_size) * 0.5
+    );
+
+    // Convert from grid index space to physical wavenumber (radians per meter).
+    // k = 2*pi * n / L, where L = ocean_size in meters.
+    let wave_vector = (2.0 * 3.14159265359 * grid_offset) / params.ocean_size;
+    let wave_number = length(wave_vector); // |k| = scalar wavenumber (rad/m)
+
+    // Deep-water dispersion relation: omega^2 = g * |k|
+    // => omega = sqrt(g * |k|)
+    // This gives the natural angular frequency (rad/s) at which a wave of this
+    // wavenumber oscillates. Shorter waves (higher |k|) oscillate faster.
+    let angular_frequency = sqrt(params.gravity * wave_number);
+
+    // Load H0(k) and H0*(-k) from the packed initial spectrum texture.
+    // rg channels hold H0(k), ba channels hold H0*(-k) (precomputed conjugate).
+    let packed_initial_spectrum = textureLoad(initial_spectrum_h0, vec2<i32>(global_id.xy), 0);
+    let h0_k              = vec2<f32>(packed_initial_spectrum.x, packed_initial_spectrum.y);
+    let h0_minus_k_conj   = vec2<f32>(packed_initial_spectrum.z, packed_initial_spectrum.w);
+
+    // Compute the time-rotation phasors: exp(±i * omega * t)
+    // By Euler's formula: e^(i*theta) = cos(theta) + i*sin(theta)
+    // Positive phasor rotates H0(k) forward in time.
+    // Negative phasor rotates H0*(-k) backward (required for the conjugate symmetry term).
+    let phase_angle   = angular_frequency * params.time;
+    let phasor_forward  = vec2<f32>( cos(phase_angle), sin(phase_angle));   // e^(+i*omega*t)
+    let phasor_backward = vec2<f32>( cos(phase_angle), -sin(phase_angle));  // e^(-i*omega*t)
+
+    // Animate the spectrum using the standard ocean simulation formula:
+    //   H(k,t) = H0(k) * e^(+i*omega*t) + H0*(-k) * e^(-i*omega*t)
+    // This superposition ensures the resulting surface displacement is real-valued,
+    // since the two terms are complex conjugates of each other.
+    let animated_height_spectrum = complex_multiply(h0_k, phasor_forward)
+                                 + complex_multiply(h0_minus_k_conj, phasor_backward);
+
+    // Compute horizontal (Gerstner/choppy) displacement spectra Dx and Dz.
+    // In the frequency domain, horizontal displacement is derived by multiplying
+    // the height spectrum by -i * (k / |k|):
+    //   Dx(k,t) = -i * (kx / |k|) * H(k,t)
+    //   Dz(k,t) = -i * (kz / |k|) * H(k,t)
+    //
+    // Multiplying a complex number (r + i*m) by -i gives (m - i*r),
+    // i.e. swap real/imag and negate the new imaginary part:
+    //   -i * (h_real + i*h_imag) = h_imag - i*h_real  =>  vec2(h_imag, -h_real)
+    var displacement_x = vec2<f32>(0.0);
+    var displacement_z = vec2<f32>(0.0);
+
+    if (wave_number > 0.0001) {
+        // Normalized wave direction vector (unit vector pointing in wave travel direction)
+        let wave_direction = wave_vector / wave_number;
+
+        // Apply -i rotation and scale by wave direction component and choppiness factor.
+        // The choppiness parameter controls how far waves peak and crest horizontally.
+        let height_rotated_by_neg_i = vec2<f32>(animated_height_spectrum.y, -animated_height_spectrum.x);
+        displacement_x = height_rotated_by_neg_i * wave_direction.x * params.choppiness;
+        displacement_z = height_rotated_by_neg_i * wave_direction.y * params.choppiness;
     }
-    
-    // Store: (ht.real, ht.imag, dx.real, dz.real) for later FFT
-    textureStore(output_ht, vec2<i32>(id.xy), vec4<f32>(ht.x, ht.y, dx.x, dz.x));
+
+    // Pack output into a single rgba16float texel for the IFFT pass:
+    //   rg = H(k,t) complex height spectrum  (real, imaginary)
+    //   b  = Dx real part (horizontal displacement in x after IFFT)
+    //   a  = Dz real part (horizontal displacement in z after IFFT)
+    // Only the real parts of Dx/Dz are stored since the IFFT will produce real outputs.
+    textureStore(
+        output_animated_spectrum,
+        vec2<i32>(global_id.xy),
+        vec4<f32>(
+            animated_height_spectrum.x,  // height: real
+            animated_height_spectrum.y,  // height: imaginary
+            displacement_x.x,            // Dx: real
+            displacement_z.x             // Dz: real
+        )
+    );
 }
 `;
 
@@ -494,9 +602,9 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let sign_correction = select(1.0, -1.0, ((id.x + id.y) % 2u) == 1u);
     
     let displacement = vec3<f32>(
-        choppy_x * sign_correction * params.choppiness,
+        choppy_x * sign_correction,
         height * sign_correction,
-        choppy_z * sign_correction * params.choppiness
+        choppy_z * sign_correction
     );
     
     // Compute derivatives for normal calculation
@@ -1171,7 +1279,7 @@ function updateOcean(time: number) {
 
     const N = addonState.currentParams.resolution;
     const workgroups = Math.ceil(N / 8);
-    const logN = Math.log2(N);
+    const logN = Math.log2(N); // by this point, youve covered the whole grid resolution via the horiz and vert passes
 
     // 1. Update Spectrum
     const timeParams = new Float32Array([
