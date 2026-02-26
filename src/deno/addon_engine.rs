@@ -1218,6 +1218,8 @@ fn op_texture_load(
         .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve textures directory"))?;
             
     let file_path = textures_dir.join(filename);
+
+    println!("Texture load: {:?}", file_path);
     
     if let Some(gpu) = &ctx.gpu_resources {
         let texture_id = format!("tex_{}", Uuid::new_v4());
@@ -3848,12 +3850,16 @@ impl AddonEngine {
             let state = self.runtime.op_state();
             let state = state.borrow();
             let context = state.borrow::<AddonContext>();
-            context
-                .on_update_callbacks
-                .iter()
-                .filter(|(name, _)| name == &current_addon_name)
-                .cloned()
-                .collect::<Vec<_>>()
+            if context.project_id.is_some() {
+                context
+                    .on_update_callbacks
+                    .iter()
+                    .filter(|(name, _)| name == &current_addon_name)
+                    .cloned()
+                    .collect::<Vec<_>>()
+            } else {
+                Vec::new()
+            }
         };
 
         for (addon_name, callback) in callbacks {

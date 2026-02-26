@@ -698,6 +698,15 @@ var glint_sampler: sampler;
 @group(3) @binding(4)
 var glint_texture: texture_2d<f32>;
 
+@group(3) @binding(5)
+var foam_color_texture: texture_2d<f32>;
+@group(3) @binding(6)
+var foam_normal_texture: texture_2d<f32>;
+@group(3) @binding(7)
+var foam_roughness_texture: texture_2d<f32>;
+@group(3) @binding(8)
+var foam_opacity_texture: texture_2d<f32>;
+
 // ===== STRUCTS =====
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -765,28 +774,28 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let dhdz = deriv_data.y;
     let foam = deriv_data.z;
     
-    let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, in.uv, 0.0);
-    let displacement = disp_data.xyz;
+    // let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, in.uv, 0.0);
+    // let displacement = disp_data.xyz;
 
-    // === Dynamic white capillary glints (high-res texture, per-pixel) ===
-    let steepness = length(vec2<f32>(dhdx, dhdz));                    // uses your existing derivatives
-    let crest_factor = smoothstep(
-        glint_config.crest_threshold,
-        glint_config.crest_threshold + glint_config.crest_range,
-        steepness
-    );
+    // // === Dynamic white capillary glints (high-res texture, per-pixel) ===
+    // let steepness = length(vec2<f32>(dhdx, dhdz));                    // uses your existing derivatives
+    // let crest_factor = smoothstep(
+    //     glint_config.crest_threshold,
+    //     glint_config.crest_threshold + glint_config.crest_range,
+    //     steepness
+    // );
 
-    // Convert UV to world XZ (same as your ocean grid)
-    // let base_xz = (in.uv * water_config.ocean_size.x) - water_config.ocean_size.x * 0.5;
-    // let glint_uv = base_xz / glint_config.tile_world_size;   // high tiling = fine detail
+    // // Convert UV to world XZ (same as your ocean grid)
+    // // let base_xz = (in.uv * water_config.ocean_size.x) - water_config.ocean_size.x * 0.5;
+    // // let glint_uv = base_xz / glint_config.tile_world_size;   // high tiling = fine detail
 
-    let tile_count = 25.0;
-    let glint_uv = fract(in.uv * tile_count);
+    // let tile_count = 25.0;
+    // let glint_uv = fract(in.uv * tile_count);
 
-    let glint_sample = textureSample(glint_texture, glint_sampler, glint_uv);
-    // let glint = glint_sample.a * crest_factor * glint_config.intensity;
+    // let glint_sample = textureSample(glint_texture, glint_sampler, glint_uv);
+    // // let glint = glint_sample.a * crest_factor * glint_config.intensity;
 
-    let glint = glint_sample.a;
+    // let glint = glint_sample.a;
 
     // === Your original lighting (unchanged except + glint) ===
     let ndotv = max(dot(normalize(in.normal), view_dir), 0.0);  // or recompute from dhdx/dhdz if you prefer
@@ -808,21 +817,52 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     let spec = pow(max(dot(view_dir, reflect_dir), 0.0), water_config.lighting_params.z);
     final_color += vec3<f32>(1.0, 1.0, 0.95) * spec * water_config.lighting_params.w;
     
-    let foam_intensity = smoothstep(water_config.foam_params.x, water_config.foam_params.x + 0.2, foam);
-    final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
+    // let foam_intensity = smoothstep(water_config.foam_params.x, water_config.foam_params.x + 0.2, foam);
+    // final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
 
-    // final_color = mix(final_color, vec3<f32>(0.9, 0.1, 0.1), foam_intensity * water_config.foam_params.y); // red foam for testing
+    // // final_color = mix(final_color, vec3<f32>(0.9, 0.1, 0.1), foam_intensity * water_config.foam_params.y); // red foam for testing
     
-    // Add the white glints on top (this is the magic)
-    final_color += glint * vec3<f32>(1.0, 1.0, 1.0);
+    // // Add the white glints on top (this is the magic)
+    // final_color += glint * vec3<f32>(1.0, 1.0, 1.0);
+
+    // output.position = vec4<f32>(in.world_position, 1.0);
+    // output.normal = vec4<f32>(in.normal, 1.0);
+    // output.albedo = vec4<f32>(final_color, 0.85);
+
+    // // output.albedo = vec4<f32>(glint_sample.a, glint_sample.a, glint_sample.a, 0.85);
+
+    // output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
+
+    // Sample foam textures using tiled UVs
+    let foam_tiling = 32.0; // tune this
+    let foam_uv = fract(in.uv * foam_tiling);
+
+    let foam_albedo    = textureSample(foam_color_texture,     ocean_sampler, foam_uv).rgb;
+    let foam_normal    = textureSample(foam_normal_texture,    ocean_sampler, foam_uv).rgb;
+    let foam_roughness = textureSample(foam_roughness_texture, ocean_sampler, foam_uv).r;
+    let foam_opacity   = textureSample(foam_opacity_texture,   ocean_sampler, foam_uv).r;
+
+    // Combine foam opacity with jacobian foam mask
+    // let foam_mask = smoothstep(water_config.foam_params.x, water_config.foam_params.x + 0.2, foam);
+    // let foam_blend = foam_mask * foam_opacity * water_config.foam_params.y;
+
+    let foam_blend = foam_opacity;
+
+    // Blend albedo
+    final_color = mix(final_color, foam_albedo, foam_blend);
+
+    // Blend normal - decode from [0,1] to [-1,1] then mix
+    let foam_n = normalize(foam_normal * 2.0 - 1.0);
+    let blended_normal = normalize(mix(in.normal, foam_n, foam_blend));
+
+    // Blend roughness - foam is very rough (~0.9), water is smooth (~0.1)
+    let base_roughness = 0.1;
+    let final_roughness = mix(base_roughness, foam_roughness, foam_blend);
 
     output.position = vec4<f32>(in.world_position, 1.0);
-    output.normal = vec4<f32>(in.normal, 1.0);
-    output.albedo = vec4<f32>(final_color, 0.85);
-
-    // output.albedo = vec4<f32>(glint_sample.a, glint_sample.a, glint_sample.a, 0.85);
-
-    output.pbr_material = vec4<f32>(0.0, 0.1, 0.4, 1.0);
+    output.normal   = vec4<f32>(blended_normal, 1.0);
+    output.albedo   = vec4<f32>(final_color, 0.85);
+    output.pbr_material = vec4<f32>(0.0, final_roughness, 0.4, 1.0);
     
     return output;
 }
@@ -1108,11 +1148,15 @@ let textures = {
     displacement: null as string | null, // Final displacement map
     derivatives: null as string | null,  // Normals and foam
     glint: null as string | null,       // capillary foam look
+    foamColor: null as string | null,
+    foamNormal: null as string | null,
+    foamRoughness: null as string | null,
+    foamOpacity: null as string | null,
 };
 
 addon.onInit(async () => {
     Entropy.println("🌊 FFT Ocean: onInit started");
-    
+
     // Create compute pipelines
     pipelineIds.spectrumInit = Entropy.Pipeline.createCompute({
         name: "SpectrumInit",
@@ -1202,6 +1246,10 @@ addon.onInit(async () => {
                     { binding: 2, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" },
                     { binding: 3, visibility: ["Vertex", "Fragment"], resourceType: "Sampler" },
                     { binding: 4, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
+                    { binding: 5, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 6, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 7, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 8, visibility: ["Fragment"], resourceType: "Texture" },
                 ]
             },
             { entries: [
@@ -1284,6 +1332,15 @@ addon.onInit(async () => {
                     Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
                 });
             }
+
+            // Load PBR foam textures (must load after selecting project)
+            textures.foamColor = addon.Texture.load("Foam002_2K-PNG_Color.png");
+            textures.foamNormal = addon.Texture.load("Foam002_2K-PNG_NormalGL.png");
+            textures.foamRoughness = addon.Texture.load("Foam002_2K-PNG_Roughness.png");
+            textures.foamOpacity = addon.Texture.load("Foam002_2K-PNG_Opacity.png");
+
+            Entropy.println("🌊 FFT Ocean: textures loaded");
+
             createWaterMesh("fft_ocean_preview", addonState.currentParams);
         }
     });
@@ -1620,6 +1677,10 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
             { group: 3, binding: 2, resource: { type: "Sampler" } },
             { group: 3, binding: 3, resource: { type: "Sampler" } },
             { group: 3, binding: 4, resource: { type: "Texture", value: { id: textures.glint! } } },
+            { group: 3, binding: 5, resource: { type: "Texture", value: { id: textures.foamColor! } } },
+            { group: 3, binding: 6, resource: { type: "Texture", value: { id: textures.foamNormal! } } },
+            { group: 3, binding: 7, resource: { type: "Texture", value: { id: textures.foamRoughness! } } },
+            { group: 3, binding: 8, resource: { type: "Texture", value: { id: textures.foamOpacity! } } },
             { group: 4, binding: 0, resource: { type: "Uniform", value: { data: waterConfig } } },
             { group: 4, binding: 1, resource: { type: "Uniform", value: { data: glintConfig } } },
         ]
