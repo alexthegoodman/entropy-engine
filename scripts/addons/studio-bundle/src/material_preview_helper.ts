@@ -109,6 +109,8 @@ function generateCubeData() {
 
 
 export const createMaterialCube = (addon: any, pipelineId: string, diffTextureId: string, id?: string) => {
+    Entropy.Composer?.enableGameComposerOverride();
+
     if (id) {
         addon.Model.clearMesh(id);
     }
@@ -132,11 +134,13 @@ export const createMaterialCube = (addon: any, pipelineId: string, diffTextureId
             { group: 2, binding: 2, resource: { type: "Sampler" } }
         ]
     });
+
+    Entropy.Composer?.disableGameComposerOverride();
 }
 
 export const createMaterialPipeline = () => {
     const pipelineId = Entropy.Pipeline.create({
-        name: "PBR_Preview_Pipeline",
+        name: "Material_Preview_Pipeline",
         pbr: true,
         layout: "mesh",
         vertexShader: PREVIEW_SHADER,

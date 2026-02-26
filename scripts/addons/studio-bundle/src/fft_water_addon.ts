@@ -777,11 +777,16 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     );
 
     // Convert UV to world XZ (same as your ocean grid)
-    let base_xz = (in.uv * water_config.ocean_size.x) - water_config.ocean_size.x * 0.5;
-    let glint_uv = base_xz / glint_config.tile_world_size;   // high tiling = fine detail
+    // let base_xz = (in.uv * water_config.ocean_size.x) - water_config.ocean_size.x * 0.5;
+    // let glint_uv = base_xz / glint_config.tile_world_size;   // high tiling = fine detail
+
+    let tile_count = 25.0;
+    let glint_uv = fract(in.uv * tile_count);
 
     let glint_sample = textureSample(glint_texture, glint_sampler, glint_uv);
-    let glint = glint_sample.a * crest_factor * glint_config.intensity;
+    // let glint = glint_sample.a * crest_factor * glint_config.intensity;
+
+    let glint = glint_sample.a;
 
     // === Your original lighting (unchanged except + glint) ===
     let ndotv = max(dot(normalize(in.normal), view_dir), 0.0);  // or recompute from dhdx/dhdz if you prefer
@@ -804,9 +809,9 @@ fn fs_main(in: VertexOutput) -> GbufferOutput {
     final_color += vec3<f32>(1.0, 1.0, 0.95) * spec * water_config.lighting_params.w;
     
     let foam_intensity = smoothstep(water_config.foam_params.x, water_config.foam_params.x + 0.2, foam);
-    // final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
+    final_color = mix(final_color, vec3<f32>(0.95, 0.95, 1.0), foam_intensity * water_config.foam_params.y);
 
-    final_color = mix(final_color, vec3<f32>(0.9, 0.1, 0.1), foam_intensity * water_config.foam_params.y); // red foam for testing
+    // final_color = mix(final_color, vec3<f32>(0.9, 0.1, 0.1), foam_intensity * water_config.foam_params.y); // red foam for testing
     
     // Add the white glints on top (this is the magic)
     final_color += glint * vec3<f32>(1.0, 1.0, 1.0);
@@ -921,34 +926,7 @@ var glint_storage: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(1)
 var<uniform> params: GlintParams;
 
-// === Simplex + fBm (same high-quality version) ===
-fn mod289(x: vec2<f32>) -> vec2<f32> { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-fn mod289_3(x: vec3<f32>) -> vec3<f32> { return x - floor(x * (1.0 / 289.0)) * 289.0; }
-fn permute3(x: vec3<f32>) -> vec3<f32> { return mod289_3(((x * 34.0) + 1.0) * x); }
-
-// fn simplex2(v: vec2<f32>) -> f32 {
-//     let C = vec4<f32>(0.211324865405187, 0.366025403784439, -0.577350269189626, 0.024390243902439);
-//     var i = floor(v + dot(v, C.yy));
-//     let x0 = v - i + dot(i, C.xx);
-//     var i1 = select(vec2<f32>(0.0, 1.0), vec2<f32>(1.0, 0.0), x0.x > x0.y);
-//     var x12 = x0.xyxy + C.xxzz;
-//     x12.x -= i1.x; x12.y -= i1.y;
-//     i = mod289(i);
-//     let p = permute3(permute3(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
-//     var m = max(vec3(0.0) - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), vec3(0.0));
-//     m = m * m * m * m;
-//     let x = 2.0 * fract(p * C.www) - 1.0;
-//     let h = abs(x) - 0.5;
-//     let ox = floor(x + 0.5);
-//     let a0 = x - ox;
-//     m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-//     var g: vec3<f32>;
-//     g.x = a0.x * x0.x + h.x * x0.y;
-//     g.y = a0.y * x12.x + h.y * x12.y;
-//     g.z = a0.z * x12.z + h.z * x12.w;
-//     return 130.0 * dot(m, g);
-// }
-
+// === Simplex + fBm ===
 fn snoise2D_permute3(x: vec3<f32>) -> vec3<f32> {
     return ((x * 34.0 + 1.0) * x) % vec3<f32>(289.0);
 }
@@ -1005,29 +983,20 @@ fn fbm_ripples(p: vec2<f32>) -> f32 {
 @compute @workgroup_size(8, 8, 1)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     let res = params.resolution;
-    // let res = 1024.0;
-    // if (id.x >= u32(res) || id.y >= u32(res)) { return; }
 
     let uv = vec2<f32>(id.xy) / res;
     let noise_pos = uv * params.tile_freq + params.time * params.wind_dir * params.speed;
-    // let noise_pos = uv * 25.0 + 1.0 * vec2<f32>(1.0, 0.0) * 1.8;
 
     let height = fbm_ripples(noise_pos);                    // capillary "height"
     let mask = smoothstep(params.peak_threshold, 1.0, height);   // only the highest peaks become white
-    // let mask = smoothstep(0.5, 1.0, height);   // all black
-    // let mask = smoothstep(-0.1, 1.0, height); // all black
-    // let mask = smoothstep(-2.0, 0.0, height); // all white
-    // let mask = smoothstep(-2.0, 2.0, height);   // all white
 
     // let white = vec4<f32>(1.0, 1.0, 1.0, mask * params.glint_intensity);
     let white = vec4<f32>(1.0, 1.0, 1.0, mask * 1.0);
 
     textureStore(glint_storage, vec2<i32>(id.xy), white);
-
-    // let debug = (height + 5.0) / 10.0;  // remap -5..5 to 0..1
-    // textureStore(glint_storage, vec2<i32>(id.xy), vec4<f32>(debug, debug, debug, 1.0));
 }
 
+// for debugging
 // @compute @workgroup_size(8, 8, 1)
 // fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 //     let res = params.resolution;
@@ -1243,7 +1212,7 @@ addon.onInit(async () => {
     });
 
     // for debugging the capillary noise on a cube mesh
-    let materialPipeline = createMaterialPipeline();
+    // let materialPipeline = createMaterialPipeline();
     
     // Initialize textures and buffers
     initializeResources();
@@ -1264,10 +1233,10 @@ addon.onInit(async () => {
                 // The current shader assumes y=oceanHeight, but we should probably add world pos
                 createWaterMesh(id, params);
 
-                // for debugging the capillary noise
-                if (textures.glint) {
-                    createMaterialCube(addon, materialPipeline, textures.glint, Entropy.generateUUID())
-                }
+                // // for debugging the capillary noise
+                // if (textures.glint) {
+                //     createMaterialCube(addon, materialPipeline, textures.glint, Entropy.generateUUID())
+                // }
             });
         }
     }
@@ -1279,7 +1248,7 @@ addon.onInit(async () => {
     // updateOcean(2000);
     
     // // Create water mesh (preview)
-    createWaterMesh("fft_ocean_preview", addonState.currentParams);
+    // createWaterMesh("fft_ocean_preview", addonState.currentParams);
 
     // Atmospheric lighting
     addon.Lighting.createPointLight({
@@ -1631,7 +1600,7 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
 // var glint_texture: texture_2d<f32>;
 
     const glintConfig = [
-        3.0, 1.6, 0.40, 0.55
+        10.0, 1.6, 0.40, 0.55
     ]
     
     addon.Model.clearMesh(id);
