@@ -3465,7 +3465,7 @@ impl AddonEngine {
         }
 
         for (group_idx, binding_configs) in sorted_groups {
-            println!("get_bind_group_layout {:?} {:?} {:?}", id, group_idx, binding_configs);
+            // println!("get_bind_group_layout {:?} {:?} {:?}", id, group_idx, binding_configs);
             let layout = pipeline.get_bind_group_layout(group_idx);
             // println!("got it! {:?}", id);
             
@@ -4647,6 +4647,8 @@ impl AddonEngine {
                                          } else {
                                              None
                                          };
+
+                                         println!("Create mesh {:?} {:?} {:?}", addon_name, config.pipeline_id, custom_pipeline.is_some());
                 
                                          if let Some(p) = custom_pipeline {
                                              (Some(p), config.pipeline_id.clone())

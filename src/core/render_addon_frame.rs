@@ -741,9 +741,11 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         render_pass.set_bind_group(1, &mesh.model_bind_group, &[]);
 
                         if mesh.pipeline_id == "default" {
+                            // println!("~~~~~~~~~~ THE EViL DefAULT pipeLINE");
                             render_pass.set_bind_group(2, window_size_bind_group, &[]);
                             render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
                         } else {
+                            // println!("~~~~~~~~~~ THE GOOOOOD pipeLINE");
                             for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
                                 render_pass.set_bind_group((i + 2) as u32, bind_group, &[]);
                             }
@@ -760,6 +762,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                             wgpu::IndexFormat::Uint32,
                         );
                         render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+
+                        // println!("~~~~~~~~~~ THE GOOOOOD draw");
                     }
 
                     for model in &pbr_addon_models {
