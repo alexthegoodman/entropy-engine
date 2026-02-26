@@ -1502,12 +1502,12 @@ function updateOcean(time: number) {
 
     // Glint / Capillary Foam / High Detail Texture
     const glintParams = new Float32Array([
-        1024,        // resolution: e.g. 2048 or 4096
-        15,        // tile_freq: how many capillary features across one texture (2-45)
-        2.2,             // speed: 1.8-3.2
+        2048,        // resolution: e.g. 2048 or 4096
+        25,        // tile_freq: how many capillary features across one texture (2-45)
+        0.35,             // speed: 1.8-3.2
         time,
         ...[1.0, 0.0],   // wind_dir [2; f32]
-        -0.95,    // peak_threshold: 0.55-0.75  (higher = only the very tips are white)
+        0.25,    // peak_threshold: 0.55-0.75  (higher = only the very tips are white)
         1.0,   // glint_intensity: 0.7-1.3
         0, 0, 0, 0, 0, 0, 0 // padding
     ]);
