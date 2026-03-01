@@ -415,8 +415,13 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         let padded = pad_moments_deque(&self.context_window, CONTEXT_LEN);
         let flat   = moments_to_flat(&padded);
 
-        let input_t  = Tensor::<B, 3>::from_floats(flat.as_slice(), &self.device)
-            .reshape([1, CONTEXT_LEN, MOMENT_SIZE]);
+        // let input_t  = Tensor::<B, 3>::from_floats(flat.as_slice(), &self.device)
+        //     .reshape([1, CONTEXT_LEN, MOMENT_SIZE]);
+
+        let input_t = Tensor::<B, 3>::from_floats(
+            TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
+            &self.device,
+        );
 
         // Use valid() to disable dropout during inference
         let model_valid = self.model.clone().valid();
@@ -484,8 +489,14 @@ impl<B: AutodiffBackend> YumonBrain<B> {
                     let context = build_context(&all, i);
                     let flat    = moments_to_flat(&context);
 
-                    let input_t  = Tensor::<B, 3>::from_floats(flat.as_slice(), &self.device)
-                        .reshape([1, CONTEXT_LEN, MOMENT_SIZE]);
+                    // let input_t  = Tensor::<B, 3>::from_floats(flat.as_slice(), &self.device)
+                    //     .reshape([1, CONTEXT_LEN, MOMENT_SIZE]);
+
+                    let input_t = Tensor::<B, 3>::from_floats(
+                        TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
+                        &self.device,
+                    );
+
                     let logits   = self.model.forward(input_t);
 
                     let loss = policy_gradient_loss(logits, exp.action_taken, exp.reward);
@@ -873,21 +884,4 @@ fn mk_bar(ratio: f32, width: usize) -> String {
     format!("[{}]", "█".repeat(n) + &"░".repeat(width - n))
 }
 
-// Example usage:
-// mod brain;
-
-// use brain::OrganismSim;
-// use burn::backend::{Autodiff, NdArray};
-
-// fn main() {
-//     // NdArray backend — swap for Wgpu/LibTorch for GPU.
-//     type MyBackend = Autodiff<NdArray<f32>>;
-//     let device = Default::default();
-
-//     let mut sim: OrganismSim<MyBackend> = OrganismSim::new(device);
-
-//     // Run 1000 ticks, sleeping every 400 ticks (≈ SLEEP_EVERY_MS / TICK_MS in the JS)
-//     sim.run(1000, 400);
-// }
-
-// TODO: we will need to ensure that we run ticks on render_addon_frame, so it runs in tandem with 3D visual simulation, rather than just calling OrganismSim.run()
+// usage: we ensure that we run ticks on render_addon_frame, so it runs in tandem with 3D visual simulation, rather than just calling OrganismSim.run()
