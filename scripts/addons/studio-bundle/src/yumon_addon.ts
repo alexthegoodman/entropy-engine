@@ -9,16 +9,15 @@ const metadata: AddonMetadata = {
 
 const addon: ScopedAPI = Entropy.Addon.register(metadata);
 
-const yumonId = "Yumon_Alpha";
-const modelId = "Yumon_Model";
-const landscapeId = "Yumon_Room";
+const yumonId = Entropy.generateUUID();
+const modelId = Entropy.generateUUID();
+const landscapeId = Entropy.generateUUID();
 
 let lastState: any = null;
 let currentWorldX = 0;
+let roomCreated = false;
 
-addon.onInit(() => {
-    Entropy.println("Yumon Addon: Initializing TypeScript version...");
-
+const createRoom = () => {
     // 1. Create a 32x32 landscape "room"
     addon.Landscape.create({
         id: landscapeId,
@@ -43,6 +42,24 @@ addon.onInit(() => {
             bodyType: "kinematic",
             colliderShape: "cuboid",
         }
+    });
+
+    roomCreated = true;
+}
+
+addon.onInit(() => {
+    Entropy.println("Yumon Addon: Initializing TypeScript version...");
+
+    const loadData = () => {
+        // const saved = addon.IO.load();
+        // if (saved) {
+            // state = { ...state, ...saved };
+            createRoom();
+        // }
+    };
+
+    addon.onProjectChanged((newProjectId) => {
+        loadData();
     });
 
     const windowId = addon.UI.createTab({
@@ -70,33 +87,34 @@ addon.onInit(() => {
 });
 
 addon.onUpdate((time: number) => {
-    // Tick the Yumon simulation
-    // @ts-ignore
-    const state = addon.Yumon.tick(yumonId);
-    if (state) {
-        lastState = state;
-        
-        // Map 1D pos (0-1) to 3D world space (X axis from -16 to 16)
-        const targetWorldX = (state.pos * 32.0) - 16.0;
-        
-        // Simple P-controller for smooth movement via velocity
-        // We calculate the delta and set velocity to reach the target
-        const kP = 5.0; 
-        const velocityX = (targetWorldX - currentWorldX) * kP;
-        
-        // Update the entity velocity
-        Entropy.Entity.setXZVelocity(modelId, [velocityX, 0]);
-        
-        // Update our local tracking (or we could raycast/query actual position)
-        // For kinematic movement, we'll assume it follows velocity closely
-        currentWorldX += velocityX * 0.016; // Approx 60fps delta
-        
-        // We could also update rotation based on movement direction
-        if (Math.abs(velocityX) > 0.01) {
-            const rotY = velocityX > 0 ? Math.PI / 2 : -Math.PI / 2;
-            Entropy.Entity.setRotation(modelId, [0, rotY, 0]);
+    if (roomCreated) {
+        // Tick the Yumon simulation
+        const state = addon.Yumon.tick(yumonId);
+        if (state) {
+            lastState = state;
+            
+            // Map 1D pos (0-1) to 3D world space (X axis from -16 to 16)
+            const targetWorldX = (state.pos * 32.0) - 16.0;
+            
+            // Simple P-controller for smooth movement via velocity
+            // We calculate the delta and set velocity to reach the target
+            const kP = 5.0; 
+            const velocityX = (targetWorldX - currentWorldX) * kP;
+            
+            // Update the entity velocity
+            Entropy.Entity.setXZVelocity(modelId, [velocityX, 0]);
+            
+            // Update our local tracking (or we could raycast/query actual position)
+            // For kinematic movement, we'll assume it follows velocity closely
+            currentWorldX += velocityX * 0.016; // Approx 60fps delta
+            
+            // We could also update rotation based on movement direction
+            if (Math.abs(velocityX) > 0.01) {
+                const rotY = velocityX > 0 ? Math.PI / 2 : -Math.PI / 2;
+                Entropy.Entity.setRotation(modelId, [0, rotY, 0]);
+            }
         }
-    }
+    } 
 });
 
 
