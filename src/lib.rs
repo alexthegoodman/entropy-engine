@@ -28,3 +28,4 @@ pub mod game_ui;
 pub mod deno;
 pub mod audio;
 pub mod alpha;
+pub mod yumon;
