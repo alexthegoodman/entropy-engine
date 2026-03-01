@@ -1,6 +1,6 @@
 import type { AddonMetadata, ScopedAPI } from "./addon";
 
-const metadata: AddonMetadata = {
+const addonInfo: AddonMetadata = {
     name: "Yumon Organism",
     version: "1.0.0",
     description: "Intelligent Yumon organism roaming a 32x32 room.",
@@ -10,7 +10,7 @@ const metadata: AddonMetadata = {
     }
 };
 
-const addon: ScopedAPI = Entropy.Addon.register(metadata);
+const addon: ScopedAPI = Entropy.Addon.register(addonInfo);
 
 const yumonId = Entropy.generateUUID();
 const modelId = Entropy.generateUUID();
@@ -68,6 +68,8 @@ addon.onInit(() => {
     const windowId = addon.UI.createTab({
         title: "Yumon Stats",
         onRender: () => {
+            Entropy.Addon.setVisibility(addonInfo.name, true);
+
             if (lastState) {
                 addon.UI.Widget.label(windowId, { text: `Last Action: ${lastState.lastAction}`, bold: true });
                 addon.UI.Widget.label(windowId, { text: `World X: ${currentWorldX.toFixed(2)}` });

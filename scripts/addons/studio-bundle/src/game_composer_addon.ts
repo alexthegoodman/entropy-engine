@@ -76,7 +76,8 @@ const sourceAddons = [
     "PBR Texture Designer Pro",
     "Light Hive",
     "Model Viewer",
-    "GPGPU River Simulation"
+    "GPGPU River Simulation",
+    "Yumon Organism"
 ];
 
 const gameAddons = [
