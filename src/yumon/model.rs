@@ -312,25 +312,42 @@ pub fn compute_reward(
 
 /// REINFORCE loss: -log_prob(action) * (1 - reward)
 /// Mirrors policyGradientLoss() in brain.ts.
+// fn policy_gradient_loss<B: AutodiffBackend>(
+//     logits:       Tensor<B, 2>,   // [1, ACTION_SIZE]
+//     action_taken: Action,
+//     reward:       f32,
+// ) -> Tensor<B, 1> {
+//     let reward_scale = -1.0f32;
+//     let action_idx   = action_taken as usize;
+
+//     // log_softmax over action dim
+//     let log_probs = burn::tensor::activation::log_softmax(logits, 1); // [1, ACTION_SIZE]
+
+//     // Extract log prob of the taken action → scalar
+//     let log_prob_taken = log_probs
+//         .slice([0..1, action_idx..action_idx + 1])
+//         .squeeze::<0>(); // scalar [,]
+
+//     // loss = -log_prob * (1 - reward)   (reward_scale = -1 baked in)
+//     log_prob_taken.mul_scalar((1.0 - reward) * reward_scale)
+//         .unsqueeze() // back to [1] so we can return Tensor<B, 1>
+// }
+
 fn policy_gradient_loss<B: AutodiffBackend>(
     logits:       Tensor<B, 2>,   // [1, ACTION_SIZE]
     action_taken: Action,
     reward:       f32,
 ) -> Tensor<B, 1> {
-    let reward_scale = -1.0f32;
-    let action_idx   = action_taken as usize;
+    let action_idx = action_taken as usize;
 
-    // log_softmax over action dim
     let log_probs = burn::tensor::activation::log_softmax(logits, 1); // [1, ACTION_SIZE]
 
-    // Extract log prob of the taken action → scalar
+    // Slice to [1, 1] then reshape to [1] — avoids zero-dim squeeze
     let log_prob_taken = log_probs
         .slice([0..1, action_idx..action_idx + 1])
-        .squeeze::<0>(); // scalar [,]
+        .reshape([1]);
 
-    // loss = -log_prob * (1 - reward)   (reward_scale = -1 baked in)
-    log_prob_taken.mul_scalar((1.0 - reward) * reward_scale)
-        .unsqueeze() // back to [1] so we can return Tensor<B, 1>
+    log_prob_taken.mul_scalar((1.0 - reward) * -1.0)
 }
 
 // ─── Brain ────────────────────────────────────────────────────────────────────
