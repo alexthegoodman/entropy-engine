@@ -3012,11 +3012,8 @@ pub fn op_addon_register_tool(
 #[op2(fast)]
 fn op_yumon_create(state: &mut OpState, #[string] name: String) {
     let mut ctx = state.borrow_mut::<AddonContext>();
-    if let Some(gpu) = &ctx.gpu_resources {
-        let device = &gpu.device;
-        let sim = OrganismSim::<MyBackend>::new(device);
-        ctx.yumon_sims.insert(name, sim);
-    }
+    let sim = OrganismSim::<MyBackend>::new(Default::default());
+    ctx.yumon_sims.insert(name, sim);
 }
 
 #[op2]

@@ -798,6 +798,10 @@ impl<B: AutodiffBackend> OrganismSim<B> {
         self.brain.debug_print();
     }
 
+    pub fn last_action_name(&self) -> &'static str {
+        self.last_action.name()
+    }
+
     /// Run the full simulation for `max_ticks` ticks, sleeping every `sleep_every` ticks.
     pub fn run(&mut self, max_ticks: u64, sleep_every: u64) {
         println!("╔════════════════════════════════════════════════╗");
