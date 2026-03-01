@@ -37,7 +37,7 @@ const createRoom = () => {
     // 3. Load the Friend1 model
     // We use a fixed ID so we can reference it in Entity updates
     addon.Model.load({
-        path: "Friend1.glb",
+        path: "Friend1b.glb",
         id: modelId,
         position: [0, 0, 0],
         scale: [1, 1, 1],
