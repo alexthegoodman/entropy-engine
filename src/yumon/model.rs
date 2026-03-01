@@ -13,7 +13,7 @@ use burn::{
         loss::CrossEntropyLossConfig,
         Dropout, DropoutConfig, Gelu, Linear, LinearConfig, Lstm, LstmConfig,
     },
-    optim::{AdamConfig, GradientsParams, Optimizer},
+    optim::{AdamConfig, GradientsParams, Optimizer, Adam, adaptor::OptimizerAdaptor},
     prelude::*,
     tensor::{
         backend::AutodiffBackend,
@@ -275,9 +275,13 @@ impl<B: Backend> BrainModel<B> {
         let (output_seq, _) = self.lstm.forward(x, None);
 
         // Take last time-step: [batch, lstm_units]
-        let seq_len = output_seq.dims()[1];
-        let last = output_seq.slice([0..output_seq.dims()[0], seq_len - 1..seq_len, 0..output_seq.dims()[2]])
-            .squeeze(1);
+        let dims = output_seq.dims();
+        let batch = dims[0];
+        let seq_len = dims[1];
+        let units = dims[2];
+        
+        let last = output_seq.slice([0..batch, seq_len - 1..seq_len, 0..units])
+            .reshape([batch, units]);
 
         let dropped = self.dropout.forward(last);
         let h       = burn::tensor::activation::relu(self.dense1.forward(dropped));
@@ -322,8 +326,7 @@ fn policy_gradient_loss<B: AutodiffBackend>(
     // Extract log prob of the taken action → scalar
     let log_prob_taken = log_probs
         .slice([0..1, action_idx..action_idx + 1])
-        .squeeze::<1>(0)
-        .squeeze::<0>(0); // scalar [,]
+        .squeeze::<0>(); // scalar [,]
 
     // loss = -log_prob * (1 - reward)   (reward_scale = -1 baked in)
     log_prob_taken.mul_scalar((1.0 - reward) * reward_scale)
@@ -332,9 +335,9 @@ fn policy_gradient_loss<B: AutodiffBackend>(
 
 // ─── Brain ────────────────────────────────────────────────────────────────────
 
-pub struct XTraverseBrain<B: AutodiffBackend> {
+pub struct YumonBrain<B: AutodiffBackend> {
     pub model:          BrainModel<B>,
-    optimizer:          burn::optim::Adam<B>,
+    optimizer:          OptimizerAdaptor<Adam, BrainModel<B>, B>,
     buffer:             ExperienceBuffer,
     world_norm:         RunningNorm,
     self_norm:          RunningNorm,
@@ -349,7 +352,7 @@ pub struct XTraverseBrain<B: AutodiffBackend> {
     pub sleep_count:    u32,
 }
 
-impl<B: AutodiffBackend> XTraverseBrain<B> {
+impl<B: AutodiffBackend> YumonBrain<B> {
     pub fn new(device: B::Device) -> Self {
         let config = BrainModelConfig::new();
         Self {
@@ -417,7 +420,7 @@ impl<B: AutodiffBackend> XTraverseBrain<B> {
 
         // Use valid() to disable dropout during inference
         let model_valid = self.model.clone().valid();
-        let logits_t    = model_valid.forward(input_t);
+        let logits_t    = model_valid.forward(input_t.inner());
         let logits: Vec<f32> = logits_t.to_data().to_vec().unwrap();
 
         let probs  = softmax(&logits);
@@ -543,7 +546,7 @@ impl<B: AutodiffBackend> XTraverseBrain<B> {
         let loss_str    = self.last_loss.map(|l| format!("{:.6}", l)).unwrap_or("n/a".into());
 
         println!("╔══════════════════════════════════════════╗");
-        println!("║          XTRAVERSE BRAIN DEBUG           ║");
+        println!("║          YUMON BRAIN DEBUG           ║");
         println!("╠══════════════════════════════════════════╣");
         println!("║ State      : {:27}║", state_str);
         println!("║ Moments    : {:27}║", self.total_moments);
@@ -726,7 +729,7 @@ impl WorldSim {
 // ─── Simulation Loop ──────────────────────────────────────────────────────────
 
 pub struct OrganismSim<B: AutodiffBackend> {
-    pub brain:       XTraverseBrain<B>,
+    pub brain:       YumonBrain<B>,
     pub world:       WorldSim,
     last_action:     Action,
     prev_self:       [f32; SELF_SIZE],
@@ -736,7 +739,7 @@ pub struct OrganismSim<B: AutodiffBackend> {
 impl<B: AutodiffBackend> OrganismSim<B> {
     pub fn new(device: B::Device) -> Self {
         Self {
-            brain:       XTraverseBrain::new(device),
+            brain:       YumonBrain::new(device),
             world:       WorldSim::new(),
             last_action: Action::Scan,
             prev_self:   [0.5f32; SELF_SIZE],
@@ -796,7 +799,7 @@ impl<B: AutodiffBackend> OrganismSim<B> {
     /// Run the full simulation for `max_ticks` ticks, sleeping every `sleep_every` ticks.
     pub fn run(&mut self, max_ticks: u64, sleep_every: u64) {
         println!("╔════════════════════════════════════════════════╗");
-        println!("║            XTRAVERSE ORGANISM SIM              ║");
+        println!("║            YUMON ORGANISM SIM              ║");
         println!("║  Tick: {}ms │ Sleep: every {}t │ Rest = Sleep  ║", TICK_MS, sleep_every);
         println!("╚════════════════════════════════════════════════╝");
 
@@ -863,3 +866,22 @@ fn mk_bar(ratio: f32, width: usize) -> String {
     let n = (ratio.min(1.0) * width as f32).round() as usize;
     format!("[{}]", "█".repeat(n) + &"░".repeat(width - n))
 }
+
+// Example usage:
+// mod brain;
+
+// use brain::OrganismSim;
+// use burn::backend::{Autodiff, NdArray};
+
+// fn main() {
+//     // NdArray backend — swap for Wgpu/LibTorch for GPU.
+//     type MyBackend = Autodiff<NdArray<f32>>;
+//     let device = Default::default();
+
+//     let mut sim: OrganismSim<MyBackend> = OrganismSim::new(device);
+
+//     // Run 1000 ticks, sleeping every 400 ticks (≈ SLEEP_EVERY_MS / TICK_MS in the JS)
+//     sim.run(1000, 400);
+// }
+
+// TODO: we will need to ensure that we run ticks on render_addon_frame, so it runs in tandem with 3D visual simulation, rather than just calling OrganismSim.run()
