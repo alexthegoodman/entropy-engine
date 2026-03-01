@@ -5,6 +5,9 @@ const metadata: AddonMetadata = {
     version: "1.0.0",
     description: "Intelligent Yumon organism roaming a 32x32 room.",
     author: ["Entropy"],
+    capabilities: {
+        graphics: true
+    }
 };
 
 const addon: ScopedAPI = Entropy.Addon.register(metadata);
