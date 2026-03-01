@@ -733,9 +733,9 @@ pub type MyBackend = burn::backend::Autodiff<burn::backend::NdArray<f32>>;
 pub struct OrganismSim<B: AutodiffBackend> {
     pub brain:       YumonBrain<B>,
     pub world:       WorldSim,
-    last_action:     Action,
-    prev_self:       [f32; SELF_SIZE],
-    tick_num:        u64,
+    pub last_action:     Action,
+    pub prev_self:       [f32; SELF_SIZE],
+    pub tick_num:        u64,
 }
 
 impl<B: AutodiffBackend> OrganismSim<B> {

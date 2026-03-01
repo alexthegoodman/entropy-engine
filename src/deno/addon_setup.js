@@ -488,6 +488,7 @@ globalThis.Entropy = {
                 Yumon: {
                     create: (name) => ops.op_yumon_create(name),
                     tick: (name) => ops.op_yumon_tick(name),
+                    sleep: (name) => ops.op_yumon_sleep(name),
                 }
             };
         },

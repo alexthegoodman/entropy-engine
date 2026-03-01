@@ -3016,6 +3016,17 @@ fn op_yumon_create(state: &mut OpState, #[string] name: String) {
     ctx.yumon_sims.insert(name, sim);
 }
 
+#[op2(fast)]
+fn op_yumon_sleep(state: &mut OpState, #[string] name: String) -> Result<(), deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(sim) = ctx.yumon_sims.get_mut(&name) {
+        sim.trigger_sleep();
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon simulation not found"))
+    }
+}
+
 #[op2]
 #[serde]
 fn op_yumon_tick(state: &mut OpState, #[string] name: String) -> Result<YumonState, deno_error::JsErrorBox> {
@@ -3023,6 +3034,12 @@ fn op_yumon_tick(state: &mut OpState, #[string] name: String) -> Result<YumonSta
     if let Some(sim) = ctx.yumon_sims.get_mut(&name) {
         sim.tick();
         
+        // Auto-sleep every 3600 ticks
+        if sim.tick_num > 0 && sim.tick_num % 3600 == 0 {
+            println!("[Yumon] Auto-triggering sleep at tick {}", sim.tick_num);
+            sim.trigger_sleep();
+        }
+
         Ok(YumonState {
             pos: sim.world.pos,
             battery: sim.world.battery,
@@ -3047,6 +3064,7 @@ extension!(
         op_addon_on_cleanup,
         op_yumon_create,
         op_yumon_tick,
+        op_yumon_sleep,
         op_pipeline_create,
         op_compute_pipeline_create,
         op_compute_dispatch,
