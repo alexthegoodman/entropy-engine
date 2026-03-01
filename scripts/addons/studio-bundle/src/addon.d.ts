@@ -369,6 +369,18 @@ export interface ScopedAPI {
     createPipeline: (config: ComputePipelineConfig) => string;
     dispatch: (config: ComputeDispatchConfig) => void;
   };
+  Yumon: {
+    create: (name: string) => void;
+    tick: (name: string) => {
+        pos: number;
+        battery: number;
+        health: number;
+        stamina: number;
+        boredom: number;
+        storage: number;
+        lastAction: string;
+    } | null;
+  };
 }
 
 export type BufferUsage = "Uniform" | "Storage" | "Vertex" | "Index";

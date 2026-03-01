@@ -728,6 +728,8 @@ impl WorldSim {
 
 // ─── Simulation Loop ──────────────────────────────────────────────────────────
 
+pub type MyBackend = burn::backend::Autodiff<burn::backend::NdArray<f32>>;
+
 pub struct OrganismSim<B: AutodiffBackend> {
     pub brain:       YumonBrain<B>,
     pub world:       WorldSim,

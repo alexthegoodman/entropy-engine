@@ -484,6 +484,10 @@ globalThis.Entropy = {
                             bindings: config.bindings || []
                         });
                     }
+                },
+                Yumon: {
+                    create: (name) => ops.op_yumon_create(name),
+                    tick: (name) => ops.op_yumon_tick(name),
                 }
             };
         },

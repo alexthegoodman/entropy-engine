@@ -45,9 +45,22 @@ use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
+use crate::yumon::model::{OrganismSim, MyBackend};
 use egui;
 use wgpu::util::DeviceExt;
 use egui_wgpu;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct YumonState {
+    pub pos: f32,
+    pub battery: f32,
+    pub health: f32,
+    pub stamina: f32,
+    pub boredom: f32,
+    pub storage: f32,
+    pub last_action: String,
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -687,6 +700,7 @@ pub struct AddonContext {
     pub selected_entity_id: Option<String>,
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
+    pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2995,6 +3009,37 @@ pub fn op_addon_register_tool(
     }
 }
 
+#[op2(fast)]
+fn op_yumon_create(state: &mut OpState, #[string] name: String) {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(gpu) = &ctx.gpu_resources {
+        let device = &gpu.device;
+        let sim = OrganismSim::<MyBackend>::new(device);
+        ctx.yumon_sims.insert(name, sim);
+    }
+}
+
+#[op2]
+#[serde]
+fn op_yumon_tick(state: &mut OpState, #[string] name: String) -> Result<YumonState, deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(sim) = ctx.yumon_sims.get_mut(&name) {
+        sim.tick();
+        
+        Ok(YumonState {
+            pos: sim.world.pos,
+            battery: sim.world.battery,
+            health: sim.world.health,
+            stamina: sim.world.stamina,
+            boredom: sim.world.boredom,
+            storage: sim.world.storage,
+            last_action: sim.last_action_name().to_string(),
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon simulation not found"))
+    }
+}
+
 extension!(
     entropy_addons,
     ops = [
@@ -3003,6 +3048,8 @@ extension!(
         op_addon_on_all_addons_initialized,
         op_addon_on_update,
         op_addon_on_cleanup,
+        op_yumon_create,
+        op_yumon_tick,
         op_pipeline_create,
         op_compute_pipeline_create,
         op_compute_dispatch,
@@ -3355,7 +3402,8 @@ impl AddonEngine {
             pending_ui_texts: Vec::new(),
             pending_ui_clear: false,
             pending_alpha_models: Vec::new(),
-            pending_quadscapes: Vec::new()
+            pending_quadscapes: Vec::new(),
+            yumon_sims: HashMap::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
