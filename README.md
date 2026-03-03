@@ -59,7 +59,7 @@ No hunting for plugins. No "this only works with the paid version." Everything's
 - **Virtualized Geometry** Load meshes as many tiny meshlets which get rendered at various detail levels
 - **First-Class Localization** Viral games require many languages to work well, and Entropy will support that
 - **Stable QuadTree Terrains** Create massive open worlds with our hyper-performant quadtree system
-- **Yumon ML Model(s)** Customize and create ML models to simulate realistic behaviors in your experiences
+- **Yumon ML Model(s)** Train NPC and Enemy Behaviors by playing as those characters - avoiding tangled behavior trees
 
 ---
 
