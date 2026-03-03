@@ -1,5 +1,7 @@
 # The Abyss
 
+Note: accompanied by orchestra and piano for musical backdrops.
+
 ## Story
 
 In The Abyss (FPS RPG), an energy-obsessed, highly-advanced surface people drill deep into their planet in search of more energy. They accidentally breach and destroy a large pocket of magical energy which has been the source of religion and magical power to a hidden, underground civilization for millennia. War ensues for 1000 years. There’s a brief ceasefire early on the war because both sides realized that mutual annihilation was inevitable. After the ceasefire, they kept on fighting even as civilization on both sides struggled. This first game in the series starts 224 years into the war. The first chapter of this game begins at the legendary Meeting Place, where the ceasefire was ratified nearly 200 years previous. Now it is in ruins, and overrun with hostiles. There is however a weapon cache inside the large Meeting Dome, which includes surface weapons and magical ones. The player can use both weapon types.
