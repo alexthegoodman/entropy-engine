@@ -1,4 +1,4 @@
-/// [YUMON BRAIN] — Rust/Burn port of the TensorFlow.js LSTM organism brain.
+/// [YUMON BRAIN] — LSTM organism brain for AI pet concept.
 ///
 /// Architecture mirrors the original exactly:
 ///   LSTM(256) → Dropout(0.2) → Dense(64, ReLU) → Dense(8, linear)
