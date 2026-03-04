@@ -33,7 +33,8 @@ let composerState: {
     yumonSettings: {
         archetypes: ["Berserker", "Coward", "Support"],
         activeRecordingBrainId: string | null,
-        isRecording: boolean
+        isRecording: boolean,
+        createdBrains: string[]
     }
     } = {
     roles: {
@@ -56,7 +57,8 @@ let composerState: {
     yumonSettings: {
         archetypes: ["Berserker", "Coward", "Support"],
         activeRecordingBrainId: null,
-        isRecording: false
+        isRecording: false,
+        createdBrains: []
     }
     };
 
@@ -572,6 +574,21 @@ addon.onInit(async () => {
                      Entropy.UI.Widget.slider(tab, { label: "Uniform", value: activeInst.scale[0], min: 0.1, max: 10, onChange: (v) => { 
                          const s = parseFloat(v); activeInst.scale = [s, s, s]; refreshScene(); 
                      }});
+
+                     Entropy.UI.Widget.separator(tab);
+                     Entropy.UI.Widget.label(tab, { text: "🧠 Yumon AI", bold: true });
+                     
+                     const brainOptions = ["(None)", ...composerState.yumonSettings.createdBrains];
+                     Entropy.UI.Widget.dropdown(tab, {
+                        label: "Assigned Brain",
+                        options: brainOptions,
+                        selectedIndex: activeInst.yumonBrainId ? brainOptions.indexOf(activeInst.yumonBrainId) : 0,
+                        onChange: (v) => {
+                            const selected = brainOptions[parseInt(v)];
+                            activeInst.yumonBrainId = selected === "(None)" ? undefined : selected;
+                            Entropy.println(`Assigned brain ${activeInst.yumonBrainId} to ${activeInst.name}`);
+                        }
+                     });
                      
                      Entropy.UI.Widget.label(tab, { text: "--- Properties ---", bold: true });
                      const editor = Entropy.Composer?.getEditor(activeInst.addon);
@@ -630,6 +647,9 @@ addon.onInit(async () => {
                             text: "Create",
                             onClick: () => {
                                 addon.Yumon.brain.create(arch, arch);
+                                if (!composerState.yumonSettings.createdBrains.includes(arch)) {
+                                    composerState.yumonSettings.createdBrains.push(arch);
+                                }
                                 Entropy.println(`Created Yumon Brain for ${arch}`);
                             }
                         });
@@ -637,6 +657,9 @@ addon.onInit(async () => {
                             text: "Load",
                             onClick: () => {
                                 addon.Yumon.brain.load(arch);
+                                if (!composerState.yumonSettings.createdBrains.includes(arch)) {
+                                    composerState.yumonSettings.createdBrains.push(arch);
+                                }
                                 Entropy.println(`Loaded Yumon Brain for ${arch}`);
                             }
                         });
