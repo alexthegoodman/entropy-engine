@@ -699,15 +699,17 @@ addon.onInit(async () => {
                     }
                 });
 
-                Entropy.UI.Widget.button(tab, {
-                    text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Designer Session",
-                    onClick: () => {
-                        composerState.yumonSettings.isRecording = !composerState.yumonSettings.isRecording;
-                        if (composerState.yumonSettings.isRecording && !composerState.yumonSettings.activeRecordingBrainId) {
-                            composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[0];
+                if (composerState.yumonSettings.createdBrains.includes(recordingId as string)) {
+                    Entropy.UI.Widget.button(tab, {
+                        text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Designer Session",
+                        onClick: () => {
+                            composerState.yumonSettings.isRecording = !composerState.yumonSettings.isRecording;
+                            if (composerState.yumonSettings.isRecording && !composerState.yumonSettings.activeRecordingBrainId) {
+                                composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[0];
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }
 
             Entropy.UI.Widget.separator(tab);
