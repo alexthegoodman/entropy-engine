@@ -65,6 +65,28 @@ let composerState: {
 
     let activeProjectId: string | null = null;
 
+function raySphereIntersect(
+    rayOrigin: [number, number, number],
+    rayDir: [number, number, number],
+    sphereCenter: [number, number, number],
+    sphereRadius: number
+): { distance: number } | null {
+    const ox = rayOrigin[0] - sphereCenter[0];
+    const oy = rayOrigin[1] - sphereCenter[1];
+    const oz = rayOrigin[2] - sphereCenter[2];
+    
+    const a = rayDir[0] * rayDir[0] + rayDir[1] * rayDir[1] + rayDir[2] * rayDir[2];
+    const b = 2 * (ox * rayDir[0] + oy * rayDir[1] + oz * rayDir[2]);
+    const c = ox * ox + oy * oy + oz * oz - sphereRadius * sphereRadius;
+    
+    const discriminant = b * b - 4 * a * c;
+    if (discriminant < 0) return null;
+    
+    const t = (-b - Math.sqrt(discriminant)) / (2 * a);
+    if (t < 0) return null;
+    
+    return { distance: t };
+}
 
 let sectionsOpen = {
     hierarchy: false,
@@ -240,17 +262,96 @@ addon.onInit(async () => {
 
         // 1. Build World State (Normalized)
         const world = new Array(16).fill(0);
-        world[2] = 0; 
-        world[3] = 0; 
-        world[12] = 0.5; 
-        world[15] = 0.8; 
+        
+        // Find nearest entities
+        let nearestObstacleDist = 1000;
+        let nearestObstacleAngle = 0;
+        let nearestPlayerDist = 1000;
+        let nearestPlayerAngle = 0;
+        let nearestAllyDist = 1000;
+        let nearestAllyAngle = 0;
+        let nearestThreatDist = 1000;
+        let nearestThreatAngle = 0;
+        let nearbyEnemyCount = 0;
+        let nearbyAllyCount = 0;
+        let isPathBlocked = false;
+
+        const forward = [camDir[0], 0, camDir[2]];
+        const forwardMag = Math.sqrt(forward[0]*forward[0] + forward[2]*forward[2]);
+        const normForward = [forward[0]/forwardMag, 0, forward[2]/forwardMag];
+
+        composerState.components.forEach(inst => {
+            if (!inst.visible) return;
+
+            const dx = inst.position[0] - camPos[0];
+            const dy = inst.position[1] - camPos[1];
+            const dz = inst.position[2] - camPos[2];
+            const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+            // Calculate ego-centric angle (-1 to 1, where 0 is directly forward)
+            const targetDir = [dx/dist, 0, dz/dist];
+            const dot = targetDir[0] * normForward[0] + targetDir[2] * normForward[2];
+            const det = targetDir[0] * normForward[2] - targetDir[2] * normForward[0];
+            const angle = Math.atan2(det, dot) / Math.PI;
+
+            // Heuristic for classification
+            const isNPC = inst.addon === "Model Viewer" || inst.name.toLowerCase().includes("npc");
+            const isEnemy = isNPC && (inst.name.toLowerCase().includes("enemy") || inst.name.toLowerCase().includes("monster"));
+            const isAlly = isNPC && !isEnemy;
+
+            if (isNPC) {
+                if (isEnemy) {
+                    if (dist < nearestThreatDist) {
+                        nearestThreatDist = dist;
+                        nearestThreatAngle = angle;
+                    }
+                    if (dist < 20) nearbyEnemyCount++;
+                } else if (isAlly) {
+                    if (dist < nearestAllyDist) {
+                        nearestAllyDist = dist;
+                        nearestAllyAngle = angle;
+                    }
+                    if (dist < 20) nearbyAllyCount++;
+                }
+            } else {
+                // Not an NPC, so it's an obstacle
+                if (dist < nearestObstacleDist) {
+                    nearestObstacleDist = dist;
+                    nearestObstacleAngle = angle;
+                }
+                
+                // Ray-sphere collision to check if it's blocking our path (radius approximated by average scale)
+                const radius = (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0;
+                const hit = raySphereIntersect(camPos, [normForward[0], 0, normForward[2]], inst.position, radius * 1.5);
+                if (hit && hit.distance < 5.0) {
+                    isPathBlocked = true;
+                }
+            }
+        });
+
+        // Populate World State (Indices from system.rs)
+        world[0] = Math.min(nearestObstacleDist / 100, 1.0);
+        world[1] = nearestObstacleAngle;
+        world[2] = 0.0; // NearestPlayerDist (0 for self if designer is playing as NPC)
+        world[3] = 0.0; // NearestPlayerAngle
+        world[4] = Math.min(nearestAllyDist / 100, 1.0);
+        world[5] = nearestAllyAngle;
+        world[6] = Math.min(nearestThreatDist / 100, 1.0);
+        world[7] = nearestThreatAngle;
+        world[8] = 0; // IsInCover (placeholder)
+        world[9] = isPathBlocked ? 0 : 1; // PathClearForward
+        world[10] = Math.min(nearbyEnemyCount / 10, 1.0);
+        world[11] = Math.min(nearbyAllyCount / 10, 1.0);
+        world[12] = nearestThreatDist < 15 ? 1.0 : (nearestThreatDist < 40 ? 0.5 : 0.0); // AlertLevel
+        world[15] = 0.8; // LightLevel
 
         // 2. Build Self State
         const self = new Array(8).fill(0);
-        self[0] = 1.0; 
-        self[1] = 1.0; 
-        self[3] = 1.0; 
-        self[5] = 0.5; 
+        self[0] = 1.0; // Health
+        self[1] = 1.0; // Stamina
+        self[3] = 1.0; // IsGrounded
+        self[5] = 0.5; // Speed (normalized)
+        self[6] = (now % 10000) / 10000; // Clock (0..1 cycle)
 
         // 3. Resolve Action
         let actionIdx = recordedActionThisTick;
