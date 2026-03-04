@@ -39,10 +39,10 @@ pub const WORLD_SIZE: usize      = 16;  // expanded world state
 pub const SELF_SIZE: usize       = 8;
 pub const MOMENT_SIZE: usize     = WORLD_SIZE + SELF_SIZE; // 24
 pub const ACTION_SIZE: usize     = 12;  // discrete button actions
-pub const CONTEXT_LEN: usize     = 16;
+pub const CONTEXT_LEN: usize     = 64; // how many moments per input (16 = 8s, 64 ~ 30s)
 // pub const MEMORY_CAPACITY: usize = 512; // ~5 minutes
 pub const MEMORY_CAPACITY: usize = 4096; // ~30 minutes of recorded play time supported at 500ms ticks
-pub const BATCH_SIZE: usize      = 16;
+pub const BATCH_SIZE: usize      = 16; // how many inputs per iteration
 pub const SLEEP_EPOCHS: usize    = 4;
 pub const DANGER_THRESHOLD: f32  = 0.5;
 pub const TICK_MS: u64           = 500;
