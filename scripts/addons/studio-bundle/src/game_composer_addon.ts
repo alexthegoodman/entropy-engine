@@ -321,7 +321,7 @@ addon.onInit(async () => {
                 }
                 
                 // Ray-sphere collision to check if it's blocking our path (radius approximated by average scale)
-                const radius = (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0;
+                const radius = inst.scale ? (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0 : 1.0;
                 const hit = raySphereIntersect(camPos, [normForward[0], 0, normForward[2]], inst.position, radius * 1.5);
                 if (hit && hit.distance < 5.0) {
                     isPathBlocked = true;

@@ -731,6 +731,7 @@ pub struct AddonContext {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
+#[serde(rename_all = "camelCase")]
 pub enum InputEvent {
     MouseDown { button: u32, x: f32, y: f32 },
     MouseMove { x: f32, y: f32 },
