@@ -603,34 +603,34 @@ addon.onInit(async () => {
             Entropy.UI.Widget.separator(tab);
 
             // === YUMON AI ===
+            Entropy.UI.Widget.collapsingHeader(tab, "📖 How to use Yumon AI", (hTab) => {
+                Entropy.UI.Widget.label(hTab, {
+                    text: "1. Click 'Create' on an Archetype (e.g. Berserker)."
+                });
+                Entropy.UI.Widget.label(hTab, {
+                    text: "2. Select that Archetype in the 'Target Archetype' dropdown below."
+                });
+                Entropy.UI.Widget.label(hTab, {
+                    text: "3. Click 'Record Designer Session' and move/attack (WASD, Space, Shift, E, Q)."
+                });
+                Entropy.UI.Widget.label(hTab, {
+                    text: "4. Click 'Stop Recording' when finished."
+                });
+                Entropy.UI.Widget.label(hTab, {
+                    text: "5. Click 'Train' on the Archetype to run Behavior Cloning."
+                });
+                Entropy.UI.Widget.label(hTab, {
+                    text: "6. Click 'Save' to persist your trained model."
+                });
+            });
+
             Entropy.UI.Widget.button(tab, {
-                text: (sectionsOpen.yumonAI ? "▼ " : "▶ ") + "Yumon AI Management",
+                text: (sectionsOpen.yumonAI ? "▼ " : "▶ ") + "Yumon AI System",
                 onClick: () => { sectionsOpen.yumonAI = !sectionsOpen.yumonAI; }
             });
 
             if (sectionsOpen.yumonAI) {
                 Entropy.UI.Widget.label(tab, { text: "Manage NPC Archetypes and Recordings", bold: true });
-
-                Entropy.UI.Widget.collapsingHeader(tab, "📖 How to use Yumon AI", (hTab) => {
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "1. Click 'Create' on an Archetype (e.g. Berserker)."
-                    });
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "2. Select that Archetype in the 'Target Archetype' dropdown below."
-                    });
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "3. Click 'Record Designer Session' and move/attack (WASD, Space, Shift, E, Q)."
-                    });
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "4. Click 'Stop Recording' when finished."
-                    });
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "5. Click 'Train' on the Archetype to run Behavior Cloning."
-                    });
-                    Entropy.UI.Widget.label(hTab, {
-                        text: "6. Click 'Save' to persist your trained model."
-                    });
-                });
 
                 composerState.yumonSettings.archetypes.forEach(arch => {
                     const bState = brainStates[arch];
@@ -685,7 +685,7 @@ addon.onInit(async () => {
 
                 if (composerState.yumonSettings.isRecording && lastMoment.length > 0) {
                     // Quick visualizer for the last moment vector (normalized states)
-                    const viz = lastMoment.map(v => Math.abs(v) > 0.1 ? "█" : "░").join("");
+                    const viz = lastMoment.map((v) => v.toFixed(1)).join(" ");
                     Entropy.UI.Widget.label(tab, { text: `Moment: [${viz}]` });
                 }
 
