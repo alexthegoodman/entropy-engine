@@ -380,6 +380,15 @@ export interface ScopedAPI {
         storage: number;
         lastAction: string;
     } | null;
+    sleep: (name: string) => void;
+    brain: {
+        create: (id: string, archetype: string) => void;
+        observe: (id: string, world: number[], self: number[], action: number, rotation: number, reward: number) => void;
+        infer: (id: string) => { actionIdx: number; actionName: string; rotationDelta: number };
+        sleep: (id: string, epochs: number) => void;
+        save: (id: string) => void;
+        load: (archetype: string) => void;
+    }
   };
 }
 

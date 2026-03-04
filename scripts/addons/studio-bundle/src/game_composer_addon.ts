@@ -240,7 +240,7 @@ addon.onInit(async () => {
 
         const reward = 0.1; // Passive reward for existing
 
-        Entropy.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
+        addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
     });
 
     const tab = addon.UI.createTab({
@@ -452,28 +452,28 @@ addon.onInit(async () => {
                         Entropy.UI.Widget.button(hTab, {
                             text: "Create",
                             onClick: () => {
-                                Entropy.Yumon.brain.create(arch, arch);
+                                addon.Yumon.brain.create(arch, arch);
                                 Entropy.println(`Created Yumon Brain for ${arch}`);
                             }
                         });
                         Entropy.UI.Widget.button(hTab, {
                             text: "Load",
                             onClick: () => {
-                                Entropy.Yumon.brain.load(arch);
+                                addon.Yumon.brain.load(arch);
                                 Entropy.println(`Loaded Yumon Brain for ${arch}`);
                             }
                         });
                         Entropy.UI.Widget.button(hTab, {
                             text: "Save",
                             onClick: () => {
-                                Entropy.Yumon.brain.save(arch);
+                                addon.Yumon.brain.save(arch);
                                 Entropy.println(`Saved Yumon Brain for ${arch}`);
                             }
                         });
                         Entropy.UI.Widget.button(hTab, {
                             text: "Train",
                             onClick: () => {
-                                Entropy.Yumon.brain.sleep(arch, 10);
+                                addon.Yumon.brain.sleep(arch, 10);
                                 Entropy.println(`Training Yumon Brain for ${arch}...`);
                             }
                         });
