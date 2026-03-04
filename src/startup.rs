@@ -763,6 +763,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 // Handle buttons
                 match event {
                     gilrs::EventType::ButtonPressed(button, _) => {
+                        // println!("press {:?}", button);
                         let button_name = match button {
                             Button::South => "South",
                             Button::East => "East",

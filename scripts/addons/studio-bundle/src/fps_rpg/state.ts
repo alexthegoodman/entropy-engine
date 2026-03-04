@@ -105,7 +105,7 @@ class GameState {
 
             if (targetId === this.playerId) {
                 Entropy.println("--- YOU HAVE DIED ---");
-                this.setHealth(0);
+                this.setHealth(1); // need logic still for when we reach 0, currently it just crashes
                 this.requestRedraw();
                 // Reset or Respawn logic?
             } else {

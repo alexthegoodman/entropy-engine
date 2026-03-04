@@ -851,6 +851,7 @@ globalThis.Entropy = {
         });
     },
     _process_input_events: (events) => {
+        // globalThis.Entropy.println("process input events " + JSON.stringify(events));
         globalThis.Entropy._process_game_logic?.();
         if (!globalThis._entropy_input_listeners) return;
         const listeners = globalThis._entropy_input_listeners;

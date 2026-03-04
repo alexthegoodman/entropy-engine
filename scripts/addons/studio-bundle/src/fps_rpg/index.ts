@@ -138,6 +138,7 @@ addon.onUpdatePlus("Game Composer", (time) => {
         });
 
         Entropy.Input.onGamepadButton((button, pressed) => {
+            // Entropy.println("gamepad button 1 " + button + " " + pressed);
             if (!gameState.isGameActive || !pressed) return;
 
             if (gameState.dialogue.isOpen) {

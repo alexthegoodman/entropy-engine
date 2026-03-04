@@ -234,6 +234,7 @@ addon.onInit(async () => {
     });
 
     Entropy.Input.onGamepadButton((btn, pressed) => {
+        // Entropy.println("gamepad button 2 " + btn + " " + pressed);
         if (!composerState.yumonSettings.isRecording || !pressed) return;
         
         // Mapping typical Gamepad strings (based on Gilrs/Winit mapping)

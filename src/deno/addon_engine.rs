@@ -731,7 +731,6 @@ pub struct AddonContext {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
-#[serde(rename_all = "camelCase")]
 pub enum InputEvent {
     MouseDown { button: u32, x: f32, y: f32 },
     MouseMove { x: f32, y: f32 },
@@ -739,7 +738,7 @@ pub enum InputEvent {
     KeyDown { key: String },
     KeyUp { key: String },
     GamepadButton { button: String, pressed: bool },
-    GamepadAxis { left_stick: [f32; 2], right_stick: [f32; 2] },
+    GamepadAxis { leftStick: [f32; 2], rightStick: [f32; 2] },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -4429,6 +4428,7 @@ impl AddonEngine {
         };
 
         if !input_events.is_empty() {
+            // println!("input_events 1 {:?}", input_events.get(0));
             let scope = &mut self.runtime.handle_scope();
             let global = scope.get_current_context().global(scope);
             let entropy_key = v8::String::new(scope, "Entropy").unwrap();
@@ -4438,6 +4438,7 @@ impl AddonEngine {
                     let process_key = v8::String::new(scope, "_process_input_events").unwrap();
                     if let Some(process_val) = entropy_obj.get(scope, process_key.into()) {
                         if process_val.is_function() {
+                            // println!("input_events 2");
                             let process_func = v8::Local::<v8::Function>::try_from(process_val).unwrap();
                             let args_v8 = serde_v8::to_v8(scope, input_events).unwrap();
                             let _ = process_func.call(scope, entropy_obj.into(), &[args_v8]);
