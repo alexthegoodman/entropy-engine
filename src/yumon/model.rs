@@ -244,7 +244,7 @@ pub struct BrainModel<B: Backend> {
 }
 
 #[derive(Config, Debug)]
-pub struct BrainModelConfig {
+pub struct OrgModelConfig {
     #[config(default = 256)]
     pub lstm_units: usize,
     #[config(default = 64)]
@@ -253,7 +253,7 @@ pub struct BrainModelConfig {
     pub dropout_rate: f64,
 }
 
-impl BrainModelConfig {
+impl OrgModelConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> BrainModel<B> {
         BrainModel {
             lstm: LstmConfig::new(MOMENT_SIZE, self.lstm_units, false)
@@ -371,7 +371,7 @@ pub struct YumonBrain<B: AutodiffBackend> {
 
 impl<B: AutodiffBackend> YumonBrain<B> {
     pub fn new(device: B::Device) -> Self {
-        let config = BrainModelConfig::new();
+        let config = OrgModelConfig::new();
         Self {
             model:          config.init(&device),
             optimizer:      AdamConfig::new().with_epsilon(1e-7).init(),

@@ -64,6 +64,20 @@ pub struct YumonState {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct YumonBrainState {
+    pub archetype: String,
+    pub training_mode: String,
+    pub state: String,
+    pub total_moments: u64,
+    pub last_reward: f32,
+    pub last_loss: Option<f32>,
+    pub last_action: String,
+    pub last_rotation: f32,
+    pub sleep_count: u32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct AddonMetadata {
     pub name: String,
     pub version: String,
@@ -3015,6 +3029,115 @@ fn op_yumon_create(state: &mut OpState, #[string] name: String) {
     let mut ctx = state.borrow_mut::<AddonContext>();
     let sim = OrganismSim::<MyBackend>::new(Default::default());
     ctx.yumon_sims.insert(name, sim);
+}
+
+#[op2(fast)]
+fn op_yumon_brain_create(state: &mut OpState, #[string] id: String, #[string] archetype: String) {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    let weights = match archetype.as_str() {
+        "Berserker" => crate::yumon::system::ArchetypeRewardWeights::berserker(),
+        "Coward"    => crate::yumon::system::ArchetypeRewardWeights::coward(),
+        "Support"   => crate::yumon::system::ArchetypeRewardWeights::support(),
+        _           => crate::yumon::system::ArchetypeRewardWeights::balanced(),
+    };
+    
+    let device = Default::default(); // NdArray device is ()
+    let brain = crate::yumon::system::YumonBrain::<crate::yumon::system::MyBackend>::new(device, &archetype, weights);
+    ctx.yumon_brains.insert(id, brain);
+}
+
+#[op2]
+fn op_yumon_brain_observe(
+    state: &mut OpState,
+    #[string] id: String,
+    #[serde] world: Vec<f32>,
+    #[serde] self_state: Vec<f32>,
+    #[bigint] action_idx: usize,
+    rotation_delta: f32,
+    reward: f32
+) -> Result<(), deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get_mut(&id) {
+        let mut world_arr = [0.0f32; crate::yumon::system::WORLD_SIZE];
+        let mut self_arr  = [0.0f32; crate::yumon::system::SELF_SIZE];
+        
+        for (i, &v) in world.iter().take(crate::yumon::system::WORLD_SIZE).enumerate() { world_arr[i] = v; }
+        for (i, &v) in self_state.iter().take(crate::yumon::system::SELF_SIZE).enumerate() { self_arr[i] = v; }
+
+        let action = crate::yumon::system::Action::from_usize(action_idx);
+        brain.observe(&world_arr, &self_arr, action, rotation_delta, reward);
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
+#[op2]
+#[serde]
+fn op_yumon_brain_infer(
+    state: &mut OpState,
+    #[string] id: String
+) -> Result<YumonBrainInference, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get(&id) {
+        let res = brain.infer();
+        Ok(YumonBrainInference {
+            action_idx: res.action as usize,
+            action_name: res.action_name.to_string(),
+            rotation_delta: res.rotation_delta,
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct YumonBrainInference {
+    pub action_idx: usize,
+    pub action_name: String,
+    pub rotation_delta: f32,
+}
+
+#[op2(fast)]
+fn op_yumon_brain_sleep(state: &mut OpState, #[string] id: String, #[bigint] epochs: usize) -> Result<(), deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get_mut(&id) {
+        brain.sleep_and_wake(epochs);
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
+#[op2(fast)]
+fn op_yumon_brain_save(state: &mut OpState, #[string] id: String) -> Result<(), deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    let project_id = ctx.project_id.as_ref().ok_or_else(|| deno_error::JsErrorBox::generic("Project not loaded"))?;
+    let yumon_dir = crate::helpers::utilities::get_yumon_dir(project_id).ok_or_else(|| deno_error::JsErrorBox::generic("Could not get yumon directory"))?;
+    
+    if let Some(brain) = ctx.yumon_brains.get(&id) {
+        let brain_dir = yumon_dir.join(&brain.archetype_name);
+        brain.save(&brain_dir).map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to save brain: {}", e)))?;
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
+#[op2(fast)]
+fn op_yumon_brain_load(state: &mut OpState, #[string] archetype_name: String) -> Result<(), deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    let project_id = ctx.project_id.as_ref().ok_or_else(|| deno_error::JsErrorBox::generic("Project not loaded"))?;
+    let yumon_dir = crate::helpers::utilities::get_yumon_dir(project_id).ok_or_else(|| deno_error::JsErrorBox::generic("Could not get yumon directory"))?;
+    
+    let brain_dir = yumon_dir.join(&archetype_name);
+    let device = Default::default();
+    let brain = crate::yumon::system::YumonBrain::<crate::yumon::system::MyBackend>::load(device, &brain_dir)
+        .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to load brain: {}", e)))?;
+    
+    ctx.yumon_brains.insert(archetype_name, brain);
+    Ok(())
 }
 
 #[op2(fast)]

@@ -489,6 +489,14 @@ globalThis.Entropy = {
                     create: (name) => ops.op_yumon_create(name),
                     tick: (name) => ops.op_yumon_tick(name),
                     sleep: (name) => ops.op_yumon_sleep(name),
+                    brain: {
+                        create: (id, archetype) => ops.op_yumon_brain_create(id, archetype),
+                        observe: (id, world, self, action, rotation, reward) => ops.op_yumon_brain_observe(id, world, self, action, rotation, reward),
+                        infer: (id) => ops.op_yumon_brain_infer(id),
+                        sleep: (id, epochs) => ops.op_yumon_brain_sleep(id, epochs),
+                        save: (id) => ops.op_yumon_brain_save(id),
+                        load: (archetype) => ops.op_yumon_brain_load(archetype),
+                    }
                 }
             };
         },

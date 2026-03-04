@@ -14,15 +14,6 @@
 /// output handled by a separate regression head (tanh → -1..1).
 /// 
 /// 
-/// TODO: needs a TS addon in the studio bundle for the Yumon System
-/// Separate from the original Yumon Organism addon
-/// It will need to allow for Recording Play Sessions for custom NPC Archetypes and Starting Training Sessions for custom NPC Archetypes
-/// It will also need to a high quality level for play.
-/// Perhaps the easier way is to add the Yumon System directly to the Game Composer, so you can Record Sessions while Playing Games.
-/// This will require being able to play as any Archetype rather than only the Player,
-/// but it will likely be far easier to spoof it, so you still play the Player, but the Session is saved for the chosen Archetype
-/// Lastly, we will need a way to assign archetypes to NPCs, so that they infer from that model during gameplay
-/// This will require ensuring that we save the model file directly for use. See utilities.rs. We can add a `models` folder aside the `textures` folder!
 
 use burn::{
     module::AutodiffModule,
@@ -314,7 +305,7 @@ pub struct BrainModel<B: Backend> {
     rotation_head: Linear<B>,   // → 1 (tanh applied in forward)
 }
 
-#[derive(Config, Debug, Serialize, Deserialize)]
+#[derive(Config, Debug)]
 pub struct BrainModelConfig {
     #[config(default = 256)]
     pub lstm_units: usize,
@@ -543,8 +534,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
         self.model
             .clone()
-            .into_record()
-            .record(recorder, directory.join("model").into())?;
+            .save_file(directory.join("model"), &recorder);
 
         // 2. Save Metadata
         let metadata = YumonBrainMetadata {

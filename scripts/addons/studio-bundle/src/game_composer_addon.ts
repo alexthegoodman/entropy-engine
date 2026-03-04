@@ -21,6 +21,7 @@ interface ComponentInstance {
     position: [number, number, number];
     scale: [number, number, number];
     visible: boolean;
+    yumonBrainId?: string;
 }
 
 let composerState: {
@@ -28,7 +29,12 @@ let composerState: {
     activeInstanceId: string | null;
     components: ComponentInstance[];
     playMode: boolean;
-    globalSettings?: GlobalSettings
+    globalSettings?: GlobalSettings;
+    yumonSettings: {
+        archetypes: string[];
+        activeRecordingBrainId: string | null;
+        isRecording: boolean;
+    }
 } = {
     roles: {
         "Vegetation": "default",
@@ -46,6 +52,11 @@ let composerState: {
             height: 600,
             yOffset: -500
         }
+    },
+    yumonSettings: {
+        archetypes: ["Berserker", "Coward", "Support"],
+        activeRecordingBrainId: null,
+        isRecording: false
     }
 };
 
@@ -55,7 +66,8 @@ let sectionsOpen = {
     hierarchy: false,
     inspector: false,
     library: false,
-    addEntity: false
+    addEntity: false,
+    yumonAI: false
 };
 
 const availablePipelines = [
@@ -176,6 +188,60 @@ addon.onInit(async () => {
     //         refreshScene(); // until we clear, lets avoid this?
     //     }
     // });
+
+    // --- Recording Logic ---
+    let lastTickTime = 0;
+    const TICK_MS = 500;
+
+    addon.onUpdate((time) => {
+        if (!composerState.yumonSettings.isRecording || !composerState.yumonSettings.activeRecordingBrainId) return;
+
+        const now = Date.now();
+        if (now - lastTickTime < TICK_MS) return;
+        lastTickTime = now;
+
+        const [camPos, camDir] = Entropy.Camera.getTransform();
+        const brainId = composerState.yumonSettings.activeRecordingBrainId;
+
+        // 1. Build World State (Normalized)
+        // [NearestObstacleDist, NearestObstacleAngle, NearestPlayerDist, NearestPlayerAngle, ...]
+        const world = new Array(16).fill(0);
+        // Simplified: designer is the player
+        world[2] = 0; // Dist to self is 0
+        world[3] = 0; // Angle to self is 0
+        
+        // Let's add some "fake" variety for training if no NPCs are around, 
+        // but ideally we'd look at composerState.components
+        world[12] = 0.5; // Alert level: Alerted
+        world[15] = 0.8; // Light level
+
+        // 2. Build Self State
+        const self = new Array(8).fill(0);
+        self[0] = 1.0; // Health
+        self[1] = 1.0; // Stamina
+        self[3] = 1.0; // IsGrounded
+        self[5] = 0.5; // Speed
+
+        // 3. Capture Action (from Designer Input)
+        let actionIdx = 11; // Idle
+        if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; // MoveForward
+        else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; // MoveBackward
+        
+        if (Entropy.Input.isKeyPressed("Space")) actionIdx = 2; // ButtonA (Jump)
+        if (Entropy.Input.isKeyPressed("ShiftLeft")) actionIdx = 3; // ButtonB (Dodge)
+        if (Entropy.Input.isKeyPressed("KeyE")) actionIdx = 4; // ButtonX (Attack)
+        if (Entropy.Input.isKeyPressed("KeyQ")) actionIdx = 5; // ButtonY (Heavy)
+
+        // 4. Capture Rotation Delta
+        // In a real session we'd track mouse delta, for now let's use A/D keys
+        let rotationDelta = 0;
+        if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.1;
+        if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.1;
+
+        const reward = 0.1; // Passive reward for existing
+
+        Entropy.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
+    });
 
     const tab = addon.UI.createTab({
         title: "Game Composer",
@@ -368,6 +434,75 @@ addon.onInit(async () => {
                      Entropy.UI.Widget.label(tab, { text: "Select an object to inspect." });
                  }
              }
+
+            Entropy.UI.Widget.separator(tab);
+
+            // === YUMON AI ===
+            Entropy.UI.Widget.button(tab, {
+                text: (sectionsOpen.yumonAI ? "▼ " : "▶ ") + "Yumon AI Management",
+                onClick: () => { sectionsOpen.yumonAI = !sectionsOpen.yumonAI; }
+            });
+
+            if (sectionsOpen.yumonAI) {
+                Entropy.UI.Widget.label(tab, { text: "Manage NPC Archetypes and Recordings", bold: true });
+
+                composerState.yumonSettings.archetypes.forEach(arch => {
+                    Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        Entropy.UI.Widget.label(hTab, { text: arch });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "Create",
+                            onClick: () => {
+                                Entropy.Yumon.brain.create(arch, arch);
+                                Entropy.println(`Created Yumon Brain for ${arch}`);
+                            }
+                        });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "Load",
+                            onClick: () => {
+                                Entropy.Yumon.brain.load(arch);
+                                Entropy.println(`Loaded Yumon Brain for ${arch}`);
+                            }
+                        });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "Save",
+                            onClick: () => {
+                                Entropy.Yumon.brain.save(arch);
+                                Entropy.println(`Saved Yumon Brain for ${arch}`);
+                            }
+                        });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "Train",
+                            onClick: () => {
+                                Entropy.Yumon.brain.sleep(arch, 10);
+                                Entropy.println(`Training Yumon Brain for ${arch}...`);
+                            }
+                        });
+                    });
+                });
+
+                Entropy.UI.Widget.separator(tab);
+                Entropy.UI.Widget.label(tab, { text: "Session Recording (Behavior Cloning)", bold: true });
+
+                const recordingId = composerState.yumonSettings.activeRecordingBrainId;
+                Entropy.UI.Widget.dropdown(tab, {
+                    label: "Target Archetype",
+                    options: composerState.yumonSettings.archetypes,
+                    selectedIndex: recordingId ? composerState.yumonSettings.archetypes.indexOf(recordingId) : 0,
+                    onChange: (v) => {
+                        composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[parseInt(v)];
+                    }
+                });
+
+                Entropy.UI.Widget.button(tab, {
+                    text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Designer Session",
+                    onClick: () => {
+                        composerState.yumonSettings.isRecording = !composerState.yumonSettings.isRecording;
+                        if (composerState.yumonSettings.isRecording && !composerState.yumonSettings.activeRecordingBrainId) {
+                            composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[0];
+                        }
+                    }
+                });
+            }
 
             Entropy.UI.Widget.separator(tab);
 
