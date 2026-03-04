@@ -496,6 +496,7 @@ globalThis.Entropy = {
                         sleep: (id, epochs) => ops.op_yumon_brain_sleep(id, epochs),
                         save: (id) => ops.op_yumon_brain_save(id),
                         load: (archetype) => ops.op_yumon_brain_load(archetype),
+                        getState: (id) => ops.op_yumon_brain_get_state(id),
                     }
                 }
             };

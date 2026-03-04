@@ -31,11 +31,11 @@ let composerState: {
     playMode: boolean;
     globalSettings?: GlobalSettings;
     yumonSettings: {
-        archetypes: string[];
-        activeRecordingBrainId: string | null;
-        isRecording: boolean;
+        archetypes: ["Berserker", "Coward", "Support"],
+        activeRecordingBrainId: string | null,
+        isRecording: boolean
     }
-} = {
+    } = {
     roles: {
         "Vegetation": "default",
         "Terrain": "default",
@@ -58,9 +58,13 @@ let composerState: {
         activeRecordingBrainId: null,
         isRecording: false
     }
-};
+    };
 
-let activeProjectId: string | null = null;
+    let brainStates: Record<string, any> = {};
+    let lastMoment: number[] = [];
+
+    let activeProjectId: string | null = null;
+
 
 let sectionsOpen = {
     hierarchy: false,
@@ -275,7 +279,15 @@ addon.onInit(async () => {
 
         const reward = 0.1; 
 
+        lastMoment = [...world, ...self];
         addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
+
+        // Update brain states for UI display
+        composerState.yumonSettings.archetypes.forEach(arch => {
+            try {
+                brainStates[arch] = addon.Yumon.brain.getState(arch);
+            } catch(e) {}
+        });
     });
 
     const tab = addon.UI.createTab({
@@ -503,8 +515,16 @@ addon.onInit(async () => {
                 });
 
                 composerState.yumonSettings.archetypes.forEach(arch => {
+                    const bState = brainStates[arch];
                     Entropy.UI.Widget.horizontal(tab, (hTab) => {
-                        Entropy.UI.Widget.label(hTab, { text: arch });
+                        Entropy.UI.Widget.label(hTab, { text: arch, bold: true });
+                        if (bState) {
+                            const lossStr = bState.lastLoss ? bState.lastLoss.toFixed(4) : "N/A";
+                            Entropy.UI.Widget.label(hTab, { text: `Moments: ${bState.totalMoments} | Loss: ${lossStr}` });
+                        }
+                    });
+
+                    Entropy.UI.Widget.horizontal(tab, (hTab) => {
                         Entropy.UI.Widget.button(hTab, {
                             text: "Create",
                             onClick: () => {
@@ -539,11 +559,17 @@ addon.onInit(async () => {
                 Entropy.UI.Widget.separator(tab);
                 Entropy.UI.Widget.label(tab, { text: "Session Recording (Behavior Cloning)", bold: true });
 
+                if (composerState.yumonSettings.isRecording && lastMoment.length > 0) {
+                    // Quick visualizer for the last moment vector (normalized states)
+                    const viz = lastMoment.map(v => Math.abs(v) > 0.1 ? "█" : "░").join("");
+                    Entropy.UI.Widget.label(tab, { text: `Moment: [${viz}]` });
+                }
+
                 const recordingId = composerState.yumonSettings.activeRecordingBrainId;
                 Entropy.UI.Widget.dropdown(tab, {
                     label: "Target Archetype",
                     options: composerState.yumonSettings.archetypes,
-                    selectedIndex: recordingId ? composerState.yumonSettings.archetypes.indexOf(recordingId) : 0,
+                    selectedIndex: recordingId ? composerState.yumonSettings.archetypes.indexOf(recordingId as any) : 0,
                     onChange: (v) => {
                         composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[parseInt(v)];
                     }

@@ -388,6 +388,7 @@ export interface ScopedAPI {
         sleep: (id: string, epochs: number) => void;
         save: (id: string) => void;
         load: (archetype: string) => void;
+        getState: (id: string) => YumonBrainState;
     }
   };
 }
@@ -620,6 +621,18 @@ export interface MeshData {
   vertices: Float32Array;
   indices: Uint32Array;
   vertexStride: number;
+}
+
+export interface YumonBrainState {
+    archetype: string;
+    trainingMode: string;
+    state: string;
+    totalMoments: number;
+    lastReward: number;
+    lastLoss: number | null;
+    lastAction: string;
+    lastRotation: number;
+    sleepCount: number;
 }
 
 // Main Entropy API

@@ -3099,6 +3099,30 @@ pub struct YumonBrainInference {
     pub rotation_delta: f32,
 }
 
+#[op2]
+#[serde]
+fn op_yumon_brain_get_state(
+    state: &mut OpState,
+    #[string] id: String
+) -> Result<YumonBrainState, deno_error::JsErrorBox> {
+    let ctx = state.borrow::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get(&id) {
+        Ok(YumonBrainState {
+            archetype: brain.archetype_name.clone(),
+            training_mode: format!("{:?}", brain.training_mode),
+            state: format!("{:?}", brain.state),
+            total_moments: brain.total_moments,
+            last_reward: brain.last_reward,
+            last_loss: brain.last_loss,
+            last_action: brain.last_action.to_string(),
+            last_rotation: brain.last_rotation,
+            sleep_count: brain.sleep_count,
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
 #[op2(fast)]
 fn op_yumon_brain_sleep(state: &mut OpState, #[string] id: String, #[bigint] epochs: usize) -> Result<(), deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
@@ -3279,7 +3303,14 @@ extension!(
         op_entity_set_stats,
         op_entity_get_stats,
         op_model_set_bone_transform,
-        op_quadscape_create
+        op_quadscape_create,
+        op_yumon_brain_create,
+        op_yumon_brain_observe,
+        op_yumon_brain_infer,
+        op_yumon_brain_sleep,
+        op_yumon_brain_save,
+        op_yumon_brain_load,
+        op_yumon_brain_get_state
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
