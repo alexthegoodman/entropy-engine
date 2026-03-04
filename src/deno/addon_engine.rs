@@ -3542,7 +3542,8 @@ impl AddonEngine {
             pending_ui_clear: false,
             pending_alpha_models: Vec::new(),
             pending_quadscapes: Vec::new(),
-            yumon_sims: HashMap::new()
+            yumon_sims: HashMap::new(),
+            yumon_brains: HashMap::new()
         };
         runtime.op_state().borrow_mut().put(context);
 
