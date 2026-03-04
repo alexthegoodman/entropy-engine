@@ -701,6 +701,7 @@ pub struct AddonContext {
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
+    pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

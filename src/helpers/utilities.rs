@@ -174,6 +174,17 @@ pub fn get_models_dir(project_id: &str) -> Option<PathBuf> {
     Some(models_dir)
 }
 
+pub fn get_yumon_dir(project_id: &str) -> Option<PathBuf> {
+    let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
+    let yumon_dir = project_dir.join("yumon");
+
+    fs::create_dir_all(&yumon_dir)
+        .ok()
+        .expect("Couldn't check or create Yumon directory");
+
+    Some(yumon_dir)
+}
+
 // #[cfg(not(target_arch = "wasm32"))]
 // pub async fn load_project_state(project_id: &str) -> Result<SavedState, Box<dyn std::error::Error>> {
 //     let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");

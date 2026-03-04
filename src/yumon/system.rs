@@ -12,6 +12,17 @@
 ///
 /// Actions map 1:1 to controller buttons. Rotation is a continuous f32
 /// output handled by a separate regression head (tanh → -1..1).
+/// 
+/// 
+/// TODO: needs a TS addon in the studio bundle for the Yumon System
+/// Separate from the original Yumon Organism addon
+/// It will need to allow for Recording Play Sessions for custom NPC Archetypes and Starting Training Sessions for custom NPC Archetypes
+/// It will also need to a high quality level for play.
+/// Perhaps the easier way is to add the Yumon System directly to the Game Composer, so you can Record Sessions while Playing Games.
+/// This will require being able to play as any Archetype rather than only the Player,
+/// but it will likely be far easier to spoof it, so you still play the Player, but the Session is saved for the chosen Archetype
+/// Lastly, we will need a way to assign archetypes to NPCs, so that they infer from that model during gameplay
+/// This will require ensuring that we save the model file directly for use. See utilities.rs. We can add a `models` folder aside the `textures` folder!
 
 use burn::{
     module::AutodiffModule,
@@ -24,7 +35,9 @@ use burn::{
         backend::AutodiffBackend,
         TensorData,
     },
+    record::{BinFileRecorder, FullPrecisionSettings, Recorder},
 };
+use serde::{Serialize, Deserialize};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::collections::VecDeque;
@@ -47,7 +60,7 @@ pub const SLEEP_EVERY_TICKS: u64 = 400; // sleep every 400 ticks (~200s)
 
 /// Ego-centric relational world state.
 /// All distances normalized 0..1. All angles normalized -1..1 (divide by PI).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorldIdx {
     // Spatial — nearest obstacle
     NearestObstacleDist  = 0,
@@ -81,8 +94,9 @@ pub enum WorldIdx {
 }
 
 /// Agent self-state indices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum SelfIdx {
+
     HealthPct    = 0,
     StaminaPct   = 1,
     Ammo         = 2,  // normalized 0..1
@@ -97,7 +111,7 @@ pub enum SelfIdx {
 
 /// Each variant maps 1:1 to a physical controller input.
 /// Rotation is handled separately as a continuous f32 output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Action {
     // Left stick
     MoveForward  = 0,
@@ -159,7 +173,7 @@ impl Action {
 
 // ─── Moment & Experience ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Moment {
     pub world: [f32; WORLD_SIZE],
     pub self_: [f32; SELF_SIZE],
@@ -182,7 +196,7 @@ impl Moment {
 }
 
 /// A recorded designer input frame.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Experience {
     pub moment:          Moment,
     pub action_taken:    Action,
@@ -191,7 +205,7 @@ pub struct Experience {
     pub danger:          f32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum OrganismState {
     Awake,
     Sleeping,
@@ -217,6 +231,7 @@ pub struct SleepResult {
 
 // ─── Running Normalizer ───────────────────────────────────────────────────────
 
+#[derive(Serialize, Deserialize)]
 pub struct RunningNorm {
     n:    u64,
     mean: Vec<f32>,
@@ -259,6 +274,7 @@ impl RunningNorm {
 
 // ─── Experience Buffer ────────────────────────────────────────────────────────
 
+#[derive(Serialize, Deserialize)]
 pub struct ExperienceBuffer {
     buffer: VecDeque<Experience>,
 }
@@ -298,7 +314,7 @@ pub struct BrainModel<B: Backend> {
     rotation_head: Linear<B>,   // → 1 (tanh applied in forward)
 }
 
-#[derive(Config, Debug)]
+#[derive(Config, Debug, Serialize, Deserialize)]
 pub struct BrainModelConfig {
     #[config(default = 256)]
     pub lstm_units: usize,
@@ -352,7 +368,7 @@ impl<B: Backend> BrainModel<B> {
 
 /// Archetype-tunable reward weights.
 /// Set aggression_weight high for a berserker, survival_weight high for a coward, etc.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArchetypeRewardWeights {
     pub survival_weight:     f32,
     pub aggression_weight:   f32,
@@ -456,13 +472,24 @@ fn button_reinforce_loss<B: AutodiffBackend>(
 
 // ─── Training Mode ────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TrainingMode {
     BehaviorCloning,   // supervised from designer recordings
     Reinforce,         // policy gradient fine-tuning
 }
 
 // ─── Brain ────────────────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize)]
+pub struct YumonBrainMetadata {
+    pub archetype_name: String,
+    pub reward_weights: ArchetypeRewardWeights,
+    pub training_mode:  TrainingMode,
+    pub total_moments:  u64,
+    pub sleep_count:    u32,
+    pub world_norm:     RunningNorm,
+    pub self_norm:      RunningNorm,
+}
 
 pub struct YumonBrain<B: AutodiffBackend> {
     pub model:           BrainModel<B>,
@@ -507,6 +534,74 @@ impl<B: AutodiffBackend> YumonBrain<B> {
             last_rotation:  0.0,
             sleep_count:    0,
         }
+    }
+
+    pub fn save(&self, directory: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+        std::fs::create_dir_all(directory)?;
+        
+        // 1. Save Model Weights
+        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+        self.model
+            .clone()
+            .into_record()
+            .record(recorder, directory.join("model").into())?;
+
+        // 2. Save Metadata
+        let metadata = YumonBrainMetadata {
+            archetype_name: self.archetype_name.clone(),
+            reward_weights: self.reward_weights.clone(),
+            training_mode:  self.training_mode,
+            total_moments:  self.total_moments,
+            sleep_count:    self.sleep_count,
+            world_norm:     RunningNorm {
+                n:    self.world_norm.n,
+                mean: self.world_norm.mean.clone(),
+                m2:   self.world_norm.m2.clone(),
+                size: self.world_norm.size,
+            },
+            self_norm: RunningNorm {
+                n:    self.self_norm.n,
+                mean: self.self_norm.mean.clone(),
+                m2:   self.self_norm.m2.clone(),
+                size: self.self_norm.size,
+            },
+        };
+        let meta_json = serde_json::to_string_pretty(&metadata)?;
+        std::fs::write(directory.join("metadata.json"), meta_json)?;
+
+        // 3. Save Experience Buffer (Recordings)
+        let buffer_json = serde_json::to_string_pretty(&self.buffer)?;
+        std::fs::write(directory.join("recordings.json"), buffer_json)?;
+
+        Ok(())
+    }
+
+    pub fn load(device: B::Device, directory: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {
+        // 1. Load Metadata
+        let meta_json = std::fs::read_to_string(directory.join("metadata.json"))?;
+        let metadata: YumonBrainMetadata = serde_json::from_str(&meta_json)?;
+
+        // 2. Initialize Brain
+        let mut brain = Self::new(device.clone(), &metadata.archetype_name, metadata.reward_weights);
+        brain.training_mode = metadata.training_mode;
+        brain.total_moments = metadata.total_moments;
+        brain.sleep_count   = metadata.sleep_count;
+        brain.world_norm    = metadata.world_norm;
+        brain.self_norm     = metadata.self_norm;
+
+        // 3. Load Model Weights
+        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+        let record = recorder.load(directory.join("model").into(), &device)?;
+        brain.model = brain.model.load_record(record);
+
+        // 4. Load Recordings (optional if they exist)
+        let rec_path = directory.join("recordings.json");
+        if rec_path.exists() {
+            let buffer_json = std::fs::read_to_string(rec_path)?;
+            brain.buffer = serde_json::from_str(&buffer_json)?;
+        }
+
+        Ok(brain)
     }
 
     // ── Observe ────────────────────────────────────────────────────────────────
