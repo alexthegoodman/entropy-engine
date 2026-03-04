@@ -181,17 +181,48 @@ addon.onInit(async () => {
         maxDistance: 350.0
     });
 
-    // addon.onProjectChanged((id) => {
-    //     const data = addon.IO.load();
-    //     if (data) {
-    //         composerState = { ...composerState, ...data };
-    //         refreshScene(); // until we clear, lets avoid this?
-    //     }
-    // });
-
     // --- Recording Logic ---
     let lastTickTime = 0;
     const TICK_MS = 500;
+    let recordedActionThisTick: number = 11; // Idle
+    let currentLeftStick: [number, number] = [0, 0];
+    let currentRightStick: [number, number] = [0, 0];
+
+    // Event listeners for "one-shot" actions (Jump, Attack, etc.)
+    // These ensure we don't miss a quick tap that happens between 500ms ticks.
+    Entropy.Input.onKeyDown((key) => {
+        if (!composerState.yumonSettings.isRecording) return;
+        
+        if (key === "Space") recordedActionThisTick = 2;      // ButtonA (Jump)
+        else if (key === "ShiftLeft") recordedActionThisTick = 3; // ButtonB (Dodge)
+        else if (key === "KeyE") recordedActionThisTick = 4; // ButtonX (Attack Light)
+        else if (key === "KeyQ") recordedActionThisTick = 5; // ButtonY (Attack Heavy)
+    });
+
+    Entropy.Input.onMouseDown((btn) => {
+        if (!composerState.yumonSettings.isRecording) return;
+        if (btn === 0) recordedActionThisTick = 4; // Left Click -> Attack Light
+        if (btn === 1) recordedActionThisTick = 5; // Right Click -> Attack Heavy
+    });
+
+    Entropy.Input.onGamepadButton((btn, pressed) => {
+        if (!composerState.yumonSettings.isRecording || !pressed) return;
+        
+        // Mapping typical Gamepad strings (based on Gilrs/Winit mapping)
+        if (btn === "South") recordedActionThisTick = 2;      // A / Cross (Jump)
+        else if (btn === "East") recordedActionThisTick = 3;  // B / Circle (Dodge)
+        else if (btn === "West") recordedActionThisTick = 4;  // X / Square (Attack L)
+        else if (btn === "North") recordedActionThisTick = 5; // Y / Triangle (Attack H)
+        else if (btn === "LeftTrigger") recordedActionThisTick = 6;
+        else if (btn === "RightTrigger") recordedActionThisTick = 7;
+        else if (btn === "LeftUpper") recordedActionThisTick = 8;
+        else if (btn === "RightUpper") recordedActionThisTick = 9;
+    });
+
+    Entropy.Input.onGamepadAxis((left, right) => {
+        currentLeftStick = left;
+        currentRightStick = right;
+    });
 
     addon.onUpdate((time) => {
         if (!composerState.yumonSettings.isRecording || !composerState.yumonSettings.activeRecordingBrainId) return;
@@ -204,41 +235,45 @@ addon.onInit(async () => {
         const brainId = composerState.yumonSettings.activeRecordingBrainId;
 
         // 1. Build World State (Normalized)
-        // [NearestObstacleDist, NearestObstacleAngle, NearestPlayerDist, NearestPlayerAngle, ...]
         const world = new Array(16).fill(0);
-        // Simplified: designer is the player
-        world[2] = 0; // Dist to self is 0
-        world[3] = 0; // Angle to self is 0
-        
-        // Let's add some "fake" variety for training if no NPCs are around, 
-        // but ideally we'd look at composerState.components
-        world[12] = 0.5; // Alert level: Alerted
-        world[15] = 0.8; // Light level
+        world[2] = 0; 
+        world[3] = 0; 
+        world[12] = 0.5; 
+        world[15] = 0.8; 
 
         // 2. Build Self State
         const self = new Array(8).fill(0);
-        self[0] = 1.0; // Health
-        self[1] = 1.0; // Stamina
-        self[3] = 1.0; // IsGrounded
-        self[5] = 0.5; // Speed
+        self[0] = 1.0; 
+        self[1] = 1.0; 
+        self[3] = 1.0; 
+        self[5] = 0.5; 
 
-        // 3. Capture Action (from Designer Input)
-        let actionIdx = 11; // Idle
-        if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; // MoveForward
-        else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; // MoveBackward
-        
-        if (Entropy.Input.isKeyPressed("Space")) actionIdx = 2; // ButtonA (Jump)
-        if (Entropy.Input.isKeyPressed("ShiftLeft")) actionIdx = 3; // ButtonB (Dodge)
-        if (Entropy.Input.isKeyPressed("KeyE")) actionIdx = 4; // ButtonX (Attack)
-        if (Entropy.Input.isKeyPressed("KeyQ")) actionIdx = 5; // ButtonY (Heavy)
+        // 3. Resolve Action
+        let actionIdx = recordedActionThisTick;
+        recordedActionThisTick = 11; // Reset for next tick
+
+        // If no one-shot event occurred, check polling for sustained movement
+        if (actionIdx === 11) {
+            // Check Joystick (Left Stick Y for Forward/Backward)
+            if (currentLeftStick[1] > 0.3) actionIdx = 0; // MoveForward
+            else if (currentLeftStick[1] < -0.3) actionIdx = 1; // MoveBackward
+            // Check Keyboard fallback
+            else if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; 
+            else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; 
+        }
 
         // 4. Capture Rotation Delta
-        // In a real session we'd track mouse delta, for now let's use A/D keys
         let rotationDelta = 0;
-        if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.1;
-        if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.1;
+        // Right Stick X has priority for rotation
+        if (Math.abs(currentRightStick[0]) > 0.1) {
+            rotationDelta = currentRightStick[0]; // -1 to 1
+        } else {
+            // Keyboard A/D fallback
+            if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.5;
+            if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.5;
+        }
 
-        const reward = 0.1; // Passive reward for existing
+        const reward = 0.1; 
 
         addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
     });
