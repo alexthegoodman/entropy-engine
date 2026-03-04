@@ -24,6 +24,7 @@ pub struct CustomMesh {
     pub model_bind_group: wgpu::BindGroup,
     pub group_bind_group: wgpu::BindGroup,
     pub behavior_id: Option<String>,
+    pub yumon_id: Option<String>,
 
     // Physics
     pub rapier_collider: Collider,
@@ -284,6 +285,7 @@ impl CustomMesh {
             model_bind_group: bind_group,
             group_bind_group: tmp_group_bind_group,
             behavior_id: None,
+            yumon_id: None,
             rapier_collider,
             collider_handle: None,
             rapier_rigidbody,

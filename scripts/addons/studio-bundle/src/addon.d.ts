@@ -212,6 +212,7 @@ export interface ScopedAPI {
               squadId?: string;
           };
           behaviorId?: string;
+          yumonId?: string;
       }) => void;
       createProcedural: (config: { type: string; parameters?: any; pipelineId?: string; renderRole?: string }) => void;
       createMesh: (config: { 
@@ -226,6 +227,7 @@ export interface ScopedAPI {
           instanceCount?: number;
           bindings?: BindingConfig[];
           behaviorId?: string;
+          yumonId?: string;
           isNpc?: boolean;
           player?: {
               modelId?: string;

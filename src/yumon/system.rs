@@ -671,6 +671,30 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         }
     }
 
+    /// Returns an inference result if the brain has enough context.
+    /// If context is empty but recordings exist, seeds context from recent recordings first.
+    pub fn infer_if_ready(&mut self) -> Option<InferenceResult> {
+        if self.state != OrganismState::Awake {
+            return None;
+        }
+
+        if self.context_window.is_empty() {
+            if self.buffer.buffer.is_empty() {
+                return None;
+            }
+
+            let start = self.buffer.buffer.len().saturating_sub(CONTEXT_LEN);
+            for exp in self.buffer.buffer.iter().skip(start) {
+                if self.context_window.len() >= CONTEXT_LEN {
+                    self.context_window.pop_front();
+                }
+                self.context_window.push_back(exp.moment.clone());
+            }
+        }
+
+        Some(self.infer())
+    }
+
     // ── Sleep ──────────────────────────────────────────────────────────────────
 
     pub fn sleep(&mut self, epochs: usize) -> SleepResult {

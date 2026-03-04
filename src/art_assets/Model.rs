@@ -100,6 +100,7 @@ pub struct Model {
     pub hide_from_world: bool,
     pub script_state: Option<HashMap<String, String>>,
     pub behavior_id: Option<String>,
+    pub yumon_id: Option<String>,
 }
 
 impl Model {
@@ -868,7 +869,8 @@ impl Model {
             skin_bind_group: None,
             hide_from_world: false,
             script_state: None,
-            behavior_id: None
+            behavior_id: None,
+            yumon_id: None,
         }
     }
 }

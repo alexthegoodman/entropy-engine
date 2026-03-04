@@ -126,6 +126,7 @@ globalThis.Entropy = {
                             player: config.player || null,
                             npc: config.npc || null,
                             behaviorId: config.behaviorId || null,
+                            yumonId: config.yumonId || null,
                             isNpc: config.isNpc || null
                         });
                     },
@@ -152,6 +153,7 @@ globalThis.Entropy = {
                             instanceCount: config.instanceCount || 1,
                             bindings: config.bindings || [],
                             behaviorId: config.behaviorId || null,
+                            yumonId: config.yumonId || null,
                             isNpc: config.isNpc || null,
                             player: config.player || null
                         });
@@ -198,6 +200,7 @@ globalThis.Entropy = {
                             player: config.player || null,
                             npc: config.npc || null,
                             behaviorId: config.behaviorId || null,
+                            yumonId: config.yumonId || null,
                             isNpc: config.isNpc || null
                         });
                     }
