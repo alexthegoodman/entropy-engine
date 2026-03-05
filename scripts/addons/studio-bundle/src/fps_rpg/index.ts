@@ -243,7 +243,7 @@ addon.onInit(() => {
         
         Entropy.Entity.setRotation(entityId, [0, finalRotation, 0]);
         
-        if (action === 4 || action === 5 || action === 7) { // Attack (ButtonX, ButtonY, RTrigger)
+        if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;
             if (combat.attack(entityId, isPlayer, origin, direction)) {
                 combat.playFireSound();
