@@ -7,6 +7,7 @@ import { worldManager } from "./world";
 // import { behaviorHooks } from "./behaviors";
 // import { behaviorHooks } from "./behaviors_v2";
 import { behaviorHooks } from "./behaviors_squads";
+import "./passive_behaviors";
 
 class GameState {
     playerId: string | null = null;

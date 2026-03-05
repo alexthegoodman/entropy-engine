@@ -119,6 +119,7 @@ class WorldManager {
             
             // trained LSTM behaviors
             {
+                behaviorId: "movement_tracker",
                 yumonId: "Berserker"
             },
             3
@@ -129,6 +130,7 @@ class WorldManager {
             // }, 
             // 25,
             {
+                behaviorId: "movement_tracker",
                 yumonId: "Berserker"
             },
             3
@@ -139,6 +141,7 @@ class WorldManager {
             // }, 
             // 25,
             {
+                behaviorId: "movement_tracker",
                 yumonId: "Berserker"
             },
             3
@@ -179,7 +182,7 @@ class WorldManager {
                 bindings: [
                     { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                 ],
-                behaviorId: intelligence.behaviorId,
+                behaviorId: intelligence.behaviorId || (intelligence.yumonId ? "movement_tracker" : undefined),
                 yumonId: intelligence.yumonId,
                 isNpc: true,
                 // physics: {
@@ -193,7 +196,7 @@ class WorldManager {
                 path: model,
                 id: id,
                 position: [x, y + 1, z],
-                behaviorId: intelligence.behaviorId,
+                behaviorId: intelligence.behaviorId || (intelligence.yumonId ? "movement_tracker" : undefined),
                 yumonId: intelligence.yumonId,
                 isNpc: true,
                 physics: {
@@ -248,7 +251,7 @@ class WorldManager {
                     bindings: [
                         { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                     ],
-                    behaviorId: intelligence.behaviorId,
+                    behaviorId: intelligence.behaviorId || (intelligence.yumonId ? "movement_tracker" : undefined),
                     yumonId: intelligence.yumonId,
                     isNpc: true,
                 });
@@ -257,7 +260,7 @@ class WorldManager {
                     path: model,
                     id: id,
                     position: [x, y + 1, z],
-                    behaviorId: intelligence.behaviorId,
+                    behaviorId: intelligence.behaviorId || (intelligence.yumonId ? "movement_tracker" : undefined),
                     yumonId: intelligence.yumonId,
                     isNpc: true,
                     physics: {
