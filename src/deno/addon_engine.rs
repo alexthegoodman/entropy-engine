@@ -74,6 +74,10 @@ pub struct YumonBrainState {
     pub last_action: String,
     pub last_rotation: f32,
     pub sleep_count: u32,
+    pub is_training: bool,
+    pub training_epoch: usize,
+    pub total_training_epochs: usize,
+    pub training_loss: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -727,6 +731,7 @@ pub struct AddonContext {
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
     pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_runtime_actions: HashMap<String, YumonActionState>,
+    pub yumon_trainers: HashMap<String, crate::yumon::system::BackgroundTrainer>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -3120,6 +3125,21 @@ fn op_yumon_brain_get_state(
 ) -> Result<YumonBrainState, deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
     if let Some(brain) = ctx.yumon_brains.get(&id) {
+        let mut is_training = false;
+        let mut training_epoch = 0;
+        let mut total_training_epochs = 0;
+        let mut training_loss = 0.0;
+
+        if let Some(trainer) = ctx.yumon_trainers.get(&id) {
+            is_training = true;
+
+            if let Some(last_update) = &trainer.last_update {
+                training_epoch = last_update.epoch;
+                total_training_epochs = last_update.total_epochs;
+                training_loss = last_update.loss;
+            }
+        }
+
         Ok(YumonBrainState {
             archetype: brain.archetype_name.clone(),
             training_mode: format!("{:?}", brain.training_mode),
@@ -3130,6 +3150,10 @@ fn op_yumon_brain_get_state(
             last_action: brain.last_action.to_string(),
             last_rotation: brain.last_rotation,
             sleep_count: brain.sleep_count,
+            is_training,
+            training_epoch,
+            total_training_epochs,
+            training_loss,
         })
     } else {
         Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
@@ -3140,7 +3164,12 @@ fn op_yumon_brain_get_state(
 fn op_yumon_brain_sleep(state: &mut OpState, #[string] id: String, #[bigint] epochs: usize) -> Result<(), deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
     if let Some(brain) = ctx.yumon_brains.get_mut(&id) {
-        brain.sleep_and_wake(epochs);
+        if ctx.yumon_trainers.contains_key(&id) {
+            return Err(deno_error::JsErrorBox::generic("Training already in progress for this brain"));
+        }
+
+        let trainer = crate::yumon::system::BackgroundTrainer::start(brain, epochs);
+        ctx.yumon_trainers.insert(id, trainer);
         Ok(())
     } else {
         Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
@@ -3589,6 +3618,7 @@ impl AddonEngine {
             yumon_sims: HashMap::new(),
             yumon_brains: HashMap::new(),
             yumon_runtime_actions: HashMap::new(),
+            yumon_trainers: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -3904,6 +3934,34 @@ impl AddonEngine {
         current_addon_name: String,
         mut alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
+        // Poll Yumon background trainers
+        {
+            let mut state = self.runtime.op_state();
+            let mut state = state.borrow_mut();
+            let context = state.borrow_mut::<AddonContext>();
+            
+            let mut completed_brains = Vec::new();
+            for (id, trainer) in &mut context.yumon_trainers {
+                // trainer.poll();
+                let update = trainer.recv_update();
+                let update = update.as_ref().expect("Couldn't get last training update");
+                if update.done {
+                    completed_brains.push(id.clone());
+                }
+            }
+
+            for id in completed_brains {
+                if let Some(mut trainer) = context.yumon_trainers.remove(&id) {
+                    if let Some(brain) = context.yumon_brains.get_mut(&id) {
+                        if let Some(weights) = trainer.take_weights() {
+                            brain.apply_trained_weights(weights);
+                            println!("[AddonEngine] ✅ Background training complete for brain: {}", id);
+                        }
+                    }
+                }
+            }
+        }
+
         // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         // let landscape_view = renderer_state.landscapes.first().and_then(|l| l.particle_texture_view.clone());
         let mut landscape_view = renderer_state.addon_landscapes

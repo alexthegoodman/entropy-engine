@@ -961,7 +961,7 @@ pub struct SerializedWeights(pub Vec<u8>);
 pub struct BackgroundTrainer {
     update_rx:   Receiver<TrainingUpdate>,
     weights_rx:  Receiver<SerializedWeights>,
-    last_update: Option<TrainingUpdate>,
+    pub last_update: Option<TrainingUpdate>,
     weights:     Option<SerializedWeights>,
 }
 

@@ -34,7 +34,8 @@ let composerState: {
         archetypes: ["Berserker", "Coward", "Support"],
         activeRecordingBrainId: string | null,
         isRecording: boolean,
-        createdBrains: string[]
+        createdBrains: string[],
+        epochsToTrain: Record<string, number>
     }
     } = {
     roles: {
@@ -58,7 +59,12 @@ let composerState: {
         archetypes: ["Berserker", "Coward", "Support"],
         activeRecordingBrainId: null,
         isRecording: false,
-        createdBrains: []
+        createdBrains: [],
+        epochsToTrain: {
+            "Berserker": 1,
+            "Coward": 1,
+            "Support": 1
+        }
     }
     };
 
@@ -675,13 +681,39 @@ addon.onInit(async () => {
                                     Entropy.println(`Saved Yumon Brain for ${arch}`);
                                 }
                             });
-                            Entropy.UI.Widget.button(hTab, {
-                                text: "Train 1 Epoch",
-                                onClick: () => {
-                                    addon.Yumon.brain.sleep(arch, 1);
-                                    Entropy.println(`Training Yumon Brain for ${arch}...`);
-                                }
-                            });
+                            
+                            const isTraining = bState?.isTraining || false;
+                            
+                            if (isTraining) {
+                                const progress = bState.totalTrainingEpochs > 0 
+                                    ? (bState.trainingEpoch / bState.totalTrainingEpochs * 100).toFixed(1)
+                                    : "0";
+                                const trainLoss = bState.trainingLoss ? bState.trainingLoss.toFixed(4) : "N/A";
+                                Entropy.UI.Widget.label(hTab, { 
+                                    text: `Training: ${progress}% (Epoch ${bState.trainingEpoch}/${bState.totalTrainingEpochs}) Loss: ${trainLoss}`
+                                });
+                            } else {
+                                Entropy.UI.Widget.horizontal(hTab, (trainTab) => {
+                                    Entropy.UI.Widget.button(trainTab, {
+                                        text: `Train ${composerState.yumonSettings.epochsToTrain[arch] || 1} Epochs`,
+                                        onClick: () => {
+                                            const epochs = composerState.yumonSettings.epochsToTrain[arch] || 1;
+                                            addon.Yumon.brain.sleep(arch, epochs);
+                                            Entropy.println(`Started background training for ${arch} (${epochs} epochs)...`);
+                                        }
+                                    });
+                                    
+                                    // Numeric input for epochs
+                                    let currentEpochs = composerState.yumonSettings.epochsToTrain[arch] || 1;
+                                    Entropy.UI.Widget.slider(trainTab, {
+                                        label: "Epochs",
+                                        min: 0,
+                                        max: 1,
+                                        value: currentEpochs,
+                                        onChange: (v: string) => { composerState.yumonSettings.epochsToTrain[arch] = parseInt(v); }
+                                    });
+                                });
+                            }
                         }
                     });
                 });

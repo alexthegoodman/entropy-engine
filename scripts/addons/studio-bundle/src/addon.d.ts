@@ -635,6 +635,10 @@ export interface YumonBrainState {
     lastAction: string;
     lastRotation: number;
     sleepCount: number;
+    isTraining: boolean;
+    trainingEpoch: number;
+    totalTrainingEpochs: number;
+    trainingLoss: number;
 }
 
 // Main Entropy API
