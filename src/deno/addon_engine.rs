@@ -4297,8 +4297,9 @@ impl AddonEngine {
                     }
                 }
 
-                world[crate::yumon::system::WorldIdx::NearestPlayerDist as usize] = nearest_player_dist;
-                world[crate::yumon::system::WorldIdx::NearestPlayerAngle as usize] = nearest_player_angle;
+                // NOTE: the nearest player is the primary enemy of these yumon NPCs right now
+                world[crate::yumon::system::WorldIdx::NearestThreatDist as usize] = nearest_player_dist;
+                world[crate::yumon::system::WorldIdx::NearestThreatAngle as usize] = nearest_player_angle;
                 world[crate::yumon::system::WorldIdx::NearestAllyDist as usize] = nearest_ally_dist;
                 world[crate::yumon::system::WorldIdx::NearestAllyAngle as usize] = nearest_ally_angle;
                 world[crate::yumon::system::WorldIdx::NearbyEnemyCount as usize] = nearby_enemy_count.clamp(0.0, 1.0);
