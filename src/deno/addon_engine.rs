@@ -730,6 +730,7 @@ pub struct AddonContext {
     pub pending_camera_target: Option<[f32; 3]>,
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
     pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
+    pub yumon_instances: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_runtime_actions: HashMap<String, YumonActionState>,
     pub yumon_trainers: HashMap<String, crate::yumon::system::BackgroundTrainer>,
 }
@@ -3619,6 +3620,7 @@ impl AddonEngine {
             yumon_brains: HashMap::new(),
             yumon_runtime_actions: HashMap::new(),
             yumon_trainers: HashMap::new(),
+            yumon_instances: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -4291,6 +4293,8 @@ impl AddonEngine {
 
                 ctx.yumon_runtime_actions
                     .retain(|entity_id, _| yumon_processed.contains(entity_id));
+                ctx.yumon_instances
+                    .retain(|entity_id, _| yumon_processed.contains(entity_id));
 
                 for target in targets {
                     let runtime = ctx
@@ -4303,7 +4307,18 @@ impl AddonEngine {
                         });
 
                     if current_time - runtime.last_infer_time >= YUMON_INFER_INTERVAL_SECS {
-                        if let Some(brain) = ctx.yumon_brains.get_mut(&target.brain_id) {
+                        // Get or create instance brain
+                        let brain = if let Some(instance) = ctx.yumon_instances.get_mut(&target.entity_id) {
+                            Some(instance)
+                        } else if let Some(archetype) = ctx.yumon_brains.get(&target.brain_id) {
+                            let new_instance = archetype.clone_instance();
+                            ctx.yumon_instances.insert(target.entity_id.clone(), new_instance);
+                            ctx.yumon_instances.get_mut(&target.entity_id)
+                        } else {
+                            None
+                        };
+
+                        if let Some(brain) = brain {
                             // Maintain a rolling context from live runtime state before infer.
                             brain.observe(
                                 &target.world,
@@ -4314,7 +4329,7 @@ impl AddonEngine {
                             );
 
                             if let Some(infer) = brain.infer_if_ready() {
-                                // println!("inferred {:?}", infer);
+                                println!("inferred {:?} {:?}", target.entity_id, infer);
                                 runtime.action = infer.action;
                                 runtime.rotation_delta = infer.rotation_delta;
                             }

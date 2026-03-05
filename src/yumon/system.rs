@@ -1146,4 +1146,31 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         self.model = self.model.clone().load_record(record);
         println!("[Brain:{}] ✅ Trained weights applied.", self.archetype_name);
     }
+
+    pub fn clone_instance(&self) -> Self {
+        let device = self.device.clone();
+        let mut new_brain = Self::new(device.clone(), &self.archetype_name, self.reward_weights.clone());
+        
+        // Clone model weights
+        let recorder = BinBytesRecorder::<FullPrecisionSettings>::default();
+        let weight_bytes = recorder
+            .record(self.model.clone().into_record(), ())
+            .expect("[Brain] failed to serialize model weights for cloning");
+        
+        let record = recorder
+            .load(weight_bytes, &device)
+            .expect("[Brain] failed to deserialize model weights for cloning");
+            
+        new_brain.model = new_brain.model.load_record(record);
+        
+        // Clone metadata/config
+        new_brain.training_mode = self.training_mode;
+        new_brain.total_moments = self.total_moments;
+        new_brain.sleep_count = self.sleep_count;
+        
+        // We start with fresh normalization and context for the new instance
+        // but it has the "intelligence" (weights) of the parent.
+        
+        new_brain
+    }
 }
