@@ -90,21 +90,38 @@ class WorldManager {
     populateWorld() {
         // Spawn faction leaders (quest givers)
         this.spawnNPC("Commander Vex", Entropy.generateUUID(), "Enemy1b.glb", 
-            factions[Faction.CRIMSON_GUARD].territory, "quest_giver_vex", Faction.CRIMSON_GUARD);
+            factions[Faction.CRIMSON_GUARD].territory, {
+                behaviorId: "quest_giver_vex"
+            }, Faction.CRIMSON_GUARD);
         
         this.spawnNPC("Scholar Lyra", Entropy.generateUUID(), "Player1b.glb",
-            factions[Faction.AZURE_ORDER].territory, "quest_giver_lyra", Faction.AZURE_ORDER);
+            factions[Faction.AZURE_ORDER].territory, {
+                behaviorId: "quest_giver_lyra"
+            }, Faction.AZURE_ORDER);
         
         this.spawnNPC("Whisper Master", Entropy.generateUUID(), "Enemy1b.glb",
-            factions[Faction.SHADOW_COVENANT].territory, "quest_giver_whisper", Faction.SHADOW_COVENANT);
+            factions[Faction.SHADOW_COVENANT].territory, {
+                behaviorId: "quest_giver_whisper"
+            }, Faction.SHADOW_COVENANT);
         
         this.spawnNPC("The Wanderer", Entropy.generateUUID(), "Friend1b.glb",
-            { x: 0, z: 0, radius: 5 }, "neutral_wanderer", Faction.NEUTRAL);
+            { x: 0, z: 0, radius: 5 }, {
+                behaviorId: "neutral_wanderer"
+            }, Faction.NEUTRAL);
         
         // Spawn faction soldiers
-        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", "crimson_soldier", 25);
-        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", "azure_soldier", 25);
-        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", "shadow_assassin", 20);
+        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", {
+            // behaviorId: "crimson_soldier",
+                yumonId: "Berserker"
+            }, 25);
+        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", {
+            // behaviorId: "azure_soldier",
+                yumonId: "Berserker"
+            }, 25);
+        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", {
+            // behaviorId: "shadow_assassin",
+                yumonId: "Berserker"
+            }, 20);
         
         // Spawn collectables
         this.spawnCollectables();
@@ -112,7 +129,7 @@ class WorldManager {
         Entropy.println("[World] Populated with NPCs and items");
     }
     
-    spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, behaviorId: string, faction: Faction = Faction.NEUTRAL) {
+    spawnNPC(name: string, id: string, model: string, territory: { x: number, z: number, radius: number }, intelligence: { behaviorId?: string, yumonId?: string }, faction: Faction = Faction.NEUTRAL) {
         const angle = Math.random() * Math.PI * 2;
         const dist = Math.random() * territory.radius * 0.3; // Keep near center
         const x = territory.x + Math.cos(angle) * dist;
@@ -131,7 +148,6 @@ class WorldManager {
 
             Entropy.println("--------------------------- FPS RPG NPC MESH" + visual.vertexData.length + " " +  visual.indexData.length + " " +  visual.pipelineId);
 
-
             addon.Model.createMesh({
                 id: id,
                 position: [x, y + 1, z],
@@ -142,7 +158,8 @@ class WorldManager {
                 bindings: [
                     { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                 ],
-                behaviorId: behaviorId,
+                behaviorId: intelligence.behaviorId,
+                yumonId: intelligence.yumonId,
                 isNpc: true,
                 // physics: {
                 //     bodyType: "dynamic",
@@ -155,7 +172,8 @@ class WorldManager {
                 path: model,
                 id: id,
                 position: [x, y + 1, z],
-                behaviorId: behaviorId,
+                behaviorId: intelligence.behaviorId,
+                yumonId: intelligence.yumonId,
                 isNpc: true,
                 physics: {
                     bodyType: "dynamic",
@@ -165,7 +183,9 @@ class WorldManager {
             });
         }
 
-        gameState.npcBehaviors.set(id, behaviorId);
+        if (intelligence.behaviorId) {
+            gameState.npcBehaviors.set(id, intelligence.behaviorId);
+        }
 
         // Register in combat system
         combat.registerEntity(id, faction, {
@@ -176,7 +196,7 @@ class WorldManager {
         }, 100);
     }
     
-    spawnFactionGuards(faction: Faction, model: string, behaviorId: string, count: number) {
+    spawnFactionGuards(faction: Faction, model: string, intelligence: { behaviorId?: string, yumonId?: string }, count: number) {
         const territory = factions[faction].territory;
         const visual = addon.getVisualProvider("humanoid_character");
         
@@ -207,7 +227,8 @@ class WorldManager {
                     bindings: [
                         { group: 2, binding: 0, resource: { type: "Buffer", value: { id: this.npcJointBufferId[id]! } } }
                     ],
-                    behaviorId: behaviorId,
+                    behaviorId: intelligence.behaviorId,
+                    yumonId: intelligence.yumonId,
                     isNpc: true,
                 });
             } else {
@@ -215,7 +236,8 @@ class WorldManager {
                     path: model,
                     id: id,
                     position: [x, y + 1, z],
-                    behaviorId: behaviorId,
+                    behaviorId: intelligence.behaviorId,
+                    yumonId: intelligence.yumonId,
                     isNpc: true,
                     physics: {
                         bodyType: "dynamic",
@@ -224,7 +246,9 @@ class WorldManager {
                 });
             }
 
-            gameState.npcBehaviors.set(id, behaviorId);
+            if (intelligence.behaviorId) {
+                gameState.npcBehaviors.set(id, intelligence.behaviorId);
+            }
 
             // Register in combat system
             combat.registerEntity(id, faction, {

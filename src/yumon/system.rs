@@ -1006,6 +1006,9 @@ impl BackgroundTrainer {
             let all        = &experiences;
             let mut final_loss = 0.0f32;
 
+            println!("[Brain:{}] 💤 {} experiences, {} epochs, mode={:?}",
+                        archetype_name, all.len(), epochs, training_mode);
+
             for epoch in 0..epochs {
                 let mut indices: Vec<usize> = (0..all.len()).collect();
                 indices.shuffle(&mut thread_rng());
@@ -1058,12 +1061,23 @@ impl BackgroundTrainer {
                         .div_scalar(batch_size_f);
 
                     let grads = GradientsParams::from_grads(total_loss.backward(), &model);
-                    model     = optimizer.step(1e-4, model.clone(), grads);
+                    model     = optimizer.step(
+                        // 1e-5, // just stays above 1 loss 
+                        // 1e-3, // stays above 0.9 in 10 epochs
+                         3e-2,
+                        // 1e-2, // stays above 0.8 in 20 epochs
+                        // 1e-1, // struggles, mostly above 0.9
+                        model.clone(), 
+                        grads
+                    );
 
                     epoch_loss += batch_loss_sum / batch_size_f;
                 }
 
                 final_loss = epoch_loss / num_batches as f32;
+
+                println!("[Brain:{}]   epoch {}/{}  loss={:.6}",
+                        archetype_name, epoch + 1, epochs, final_loss);
 
                 if update_tx.send(TrainingUpdate {
                     epoch:        epoch + 1,

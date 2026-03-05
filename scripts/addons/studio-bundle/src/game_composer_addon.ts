@@ -682,17 +682,17 @@ addon.onInit(async () => {
                                 }
                             });
                             
-                            const isTraining = bState?.isTraining || false;
+                            // const isTraining = bState?.isTraining || false;
                             
-                            if (isTraining) {
-                                const progress = bState.totalTrainingEpochs > 0 
-                                    ? (bState.trainingEpoch / bState.totalTrainingEpochs * 100).toFixed(1)
+                            // if (isTraining) {
+                                const progress = bState?.totalTrainingEpochs > 0 
+                                    ? (bState?.trainingEpoch / bState?.totalTrainingEpochs * 100).toFixed(1)
                                     : "0";
-                                const trainLoss = bState.trainingLoss ? bState.trainingLoss.toFixed(4) : "N/A";
+                                const trainLoss = bState?.trainingLoss ? bState?.trainingLoss.toFixed(4) : "N/A";
                                 Entropy.UI.Widget.label(hTab, { 
-                                    text: `Training: ${progress}% (Epoch ${bState.trainingEpoch}/${bState.totalTrainingEpochs}) Loss: ${trainLoss}`
+                                    text: `Training: ${progress}% (Epoch ${bState?.trainingEpoch}/${bState?.totalTrainingEpochs}) Loss: ${trainLoss}`
                                 });
-                            }
+                            // }
                         }
                     });
 
@@ -715,7 +715,7 @@ addon.onInit(async () => {
                                 Entropy.UI.Widget.slider(trainTab, {
                                     label: "Epochs",
                                     min: 1,
-                                    max: 1000,
+                                    max: 100,
                                     value: currentEpochs,
                                     onChange: (v: string) => { composerState.yumonSettings.epochsToTrain[arch] = parseInt(v); }
                                 });
