@@ -1,4 +1,4 @@
-import { entityPositions } from ".";
+import { entityPositions } from "./index";
 import type { Entity } from "../addon";
 
 Entropy.Behavior.register("movement_tracker", {
