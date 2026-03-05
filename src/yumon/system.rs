@@ -698,6 +698,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
 
     // ── Sleep ──────────────────────────────────────────────────────────────────
 
+    // NOTE: this sleep method is blocking and makes the app unresponsive
     pub fn sleep(&mut self, epochs: usize) -> SleepResult {
         assert_ne!(self.state, OrganismState::Sleeping, "[Brain] Already sleeping.");
         if self.buffer.len() < CONTEXT_LEN {
@@ -714,77 +715,77 @@ impl<B: AutodiffBackend> YumonBrain<B> {
 
         let mut final_loss = 0.0f32;
 
-        for epoch in 0..epochs {
-            let mut indices: Vec<usize> = (0..all.len()).collect();
-            indices.shuffle(&mut thread_rng());
+        // for epoch in 0..epochs {
+        //     let mut indices: Vec<usize> = (0..all.len()).collect();
+        //     indices.shuffle(&mut thread_rng());
 
-            let mut epoch_loss  = 0.0f32;
-            let num_batches     = (indices.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+        //     let mut epoch_loss  = 0.0f32;
+        //     let num_batches     = (indices.len() + BATCH_SIZE - 1) / BATCH_SIZE;
 
-            println!("Epoch: {:?} {:?} {:?}", BATCH_SIZE, epoch, num_batches);
+        //     println!("Epoch: {:?} {:?} {:?}", BATCH_SIZE, epoch, num_batches);
 
-            for batch_start in (0..indices.len()).step_by(BATCH_SIZE) {
-                let batch_idx: Vec<usize> = indices[
-                    batch_start..(batch_start + BATCH_SIZE).min(indices.len())
-                ].to_vec();
+        //     for batch_start in (0..indices.len()).step_by(BATCH_SIZE) {
+        //         let batch_idx: Vec<usize> = indices[
+        //             batch_start..(batch_start + BATCH_SIZE).min(indices.len())
+        //         ].to_vec();
 
-                let mut loss_tensors: Vec<Tensor<B, 1>> = Vec::new();
-                let mut batch_loss_sum = 0.0f32;
+        //         let mut loss_tensors: Vec<Tensor<B, 1>> = Vec::new();
+        //         let mut batch_loss_sum = 0.0f32;
 
-                for &i in &batch_idx {
-                    let exp     = &all[i];
-                    let context = build_context(&all, i);
-                    let flat    = moments_to_flat(&context);
+        //         for &i in &batch_idx {
+        //             let exp     = &all[i];
+        //             let context = build_context(&all, i);
+        //             let flat    = moments_to_flat(&context);
 
-                    let input_t = Tensor::<B, 3>::from_floats(
-                        TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
-                        &self.device,
-                    );
+        //             let input_t = Tensor::<B, 3>::from_floats(
+        //                 TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
+        //                 &self.device,
+        //             );
 
-                    let (button_logits, rotation_pred) = self.model.forward(input_t);
+        //             let (button_logits, rotation_pred) = self.model.forward(input_t);
 
-                    let loss = match self.training_mode {
-                        TrainingMode::BehaviorCloning => {
-                            // println!("Starting loss");
-                            // Button head: NLL loss against designer's recorded action
-                            let bl = button_bc_loss(button_logits, exp.action_taken);
-                            // println!("Continuing loss");
-                            // Rotation head: MSE against designer's recorded rotation
-                            let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
-                            // println!("Finishing loss");
-                            // Combined — weight rotation slightly lower
-                            bl + rl.mul_scalar(0.5)
-                        }
-                        TrainingMode::Reinforce => {
-                            // Button head: REINFORCE
-                            let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
-                            // Rotation head: MSE still — no clean REINFORCE formulation for continuous
-                            let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
-                            bl + rl.mul_scalar(0.5)
-                        }
-                    };
+        //             let loss = match self.training_mode {
+        //                 TrainingMode::BehaviorCloning => {
+        //                     // println!("Starting loss");
+        //                     // Button head: NLL loss against designer's recorded action
+        //                     let bl = button_bc_loss(button_logits, exp.action_taken);
+        //                     // println!("Continuing loss");
+        //                     // Rotation head: MSE against designer's recorded rotation
+        //                     let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+        //                     // println!("Finishing loss");
+        //                     // Combined — weight rotation slightly lower
+        //                     bl + rl.mul_scalar(0.5)
+        //                 }
+        //                 TrainingMode::Reinforce => {
+        //                     // Button head: REINFORCE
+        //                     let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
+        //                     // Rotation head: MSE still — no clean REINFORCE formulation for continuous
+        //                     let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+        //                     bl + rl.mul_scalar(0.5)
+        //                 }
+        //             };
 
-                    let loss_val: Vec<f32> = loss.clone().inner().to_data().to_vec().unwrap();
-                    batch_loss_sum += loss_val[0];
-                    loss_tensors.push(loss);
-                }
+        //             let loss_val: Vec<f32> = loss.clone().inner().to_data().to_vec().unwrap();
+        //             batch_loss_sum += loss_val[0];
+        //             loss_tensors.push(loss);
+        //         }
 
-                let batch_size_f = batch_idx.len() as f32;
-                let total_loss   = loss_tensors.into_iter()
-                    .reduce(|a, b| a + b)
-                    .unwrap()
-                    .div_scalar(batch_size_f);
+        //         let batch_size_f = batch_idx.len() as f32;
+        //         let total_loss   = loss_tensors.into_iter()
+        //             .reduce(|a, b| a + b)
+        //             .unwrap()
+        //             .div_scalar(batch_size_f);
 
-                let grads   = GradientsParams::from_grads(total_loss.backward(), &self.model);
-                self.model  = self.optimizer.step(1e-4, self.model.clone(), grads);
+        //         let grads   = GradientsParams::from_grads(total_loss.backward(), &self.model);
+        //         self.model  = self.optimizer.step(1e-4, self.model.clone(), grads);
 
-                epoch_loss += batch_loss_sum / batch_size_f;
-            }
+        //         epoch_loss += batch_loss_sum / batch_size_f;
+        //     }
 
-            final_loss = epoch_loss / num_batches as f32;
-            println!("[Brain:{}]   epoch {}/{}  loss={:.6}",
-                self.archetype_name, epoch + 1, epochs, final_loss);
-        }
+        //     final_loss = epoch_loss / num_batches as f32;
+        //     println!("[Brain:{}]   epoch {}/{}  loss={:.6}",
+        //         self.archetype_name, epoch + 1, epochs, final_loss);
+        // }
 
         self.last_loss = Some(final_loss);
         SleepResult { epochs_run: epochs, final_loss, samples_used: all.len() }
@@ -920,3 +921,213 @@ fn mk_bar(ratio: f32, width: usize) -> String {
 // ─── Backend Type Alias ───────────────────────────────────────────────────────
 
 pub type MyBackend = burn::backend::Autodiff<burn::backend::NdArray<f32>>;
+
+// ─── Background Trainer ───────────────────────────────────────────────────────
+//
+// Runs sleep() on a dedicated thread so the main app stays responsive.
+// Use BackgroundTrainer::start() to kick off training, then poll
+// status() or recv_update() to get progress.
+//
+// Workflow:
+//   let bt = BackgroundTrainer::start(&brain, SLEEP_EPOCHS);
+//   loop {
+//       if let Some(update) = bt.recv_update() {
+//           println!("epoch {} loss {:.6}", update.epoch, update.loss);
+//           if update.done {
+//               brain.apply_trained_weights(bt.take_weights().unwrap());
+//               break;
+//           }
+//       }
+//       // ... your game loop continues here unblocked ...
+//   }
+
+// ─── Background Trainer ───────────────────────────────────────────────────────
+
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::thread;
+use burn::record::BinBytesRecorder;
+
+#[derive(Debug, Clone)]
+pub struct TrainingUpdate {
+    pub epoch:        usize,
+    pub total_epochs: usize,
+    pub loss:         f32,
+    pub samples_used: usize,
+    pub done:         bool,
+}
+
+pub struct SerializedWeights(pub Vec<u8>);
+
+pub struct BackgroundTrainer {
+    update_rx:   Receiver<TrainingUpdate>,
+    weights_rx:  Receiver<SerializedWeights>,
+    last_update: Option<TrainingUpdate>,
+    weights:     Option<SerializedWeights>,
+}
+
+impl BackgroundTrainer {
+    pub fn start(brain: &YumonBrain<MyBackend>, epochs: usize) -> Self {
+        let experiences: Vec<Experience> = brain.buffer.buffer.iter().cloned().collect();
+        let training_mode  = brain.training_mode;
+        let archetype_name = brain.archetype_name.clone();
+
+        // Serialize current weights into bytes — no temp files needed
+        let recorder     = BinBytesRecorder::<FullPrecisionSettings>::default();
+        let weight_bytes = recorder
+            .record(brain.model.clone().into_record(), ())
+            .expect("[Brain] failed to serialize model weights");
+
+        let (update_tx, update_rx)   = mpsc::channel::<TrainingUpdate>();
+        let (weights_tx, weights_rx) = mpsc::channel::<SerializedWeights>();
+
+        thread::spawn(move || {
+            let device = <MyBackend as Backend>::Device::default();
+
+            // Deserialize weights onto the training thread's model
+            let recorder2 = BinBytesRecorder::<FullPrecisionSettings>::default();
+            let record    = recorder2
+                .load(weight_bytes, &device)
+                .expect("[Brain] failed to deserialize model weights");
+            let config    = BrainModelConfig::new();
+            let mut model: BrainModel<MyBackend> = config.init(&device);
+            model = model.load_record(record);
+
+            let mut optimizer: OptimizerAdaptor<Adam, BrainModel<MyBackend>, MyBackend> =
+                AdamConfig::new().with_epsilon(1e-7).init();
+
+            if experiences.len() < CONTEXT_LEN {
+                let _ = update_tx.send(TrainingUpdate {
+                    epoch: 0, total_epochs: epochs, loss: 0.0,
+                    samples_used: 0, done: true,
+                });
+                return;
+            }
+
+            let all        = &experiences;
+            let mut final_loss = 0.0f32;
+
+            for epoch in 0..epochs {
+                let mut indices: Vec<usize> = (0..all.len()).collect();
+                indices.shuffle(&mut thread_rng());
+
+                let mut epoch_loss = 0.0f32;
+                let num_batches    = (indices.len() + BATCH_SIZE - 1) / BATCH_SIZE;
+
+                for batch_start in (0..indices.len()).step_by(BATCH_SIZE) {
+                    let batch_idx: Vec<usize> = indices[
+                        batch_start..(batch_start + BATCH_SIZE).min(indices.len())
+                    ].to_vec();
+
+                    let mut loss_tensors: Vec<Tensor<MyBackend, 1>> = Vec::new();
+                    let mut batch_loss_sum = 0.0f32;
+
+                    for &i in &batch_idx {
+                        let exp     = &all[i];
+                        let context = build_context(all, i);
+                        let flat    = moments_to_flat(&context);
+
+                        let input_t = Tensor::<MyBackend, 3>::from_floats(
+                            TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
+                            &device,
+                        );
+
+                        let (button_logits, rotation_pred) = model.forward(input_t);
+
+                        let loss = match training_mode {
+                            TrainingMode::BehaviorCloning => {
+                                let bl = button_bc_loss(button_logits, exp.action_taken);
+                                let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+                                bl + rl.mul_scalar(0.5)
+                            }
+                            TrainingMode::Reinforce => {
+                                let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
+                                let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+                                bl + rl.mul_scalar(0.5)
+                            }
+                        };
+
+                        let loss_val: Vec<f32> = loss.clone().inner().to_data().to_vec().unwrap();
+                        batch_loss_sum += loss_val[0];
+                        loss_tensors.push(loss);
+                    }
+
+                    let batch_size_f = batch_idx.len() as f32;
+                    let total_loss   = loss_tensors.into_iter()
+                        .reduce(|a, b| a + b)
+                        .unwrap()
+                        .div_scalar(batch_size_f);
+
+                    let grads = GradientsParams::from_grads(total_loss.backward(), &model);
+                    model     = optimizer.step(1e-4, model.clone(), grads);
+
+                    epoch_loss += batch_loss_sum / batch_size_f;
+                }
+
+                final_loss = epoch_loss / num_batches as f32;
+
+                if update_tx.send(TrainingUpdate {
+                    epoch:        epoch + 1,
+                    total_epochs: epochs,
+                    loss:         final_loss,
+                    samples_used: all.len(),
+                    done:         false,
+                }).is_err() { return; }
+            }
+
+            // Serialize trained weights back to bytes
+            let recorder3    = BinBytesRecorder::<FullPrecisionSettings>::default();
+            let trained_bytes = recorder3
+                .record(model.into_record(), ())
+                .expect("[Brain] failed to serialize trained weights");
+
+            let _ = weights_tx.send(SerializedWeights(trained_bytes));
+            let _ = update_tx.send(TrainingUpdate {
+                epoch:        epochs,
+                total_epochs: epochs,
+                loss:         final_loss,
+                samples_used: all.len(),
+                done:         true,
+            });
+        });
+
+        Self { update_rx, weights_rx, last_update: None, weights: None }
+    }
+
+    pub fn recv_update(&mut self) -> Option<TrainingUpdate> {
+        loop {
+            match self.update_rx.try_recv() {
+                Ok(u) => {
+                    if u.done {
+                        if let Ok(w) = self.weights_rx.try_recv() {
+                            self.weights = Some(w);
+                        }
+                    }
+                    self.last_update = Some(u);
+                }
+                Err(TryRecvError::Empty)        => break,
+                Err(TryRecvError::Disconnected) => break,
+            }
+        }
+        self.last_update.clone()
+    }
+
+    pub fn is_done(&mut self) -> bool {
+        self.recv_update();
+        self.last_update.as_ref().map(|u| u.done).unwrap_or(false)
+    }
+
+    pub fn take_weights(&mut self) -> Option<SerializedWeights> {
+        self.weights.take()
+    }
+}
+
+impl<B: AutodiffBackend> YumonBrain<B> {
+    pub fn apply_trained_weights(&mut self, weights: SerializedWeights) {
+        let recorder = BinBytesRecorder::<FullPrecisionSettings>::default();
+        let record   = recorder
+            .load(weights.0, &self.device)
+            .expect("[Brain] failed to deserialize trained weights");
+        self.model = self.model.clone().load_record(record);
+        println!("[Brain:{}] ✅ Trained weights applied.", self.archetype_name);
+    }
+}
