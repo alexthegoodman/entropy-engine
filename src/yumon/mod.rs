@@ -1,2 +1,2 @@
-pub mod model;
+pub mod legacy;
 pub mod system;

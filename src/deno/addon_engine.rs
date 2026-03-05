@@ -45,7 +45,7 @@ use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
-use crate::yumon::model::{OrganismSim, MyBackend};
+use crate::yumon::legacy::{OrganismSim, MyBackend};
 use egui;
 use wgpu::util::DeviceExt;
 use egui_wgpu;

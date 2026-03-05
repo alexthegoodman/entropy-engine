@@ -39,9 +39,9 @@ pub const WORLD_SIZE: usize      = 16;  // expanded world state
 pub const SELF_SIZE: usize       = 8;
 pub const MOMENT_SIZE: usize     = WORLD_SIZE + SELF_SIZE; // 24
 pub const ACTION_SIZE: usize     = 12;  // discrete button actions
-pub const CONTEXT_LEN: usize     = 64; // how many moments per input (16 = 8s, 64 ~ 30s)
-// pub const MEMORY_CAPACITY: usize = 512; // ~5 minutes
-pub const MEMORY_CAPACITY: usize = 4096; // ~30 minutes of recorded play time supported at 500ms ticks
+pub const CONTEXT_LEN: usize     = 16; // how many moments per input (16 = 8s, 64 ~ 30s)
+pub const MEMORY_CAPACITY: usize = 512; // ~5 minutes
+// pub const MEMORY_CAPACITY: usize = 4096; // ~30 minutes of recorded play time supported at 500ms ticks
 pub const BATCH_SIZE: usize      = 16; // how many inputs per iteration
 pub const SLEEP_EPOCHS: usize    = 4;
 pub const DANGER_THRESHOLD: f32  = 0.5;
@@ -721,6 +721,8 @@ impl<B: AutodiffBackend> YumonBrain<B> {
             let mut epoch_loss  = 0.0f32;
             let num_batches     = (indices.len() + BATCH_SIZE - 1) / BATCH_SIZE;
 
+            println!("Epoch: {:?} {:?} {:?}", BATCH_SIZE, epoch, num_batches);
+
             for batch_start in (0..indices.len()).step_by(BATCH_SIZE) {
                 let batch_idx: Vec<usize> = indices[
                     batch_start..(batch_start + BATCH_SIZE).min(indices.len())
@@ -743,10 +745,13 @@ impl<B: AutodiffBackend> YumonBrain<B> {
 
                     let loss = match self.training_mode {
                         TrainingMode::BehaviorCloning => {
+                            // println!("Starting loss");
                             // Button head: NLL loss against designer's recorded action
                             let bl = button_bc_loss(button_logits, exp.action_taken);
+                            // println!("Continuing loss");
                             // Rotation head: MSE against designer's recorded rotation
                             let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+                            // println!("Finishing loss");
                             // Combined — weight rotation slightly lower
                             bl + rl.mul_scalar(0.5)
                         }
@@ -915,30 +920,3 @@ fn mk_bar(ratio: f32, width: usize) -> String {
 // ─── Backend Type Alias ───────────────────────────────────────────────────────
 
 pub type MyBackend = burn::backend::Autodiff<burn::backend::NdArray<f32>>;
-
-// ─── Usage Notes ─────────────────────────────────────────────────────────────
-//
-// Typical designer workflow:
-//
-//   1. Create a brain for your archetype:
-//        let mut brain = YumonBrain::<MyBackend>::new(device, "Berserker", ArchetypeRewardWeights::berserker());
-//
-//   2. Record play session (designer plays as the NPC):
-//        brain.training_mode = TrainingMode::BehaviorCloning;
-//        // each tick: brain.observe(world, self_state, action, rotation_delta, reward);
-//
-//   3. Sleep to train on recordings:
-//        brain.sleep_and_wake(SLEEP_EPOCHS);
-//
-//   4. Optionally switch to REINFORCE for fine-tuning:
-//        brain.training_mode = TrainingMode::Reinforce;
-//        // run more ticks, sleep again
-//
-//   5. Infer at runtime (called once per tick per NPC instance):
-//        let result = brain.infer();
-//        // result.action         → discrete button press
-//        // result.rotation_delta → multiply by turn_speed_deg to get yaw delta
-//
-//   6. Register in ArchetypeRegistry for staggered multi-NPC ticking:
-//        registry.register(brain);
-//        // in your frame loop: registry.archetypes_ticking_on(global_tick)

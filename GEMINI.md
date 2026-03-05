@@ -15,15 +15,16 @@ With the addon studio bundle there is:
 - DAW Synth
 - Enviornment (Sun and Sky)
 - Beautiful FFT Water
-- JS-generated Terrain (flexnoise)
+- JS-generated Terrain (flexnoise for smaller)
+- Rust-generated Terrain (megaworlds for bigger)
 - Hair Particles (grass)
 - Light Management (light hive)
-- Rust-generated Terrain (megaworlds)
 - Procedural PBR Texture Generator (designer)
 - Basic water plane
 - Fog (volumetric fx)
 - Model Import (+ Player and NPC creation) (model viewer)
 - A couple rivers attempts (neither good yet)
+- Game Composer (mix objects from other addons, start a Yumon training session, etc)
 
 Within /src/, there are several directories:
 
@@ -47,6 +48,7 @@ Within /src/, there are several directories:
 /vector_animations/ helps with 2D motion path animations
 /video_export/ leverages Media Foundation to power mp4 video export on Windows
 /deno/ contains the addon engine for both game logic and rendering logic in JS scripts
+/yumon/ contains the system.rs Rust Burn LSTM model which implements behavior cloning concepts for creating NPC behaviors
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)

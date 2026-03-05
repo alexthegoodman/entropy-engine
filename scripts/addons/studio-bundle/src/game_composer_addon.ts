@@ -237,15 +237,15 @@ addon.onInit(async () => {
         // Entropy.println("gamepad button 2 " + btn + " " + pressed);
         if (!composerState.yumonSettings.isRecording || !pressed) return;
         
-        // Mapping typical Gamepad strings (based on Gilrs/Winit mapping)
+        // Mapping typical Gamepad strings (based on Gilrs/Winit mapping) also mapped in yumon/system.rs to Action
         if (btn === "South") recordedActionThisTick = 2;      // A / Cross (Jump)
         else if (btn === "East") recordedActionThisTick = 3;  // B / Circle (Dodge)
         else if (btn === "West") recordedActionThisTick = 4;  // X / Square (Attack L)
         else if (btn === "North") recordedActionThisTick = 5; // Y / Triangle (Attack H)
-        else if (btn === "LeftTrigger") recordedActionThisTick = 6;
-        else if (btn === "RightTrigger") recordedActionThisTick = 7;
-        else if (btn === "LeftUpper") recordedActionThisTick = 8;
-        else if (btn === "RightUpper") recordedActionThisTick = 9;
+        else if (btn === "LeftTrigger2") recordedActionThisTick = 6; // ads
+        else if (btn === "RightTrigger2") recordedActionThisTick = 7; //  ranged attack
+        else if (btn === "LeftTrigger") recordedActionThisTick = 8;
+        else if (btn === "RightTrigger") recordedActionThisTick = 9;
     });
 
     Entropy.Input.onGamepadAxis((left, right) => {
@@ -298,6 +298,7 @@ addon.onInit(async () => {
             const angle = Math.atan2(det, dot) / Math.PI;
 
             // Heuristic for classification
+            // TODO: need better detection, perhaps add crateEnemy aside createNPC and use a tag
             const isNPC = inst.addon === "Model Viewer" || inst.name.toLowerCase().includes("npc");
             const isEnemy = isNPC && (inst.name.toLowerCase().includes("enemy") || inst.name.toLowerCase().includes("monster"));
             const isAlly = isNPC && !isEnemy;
@@ -650,6 +651,7 @@ addon.onInit(async () => {
                                 addon.Yumon.brain.create(arch, arch);
                                 if (!composerState.yumonSettings.createdBrains.includes(arch)) {
                                     composerState.yumonSettings.createdBrains.push(arch);
+                                    composerState.yumonSettings.activeRecordingBrainId = arch;
                                 }
                                 Entropy.println(`Created Yumon Brain for ${arch}`);
                             }
@@ -660,24 +662,27 @@ addon.onInit(async () => {
                                 addon.Yumon.brain.load(arch);
                                 if (!composerState.yumonSettings.createdBrains.includes(arch)) {
                                     composerState.yumonSettings.createdBrains.push(arch);
+                                    composerState.yumonSettings.activeRecordingBrainId = arch;
                                 }
                                 Entropy.println(`Loaded Yumon Brain for ${arch}`);
                             }
                         });
-                        Entropy.UI.Widget.button(hTab, {
-                            text: "Save",
-                            onClick: () => {
-                                addon.Yumon.brain.save(arch);
-                                Entropy.println(`Saved Yumon Brain for ${arch}`);
-                            }
-                        });
-                        Entropy.UI.Widget.button(hTab, {
-                            text: "Train",
-                            onClick: () => {
-                                addon.Yumon.brain.sleep(arch, 10);
-                                Entropy.println(`Training Yumon Brain for ${arch}...`);
-                            }
-                        });
+                        if (composerState.yumonSettings.createdBrains.includes(arch)) {
+                            Entropy.UI.Widget.button(hTab, {
+                                text: "Save",
+                                onClick: () => {
+                                    addon.Yumon.brain.save(arch);
+                                    Entropy.println(`Saved Yumon Brain for ${arch}`);
+                                }
+                            });
+                            Entropy.UI.Widget.button(hTab, {
+                                text: "Train 1 Epoch",
+                                onClick: () => {
+                                    addon.Yumon.brain.sleep(arch, 1);
+                                    Entropy.println(`Training Yumon Brain for ${arch}...`);
+                                }
+                            });
+                        }
                     });
                 });
 
@@ -691,16 +696,17 @@ addon.onInit(async () => {
                 }
 
                 const recordingId = composerState.yumonSettings.activeRecordingBrainId;
-                Entropy.UI.Widget.dropdown(tab, {
-                    label: "Target Archetype",
-                    options: composerState.yumonSettings.archetypes,
-                    selectedIndex: recordingId ? composerState.yumonSettings.archetypes.indexOf(recordingId as any) : 0,
-                    onChange: (v) => {
-                        composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[parseInt(v)];
-                    }
-                });
 
                 if (composerState.yumonSettings.createdBrains.includes(recordingId as string)) {
+                    Entropy.UI.Widget.dropdown(tab, {
+                        label: "Target Archetype",
+                        options: composerState.yumonSettings.archetypes,
+                        selectedIndex: recordingId ? composerState.yumonSettings.archetypes.indexOf(recordingId as any) : 0,
+                        onChange: (v) => {
+                            composerState.yumonSettings.activeRecordingBrainId = composerState.yumonSettings.archetypes[parseInt(v)];
+                        }
+                    });
+
                     Entropy.UI.Widget.button(tab, {
                         text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Designer Session",
                         onClick: () => {

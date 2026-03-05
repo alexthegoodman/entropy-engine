@@ -33,7 +33,7 @@ import "./inorganic_modelling_addon";
 import "./procedural_houses_addon";
 import "./behavior_nodes_addon";
 import "./alpha_preview_addon";
-import "./yumon_addon";
+import "./legacy_yumon_addon";
 
 // game logic tier
 // import "./horde_mode_game";
