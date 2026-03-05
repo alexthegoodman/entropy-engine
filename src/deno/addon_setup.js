@@ -36,6 +36,9 @@ globalThis.Entropy = {
                 onCleanup: (callback) => {
                     ops.op_addon_on_cleanup(metadata.name, callback);
                 },
+                onAction: (callback) => {
+                    ops.op_addon_on_action(metadata.name, callback);
+                },
                 onProjectChanged: (callback) => {
                     ops.op_addon_on_project_changed(metadata.name, callback);
                     

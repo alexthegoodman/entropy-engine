@@ -168,7 +168,7 @@ export class CombatSystem {
      * Fire weapon (ranged with raycast or melee swing)
      * Returns true if attack was successful
      */
-    attack(entityId: string, isPlayer: boolean = false): boolean {
+    attack(entityId: string, isPlayer: boolean = false, overrideOrigin?: [number, number, number], overrideDirection?: [number, number, number]): boolean {
         const entity = this.entities.get(entityId);
         if (!entity || entity.isDead) return false;
         
@@ -192,20 +192,30 @@ export class CombatSystem {
         
         // Perform attack based on type
         if (entity.weapon.type === WeaponType.RANGED) {
-            return this.performRangedAttack(entityId, isPlayer, entity);
+            return this.performRangedAttack(entityId, isPlayer, entity, overrideOrigin, overrideDirection);
         } else {
-            return this.performMeleeAttack(entityId, entity);
+            return this.performMeleeAttack(entityId, entity, overrideOrigin);
         }
     }
     
     /**
      * Ranged attack using raycast (instant hit)
      */
-    private performRangedAttack(entityId: string, isPlayer: boolean, entity: CombatEntity): boolean {
+    private performRangedAttack(
+        entityId: string, 
+        isPlayer: boolean, 
+        entity: CombatEntity,
+        overrideOrigin?: [number, number, number],
+        overrideDirection?: [number, number, number]
+    ): boolean {
         let origin: [number, number, number];
         let direction: [number, number, number];
         
-        if (isPlayer) {
+        if (overrideOrigin && overrideDirection) {
+            origin = overrideOrigin;
+            direction = overrideDirection;
+            this.playFireSound();
+        } else if (isPlayer) {
             [origin, direction] = this.getPlayerAimRay();
             this.playFireSound();
         } else {
@@ -242,8 +252,8 @@ export class CombatSystem {
     /**
      * Melee attack using swing arc detection
      */
-    private performMeleeAttack(entityId: string, entity: CombatEntity): boolean {
-        const entityPos = this.getEntityPosition(entityId);
+    private performMeleeAttack(entityId: string, entity: CombatEntity, overrideOrigin?: [number, number, number]): boolean {
+        const entityPos = overrideOrigin || this.getEntityPosition(entityId);
         if (!entityPos) return false;
         
         const swingRadius = entity.weapon.swingRadius || 2.5;

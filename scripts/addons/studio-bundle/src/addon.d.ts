@@ -162,6 +162,7 @@ export interface ScopedAPI {
   onAllAddonsInitialized: (callback: InitCallback) => void;
   onUpdate: (callback: UpdateCallback) => void;
   onUpdatePlus: (addonName: string, callback: UpdateCallback) => void;
+  onAction: (callback: ActionCallback) => void;
   onCleanup: (callback: CleanupCallback) => void;
   onProjectChanged: (callback: ProjectChangedCallback) => void;
   onAllProjectsLoaded: (callback: ProjectChangedCallback) => void;
@@ -422,6 +423,7 @@ export interface ComputeDispatchConfig {
 export type InitCallback = () => void | void;
 export type UpdateCallback = (time: number, pos: [number, number, number], dir: [number, number, number]) => void | void;
 export type CleanupCallback = () => void | void;
+export type ActionCallback = (data: { entityId: string, action: number, origin: [number, number, number], direction: [number, number, number] }) => void;
 export type ProjectChangedCallback = (newProjectId: string) => void | void;
 
 export interface GlobalLandscapeSettings {

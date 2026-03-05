@@ -214,6 +214,28 @@ addon.onUpdatePlus("Game Composer", (time) => {
 addon.onInit(() => {
     renderEngineUI();
 
+    // Hook into action callbacks for Yumon behaviors
+    addon.onAction((data: any) => {
+        const { entityId, action, origin, direction } = data;
+        
+        // Action Enum from Rust:
+        // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
+        // LTrigger = 6, RTrigger = 7, LBumper = 8, RBumper = 9, ...
+        
+        if (action === 4 || action === 5 || action === 7) { // Attack (ButtonX, ButtonY, RTrigger)
+            const isPlayer = entityId === gameState.playerId;
+            if (combat.attack(entityId, isPlayer, origin, direction)) {
+                combat.playFireSound();
+                if (isPlayer) {
+                    const weapon = combat.getWeapon(entityId);
+                    if (weapon) {
+                        gameState.setAmmo(weapon.ammo || 0);
+                    }
+                }
+            }
+        }
+    });
+
     if (Entropy.Composer) {
         if (Entropy.Composer.registerGame) {
             Entropy.Composer.registerGame(addonInfo.name, (id: string, params: any) => {                
