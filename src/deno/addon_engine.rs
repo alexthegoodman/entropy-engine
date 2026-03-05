@@ -3631,19 +3631,42 @@ impl AddonEngine {
 
     pub fn set_project_id(&mut self, renderer_state: &RendererState, project_id: String) {
         self.project_id = Some(project_id.clone());
-        
+
         // Update context
         {
             let mut state = self.runtime.op_state();
             let mut state = state.borrow_mut();
             let context = state.borrow_mut::<AddonContext>();
             context.project_id = Some(project_id.clone());
+
+            // Preload existing Yumon brains
+            if let Some(yumon_dir) = crate::helpers::utilities::get_yumon_dir(&project_id) {
+                if let Ok(entries) = std::fs::read_dir(&yumon_dir) {
+                    for entry in entries.flatten() {
+                        if entry.path().is_dir() {
+                            let archetype_name = entry.file_name().to_string_lossy().to_string();
+                            let brain_dir = entry.path();
+                            if brain_dir.join("metadata.json").exists() {
+                                let device = Default::default();
+                                match crate::yumon::system::YumonBrain::<crate::yumon::system::MyBackend>::load(device, &brain_dir) {
+                                    Ok(brain) => {
+                                        println!("[AddonEngine] ✅ Preloaded Yumon brain: {}", archetype_name);
+                                        context.yumon_brains.insert(archetype_name, brain);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("[AddonEngine] ❌ Failed to preload Yumon brain {}: {}", archetype_name, e);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
-        
+
         // Notify all registered callbacks
         self.notify_project_changed(renderer_state, &project_id);
-    }
-    
+    }    
     fn notify_project_changed(&mut self, renderer_state: &RendererState,  new_project_id: &str) {
         let callbacks = {
             let state = self.runtime.op_state();
@@ -4291,6 +4314,7 @@ impl AddonEngine {
                             );
 
                             if let Some(infer) = brain.infer_if_ready() {
+                                // println!("inferred {:?}", infer);
                                 runtime.action = infer.action;
                                 runtime.rotation_delta = infer.rotation_delta;
                             }

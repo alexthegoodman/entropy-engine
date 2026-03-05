@@ -675,6 +675,8 @@ impl<B: AutodiffBackend> YumonBrain<B> {
     /// Returns an inference result if the brain has enough context.
     /// If context is empty but recordings exist, seeds context from recent recordings first.
     pub fn infer_if_ready(&mut self) -> Option<InferenceResult> {
+        // println!("infer_if_ready");
+
         if self.state != OrganismState::Awake {
             return None;
         }
