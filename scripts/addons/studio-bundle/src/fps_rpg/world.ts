@@ -110,20 +110,20 @@ class WorldManager {
             }, Faction.NEUTRAL);
         
         // Spawn faction soldiers
-        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", 
-            // hardcoded behaviors
-            // {
-            //     behaviorId: "crimson_soldier",
-            // }, 
-            // 25,
+        // this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", 
+        //     // hardcoded behaviors
+        //     // {
+        //     //     behaviorId: "crimson_soldier",
+        //     // }, 
+        //     // 25,
             
-            // trained LSTM behaviors
-            {
-                behaviorId: "movement_tracker",
-                yumonId: "Berserker"
-            },
-            3
-        );
+        //     // trained LSTM behaviors
+        //     {
+        //         behaviorId: "movement_tracker",
+        //         yumonId: "Berserker"
+        //     },
+        //     3
+        // );
         this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", 
             // {
             //     behaviorId: "azure_soldier",
@@ -133,19 +133,19 @@ class WorldManager {
                 behaviorId: "movement_tracker",
                 yumonId: "Berserker"
             },
-            3
+            9
         );
-        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", 
-            // {
-            //     behaviorId: "shadow_assassin",
-            // }, 
-            // 25,
-            {
-                behaviorId: "movement_tracker",
-                yumonId: "Berserker"
-            },
-            3
-        );
+        // this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", 
+        //     // {
+        //     //     behaviorId: "shadow_assassin",
+        //     // }, 
+        //     // 25,
+        //     {
+        //         behaviorId: "movement_tracker",
+        //         yumonId: "Berserker"
+        //     },
+        //     3
+        // );
         
         // Spawn collectables
         this.spawnCollectables();

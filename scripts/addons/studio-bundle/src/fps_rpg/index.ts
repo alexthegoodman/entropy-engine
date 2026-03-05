@@ -248,7 +248,7 @@ addon.onInit(() => {
             setAnimation(entityId, "Idle");
         }
         
-        Entropy.Entity.setRotation(entityId, [0, finalRotation * 360, 0]); // "* 360" is likely incorrect, but the delta is very small
+        Entropy.Entity.setRotation(entityId, [0, finalRotation, 0]); // "* 360" is likely incorrect, but the delta is very small
         
         if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;
