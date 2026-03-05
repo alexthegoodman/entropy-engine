@@ -3944,9 +3944,10 @@ impl AddonEngine {
             for (id, trainer) in &mut context.yumon_trainers {
                 // trainer.poll();
                 let update = trainer.recv_update();
-                let update = update.as_ref().expect("Couldn't get last training update");
-                if update.done {
-                    completed_brains.push(id.clone());
+                if let Some(update) = &update {
+                    if update.done {
+                        completed_brains.push(id.clone());
+                    }
                 }
             }
 
