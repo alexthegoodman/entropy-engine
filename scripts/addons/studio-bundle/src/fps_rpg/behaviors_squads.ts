@@ -173,7 +173,7 @@ function getState(entityId: string): NPCState {
 // SHARED ANIMATION & MOVEMENT
 // ============================================================================
 
-function setAnimation(entityId: string, animation: string) {
+export function setAnimation(entityId: string, animation: string) {
     Entropy.Entity.playAnimation(entityId, animation);
     worldManager.npcAnimations[entityId] = animation;
 }

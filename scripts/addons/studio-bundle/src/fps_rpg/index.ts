@@ -4,6 +4,7 @@ import { gameState } from "./state";
 import { worldManager } from "./world";
 import { Faction, factions, quests } from "./quests";
 import { renderEngineUI } from "./engine_ui";
+import { setAnimation } from "./behaviors_squads";
 
 // Note: This game currently expects the designer to add a landscape before loading
 export const addonInfo = {
@@ -218,6 +219,8 @@ addon.onInit(() => {
     // Hook into action callbacks for Yumon behaviors
     addon.onAction((data) => {
         const { entityId, action, origin, direction, rotationDelta } = data;
+
+        // Entropy.println("onAction " + entityId + " " + action + " " + origin + " " + direction + " " + rotationDelta);
         
         // Action Enum from Rust:
         // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
@@ -237,11 +240,15 @@ addon.onInit(() => {
 
         if (action === 0) {
             Entropy.Entity.setXZVelocity(entityId, [direction[0] * speed, direction[2] * speed]);
+            setAnimation(entityId, "Walking");
         } else if (action === 1) {
             Entropy.Entity.setXZVelocity(entityId, [-direction[0] * speed, -direction[2] * speed]);
+            setAnimation(entityId, "Walking");
+        } else if (action === 11) {
+            setAnimation(entityId, "Idle");
         }
         
-        Entropy.Entity.setRotation(entityId, [0, finalRotation, 0]);
+        Entropy.Entity.setRotation(entityId, [0, finalRotation * 360, 0]); // "* 360" is likely incorrect, but the delta is very small
         
         if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;

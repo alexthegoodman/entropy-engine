@@ -4436,10 +4436,29 @@ impl AddonEngine {
                 &mut renderer_state.rigid_body_set,
             );
 
-            let mut op_state = self.runtime.op_state();
-            let mut op_state = op_state.borrow_mut();
-            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
-                for (entity_id, action, rotation_delta) in commands {
+            let action_callbacks = {
+                let state = self.runtime.op_state();
+                let state = state.borrow();
+                let context = state.borrow::<AddonContext>();
+                if context.project_id.is_some() {
+                    context
+                        .on_action_callbacks
+                        .iter()
+                        // .filter(|(name, _)| name == &current_addon_name)
+                        .cloned()
+                        .collect::<Vec<_>>()
+                } else {
+                    Vec::new()
+                }
+            };
+
+            {
+                // NOTE: this block may be unneeded
+                let mut op_state = self.runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                let ctx = op_state.borrow_mut::<AddonContext>();
+
+                for (entity_id, action, rotation_delta) in commands.clone() {
                     let state = ctx.npc_motion_states.entry(entity_id.clone()).or_insert_with(|| NpcMotionState {
                         entity_id:      entity_id.clone(),
                         current_move:   0.0,
@@ -4453,96 +4472,101 @@ impl AddonEngine {
                         Action::Idle         => { state.current_move = 0.0; }
                         Action::ButtonX | Action::ButtonY |
                         Action::LBumper | Action::RBumper |
-                        Action::LTrigger | Action::RTrigger => {
-                            // Find the entity to get its position and orientation
-                            let mut found_pos = None;
-                            let mut found_forward = None;
+                        Action::LTrigger | Action::RTrigger => {}
+                        _ => {} // everything else leaves motion state alone
+                    }
+                }
+            }
 
-                            for models in addon_models.values() {
-                                if let Some(model) = models.iter().find(|m| m.id == entity_id) {
-                                    if let Some(mesh) = model.meshes.first() {
-                                        let pos = mesh.transform.position;
-                                        let (_, yaw, _) = mesh.transform.rotation.euler_angles();
-                                        let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                                        found_pos = Some([pos.x, pos.y, pos.z]);
-                                        found_forward = Some([forward.x, forward.y, forward.z]);
-                                        break;
-                                    }
-                                }
-                            }
+            {
+                for (entity_id, action, rotation_delta) in commands {
+                    // Find the entity to get its position and orientation
+                    let mut found_pos = None;
+                    let mut found_forward = None;
 
-                            if found_pos.is_none() {
-                                for meshes in addon_meshes.values() {
-                                    if let Some(mesh) = meshes.iter().find(|m| m.id == entity_id) {
-                                        let pos = mesh.transform.position;
-                                        let (_, yaw, _) = mesh.transform.rotation.euler_angles();
-                                        let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                                        found_pos = Some([pos.x, pos.y, pos.z]);
-                                        found_forward = Some([forward.x, forward.y, forward.z]);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            if let (Some(pos), Some(forward)) = (found_pos, found_forward) {
-                                let pending = PendingAction {
-                                    entity_id:  entity_id.clone(),
-                                    action,
-                                    origin:    pos,
-                                    direction: forward,
-                                };
-                                
-                                // Trigger callbacks
-                                let callbacks = ctx.on_action_callbacks.clone();
-                                for (addon_name, callback) in callbacks {
-                                    let scope = &mut self.runtime.handle_scope();
-                                    let tc = &mut v8::TryCatch::new(scope);
-                                    let cb = v8::Local::new(tc, callback);
-                                    let recv = v8::undefined(tc).into();
-                                    
-                                    // Serialize pending action to JS object
-                                    let entity_id_js = v8::String::new(tc, &pending.entity_id).unwrap().into();
-                                    let action_js = v8::Integer::new(tc, pending.action as i32).into();
-
-                                    let rotation_delta_js = v8::Number::new(tc, rotation_delta as f64);
-                                    
-                                    let origin_js = v8::Array::new(tc, 3);
-                                    for i in 0..3 {
-                                        let val = v8::Number::new(tc, pending.origin[i] as f64).into();
-                                        origin_js.set_index(tc, i as u32, val);
-                                    }
-                                    
-                                    let direction_js = v8::Array::new(tc, 3);
-                                    for i in 0..3 {
-                                        let val = v8::Number::new(tc, pending.direction[i] as f64).into();
-                                        direction_js.set_index(tc, i as u32, val);
-                                    }
-
-                                    let obj = v8::Object::new(tc);
-                                    let entity_id_key = v8::String::new(tc, "entityId").unwrap();
-                                    let action_key = v8::String::new(tc, "action").unwrap();
-                                    let origin_key = v8::String::new(tc, "origin").unwrap();
-                                    let direction_key = v8::String::new(tc, "direction").unwrap();
-                                    let rotation_delta_key = v8::String::new(tc, "rotation_delta").unwrap();
-
-                                    obj.set(tc, entity_id_key.into(), entity_id_js);
-                                    obj.set(tc, action_key.into(), action_js);
-                                    obj.set(tc, origin_key.into(), origin_js.into());
-                                    obj.set(tc, direction_key.into(), direction_js.into());
-                                    obj.set(tc, rotation_delta_key.into(), rotation_delta_js.into());
-
-                                    cb.call(tc, recv, &[obj.into()]);
-
-                                    if let Some(exception) = tc.exception() {
-                                        let msg = exception.to_rust_string_lossy(tc);
-                                        println!("[ADDON ACTION ERROR in {}] {}", addon_name, msg);
-                                    }
-                                }
-                                
-                                state.pending_actions.push(pending);
+                    for models in addon_models.values() {
+                        if let Some(model) = models.iter().find(|m| m.id == entity_id) {
+                            if let Some(mesh) = model.meshes.first() {
+                                let pos = mesh.transform.position;
+                                let (_, yaw, _) = mesh.transform.rotation.euler_angles();
+                                let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                                found_pos = Some([pos.x, pos.y, pos.z]);
+                                found_forward = Some([forward.x, forward.y, forward.z]);
+                                break;
                             }
                         }
-                        _ => {} // everything else leaves motion state alone
+                    }
+
+                    if found_pos.is_none() {
+                        for meshes in addon_meshes.values() {
+                            if let Some(mesh) = meshes.iter().find(|m| m.id == entity_id) {
+                                let pos = mesh.transform.position;
+                                let (_, yaw, _) = mesh.transform.rotation.euler_angles();
+                                let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                                found_pos = Some([pos.x, pos.y, pos.z]);
+                                found_forward = Some([forward.x, forward.y, forward.z]);
+                                break;
+                            }
+                        }
+                    }
+
+                    if let (Some(pos), Some(forward)) = (found_pos, found_forward) {
+                        let pending = PendingAction {
+                            entity_id:  entity_id.clone(),
+                            action,
+                            origin:    pos,
+                            direction: forward,
+                        };
+                        
+                        // Trigger callbacks
+                        // TODO: function calls within onAction on JS-side also borrow the context
+                        // let callbacks = ctx.on_action_callbacks.clone();
+                        for (addon_name, callback) in &action_callbacks {
+                            let scope = &mut self.runtime.handle_scope();
+                            let tc = &mut v8::TryCatch::new(scope);
+                            let cb = v8::Local::new(tc, callback);
+                            let recv = v8::undefined(tc).into();
+                            
+                            // Serialize pending action to JS object
+                            let entity_id_js = v8::String::new(tc, &pending.entity_id).unwrap().into();
+                            let action_js = v8::Integer::new(tc, pending.action as i32).into();
+
+                            let rotation_delta_js = v8::Number::new(tc, rotation_delta as f64);
+                            
+                            let origin_js = v8::Array::new(tc, 3);
+                            for i in 0..3 {
+                                let val = v8::Number::new(tc, pending.origin[i] as f64).into();
+                                origin_js.set_index(tc, i as u32, val);
+                            }
+                            
+                            let direction_js = v8::Array::new(tc, 3);
+                            for i in 0..3 {
+                                let val = v8::Number::new(tc, pending.direction[i] as f64).into();
+                                direction_js.set_index(tc, i as u32, val);
+                            }
+
+                            let obj = v8::Object::new(tc);
+                            let entity_id_key = v8::String::new(tc, "entityId").unwrap();
+                            let action_key = v8::String::new(tc, "action").unwrap();
+                            let origin_key = v8::String::new(tc, "origin").unwrap();
+                            let direction_key = v8::String::new(tc, "direction").unwrap();
+                            let rotation_delta_key = v8::String::new(tc, "rotationDelta").unwrap();
+
+                            obj.set(tc, entity_id_key.into(), entity_id_js);
+                            obj.set(tc, action_key.into(), action_js);
+                            obj.set(tc, origin_key.into(), origin_js.into());
+                            obj.set(tc, direction_key.into(), direction_js.into());
+                            obj.set(tc, rotation_delta_key.into(), rotation_delta_js.into());
+
+                            cb.call(tc, recv, &[obj.into()]);
+
+                            if let Some(exception) = tc.exception() {
+                                let msg = exception.to_rust_string_lossy(tc);
+                                println!("[ADDON ACTION ERROR in {}] {}", addon_name, msg);
+                            }
+                        }
+                        
+                        // state.pending_actions.push(pending); // unused
                     }
                 }
             }
