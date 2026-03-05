@@ -44,10 +44,7 @@ pub const CONTEXT_LEN: usize     = 16; // how many moments per input (16 = 8s, 6
 pub const MEMORY_CAPACITY: usize = 1024; // ~10 minutes
 // pub const MEMORY_CAPACITY: usize = 4096; // ~30 minutes of recorded play time supported at 500ms ticks
 pub const BATCH_SIZE: usize      = 16; // how many inputs per iteration
-pub const SLEEP_EPOCHS: usize    = 4;
 pub const DANGER_THRESHOLD: f32  = 0.5;
-pub const TICK_MS: u64           = 500;
-pub const SLEEP_EVERY_TICKS: u64 = 400; // sleep every 400 ticks (~200s)
 
 // ─── World State Indices ──────────────────────────────────────────────────────
 
@@ -623,7 +620,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
             let mut mirror = exp.clone();
             let speed_idx = SelfIdx::Speed as usize;
             let speed_noise = rng.gen_range(-0.03..0.03);
-            
+
             let mut noisy_mirror = mirror;
             for &idx in &noise_world_indices {
                 let noise = rng.gen_range(-0.02..0.02);
@@ -1086,7 +1083,7 @@ impl BackgroundTrainer {
 
             for epoch in 0..epochs {
                 let mut indices: Vec<usize> = (0..all.len()).collect();
-                indices.shuffle(&mut thread_rng());
+                // indices.shuffle(&mut thread_rng()); // we do NOT want to shuffle as our data is temporal and sequential
 
                 let mut epoch_loss = 0.0f32;
                 let num_batches    = (indices.len() + BATCH_SIZE - 1) / BATCH_SIZE;
@@ -1138,8 +1135,9 @@ impl BackgroundTrainer {
                     let grads = GradientsParams::from_grads(total_loss.backward(), &model);
                     model     = optimizer.step(
                         // 1e-5, // just stays above 1 loss 
+                        3e-4,
                         // 1e-3, // stays above 0.9 in 10 epochs
-                         3e-2,
+                        //  3e-2,
                         // 1e-2, // stays above 0.8 in 20 epochs
                         // 1e-1, // struggles, mostly above 0.9
                         model.clone(), 

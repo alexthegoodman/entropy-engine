@@ -110,26 +110,38 @@ class WorldManager {
             }, Faction.NEUTRAL);
         
         // Spawn faction soldiers
-        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", {
-            behaviorId: "crimson_soldier",
-                // yumonId: "Berserker"
-            }, 
-            25,
-            // 5
+        this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", 
+            // hardcoded behaviors
+            // {
+            //     behaviorId: "crimson_soldier",
+            // }, 
+            // 25,
+            
+            // trained LSTM behaviors
+            {
+                yumonId: "Berserker"
+            },
+            3
         );
-        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", {
-            behaviorId: "azure_soldier",
-                // yumonId: "Berserker"
-            }, 
-            25,
-            // 5
+        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", 
+            // {
+            //     behaviorId: "azure_soldier",
+            // }, 
+            // 25,
+            {
+                yumonId: "Berserker"
+            },
+            3
         );
-        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", {
-            behaviorId: "shadow_assassin",
-                // yumonId: "Berserker"
-            }, 
-            25,
-            // 5
+        this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", 
+            // {
+            //     behaviorId: "shadow_assassin",
+            // }, 
+            // 25,
+            {
+                yumonId: "Berserker"
+            },
+            3
         );
         
         // Spawn collectables

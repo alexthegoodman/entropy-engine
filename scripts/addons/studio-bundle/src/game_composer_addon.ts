@@ -638,6 +638,7 @@ addon.onInit(async () => {
             });
 
             if (sectionsOpen.yumonAI) {
+                // TODO: gracefully save when only Moments are recorded, but no training has been done (also gracefully load in this scenario)
                 Entropy.UI.Widget.label(tab, { text: "Manage NPC Archetypes and Recordings", bold: true });
 
                 composerState.yumonSettings.archetypes.forEach(arch => {
@@ -717,7 +718,7 @@ addon.onInit(async () => {
                                 });
 
                                 Entropy.UI.Widget.button(trainTab, {
-                                    text: "Augment Moments (4x)",
+                                    text: "Augment (4x)",
                                     onClick: () => {
                                         addon.Yumon.brain.augment(arch);
                                         Entropy.println(`Augmented dataset for ${arch}. Moments quadrupled.`);
