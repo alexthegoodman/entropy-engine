@@ -4169,120 +4169,159 @@ impl AddonEngine {
                 self_state: [f32; crate::yumon::system::SELF_SIZE],
             }
 
+            struct ActorInfo {
+                pos: [f32; 3],
+                squad_id: Option<String>,
+                is_player: bool,
+            }
+
+            let mut actors = Vec::new();
+            
+            // Gather Player
+            if let Some(player) = &renderer_state.player_character {
+                let p_pos = if let Some(rb_handle) = player.movement_rigid_body_handle {
+                    if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let p = rb.translation();
+                        [p.x, p.y, p.z]
+                    } else { [camera.position.x, camera.position.y, camera.position.z] }
+                } else { [camera.position.x, camera.position.y, camera.position.z] };
+                
+                actors.push(ActorInfo {
+                    pos: p_pos,
+                    squad_id: None,
+                    is_player: true,
+                });
+            } else {
+                // Fallback to camera if no player character
+                actors.push(ActorInfo {
+                    pos: [camera.position.x, camera.position.y, camera.position.z],
+                    squad_id: None,
+                    is_player: true,
+                });
+            }
+
+            // Gather NPCs
+            for npc in &renderer_state.npcs {
+                let pos = if let Some(rb_handle) = npc.rigid_body_handle {
+                    if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let p = rb.translation();
+                        [p.x, p.y, p.z]
+                    } else { [0.0, 0.0, 0.0] }
+                } else { [0.0, 0.0, 0.0] };
+                actors.push(ActorInfo {
+                    pos,
+                    squad_id: npc.squad_id.clone(),
+                    is_player: false,
+                });
+            }
+
             let mut targets: Vec<YumonTarget> = Vec::new();
             let mut yumon_processed = std::collections::HashSet::new();
 
-            if let Some(addon_models) = renderer_state.addon_models.get("Game Composer") {
-                for model in addon_models {
-                    let Some(yumon_id) = model.yumon_id.clone() else { continue; };
-                    if yumon_processed.contains(&model.id) {
-                        continue;
-                    }
+            // Process all addon models and meshes
+            let all_model_iter = renderer_state.addon_models.values().flatten()
+                .map(|m| (m.id.clone(), m.yumon_id.clone(), m.meshes.first().and_then(|sm| sm.rigid_body_handle), m.meshes.first().map(|sm| &sm.transform)));
+            
+            let all_mesh_iter = renderer_state.addon_meshes.values().flatten()
+                .map(|m| (m.id.clone(), m.yumon_id.clone(), m.rigid_body_handle, Some(&m.transform)));
 
-                    let mut pos = [0.0f32, 0.0f32, 0.0f32];
-                    let mut yaw = 0.0f32;
-                    let mut speed = 0.0f32;
+            for (entity_id, yumon_id_opt, rb_handle_opt, transform_opt) in all_model_iter.chain(all_mesh_iter) {
+                let Some(yumon_id) = yumon_id_opt else { continue; };
+                if yumon_processed.contains(&entity_id) { continue; }
 
-                    if let Some(mesh) = model.meshes.first() {
-                        pos = [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z];
-                        let (_, y, _) = mesh.transform.rotation.euler_angles();
+                let mut pos = [0.0f32, 0.0f32, 0.0f32];
+                let mut yaw = 0.0f32;
+                let mut speed = 0.0f32;
+
+                if let Some(rb_handle) = rb_handle_opt {
+                    if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+                        let p = rb.translation();
+                        pos = [p.x, p.y, p.z];
+                        let (_, y, _) = rb.rotation().euler_angles();
                         yaw = y;
-
-                        if let Some(rb_handle) = mesh.rigid_body_handle {
-                            if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                                let p = rb.translation();
-                                pos = [p.x, p.y, p.z];
-                                let (_, y, _) = rb.rotation().euler_angles();
-                                yaw = y;
-                                speed = rb.linvel().norm();
-                            }
-                        }
+                        speed = rb.linvel().norm();
                     }
+                } else if let Some(transform) = transform_opt {
+                    pos = [transform.position.x, transform.position.y, transform.position.z];
+                    let (_, y, _) = transform.rotation.euler_angles();
+                    yaw = y;
+                }
 
-                    let cam = camera.position;
-                    let dx = cam.x - pos[0];
-                    let dz = cam.z - pos[2];
-                    let dist_to_player = (dx * dx + dz * dz).sqrt();
+                // Get Real Stats
+                let mut health_pct = 1.0f32;
+                let mut stamina_pct = 1.0f32;
+                let mut alert_level = 0.5f32;
+                let mut squad_id = None;
+
+                if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == entity_id) {
+                    health_pct = (npc.stats.health / 100.0).clamp(0.0, 1.0);
+                    stamina_pct = (npc.stats.stamina / 100.0).clamp(0.0, 1.0);
+                    alert_level = npc.suspicion;
+                    squad_id = npc.squad_id.clone();
+                } else if let Some(player) = &renderer_state.player_character {
+                    if player.id == entity_id {
+                        health_pct = (player.stats.health / 100.0).clamp(0.0, 1.0);
+                        stamina_pct = (player.stats.stamina / 100.0).clamp(0.0, 1.0);
+                        alert_level = 1.0;
+                    }
+                }
+
+                // Compute World State
+                let mut world = [0.0f32; crate::yumon::system::WORLD_SIZE];
+                let mut nearest_player_dist = 1.0f32;
+                let mut nearest_player_angle = 0.0f32;
+                let mut nearest_ally_dist = 1.0f32;
+                let mut nearest_ally_angle = 0.0f32;
+                let mut nearby_enemy_count = 0.0f32;
+                let mut nearby_ally_count = 0.0f32;
+
+                for actor in &actors {
+                    let dx = actor.pos[0] - pos[0];
+                    let dz = actor.pos[2] - pos[2];
+                    let dist = (dx * dx + dz * dz).sqrt();
                     let world_angle = dz.atan2(dx);
                     let relative_angle = (world_angle - yaw) / std::f32::consts::PI;
+                    let norm_dist = (dist / 100.0).clamp(0.0, 1.0);
 
-                    let mut world = [0.0f32; crate::yumon::system::WORLD_SIZE];
-                    world[crate::yumon::system::WorldIdx::NearestPlayerDist as usize] = (dist_to_player / 100.0).clamp(0.0, 1.0);
-                    world[crate::yumon::system::WorldIdx::NearestPlayerAngle as usize] = relative_angle.clamp(-1.0, 1.0);
-                    world[crate::yumon::system::WorldIdx::AlertLevel as usize] = 0.5;
-                    world[crate::yumon::system::WorldIdx::PathClearForward as usize] = 1.0;
-                    world[crate::yumon::system::WorldIdx::LightLevel as usize] = 0.8;
-
-                    let mut self_state = [0.0f32; crate::yumon::system::SELF_SIZE];
-                    self_state[crate::yumon::system::SelfIdx::HealthPct as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::StaminaPct as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::Ammo as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::IsGrounded as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::Speed as usize] = (speed / 10.0).clamp(0.0, 1.0);
-                    self_state[crate::yumon::system::SelfIdx::Clock as usize] = ((current_time as f32) % 100.0) / 100.0;
-
-                    targets.push(YumonTarget {
-                        entity_id: model.id.clone(),
-                        brain_id: yumon_id,
-                        world,
-                        self_state,
-                    });
-                    yumon_processed.insert(model.id.clone());
-                }
-            }
-
-            for meshes in renderer_state.addon_meshes.values() {
-                for mesh in meshes {
-                    let Some(yumon_id) = mesh.yumon_id.clone() else { continue; };
-                    if yumon_processed.contains(&mesh.id) {
-                        continue;
-                    }
-
-                    let mut pos = [mesh.transform.position.x, mesh.transform.position.y, mesh.transform.position.z];
-                    let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
-                    let mut yaw = current_yaw;
-                    let mut speed = 0.0f32;
-
-                    if let Some(rb_handle) = mesh.rigid_body_handle {
-                        if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                            let p = rb.translation();
-                            pos = [p.x, p.y, p.z];
-                            let (_, y, _) = rb.rotation().euler_angles();
-                            yaw = y;
-                            speed = rb.linvel().norm();
+                    if actor.is_player {
+                        nearest_player_dist = norm_dist;
+                        nearest_player_angle = relative_angle.clamp(-1.0, 1.0);
+                    } else if actor.squad_id == squad_id {
+                        if dist > 0.1 && norm_dist < nearest_ally_dist {
+                            nearest_ally_dist = norm_dist;
+                            nearest_ally_angle = relative_angle.clamp(-1.0, 1.0);
                         }
+                        if dist < 20.0 { nearby_ally_count += 0.1; }
+                    } else {
+                        if dist < 20.0 { nearby_enemy_count += 0.1; }
                     }
-
-                    let cam = camera.position;
-                    let dx = cam.x - pos[0];
-                    let dz = cam.z - pos[2];
-                    let dist_to_player = (dx * dx + dz * dz).sqrt();
-                    let world_angle = dz.atan2(dx);
-                    let relative_angle = (world_angle - yaw) / std::f32::consts::PI;
-
-                    let mut world = [0.0f32; crate::yumon::system::WORLD_SIZE];
-                    world[crate::yumon::system::WorldIdx::NearestPlayerDist as usize] = (dist_to_player / 100.0).clamp(0.0, 1.0);
-                    world[crate::yumon::system::WorldIdx::NearestPlayerAngle as usize] = relative_angle.clamp(-1.0, 1.0);
-                    world[crate::yumon::system::WorldIdx::AlertLevel as usize] = 0.5;
-                    world[crate::yumon::system::WorldIdx::PathClearForward as usize] = 1.0;
-                    world[crate::yumon::system::WorldIdx::LightLevel as usize] = 0.8;
-
-                    let mut self_state = [0.0f32; crate::yumon::system::SELF_SIZE];
-                    self_state[crate::yumon::system::SelfIdx::HealthPct as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::StaminaPct as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::Ammo as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::IsGrounded as usize] = 1.0;
-                    self_state[crate::yumon::system::SelfIdx::Speed as usize] = (speed / 10.0).clamp(0.0, 1.0);
-                    self_state[crate::yumon::system::SelfIdx::Clock as usize] = ((current_time as f32) % 100.0) / 100.0;
-
-                    targets.push(YumonTarget {
-                        entity_id: mesh.id.clone(),
-                        brain_id: yumon_id,
-                        world,
-                        self_state,
-                    });
-                    yumon_processed.insert(mesh.id.clone());
                 }
+
+                world[crate::yumon::system::WorldIdx::NearestPlayerDist as usize] = nearest_player_dist;
+                world[crate::yumon::system::WorldIdx::NearestPlayerAngle as usize] = nearest_player_angle;
+                world[crate::yumon::system::WorldIdx::NearestAllyDist as usize] = nearest_ally_dist;
+                world[crate::yumon::system::WorldIdx::NearestAllyAngle as usize] = nearest_ally_angle;
+                world[crate::yumon::system::WorldIdx::NearbyEnemyCount as usize] = nearby_enemy_count.clamp(0.0, 1.0);
+                world[crate::yumon::system::WorldIdx::NearbyAllyCount as usize] = nearby_ally_count.clamp(0.0, 1.0);
+                world[crate::yumon::system::WorldIdx::AlertLevel as usize] = alert_level;
+                world[crate::yumon::system::WorldIdx::PathClearForward as usize] = 1.0;
+                world[crate::yumon::system::WorldIdx::LightLevel as usize] = 0.8;
+
+                let mut self_state = [0.0f32; crate::yumon::system::SELF_SIZE];
+                self_state[crate::yumon::system::SelfIdx::HealthPct as usize] = health_pct;
+                self_state[crate::yumon::system::SelfIdx::StaminaPct as usize] = stamina_pct;
+                self_state[crate::yumon::system::SelfIdx::Ammo as usize] = 1.0;
+                self_state[crate::yumon::system::SelfIdx::IsGrounded as usize] = 1.0;
+                self_state[crate::yumon::system::SelfIdx::Speed as usize] = (speed / 10.0).clamp(0.0, 1.0);
+                self_state[crate::yumon::system::SelfIdx::Clock as usize] = ((current_time as f32) % 100.0) / 100.0;
+
+                targets.push(YumonTarget {
+                    entity_id: entity_id.clone(),
+                    brain_id: yumon_id,
+                    world,
+                    self_state,
+                });
+                yumon_processed.insert(entity_id);
             }
 
             let mut commands: Vec<(String, crate::yumon::system::Action, f32)> = Vec::new();
@@ -4300,10 +4339,18 @@ impl AddonEngine {
                     let runtime = ctx
                         .yumon_runtime_actions
                         .entry(target.entity_id.clone())
-                        .or_insert(YumonActionState {
-                            action: crate::yumon::system::Action::Idle,
-                            rotation_delta: 0.0,
-                            last_infer_time: current_time - YUMON_INFER_INTERVAL_SECS,
+                        .or_insert_with(|| {
+                            // Hash entity_id for deterministic but staggered start
+                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                            std::hash::Hash::hash(&target.entity_id, &mut hasher);
+                            let hash_val = std::hash::Hasher::finish(&hasher);
+                            let offset = (hash_val % 100) as f64 / 100.0 * YUMON_INFER_INTERVAL_SECS;
+                            
+                            YumonActionState {
+                                action: crate::yumon::system::Action::Idle,
+                                rotation_delta: 0.0,
+                                last_infer_time: current_time - YUMON_INFER_INTERVAL_SECS + offset,
+                            }
                         });
 
                     if current_time - runtime.last_infer_time >= YUMON_INFER_INTERVAL_SECS {
@@ -4329,7 +4376,7 @@ impl AddonEngine {
                             );
 
                             if let Some(infer) = brain.infer_if_ready() {
-                                println!("inferred {:?} {:?}", target.entity_id, infer);
+                                // println!("inferred {:?} {:?}", target.entity_id, infer);
                                 runtime.action = infer.action;
                                 runtime.rotation_delta = infer.rotation_delta;
                             }
@@ -4360,7 +4407,7 @@ impl AddonEngine {
 
                 let mut handled = false;
 
-                if let Some(models) = addon_models.get_mut("Game Composer") {
+                for models in addon_models.values_mut() {
                     if let Some(model) = models.iter_mut().find(|m| m.id == entity_id) {
                         if let Some(mesh) = model.meshes.first_mut() {
                             let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
@@ -4389,6 +4436,7 @@ impl AddonEngine {
                         }
 
                         handled = true;
+                        break;
                     }
                 }
 
