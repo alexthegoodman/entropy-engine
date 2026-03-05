@@ -21,6 +21,7 @@ export const addonInfo = {
 export const addon = Entropy.Addon.register(addonInfo);
 export const fpsUI = new FPSUI(addon);
 export const entityPositions = new Map<string, [number, number, number]>();
+export const entityRotations = new Map<string, number>();
 
 export const combat = new CombatSystem(
     (id) => {
@@ -215,12 +216,32 @@ addon.onInit(() => {
     renderEngineUI();
 
     // Hook into action callbacks for Yumon behaviors
-    addon.onAction((data: any) => {
-        const { entityId, action, origin, direction } = data;
+    addon.onAction((data) => {
+        const { entityId, action, origin, direction, rotationDelta } = data;
         
         // Action Enum from Rust:
         // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
         // LTrigger = 6, RTrigger = 7, LBumper = 8, RBumper = 9, ...
+
+        // NOTE: handle MoveForward, MoveBackword, and Rotation right here (instead of Rust-side, which has been commented out) this will ensure proper movement
+
+        if (!entityRotations.get(entityId)) {
+            entityRotations.set(entityId, 0);
+        }
+
+        let currentRotation = entityRotations.get(entityId);
+        entityRotations.set(entityId, currentRotation ? currentRotation + rotationDelta : rotationDelta);
+
+        let finalRotation = entityRotations.get(entityId) || 0;
+        let speed = 24.0;
+
+        if (action === 0) {
+            Entropy.Entity.setXZVelocity(entityId, [direction[0] * speed, direction[2] * speed]);
+        } else if (action === 1) {
+            Entropy.Entity.setXZVelocity(entityId, [-direction[0] * speed, -direction[2] * speed]);
+        }
+        
+        Entropy.Entity.setRotation(entityId, [0, finalRotation, 0]);
         
         if (action === 4 || action === 5 || action === 7) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;

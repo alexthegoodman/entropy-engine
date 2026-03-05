@@ -4194,7 +4194,7 @@ impl AddonEngine {
         // 0.35 Execute Yumon runtime control (optional, infer every 500ms and hold in-between).
         {
             const YUMON_INFER_INTERVAL_SECS: f64 = 0.5;
-            const YUMON_MOVE_SPEED: f32 = 4.0;
+            const YUMON_MOVE_SPEED: f32 = 40.0;
             const YUMON_TURN_SPEED_RAD_PER_SEC: f32 = 2.2;
             const FRAME_DT_SECS: f32 = 1.0 / 60.0;
 
@@ -4503,6 +4503,8 @@ impl AddonEngine {
                                     // Serialize pending action to JS object
                                     let entity_id_js = v8::String::new(tc, &pending.entity_id).unwrap().into();
                                     let action_js = v8::Integer::new(tc, pending.action as i32).into();
+
+                                    let rotation_delta_js = v8::Number::new(tc, rotation_delta as f64);
                                     
                                     let origin_js = v8::Array::new(tc, 3);
                                     for i in 0..3 {
@@ -4521,11 +4523,13 @@ impl AddonEngine {
                                     let action_key = v8::String::new(tc, "action").unwrap();
                                     let origin_key = v8::String::new(tc, "origin").unwrap();
                                     let direction_key = v8::String::new(tc, "direction").unwrap();
+                                    let rotation_delta_key = v8::String::new(tc, "rotation_delta").unwrap();
 
                                     obj.set(tc, entity_id_key.into(), entity_id_js);
                                     obj.set(tc, action_key.into(), action_js);
                                     obj.set(tc, origin_key.into(), origin_js.into());
                                     obj.set(tc, direction_key.into(), direction_js.into());
+                                    obj.set(tc, rotation_delta_key.into(), rotation_delta_js.into());
 
                                     cb.call(tc, recv, &[obj.into()]);
 
@@ -4541,75 +4545,77 @@ impl AddonEngine {
                         _ => {} // everything else leaves motion state alone
                     }
 
-                    let mut handled = false;
+                    // NOTE: actually, just handle this JS-side as normal, except from onAction rather than baked into the behaviors
+                    // let mut handled = false;
 
-                    for models in addon_models.values_mut() {
-                        if let Some(model) = models.iter_mut().find(|m| m.id == entity_id) {
-                            if let Some(mesh) = model.meshes.first_mut() {
-                                let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
-                                let mut yaw = current_yaw;
-                                yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-                                state.current_yaw = yaw;
+                    // for models in addon_models.values_mut() {
+                    //     if let Some(model) = models.iter_mut().find(|m| m.id == entity_id) {
+                    //         if let Some(mesh) = model.meshes.first_mut() {
+                    //             let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
+                    //             let mut yaw = current_yaw;
+                    //             yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                    //             state.current_yaw = yaw;
 
-                                let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                                let vx: f32 = forward.x * state.current_move * YUMON_MOVE_SPEED;
-                                let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
+                    //             let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                    //             let vx: f32 = forward.x * state.current_move * YUMON_MOVE_SPEED;
+                    //             let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
 
-                                if let Some(rb_handle) = mesh.rigid_body_handle {
-                                    if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
-                                        let (_, current_yaw, _) = rb.rotation().euler_angles();
-                                        let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-                                        rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
+                    //             if let Some(rb_handle) = mesh.rigid_body_handle {
+                    //                 if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
+                    //                     let (_, current_yaw, _) = rb.rotation().euler_angles();
+                    //                     let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                    //                     rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
 
-                                        let current_vel = rb.linvel();
-                                        rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
-                                    }
-                                } else {
-                                    let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
-                                    mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
-                                    mesh.transform.position.x += vx * FRAME_DT_SECS;
-                                    mesh.transform.position.z += vz * FRAME_DT_SECS;
-                                }
-                            }
-                            handled = true;
-                            break;
-                        }
-                    }
+                    //                     let current_vel = rb.linvel();
+                    //                     rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
+                    //                 }
+                    //             } else {
+                    //                 let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
+                    //                 mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
+                    //                 mesh.transform.position.x += vx * FRAME_DT_SECS;
+                    //                 mesh.transform.position.z += vz * FRAME_DT_SECS;
+                    //             }
+                    //         }
+                    //         handled = true;
+                    //         break;
+                    //     }
+                    // }
 
-                    if handled {
-                        continue;
-                    }
+                    // if handled {
+                    //     continue;
+                    // }
 
-                    for meshes in addon_meshes.values_mut() {
-                        if let Some(mesh) = meshes.iter_mut().find(|m| m.id == entity_id) {
-                            let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
-                            let mut yaw = current_yaw;
-                            yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-                            state.current_yaw = yaw;
+                    // for meshes in addon_meshes.values_mut() {
+                    //     if let Some(mesh) = meshes.iter_mut().find(|m| m.id == entity_id) {
+                    //         let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
+                    //         let mut yaw = current_yaw;
+                    //         yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                    //         state.current_yaw = yaw;
 
-                            let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                            let vx = forward.x * state.current_move * YUMON_MOVE_SPEED;
-                            let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
+                    //         let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                    //         let vx = forward.x * state.current_move * YUMON_MOVE_SPEED;
+                    //         let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
 
-                            if let Some(rb_handle) = mesh.rigid_body_handle {
-                                if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
-                                    let (_, current_yaw, _) = rb.rotation().euler_angles();
-                                    let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-                                    rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
+                    //         if let Some(rb_handle) = mesh.rigid_body_handle {
+                    //             if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
+                    //                 let (_, current_yaw, _) = rb.rotation().euler_angles();
+                    //                 let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                    //                 rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
 
-                                    let current_vel = rb.linvel();
-                                    rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
-                                }
-                            } else {
-                                let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
-                                mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
-                                mesh.transform.position.x += vx * FRAME_DT_SECS;
-                                mesh.transform.position.z += vz * FRAME_DT_SECS;
-                            }
+                    //                 let current_vel = rb.linvel();
+                    //                 rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
+                    //             }
+                    //         } else {
+                    //             let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
+                    //             mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
+                    //             mesh.transform.position.x += vx * FRAME_DT_SECS;
+                    //             mesh.transform.position.z += vz * FRAME_DT_SECS;
+                    //         }
 
-                            break;
-                        }
-                    }
+                    //         break;
+                    //     }
+                    // }
+                
                 }
             }
         }
