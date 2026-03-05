@@ -36,6 +36,7 @@ use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProper
 use crate::model_components::NPC::NPC;
 use crate::procedural_grass::grass::Grass;
 use crate::renderer_text::fonts::FontManager;
+use crate::yumon::system::Action;
 use wgpu::{RenderPipeline, TextureView};
 use crate::shape_primitives::Cube::Cube;
 use crate::core::RendererState::RendererState;
@@ -325,7 +326,19 @@ pub struct BehaviorConnection {
     pub to_pin: String,
 }
 
+pub struct NpcMotionState {
+    pub entity_id:      String,
+    pub current_move:   f32,   // -1.0, 0.0, or 1.0
+    pub current_yaw:    f32,
+    pub pending_actions: Vec<PendingAction>,
+}
 
+pub struct PendingAction {
+    pub entity_id:  String,
+    pub action:     Action,
+    pub origin:     [f32; 3],
+    pub direction:  [f32; 3],
+}
 
 use crate::heightfield_landscapes::Landscape::Landscape;
 use crate::heightfield_landscapes::Landscape3D::Landscape3D;
@@ -643,6 +656,8 @@ impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
 pub struct AddonContext {
     pub registered_addons: Vec<(String, AddonMetadata)>,
     pub behaviors: HashMap<String, BehaviorHooks>,
+    pub npc_motion_states: HashMap<String, NpcMotionState>,
+    pub on_action_callbacks: Vec<(String, v8::Global<v8::Function>)>,
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub audio_engine: Arc<AudioEngine>,
     pub pipelines: HashMap<String, Arc<RenderPipeline>>,
@@ -1932,6 +1947,13 @@ fn op_addon_on_update(state: &mut OpState, #[string] addon_name: String, #[globa
 fn op_addon_on_cleanup(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.on_cleanup_callbacks.push((addon_name, callback));
+    }
+}
+
+#[op2]
+fn op_addon_on_action(state: &mut OpState, #[string] addon_name: String, #[global] callback: v8::Global<v8::Function>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.on_action_callbacks.push((addon_name, callback));
     }
 }
 
@@ -3264,6 +3286,7 @@ extension!(
         op_addon_on_all_addons_initialized,
         op_addon_on_update,
         op_addon_on_cleanup,
+        op_addon_on_action,
         op_yumon_create,
         op_yumon_tick,
         op_yumon_sleep,
@@ -3633,6 +3656,8 @@ impl AddonEngine {
             yumon_runtime_actions: HashMap::new(),
             yumon_trainers: HashMap::new(),
             yumon_instances: HashMap::new(),
+            npc_motion_states: HashMap::new(),
+            on_action_callbacks: Vec::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 
@@ -4411,25 +4436,160 @@ impl AddonEngine {
                 &mut renderer_state.rigid_body_set,
             );
 
-            for (entity_id, action, rotation_delta) in commands {
-                let move_dir = match action {
-                    crate::yumon::system::Action::MoveForward => 1.0f32,
-                    crate::yumon::system::Action::MoveBackward => -1.0f32,
-                    _ => 0.0f32,
-                };
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                for (entity_id, action, rotation_delta) in commands {
+                    let state = ctx.npc_motion_states.entry(entity_id.clone()).or_insert_with(|| NpcMotionState {
+                        entity_id:      entity_id.clone(),
+                        current_move:   0.0,
+                        current_yaw:    0.0,
+                        pending_actions: Vec::new(),
+                    });
 
-                let mut handled = false;
+                    match action {
+                        Action::MoveForward  => { state.current_move = 1.0; }
+                        Action::MoveBackward => { state.current_move = -1.0; }
+                        Action::Idle         => { state.current_move = 0.0; }
+                        Action::ButtonX | Action::ButtonY |
+                        Action::LBumper | Action::RBumper |
+                        Action::LTrigger | Action::RTrigger => {
+                            // Find the entity to get its position and orientation
+                            let mut found_pos = None;
+                            let mut found_forward = None;
 
-                for models in addon_models.values_mut() {
-                    if let Some(model) = models.iter_mut().find(|m| m.id == entity_id) {
-                        if let Some(mesh) = model.meshes.first_mut() {
+                            for models in addon_models.values() {
+                                if let Some(model) = models.iter().find(|m| m.id == entity_id) {
+                                    if let Some(mesh) = model.meshes.first() {
+                                        let pos = mesh.transform.position;
+                                        let (_, yaw, _) = mesh.transform.rotation.euler_angles();
+                                        let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                                        found_pos = Some([pos.x, pos.y, pos.z]);
+                                        found_forward = Some([forward.x, forward.y, forward.z]);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if found_pos.is_none() {
+                                for meshes in addon_meshes.values() {
+                                    if let Some(mesh) = meshes.iter().find(|m| m.id == entity_id) {
+                                        let pos = mesh.transform.position;
+                                        let (_, yaw, _) = mesh.transform.rotation.euler_angles();
+                                        let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                                        found_pos = Some([pos.x, pos.y, pos.z]);
+                                        found_forward = Some([forward.x, forward.y, forward.z]);
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if let (Some(pos), Some(forward)) = (found_pos, found_forward) {
+                                let pending = PendingAction {
+                                    entity_id:  entity_id.clone(),
+                                    action,
+                                    origin:    pos,
+                                    direction: forward,
+                                };
+                                
+                                // Trigger callbacks
+                                let callbacks = ctx.on_action_callbacks.clone();
+                                for (addon_name, callback) in callbacks {
+                                    let scope = &mut self.runtime.handle_scope();
+                                    let tc = &mut v8::TryCatch::new(scope);
+                                    let cb = v8::Local::new(tc, callback);
+                                    let recv = v8::undefined(tc).into();
+                                    
+                                    // Serialize pending action to JS object
+                                    let entity_id_js = v8::String::new(tc, &pending.entity_id).unwrap().into();
+                                    let action_js = v8::Integer::new(tc, pending.action as i32).into();
+                                    
+                                    let origin_js = v8::Array::new(tc, 3);
+                                    for i in 0..3 {
+                                        let val = v8::Number::new(tc, pending.origin[i] as f64).into();
+                                        origin_js.set_index(tc, i as u32, val);
+                                    }
+                                    
+                                    let direction_js = v8::Array::new(tc, 3);
+                                    for i in 0..3 {
+                                        let val = v8::Number::new(tc, pending.direction[i] as f64).into();
+                                        direction_js.set_index(tc, i as u32, val);
+                                    }
+
+                                    let obj = v8::Object::new(tc);
+                                    let entity_id_key = v8::String::new(tc, "entityId").unwrap();
+                                    let action_key = v8::String::new(tc, "action").unwrap();
+                                    let origin_key = v8::String::new(tc, "origin").unwrap();
+                                    let direction_key = v8::String::new(tc, "direction").unwrap();
+
+                                    obj.set(tc, entity_id_key.into(), entity_id_js);
+                                    obj.set(tc, action_key.into(), action_js);
+                                    obj.set(tc, origin_key.into(), origin_js.into());
+                                    obj.set(tc, direction_key.into(), direction_js.into());
+
+                                    cb.call(tc, recv, &[obj.into()]);
+
+                                    if let Some(exception) = tc.exception() {
+                                        let msg = exception.to_rust_string_lossy(tc);
+                                        println!("[ADDON ACTION ERROR in {}] {}", addon_name, msg);
+                                    }
+                                }
+                                
+                                state.pending_actions.push(pending);
+                            }
+                        }
+                        _ => {} // everything else leaves motion state alone
+                    }
+
+                    let mut handled = false;
+
+                    for models in addon_models.values_mut() {
+                        if let Some(model) = models.iter_mut().find(|m| m.id == entity_id) {
+                            if let Some(mesh) = model.meshes.first_mut() {
+                                let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
+                                let mut yaw = current_yaw;
+                                yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                                state.current_yaw = yaw;
+
+                                let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
+                                let vx: f32 = forward.x * state.current_move * YUMON_MOVE_SPEED;
+                                let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
+
+                                if let Some(rb_handle) = mesh.rigid_body_handle {
+                                    if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
+                                        let (_, current_yaw, _) = rb.rotation().euler_angles();
+                                        let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                                        rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
+
+                                        let current_vel = rb.linvel();
+                                        rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
+                                    }
+                                } else {
+                                    let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
+                                    mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
+                                    mesh.transform.position.x += vx * FRAME_DT_SECS;
+                                    mesh.transform.position.z += vz * FRAME_DT_SECS;
+                                }
+                            }
+                            handled = true;
+                            break;
+                        }
+                    }
+
+                    if handled {
+                        continue;
+                    }
+
+                    for meshes in addon_meshes.values_mut() {
+                        if let Some(mesh) = meshes.iter_mut().find(|m| m.id == entity_id) {
                             let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
                             let mut yaw = current_yaw;
                             yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
+                            state.current_yaw = yaw;
 
                             let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                            let vx = forward.x * move_dir * YUMON_MOVE_SPEED;
-                            let vz = forward.z * move_dir * YUMON_MOVE_SPEED;
+                            let vx = forward.x * state.current_move * YUMON_MOVE_SPEED;
+                            let vz = forward.z * state.current_move * YUMON_MOVE_SPEED;
 
                             if let Some(rb_handle) = mesh.rigid_body_handle {
                                 if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
@@ -4442,48 +4602,13 @@ impl AddonEngine {
                                 }
                             } else {
                                 let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
-                                mesh.transform.update_rotation([x_rot, yaw, z_rot]);
+                                mesh.transform.rotation = UnitQuaternion::from_euler_angles(x_rot, yaw, z_rot);
                                 mesh.transform.position.x += vx * FRAME_DT_SECS;
                                 mesh.transform.position.z += vz * FRAME_DT_SECS;
                             }
+
+                            break;
                         }
-
-                        handled = true;
-                        break;
-                    }
-                }
-
-                if handled {
-                    continue;
-                }
-
-                for meshes in addon_meshes.values_mut() {
-                    if let Some(mesh) = meshes.iter_mut().find(|m| m.id == entity_id) {
-                        let (_, current_yaw, _) = mesh.transform.rotation.euler_angles();
-                        let mut yaw = current_yaw;
-                        yaw += rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-
-                        let forward = nalgebra::Vector3::new(yaw.sin(), 0.0, yaw.cos());
-                        let vx = forward.x * move_dir * YUMON_MOVE_SPEED;
-                        let vz = forward.z * move_dir * YUMON_MOVE_SPEED;
-
-                        if let Some(rb_handle) = mesh.rigid_body_handle {
-                            if let Some(rb) = rigid_body_set.get_mut(rb_handle) {
-                                let (_, current_yaw, _) = rb.rotation().euler_angles();
-                                let new_yaw = current_yaw + rotation_delta * YUMON_TURN_SPEED_RAD_PER_SEC * FRAME_DT_SECS;
-                                rb.set_rotation(UnitQuaternion::from_euler_angles(0.0, new_yaw, 0.0), true);
-
-                                let current_vel = rb.linvel();
-                                rb.set_linvel(nalgebra::vector![vx, current_vel.y, vz], true);
-                            }
-                        } else {
-                            let (x_rot, _, z_rot) = mesh.transform.rotation.euler_angles();
-                            mesh.transform.update_rotation([x_rot, yaw, z_rot]);
-                            mesh.transform.position.x += vx * FRAME_DT_SECS;
-                            mesh.transform.position.z += vz * FRAME_DT_SECS;
-                        }
-
-                        break;
                     }
                 }
             }
