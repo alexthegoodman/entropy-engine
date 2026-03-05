@@ -40,7 +40,8 @@ pub const SELF_SIZE: usize       = 8;
 pub const MOMENT_SIZE: usize     = WORLD_SIZE + SELF_SIZE; // 24
 pub const ACTION_SIZE: usize     = 12;  // discrete button actions
 pub const CONTEXT_LEN: usize     = 16; // how many moments per input (16 = 8s, 64 ~ 30s)
-pub const MEMORY_CAPACITY: usize = 512; // ~5 minutes
+// pub const MEMORY_CAPACITY: usize = 512; // ~5 minutes
+pub const MEMORY_CAPACITY: usize = 1024; // ~10 minutes
 // pub const MEMORY_CAPACITY: usize = 4096; // ~30 minutes of recorded play time supported at 500ms ticks
 pub const BATCH_SIZE: usize      = 16; // how many inputs per iteration
 pub const SLEEP_EPOCHS: usize    = 4;
@@ -565,6 +566,78 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         std::fs::write(directory.join("recordings.json"), buffer_json)?;
 
         Ok(())
+    }
+
+    pub fn augment_dataset(&mut self) {
+        if self.buffer.is_empty() { return; }
+        
+        println!("[Brain:{}] 🧬 Augmenting dataset ({} moments -> {})...", 
+                 self.archetype_name, self.buffer.len(), self.buffer.len() * 4);
+
+        let original: Vec<Experience> = self.buffer.buffer.iter().cloned().collect();
+        let mut augmented = Vec::with_capacity(original.len() * 3);
+
+        use rand::Rng;
+        let mut rng = rand::thread_rng();
+
+        let mirror_world_indices = [
+            WorldIdx::NearestObstacleAngle as usize,
+            WorldIdx::NearestPlayerAngle as usize,
+            WorldIdx::NearestAllyAngle as usize,
+            WorldIdx::NearestThreatAngle as usize,
+            WorldIdx::LastDamageAngle as usize,
+        ];
+
+        let noise_world_indices = [
+            WorldIdx::NearestObstacleDist as usize,
+            WorldIdx::NearestPlayerDist as usize,
+            WorldIdx::NearestAllyDist as usize,
+            WorldIdx::NearestThreatDist as usize,
+        ];
+
+        for exp in &original {
+            // 1. Mirroring
+            let mut mirror = exp.clone();
+            for &idx in &mirror_world_indices {
+                mirror.moment.world[idx] *= -1.0;
+            }
+            mirror.rotation_delta *= -1.0;
+            augmented.push(mirror.clone());
+        }
+
+        for exp in &original {
+            // 2. Noise (Original)
+            let mut noisy_orig = exp.clone();
+            for &idx in &noise_world_indices {
+                let noise = rng.gen_range(-0.02..0.02);
+                noisy_orig.moment.world[idx] = (noisy_orig.moment.world[idx] + noise).clamp(0.0, 1.0);
+            }
+            let speed_idx = SelfIdx::Speed as usize;
+            let speed_noise = rng.gen_range(-0.03..0.03);
+            noisy_orig.moment.self_[speed_idx] = (noisy_orig.moment.self_[speed_idx] + speed_noise).clamp(0.0, 1.0);
+            augmented.push(noisy_orig.clone());
+        }
+
+        for exp in &original {
+            // 3. Noise (Mirror)
+            let mut mirror = exp.clone();
+            let speed_idx = SelfIdx::Speed as usize;
+            let speed_noise = rng.gen_range(-0.03..0.03);
+            
+            let mut noisy_mirror = mirror;
+            for &idx in &noise_world_indices {
+                let noise = rng.gen_range(-0.02..0.02);
+                noisy_mirror.moment.world[idx] = (noisy_mirror.moment.world[idx] + noise).clamp(0.0, 1.0);
+            }
+            noisy_mirror.moment.self_[speed_idx] = (noisy_mirror.moment.self_[speed_idx] + speed_noise).clamp(0.0, 1.0);
+            augmented.push(noisy_mirror);
+        }
+
+        for exp in augmented {
+            self.buffer.push(exp);
+        }
+        
+        println!("[Brain:{}] ✅ Augmentation complete. New size: {}", self.archetype_name, self.buffer.len());
     }
 
     pub fn load(device: B::Device, directory: &std::path::Path) -> Result<Self, Box<dyn std::error::Error>> {

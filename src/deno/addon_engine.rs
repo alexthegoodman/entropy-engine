@@ -3118,6 +3118,17 @@ pub struct YumonBrainInference {
     pub rotation_delta: f32,
 }
 
+#[op2(fast)]
+fn op_yumon_brain_augment(state: &mut OpState, #[string] id: String) -> Result<(), deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get_mut(&id) {
+        brain.augment_dataset();
+        Ok(())
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
 #[op2]
 #[serde]
 fn op_yumon_brain_get_state(
@@ -3353,7 +3364,8 @@ extension!(
         op_yumon_brain_sleep,
         op_yumon_brain_save,
         op_yumon_brain_load,
-        op_yumon_brain_get_state
+        op_yumon_brain_get_state,
+        op_yumon_brain_augment
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],

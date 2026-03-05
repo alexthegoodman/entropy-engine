@@ -391,7 +391,8 @@ export interface ScopedAPI {
         save: (id: string) => void;
         load: (archetype: string) => void;
         getState: (id: string) => YumonBrainState;
-    }
+        augment: (id: string) => void;
+        };
   };
 }
 

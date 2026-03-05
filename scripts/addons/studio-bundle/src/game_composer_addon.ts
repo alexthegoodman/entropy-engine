@@ -681,25 +681,31 @@ addon.onInit(async () => {
                                     Entropy.println(`Saved Yumon Brain for ${arch}`);
                                 }
                             });
-                            
-                            // const isTraining = bState?.isTraining || false;
-                            
-                            // if (isTraining) {
-                                const progress = bState?.totalTrainingEpochs > 0 
-                                    ? (bState?.trainingEpoch / bState?.totalTrainingEpochs * 100).toFixed(1)
-                                    : "0";
-                                const trainLoss = bState?.trainingLoss ? bState?.trainingLoss.toFixed(4) : "N/A";
-                                Entropy.UI.Widget.label(hTab, { 
-                                    text: `Training: ${progress}% (Epoch ${bState?.trainingEpoch}/${bState?.totalTrainingEpochs}) Loss: ${trainLoss}`
-                                });
-                            // }
                         }
                     });
 
                     if (composerState.yumonSettings.createdBrains.includes(arch)) {
                         const isTraining = bState?.isTraining || false;
 
-                        if (!isTraining) {
+                        if (isTraining) {
+                            const progress = bState.totalTrainingEpochs > 0 
+                                ? (bState.trainingEpoch / bState.totalTrainingEpochs * 100).toFixed(1)
+                                : "0";
+                            const trainLoss = bState.trainingLoss ? bState.trainingLoss.toFixed(4) : "N/A";
+                            Entropy.UI.Widget.label(tab, { 
+                                text: `Training: ${progress}% (Epoch ${bState.trainingEpoch}/${bState.totalTrainingEpochs}) Loss: ${trainLoss}`
+                            });
+                        } else {
+                            // Numeric input for epochs
+                            let currentEpochs = composerState.yumonSettings.epochsToTrain[arch] || 10;
+                            Entropy.UI.Widget.slider(tab, {
+                                label: "Epochs",
+                                min: 1,
+                                max: 100,
+                                value: currentEpochs,
+                                onChange: (v: string) => { composerState.yumonSettings.epochsToTrain[arch] = parseInt(v); }
+                            });
+
                             Entropy.UI.Widget.horizontal(tab, (trainTab) => {
                                 Entropy.UI.Widget.button(trainTab, {
                                     text: `Train ${composerState.yumonSettings.epochsToTrain[arch] || 10} Epochs`,
@@ -709,15 +715,13 @@ addon.onInit(async () => {
                                         Entropy.println(`Started background training for ${arch} (${epochs} epochs)...`);
                                     }
                                 });
-                                
-                                // Numeric input for epochs
-                                let currentEpochs = composerState.yumonSettings.epochsToTrain[arch] || 10;
-                                Entropy.UI.Widget.slider(trainTab, {
-                                    label: "Epochs",
-                                    min: 1,
-                                    max: 100,
-                                    value: currentEpochs,
-                                    onChange: (v: string) => { composerState.yumonSettings.epochsToTrain[arch] = parseInt(v); }
+
+                                Entropy.UI.Widget.button(trainTab, {
+                                    text: "Augment Moments (4x)",
+                                    onClick: () => {
+                                        addon.Yumon.brain.augment(arch);
+                                        Entropy.println(`Augmented dataset for ${arch}. Moments quadrupled.`);
+                                    }
                                 });
                             });
                         }
