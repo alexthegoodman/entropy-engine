@@ -118,7 +118,7 @@ globalThis.Entropy = {
                         }
 
                         if (config.isNpc && globalThis.registered_npcs) {
-                            globalThis.registered_npcs.push({ id, type: "Enemy", position: [0, 0, 0] });
+                            globalThis.registered_npcs.push({ id, type: "Enemy", position: config.position });
                         }
 
                         ops.op_model_load(getAddonName(), {
@@ -151,7 +151,7 @@ globalThis.Entropy = {
                     },
                     createMesh: (config) => {
                         if (config.isNpc && globalThis.registered_npcs) {
-                            globalThis.registered_npcs.push({ id, type: "Enemy", position: [0, 0, 0] });
+                            globalThis.registered_npcs.push({ id: config.id, type: "Enemy", position: config.position });
                         }
 
                         ops.op_mesh_create(getAddonName(), {

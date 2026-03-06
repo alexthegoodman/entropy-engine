@@ -223,45 +223,45 @@ addon.onInit(async () => {
     let currentLeftStick: [number, number] = [0, 0];
     let currentRightStick: [number, number] = [0, 0];
 
-    // Event listeners for "one-shot" actions (Jump, Attack, etc.)
-    // These ensure we don't miss a quick tap that happens between 500ms ticks.
-    Entropy.Input.onKeyDown((key) => {
-        if (!composerState.yumonSettings.isRecording) return;
-        
-        if (key === "Space") recordedActionThisTick = 2;      // ButtonA (Jump)
-        else if (key === "ShiftLeft") recordedActionThisTick = 3; // ButtonB (Dodge)
-        else if (key === "KeyE") recordedActionThisTick = 4; // ButtonX (Attack Light)
-        else if (key === "KeyQ") recordedActionThisTick = 5; // ButtonY (Attack Heavy)
-    });
-
-    Entropy.Input.onMouseDown((btn) => {
-        if (!composerState.yumonSettings.isRecording) return;
-        if (btn === 0) recordedActionThisTick = 4; // Left Click -> Attack Light
-        if (btn === 1) recordedActionThisTick = 5; // Right Click -> Attack Heavy
-    });
-
-    Entropy.Input.onGamepadButton((btn, pressed) => {
-        // Entropy.println("gamepad button 2 " + btn + " " + pressed);
-        if (!composerState.yumonSettings.isRecording || !pressed) return;
-        
-        // Mapping typical Gamepad strings (based on Gilrs/Winit mapping) also mapped in yumon/system.rs to Action
-        if (btn === "South") recordedActionThisTick = 2;      // A / Cross (Jump)
-        else if (btn === "East") recordedActionThisTick = 3;  // B / Circle (Dodge)
-        else if (btn === "West") recordedActionThisTick = 4;  // X / Square (Attack L)
-        else if (btn === "North") recordedActionThisTick = 5; // Y / Triangle (Attack H)
-        else if (btn === "LeftTrigger2") recordedActionThisTick = 6; // ads
-        else if (btn === "RightTrigger2") recordedActionThisTick = 7; //  ranged attack
-        else if (btn === "LeftTrigger") recordedActionThisTick = 8;
-        else if (btn === "RightTrigger") recordedActionThisTick = 9;
-    });
-
-    Entropy.Input.onGamepadAxis((left, right) => {
-        currentLeftStick = left;
-        currentRightStick = right;
-    });
-
     addon.onUpdate((time) => {
         if (!composerState.yumonSettings.isRecording || !composerState.yumonSettings.activeRecordingBrainId) return;
+
+        // Event listeners for "one-shot" actions (Jump, Attack, etc.)
+        // These ensure we don't miss a quick tap that happens between 500ms ticks.
+        Entropy.Input.onKeyDown((key) => {
+            if (!composerState.yumonSettings.isRecording) return;
+            
+            if (key === "Space") recordedActionThisTick = 2;      // ButtonA (Jump)
+            else if (key === "ShiftLeft") recordedActionThisTick = 3; // ButtonB (Dodge)
+            else if (key === "KeyE") recordedActionThisTick = 4; // ButtonX (Attack Light)
+            else if (key === "KeyQ") recordedActionThisTick = 5; // ButtonY (Attack Heavy)
+        });
+
+        Entropy.Input.onMouseDown((btn) => {
+            if (!composerState.yumonSettings.isRecording) return;
+            if (btn === 0) recordedActionThisTick = 4; // Left Click -> Attack Light
+            if (btn === 1) recordedActionThisTick = 5; // Right Click -> Attack Heavy
+        });
+
+        Entropy.Input.onGamepadButton((btn, pressed) => {
+            // Entropy.println("gamepad button 2 " + btn + " " + pressed);
+            if (!composerState.yumonSettings.isRecording || !pressed) return;
+            
+            // Mapping typical Gamepad strings (based on Gilrs/Winit mapping) also mapped in yumon/system.rs to Action
+            if (btn === "South") recordedActionThisTick = 2;      // A / Cross (Jump)
+            else if (btn === "East") recordedActionThisTick = 3;  // B / Circle (Dodge)
+            else if (btn === "West") recordedActionThisTick = 4;  // X / Square (Attack L)
+            else if (btn === "North") recordedActionThisTick = 5; // Y / Triangle (Attack H)
+            else if (btn === "LeftTrigger2") recordedActionThisTick = 6; // ads
+            else if (btn === "RightTrigger2") recordedActionThisTick = 7; //  ranged attack
+            else if (btn === "LeftTrigger") recordedActionThisTick = 8;
+            else if (btn === "RightTrigger") recordedActionThisTick = 9;
+        });
+
+        Entropy.Input.onGamepadAxis((left, right) => {
+            currentLeftStick = left;
+            currentRightStick = right;
+        });
 
         const now = Date.now();
         if (now - lastTickTime < TICK_MS) return;
@@ -368,7 +368,6 @@ addon.onInit(async () => {
 
         // 3. Resolve Action
         let actionIdx = recordedActionThisTick;
-        recordedActionThisTick = 11; // Reset for next tick
 
         // If no one-shot event occurred, check polling for sustained movement
         if (actionIdx === 11) {
@@ -376,8 +375,8 @@ addon.onInit(async () => {
             if (currentLeftStick[1] > 0.3) actionIdx = 0; // MoveForward
             else if (currentLeftStick[1] < -0.3) actionIdx = 1; // MoveBackward
             // Check Keyboard fallback
-            else if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; 
-            else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; 
+            // else if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; 
+            // else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; 
         }
 
         // 4. Capture Rotation Delta
@@ -387,8 +386,8 @@ addon.onInit(async () => {
             rotationDelta = currentRightStick[0]; // -1 to 1
         } else {
             // Keyboard A/D fallback
-            if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.5;
-            if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.5;
+            // if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.5;
+            // if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.5;
         }
 
         // Entropy.println("actionIdx: " + actionIdx);
@@ -398,6 +397,8 @@ addon.onInit(async () => {
         lastMoment = [...world, ...self];
         lastAction = actionIdx;
         addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
+
+        recordedActionThisTick = 11; // Reset for next tick
 
         // Update brain states for UI display
         composerState.yumonSettings.archetypes.forEach(arch => {
