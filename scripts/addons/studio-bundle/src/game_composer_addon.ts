@@ -670,17 +670,6 @@ addon.onInit(async () => {
                                 Entropy.println(`Created Yumon Brain for ${arch}`);
                             }
                         });
-                        Entropy.UI.Widget.button(hTab, {
-                            text: "Load",
-                            onClick: () => {
-                                addon.Yumon.brain.load(arch);
-                                if (!composerState.yumonSettings.createdBrains.includes(arch)) {
-                                    composerState.yumonSettings.createdBrains.push(arch);
-                                    composerState.yumonSettings.activeRecordingBrainId = arch;
-                                }
-                                Entropy.println(`Loaded Yumon Brain for ${arch}`);
-                            }
-                        });
                         if (composerState.yumonSettings.createdBrains.includes(arch)) {
                             Entropy.UI.Widget.button(hTab, {
                                 text: "Save",
