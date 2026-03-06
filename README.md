@@ -101,6 +101,12 @@ Full FPS-RPG and Tower Defense games with source code. Learn by seeing how real 
 
 ## Getting Started
 
+To start the editor, simply clone the project and run:
+
+`cargo run --bin editor --release` 
+
+## Documentation
+
 **Read the Book:**  
 [Entropy Book](./public/entropy-book/src/SUMMARY.md) - Complete documentation and tutorials
 
