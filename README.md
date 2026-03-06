@@ -6,13 +6,20 @@
 
 **Stop jumping between tools. Start creating.**
 
-You know the drill: Model in Blender. Texture in Substance. Import. Realize the scale is wrong. Export. Fix. Re-import. Now the materials are broken. Start over. Need to update that texture? Hope you remember which files need re-exporting.
+Entropy Engine aims to be the first "end-to-end" game engine. You should never have to leave Entropy. 
+Never import, export, re-import, and re-configure. It's a genuine time-hog.
+You should be able to update a PBR texture and have it update everywhere it is applied, instantly.
+You should be able to create massive, open-world terrains with photorealistic water, without using a 3rd party tool. All it takes is a few lines of code, some clicking around, or even chatting with the built-in level design agent.
 
-**Entropy works differently.**
+Entropy Engine is lightweight and runs great on iGPUs. The Rust core provides all of the native functionality and performance,
+while the TypeScript addon system allows for extendability and rapid development.
 
-Create a PBR texture. Apply it to your landscape. Apply it to your procedurally-generated houses. Change the roughness. *Everything updates.* Because it's all in the same place.
+There are some features here which you will be hard-pressed to find anywhere else. One of the most excting features, currently in beta stage,
+is the Yumon AI System. This System enables you to play a character from your game, such as an enemy, thereby capturing play sessions as data.
+Then, all within the editor, you can Train a machine learning model on that data using a method called Behavior Cloning.
+This enables you to create highly dynamic, rich NPCs that act like real people, rather than hardcoding your behaviors (which is also supported).
 
-Model terrain with noise. Add FFT water that actually flows. Scatter interactive grass that sways in the wind. Place volumetric fog. Add enemies with behaviors. Test it. Tweak it. No exporting. No re-importing. No wondering which version of which file is the current one.
+Thank you for taking a look. Feel free to ask any questions or open an issue as the need arises.
 
 ---
 
@@ -105,11 +112,3 @@ Full FPS-RPG and Tower Defense games with source code. Learn by seeing how real 
 Supply the [JavaScript API](./scripts/addons/studio-bundle/src/addon.d.ts) to any LLM and generate game code instantly. Bundle TypeScript with `deno bundle` to load as addons.
 
 **Or just use the built-in chat** - Best for non-coders who want to create through conversation.
-
----
-
-## The Philosophy
-
-Level design should be visual. Behaviors should be code. Nothing should require three tools and a file format converter.
-
-That's Entropy.
