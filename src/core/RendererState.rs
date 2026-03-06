@@ -15,7 +15,7 @@ use crate::core::animation_system;
 use crate::core::SimpleCamera::to_row_major_f64;
 use crate::core::camera::CameraBinding;
 use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
-use crate::deno::addon_engine::VisualConfig;
+use crate::deno::addon_ops::VisualConfig;
 use crate::game_behaviors::stateful::BehaviorState;
 use crate::handlers::EntropyPosition;
 use crate::heightfield_landscapes::QuadScape::QuadScape;

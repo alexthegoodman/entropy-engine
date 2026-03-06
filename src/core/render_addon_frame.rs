@@ -2,6 +2,7 @@ use crate::core::egui_sidebar::{PipelineTabViewer, Tab, UiContext};
 use crate::core::pipeline::{DirectionalLightUniform, EntropyPipeline, ProceduralSkyUniform, Workspace};
 use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
+use crate::deno::addon_ops::AddonContext;
 use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
 use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
 use crate::heightfield_landscapes::QuadScape::draw_quadscape;
@@ -211,7 +212,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             .and_then(|level| level.procedural_sky.clone());
 
         // Check if addon has a pending sun config override
-        if let Some(addon_config) = editor.addon_engine.runtime.op_state().borrow().try_borrow::<crate::deno::addon_engine::AddonContext>().and_then(|ctx| ctx.pending_sun_config.clone()) {
+        if let Some(addon_config) = editor.addon_engine.runtime.op_state().borrow().try_borrow::<AddonContext>().and_then(|ctx| ctx.pending_sun_config.clone()) {
             current_procedural_sky_config = Some(ProceduralSkyConfig { 
                 horizon_color: addon_config.horizon_color, 
                 zenith_color: addon_config.zenith_color, 
@@ -297,7 +298,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         {
             let mut op_state = editor.addon_engine.runtime.op_state();
             let op_state = op_state.borrow();
-            if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+            if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                 for (addon_name, cubes) in &renderer_state.addon_cubes {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
@@ -579,7 +580,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             {
                 let op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     
                     for cube in &pbr_cubes {
                         let mut pipeline_set = false;
@@ -976,7 +977,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             {
                 let mut op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     // Find if any used pipeline has a custom lighting pipeline
                     for cube in &pbr_cubes {
                         if let Some(pid) = &cube.pipeline_id {
@@ -1023,7 +1024,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             if let Some(pid) = &custom_lighting_pid {
                 let mut op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     if let Some(lp) = ctx.lighting_pipelines.get(pid) {
                         lighting_pass.set_pipeline(lp);
                     }
@@ -1084,7 +1085,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             {
                 let op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     
                     for cube in &non_pbr_cubes {
                         let mut pipeline_set = false;
@@ -1432,7 +1433,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             {
                 let mut op_state = editor.addon_engine.runtime.op_state();
                 let op_state = op_state.borrow();
-                if let Some(ctx) = op_state.try_borrow::<crate::deno::addon_engine::AddonContext>() {
+                if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                     for composite in &ctx.composites {
                         let mut composite_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                             label: Some(&format!("Composite Pass: {}", composite.name)),

@@ -16,7 +16,7 @@ use uuid::Uuid;
 use rapier3d::prelude::{QueryPipeline, Shape};
 use wgpu::util::DeviceExt;
 
-use crate::{core::Transform_2::matrix4_to_raw_array, deno::addon_engine::VisualConfig, helpers::saved_data::{AttackStats, CharacterStats, VisualType}};
+use crate::{core::Transform_2::matrix4_to_raw_array, deno::addon_ops::VisualConfig, helpers::saved_data::{AttackStats, CharacterStats, VisualType}};
 use crate::{
     game_behaviors::{
         melee::{MeleeCombatBehavior},

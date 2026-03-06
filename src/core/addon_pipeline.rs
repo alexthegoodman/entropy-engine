@@ -1,5 +1,5 @@
 use wgpu::{self, Device, RenderPipeline, ShaderModuleDescriptor, ShaderSource};
-use crate::deno::addon_engine::PipelineConfig;
+use crate::deno::addon_ops::PipelineConfig;
 use crate::core::vertex::{Vertex, ModelVertex}; 
 
 // Add GBuffer format constants at the top or pass them in

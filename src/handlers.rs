@@ -3,6 +3,7 @@ use mint::{Quaternion, Vector3 as MintVector3};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::core::RendererState::DebugRay;
+use crate::deno::addon_ops::{AddonContext, InputEvent};
 use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::model_components::Collectable::Collectable;
 use crate::model_components::PlayerCharacter::MovementState;
@@ -187,14 +188,14 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             let key = key_code.to_string();
             if is_pressed {
                 ctx.pressed_keys.insert(key.clone());
-                ctx.input_events.push(crate::deno::addon_engine::InputEvent::KeyDown { key });
+                ctx.input_events.push(InputEvent::KeyDown { key });
             } else {
                 ctx.pressed_keys.remove(&key);
-                ctx.input_events.push(crate::deno::addon_engine::InputEvent::KeyUp { key });
+                ctx.input_events.push(InputEvent::KeyUp { key });
             }
         }
     }
@@ -388,7 +389,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             let btn_idx = match button {
                 EntropyMouseButton::Left => 0,
                 EntropyMouseButton::Right => 1,
@@ -397,14 +398,14 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
             };
             if element_state == EntropyElementState::Pressed {
                 if let Some(mouse_pos) = renderer_state.current_mouse_position {
-                    ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseDown { 
+                    ctx.input_events.push(InputEvent::MouseDown { 
                         button: btn_idx, 
                         x: mouse_pos.x, 
                         y: mouse_pos.y 
                     });
                 }
             } else {
-                ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseUp { 
+                ctx.input_events.push(InputEvent::MouseUp { 
                     button: btn_idx 
                 });
             }
@@ -595,9 +596,9 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             if let Some(mouse_pos) = currentPosition {
-                ctx.input_events.push(crate::deno::addon_engine::InputEvent::MouseMove { 
+                ctx.input_events.push(InputEvent::MouseMove { 
                     x: mouse_pos.x, 
                     y: mouse_pos.y 
                 });
@@ -1551,8 +1552,8 @@ pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_st
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
-            ctx.input_events.push(crate::deno::addon_engine::InputEvent::GamepadAxis { 
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+            ctx.input_events.push(crate::deno::addon_ops::InputEvent::GamepadAxis { 
                 leftStick: [left_stick.0, left_stick.1], 
                 rightStick: [right_stick.0, right_stick.1] 
             });
@@ -1649,8 +1650,8 @@ pub fn handle_gamepad_button(state: &mut Editor, button: &str, pressed: bool) {
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
-        if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_engine::AddonContext>() {
-            ctx.input_events.push(crate::deno::addon_engine::InputEvent::GamepadButton { 
+        if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+            ctx.input_events.push(crate::deno::addon_ops::InputEvent::GamepadButton { 
                 button: button.to_string(), 
                 pressed 
             });
