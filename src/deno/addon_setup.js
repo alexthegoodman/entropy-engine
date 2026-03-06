@@ -1,5 +1,7 @@
 const { ops } = Deno.core;
 
+globalThis.registered_npcs = [];
+
 globalThis.Entropy = {
     Addon: {
         register: (metadata) => {
@@ -115,6 +117,10 @@ globalThis.Entropy = {
                             globalThis.Entropy._entityVisuals[id] = config.visualName;
                         }
 
+                        if (config.isNpc && globalThis.registered_npcs) {
+                            globalThis.registered_npcs.push({ id, type: "Enemy", position: [0, 0, 0] });
+                        }
+
                         ops.op_model_load(getAddonName(), {
                             id: id,
                             path: config.path,
@@ -144,6 +150,10 @@ globalThis.Entropy = {
                         }
                     },
                     createMesh: (config) => {
+                        if (config.isNpc && globalThis.registered_npcs) {
+                            globalThis.registered_npcs.push({ id, type: "Enemy", position: [0, 0, 0] });
+                        }
+
                         ops.op_mesh_create(getAddonName(), {
                             id: config.id || null,
                             position: config.position || [0, 0, 0],
@@ -1289,6 +1299,12 @@ globalThis.Entropy.Composer = {
     },
     getGlobalSettings: () => {
         return globalThis.Entropy.Composer.globalSettings;
+    },
+    getNPCs: () => {
+        return globalThis.registered_npcs;
+    },
+    updateNPCPosition: (entityId, position) => {
+        globalThis.registered_npcs.find((npc) => npc.id === entityId).position = position;
     }
 };
 

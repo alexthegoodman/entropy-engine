@@ -236,7 +236,7 @@ addon.onInit(() => {
         entityRotations.set(entityId, currentRotation ? currentRotation + rotationDelta : rotationDelta);
 
         let finalRotation = entityRotations.get(entityId) || 0;
-        let speed = 24.0;
+        let speed = 12.0;
 
         if (action === 0) {
             Entropy.Entity.setXZVelocity(entityId, [direction[0] * speed, direction[2] * speed]);
@@ -248,7 +248,8 @@ addon.onInit(() => {
             setAnimation(entityId, "Idle");
         }
         
-        Entropy.Entity.setRotation(entityId, [0, finalRotation, 0]); // "* 360" is likely incorrect, but the delta is very small
+        let mouse_sensitivity = 0.05; // taken from step_physics_pipeline
+        Entropy.Entity.setRotation(entityId, [0, finalRotation * mouse_sensitivity, 0]); // "* 360" is likely incorrect, but the delta is very small
         
         if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;

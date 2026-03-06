@@ -290,9 +290,9 @@ addon.onInit(async () => {
         const forwardMag = Math.sqrt(forward[0]*forward[0] + forward[2]*forward[2]);
         const normForward = [forward[0]/forwardMag, 0, forward[2]/forwardMag];
 
-        // TODO: actually, a lot of things are added programmatically via code rather than as components, so this wouldnt pick anything up
-        composerState.components.forEach(inst => {
-            if (!inst.visible) return;
+        // composerState.components.forEach(inst => {
+        Entropy.Composer?.getNPCs().forEach(inst => {
+            // if (!inst.visible) return;
 
             const dx = inst.position[0] - camPos[0];
             const dy = inst.position[1] - camPos[1];
@@ -305,10 +305,10 @@ addon.onInit(async () => {
             const det = targetDir[0] * normForward[2] - targetDir[2] * normForward[0];
             const angle = Math.atan2(det, dot) / Math.PI;
 
-            // Heuristic for classification
-            // TODO: need better detection, perhaps add crateEnemy aside createNPC and use a tag
-            const isNPC = inst.addon === "Model Viewer" || inst.name.toLowerCase().includes("npc");
-            const isEnemy = isNPC && (inst.name.toLowerCase().includes("enemy") || inst.name.toLowerCase().includes("monster"));
+            // const isNPC = inst.addon === "Model Viewer" || inst.name.toLowerCase().includes("npc");
+            // const isEnemy = isNPC && (inst.name.toLowerCase().includes("enemy") || inst.name.toLowerCase().includes("monster"));
+            const isNPC = inst.type !== "Enemy";
+            const isEnemy = inst.type === "Enemy";
             const isAlly = isNPC && !isEnemy;
 
             if (isNPC) {
@@ -333,7 +333,8 @@ addon.onInit(async () => {
                 }
                 
                 // Ray-sphere collision to check if it's blocking our path (radius approximated by average scale)
-                const radius = inst.scale ? (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0 : 1.0;
+                // const radius = inst.scale ? (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0 : 1.0;
+                const radius = 1.0;
                 const hit = raySphereIntersect(camPos, [normForward[0], 0, normForward[2]], inst.position, radius * 1.5);
                 if (hit && hit.distance < 5.0) {
                     isPathBlocked = true;

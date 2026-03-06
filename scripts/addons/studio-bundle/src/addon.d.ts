@@ -716,6 +716,8 @@ export interface EntropyAPI {
   };
   Composer?: {
     editors: { [key: string]: any };
+    getNPCs: () => { id: string; type: string; position: [number, number, number] }[];
+    updateNPCPosition: (entityId: string, position: [number, number, number]) => void;
     clearMesh: (meshId: string) => void;
       registerEditor: (addonName: string, renderFn: (windowId: string, overrideKey: string) => void) => void;
       getEditor: (addonName: string) => ((windowId: string, overrideKey: string) => void) | undefined;
