@@ -70,6 +70,7 @@ let composerState: {
 
     let brainStates: Record<string, any> = {};
     let lastMoment: number[] = [];
+    let lastAction: number | null = null;
 
     let activeProjectId: string | null = null;
 
@@ -289,6 +290,7 @@ addon.onInit(async () => {
         const forwardMag = Math.sqrt(forward[0]*forward[0] + forward[2]*forward[2]);
         const normForward = [forward[0]/forwardMag, 0, forward[2]/forwardMag];
 
+        // TODO: actually, a lot of things are added programmatically via code rather than as components, so this wouldnt pick anything up
         composerState.components.forEach(inst => {
             if (!inst.visible) return;
 
@@ -388,9 +390,12 @@ addon.onInit(async () => {
             if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.5;
         }
 
+        // Entropy.println("actionIdx: " + actionIdx);
+
         const reward = 0.1; 
 
         lastMoment = [...world, ...self];
+        lastAction = actionIdx;
         addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
 
         // Update brain states for UI display
@@ -736,6 +741,7 @@ addon.onInit(async () => {
                     // Quick visualizer for the last moment vector (normalized states)
                     const viz = lastMoment.map((v) => v.toFixed(1)).join(" ");
                     Entropy.UI.Widget.label(tab, { text: `Moment: [${viz}]` });
+                    Entropy.UI.Widget.label(tab, { text: `Action: [${lastAction}]` });
                 }
 
                 const recordingId = composerState.yumonSettings.activeRecordingBrainId;
