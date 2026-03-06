@@ -4,7 +4,7 @@
 
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-**Stop jumping between tools. Start creating.**
+**Entropy Engine is experimental and in beta, and some things may not work as expected**
 
 Entropy Engine aims to be the first "end-to-end" game engine. You should never have to leave Entropy. 
 Never import, export, re-import, and re-configure. It's a genuine time-hog.
@@ -12,9 +12,9 @@ You should be able to update a PBR texture and have it update everywhere it is a
 You should be able to create massive, open-world terrains with photorealistic water, without using a 3rd party tool. All it takes is a few lines of code, some clicking around, or even chatting with the built-in level design agent.
 
 Entropy Engine is lightweight and runs great on iGPUs. The Rust core provides all of the native functionality and performance,
-while the TypeScript addon system allows for extendability and rapid development.
+while the TypeScript addon system allows for extensibility and rapid development.
 
-There are some features here which you will be hard-pressed to find anywhere else. One of the most excting features, currently in beta stage,
+There are some features here which you will be hard-pressed to find anywhere else. One of the most exciting features, currently in beta stage,
 is the Yumon AI System. This System enables you to play a character from your game, such as an enemy, thereby capturing play sessions as data.
 Then, all within the editor, you can Train a machine learning model on that data using a method called Behavior Cloning.
 This enables you to create highly dynamic, rich NPCs that act like real people, rather than hardcoding your behaviors (which is also supported).
