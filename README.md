@@ -105,6 +105,8 @@ To start the editor, simply clone the project and run:
 
 `cargo run --bin editor --release` 
 
+Currently, Entropy has only been tested on Windows machines.
+
 ## Documentation
 
 **Read the Book:**  
