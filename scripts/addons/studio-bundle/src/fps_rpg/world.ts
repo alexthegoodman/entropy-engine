@@ -89,25 +89,25 @@ class WorldManager {
     
     populateWorld() {
         // Spawn faction leaders (quest givers)
-        this.spawnNPC("Commander Vex", Entropy.generateUUID(), "Enemy1b.glb", 
-            factions[Faction.CRIMSON_GUARD].territory, {
-                behaviorId: "quest_giver_vex"
-            }, Faction.CRIMSON_GUARD);
+        // this.spawnNPC("Commander Vex", Entropy.generateUUID(), "Enemy1b.glb", 
+        //     factions[Faction.CRIMSON_GUARD].territory, {
+        //         behaviorId: "quest_giver_vex"
+        //     }, Faction.CRIMSON_GUARD);
         
-        this.spawnNPC("Scholar Lyra", Entropy.generateUUID(), "Player1b.glb",
-            factions[Faction.AZURE_ORDER].territory, {
-                behaviorId: "quest_giver_lyra"
-            }, Faction.AZURE_ORDER);
+        // this.spawnNPC("Scholar Lyra", Entropy.generateUUID(), "Player1b.glb",
+        //     factions[Faction.AZURE_ORDER].territory, {
+        //         behaviorId: "quest_giver_lyra"
+        //     }, Faction.AZURE_ORDER);
         
-        this.spawnNPC("Whisper Master", Entropy.generateUUID(), "Enemy1b.glb",
-            factions[Faction.SHADOW_COVENANT].territory, {
-                behaviorId: "quest_giver_whisper"
-            }, Faction.SHADOW_COVENANT);
+        // this.spawnNPC("Whisper Master", Entropy.generateUUID(), "Enemy1b.glb",
+        //     factions[Faction.SHADOW_COVENANT].territory, {
+        //         behaviorId: "quest_giver_whisper"
+        //     }, Faction.SHADOW_COVENANT);
         
-        this.spawnNPC("The Wanderer", Entropy.generateUUID(), "Friend1b.glb",
-            { x: 0, z: 0, radius: 5 }, {
-                behaviorId: "neutral_wanderer"
-            }, Faction.NEUTRAL);
+        // this.spawnNPC("The Wanderer", Entropy.generateUUID(), "Friend1b.glb",
+        //     { x: 0, z: 0, radius: 5 }, {
+        //         behaviorId: "neutral_wanderer"
+        //     }, Faction.NEUTRAL);
         
         // Spawn faction soldiers
         // this.spawnFactionGuards(Faction.CRIMSON_GUARD, "Enemy1b.glb", 
@@ -124,16 +124,20 @@ class WorldManager {
         //     },
         //     3
         // );
-        this.spawnFactionGuards(Faction.AZURE_ORDER, "Friend1b.glb", 
+        this.spawnFactionGuards(
+            Faction.AZURE_ORDER, 
+            // factions[Faction.AZURE_ORDER].territory,
+            { x: 25, z: -25, radius: 10 },
+            "Friend1b.glb", 
             // {
             //     behaviorId: "azure_soldier",
             // }, 
-            // 25,
+            // 15,
             {
                 behaviorId: "movement_tracker",
                 yumonId: "Berserker"
             },
-            9
+            3
         );
         // this.spawnFactionGuards(Faction.SHADOW_COVENANT, "Enemy1b.glb", 
         //     // {
@@ -220,8 +224,8 @@ class WorldManager {
         }, 100);
     }
     
-    spawnFactionGuards(faction: Faction, model: string, intelligence: { behaviorId?: string, yumonId?: string }, count: number) {
-        const territory = factions[faction].territory;
+    spawnFactionGuards(faction: Faction, territory: { radius: number, x: number, z: number }, model: string, intelligence: { behaviorId?: string, yumonId?: string }, count: number) {
+        // const territory = factions[faction].territory;
         const visual = addon.getVisualProvider("humanoid_character");
         
         for (let i = 0; i < count; i++) {

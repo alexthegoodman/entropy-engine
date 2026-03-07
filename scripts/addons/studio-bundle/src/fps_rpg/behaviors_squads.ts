@@ -765,6 +765,8 @@ function createSquadSoldier(
                     state.waitTime = 60 + Math.random() * 120;
                 }
             }
+
+            Entropy.Composer?.updateNPCPosition(entity.id, entity.position);
             
             return state;
         },
@@ -854,6 +856,8 @@ Entropy.Behavior.register("shadow_assassin", {
         
         // Stealth patrol
         doWander(entity, 3, 12);
+
+        Entropy.Composer?.updateNPCPosition(entity.id, entity.position);
         
         return state;
     },

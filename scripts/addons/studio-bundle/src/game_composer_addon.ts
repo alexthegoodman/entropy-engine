@@ -71,6 +71,8 @@ let composerState: {
     let brainStates: Record<string, any> = {};
     let lastMoment: number[] = [];
     let lastAction: number | null = null;
+    let lastThreatAngle: number | null = null;
+    let lastRotation: number | null = null;
 
     let activeProjectId: string | null = null;
 
@@ -286,18 +288,18 @@ addon.onInit(async () => {
         let nearbyAllyCount = 0;
         let isPathBlocked = false;
 
-        const forward = [camDir[0], 0, camDir[2]];
+        const forward = [dir[0], 0, dir[2]];
         const forwardMag = Math.sqrt(forward[0]*forward[0] + forward[2]*forward[2]);
         const normForward = [forward[0]/forwardMag, 0, forward[2]/forwardMag];
 
         // composerState.components.forEach(inst => {
         Entropy.Composer?.getNPCs().forEach(inst => {
-            // if (!inst.visible) return;
-
             const dx = inst.position[0] - camPos[0];
             const dy = inst.position[1] - camPos[1];
             const dz = inst.position[2] - camPos[2];
             const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+
+            // Entropy.println("inst.position: " + JSON.stringify(inst.position) + " camPos: " + JSON.stringify(camPos) + " dist: " + dist);
 
             // Calculate ego-centric angle (-1 to 1, where 0 is directly forward)
             const targetDir = [dx/dist, 0, dz/dist];
@@ -305,32 +307,52 @@ addon.onInit(async () => {
             const det = targetDir[0] * normForward[2] - targetDir[2] * normForward[0];
             const angle = Math.atan2(det, dot) / Math.PI;
 
-            // const isNPC = inst.addon === "Model Viewer" || inst.name.toLowerCase().includes("npc");
-            // const isEnemy = isNPC && (inst.name.toLowerCase().includes("enemy") || inst.name.toLowerCase().includes("monster"));
-            const isNPC = inst.type !== "Enemy";
+            // Convert your absolute sin/cos rotation to a heading angle (radians)
+            const playerHeadingRad = Math.atan2(normForward[0], normForward[2]); // world-space heading
+            let absRad = playerHeadingRad + angle * Math.PI;
+            // Normalize to (-π, π]
+            absRad = (absRad + Math.PI) % (2 * Math.PI) - Math.PI;
+            const worldAngle = absRad / Math.PI;
+
+            const isNPC = inst.type === "Enemy" || inst.type === "Friendly";
             const isEnemy = inst.type === "Enemy";
             const isAlly = isNPC && !isEnemy;
+
+            // World-space absolute rotation / angle towards the threat (-1 to 1, where 0 = world +Z axis)
+            // const worldAngle = Math.atan2(dx, dz) / Math.PI;
 
             if (isNPC) {
                 if (isEnemy) {
                     if (dist < nearestThreatDist) {
                         nearestThreatDist = dist;
-                        nearestThreatAngle = angle;
+                        nearestThreatAngle = worldAngle; // absolute, matches your sin/cos rotation space
                     }
+                    // if (dist < nearestThreatDist) {
+                    //     nearestThreatDist = dist;
+                    //     nearestThreatAngle = angle;
+                    // }
                     if (dist < 20) nearbyEnemyCount++;
                 } else if (isAlly) {
                     if (dist < nearestAllyDist) {
                         nearestAllyDist = dist;
-                        nearestAllyAngle = angle;
+                        nearestAllyAngle = worldAngle; // absolute, matches your sin/cos rotation space
                     }
+                    // if (dist < nearestAllyDist) {
+                    //     nearestAllyDist = dist;
+                    //     nearestAllyAngle = angle;
+                    // }
                     if (dist < 20) nearbyAllyCount++;
                 }
             } else {
-                // Not an NPC, so it's an obstacle
                 if (dist < nearestObstacleDist) {
                     nearestObstacleDist = dist;
-                    nearestObstacleAngle = angle;
+                    nearestObstacleAngle = worldAngle; // absolute, matches your sin/cos rotation space
                 }
+                // Not an NPC, so it's an obstacle
+                // if (dist < nearestObstacleDist) {
+                //     nearestObstacleDist = dist;
+                //     nearestObstacleAngle = angle;
+                // }
                 
                 // Ray-sphere collision to check if it's blocking our path (radius approximated by average scale)
                 // const radius = inst.scale ? (inst.scale[0] + inst.scale[1] + inst.scale[2]) / 3.0 : 1.0;
@@ -340,6 +362,12 @@ addon.onInit(async () => {
                     isPathBlocked = true;
                 }
             }
+
+            //  Entropy.println(
+            //     "enemy=" + inst.id +
+            //     " dist=" + dist.toFixed(2) +
+            //     " angle=" + worldAngle.toFixed(3)
+            // );
         });
 
         // Populate World State (Indices from system.rs)
@@ -385,6 +413,8 @@ addon.onInit(async () => {
 
         lastMoment = [...world, ...self];
         lastAction = actionIdx;
+        lastThreatAngle = nearestThreatAngle;
+        lastRotation = absoluteRotation;
         addon.Yumon.brain.observe(brainId, world, self, actionIdx, absoluteRotation, reward);
 
         recordedActionThisTick = 11; // Reset for next tick
@@ -395,6 +425,11 @@ addon.onInit(async () => {
                 brainStates[arch] = addon.Yumon.brain.getState(arch);
             } catch(e) {}
         });
+
+    //    Entropy.println(
+    //         "player=" + absoluteRotation.toFixed(3) +
+    //         " nearestThreat=" + nearestThreatAngle.toFixed(3)
+    //     );
     });
 
     const tab = addon.UI.createTab({
@@ -607,26 +642,26 @@ addon.onInit(async () => {
             Entropy.UI.Widget.separator(tab);
 
             // === YUMON AI ===
-            Entropy.UI.Widget.collapsingHeader(tab, "📖 How to use Yumon AI", (hTab) => {
-                Entropy.UI.Widget.label(hTab, {
-                    text: "1. Click 'Create' on an Archetype (e.g. Berserker)."
-                });
-                Entropy.UI.Widget.label(hTab, {
-                    text: "2. Select that Archetype in the 'Target Archetype' dropdown below."
-                });
-                Entropy.UI.Widget.label(hTab, {
-                    text: "3. Click 'Record Designer Session' and move/attack (WASD, Space, Shift, E, Q)."
-                });
-                Entropy.UI.Widget.label(hTab, {
-                    text: "4. Click 'Stop Recording' when finished."
-                });
-                Entropy.UI.Widget.label(hTab, {
-                    text: "5. Click 'Train' on the Archetype to run Behavior Cloning."
-                });
-                Entropy.UI.Widget.label(hTab, {
-                    text: "6. Click 'Save' to persist your trained model."
-                });
-            });
+            // Entropy.UI.Widget.collapsingHeader(tab, "📖 How to use Yumon AI", (hTab) => {
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "1. Click 'Create' on an Archetype (e.g. Berserker)."
+            //     });
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "2. Select that Archetype in the 'Target Archetype' dropdown below."
+            //     });
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "3. Click 'Record Designer Session' and move/attack (WASD, Space, Shift, E, Q)."
+            //     });
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "4. Click 'Stop Recording' when finished."
+            //     });
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "5. Click 'Train' on the Archetype to run Behavior Cloning."
+            //     });
+            //     Entropy.UI.Widget.label(hTab, {
+            //         text: "6. Click 'Save' to persist your trained model."
+            //     });
+            // });
 
             Entropy.UI.Widget.button(tab, {
                 text: (sectionsOpen.yumonAI ? "▼ " : "▶ ") + "Yumon AI System",
@@ -722,6 +757,8 @@ addon.onInit(async () => {
                     const viz = lastMoment.map((v) => v.toFixed(1)).join(" ");
                     Entropy.UI.Widget.label(tab, { text: `Moment: [${viz}]` });
                     Entropy.UI.Widget.label(tab, { text: `Action: [${lastAction}]` });
+                    Entropy.UI.Widget.label(tab, { text: `Threat Angle: [${lastThreatAngle}]` });
+                    Entropy.UI.Widget.label(tab, { text: `Player Rotation: [${lastRotation}]` });
                 }
 
                 const recordingId = composerState.yumonSettings.activeRecordingBrainId;

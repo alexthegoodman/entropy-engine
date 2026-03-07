@@ -528,14 +528,8 @@ impl<B: AutodiffBackend> YumonBrain<B> {
 
     pub fn save(&self, directory: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
         std::fs::create_dir_all(directory)?;
-        
-        // 1. Save Model Weights
-        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
-        self.model
-            .clone()
-            .save_file(directory.join("model"), &recorder);
 
-        // 2. Save Metadata
+        // 1. Save Metadata
         let metadata = YumonBrainMetadata {
             archetype_name: self.archetype_name.clone(),
             reward_weights: self.reward_weights.clone(),
@@ -558,9 +552,15 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         let meta_json = serde_json::to_string_pretty(&metadata)?;
         std::fs::write(directory.join("metadata.json"), meta_json)?;
 
-        // 3. Save Experience Buffer (Recordings)
+        // 2. Save Experience Buffer (Recordings)
         let buffer_json = serde_json::to_string_pretty(&self.buffer)?;
         std::fs::write(directory.join("recordings.json"), buffer_json)?;
+
+        // 3. Save Model Weights
+        let recorder = BinFileRecorder::<FullPrecisionSettings>::new();
+        self.model
+            .clone()
+            .save_file(directory.join("model"), &recorder);
 
         Ok(())
     }

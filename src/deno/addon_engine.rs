@@ -35,7 +35,46 @@ use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::core::vertex::Vertex;
 use crate::deno::addon_ops::{
-    AddonContext, AddonMetadata, BehaviorNodeState, BehaviorViewer, BindingConfig, CompositeInstance, DialogueWrapper, EngineContext, LandscapeTextureUpdate, Modifiers, NpcMotionState, PendingAction, ResourceType, ToolDefinition, UiWidget, VisualConfig, YumonActionState, op_addon_load_data, op_addon_on_action, op_addon_on_all_addons_initialized, op_addon_on_all_projects_loaded, op_addon_on_cleanup, op_addon_on_init, op_addon_on_project_changed, op_addon_on_update, op_addon_register, op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility, op_alpha_model_load, op_audio_play_synth, op_audio_play_test, op_behavior_register, op_buffer_create, op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_transform, op_composer_set_role_pipeline, op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, op_gizmo_update, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height, op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create, op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected, op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update, op_ui_clear, op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl, op_ui_widget_start_horizontal, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state, op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
+    AddonContext, 
+    AddonMetadata, 
+    BehaviorNodeState, 
+    BehaviorViewer, 
+    BindingConfig, 
+    CompositeInstance, 
+    DialogueWrapper, 
+    EngineContext, 
+    LandscapeTextureUpdate,
+    Modifiers, 
+    NpcMotionState, 
+    PendingAction, 
+    ResourceType, 
+    ToolDefinition, 
+    UiWidget, 
+    VisualConfig, 
+    YumonActionState, 
+    op_addon_load_data, 
+    op_addon_on_action, 
+    op_addon_on_all_addons_initialized, 
+    op_addon_on_all_projects_loaded, 
+    op_addon_on_cleanup, 
+    op_addon_on_init, 
+    op_addon_on_project_changed, op_addon_on_update, op_addon_register,
+    op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility, 
+    op_alpha_model_load, op_audio_play_synth, op_audio_play_test, op_behavior_register, op_buffer_create, 
+    op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_transform, op_composer_set_role_pipeline, 
+    op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
+    op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
+    op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
+    op_gizmo_update, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
+    op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
+    op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create, 
+    op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected, 
+    op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update, op_ui_clear, 
+    op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
+    op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl, 
+    op_ui_widget_start_horizontal, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state, 
+    op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
 };
 use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::heightfield_landscapes::Landscape::Landscape;
@@ -1101,16 +1140,18 @@ impl AddonEngine {
                     let dz = actor.pos[2] - pos[2];
                     let dist = (dx * dx + dz * dz).sqrt();
                     let world_angle = dx.atan2(dz);
-                    let relative_angle = (world_angle - yaw) / std::f32::consts::PI;
+                    // let relative_angle = (world_angle - yaw) / std::f32::consts::PI;
                     let norm_dist = (dist / 100.0).clamp(0.0, 1.0);
 
                     if actor.is_player {
                         nearest_player_dist = norm_dist;
-                        nearest_player_angle = relative_angle.clamp(-1.0, 1.0);
+                        // nearest_player_angle = relative_angle.clamp(-1.0, 1.0);
+                        nearest_player_angle = world_angle / std::f32::consts::PI;  // Absolute, no yaw subtraction
                     } else if actor.squad_id == squad_id {
                         if dist > 0.1 && norm_dist < nearest_ally_dist {
                             nearest_ally_dist = norm_dist;
-                            nearest_ally_angle = relative_angle.clamp(-1.0, 1.0);
+                            // nearest_ally_angle = relative_angle.clamp(-1.0, 1.0);
+                            nearest_player_angle = world_angle / std::f32::consts::PI;  // Absolute, no yaw subtraction
                         }
                         if dist < 20.0 { nearby_ally_count += 0.1; }
                     } else {

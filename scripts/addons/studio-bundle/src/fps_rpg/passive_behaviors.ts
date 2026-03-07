@@ -6,6 +6,7 @@ Entropy.Behavior.register("movement_tracker", {
         // Track position for combat system (especially important for Yumon-controlled NPCs)
         entityPositions.set(entity.id, entity.position);
         Entropy.Composer?.updateNPCPosition(entity.id, entity.position);
+        // Entropy.println("Update position: " + entity.id + " " + JSON.stringify(entity.position));
         return state;
     }
 });
