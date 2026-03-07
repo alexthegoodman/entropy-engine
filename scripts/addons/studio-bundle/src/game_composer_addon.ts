@@ -114,7 +114,7 @@ const availablePipelines = [
     "wireframe"
 ];
 
-// TODO: make this dynamic
+// NOTE: make this dynamic
 const sourceAddons = [
     "FFT Ocean",
     "FFT River Water", 
@@ -223,7 +223,7 @@ addon.onInit(async () => {
     let currentLeftStick: [number, number] = [0, 0];
     let currentRightStick: [number, number] = [0, 0];
 
-    addon.onUpdate((time) => {
+    addon.onUpdate((time, pos, dir) => {
         if (!composerState.yumonSettings.isRecording || !composerState.yumonSettings.activeRecordingBrainId) return;
 
         // Event listeners for "one-shot" actions (Jump, Attack, etc.)
@@ -374,21 +374,10 @@ addon.onInit(async () => {
             // Check Joystick (Left Stick Y for Forward/Backward)
             if (currentLeftStick[1] > 0.3) actionIdx = 0; // MoveForward
             else if (currentLeftStick[1] < -0.3) actionIdx = 1; // MoveBackward
-            // Check Keyboard fallback
-            // else if (Entropy.Input.isKeyPressed("KeyW")) actionIdx = 0; 
-            // else if (Entropy.Input.isKeyPressed("KeyS")) actionIdx = 1; 
         }
 
-        // 4. Capture Rotation Delta
-        let rotationDelta = 0;
-        // Right Stick X has priority for rotation
-        if (Math.abs(currentRightStick[0]) > 0.1) {
-            rotationDelta = currentRightStick[0]; // -1 to 1
-        } else {
-            // Keyboard A/D fallback
-            // if (Entropy.Input.isKeyPressed("KeyA")) rotationDelta = -0.5;
-            // if (Entropy.Input.isKeyPressed("KeyD")) rotationDelta = 0.5;
-        }
+        // 4. Capture Absolute Rotation (Normalized -1..1)
+        const absoluteRotation = Math.atan2(dir[0], dir[2]) / Math.PI;
 
         // Entropy.println("actionIdx: " + actionIdx);
 
@@ -396,7 +385,7 @@ addon.onInit(async () => {
 
         lastMoment = [...world, ...self];
         lastAction = actionIdx;
-        addon.Yumon.brain.observe(brainId, world, self, actionIdx, rotationDelta, reward);
+        addon.Yumon.brain.observe(brainId, world, self, actionIdx, absoluteRotation, reward);
 
         recordedActionThisTick = 11; // Reset for next tick
 
@@ -645,7 +634,7 @@ addon.onInit(async () => {
             });
 
             if (sectionsOpen.yumonAI) {
-                // TODO: gracefully save when only Moments are recorded, but no training has been done (also gracefully load in this scenario)
+                // LATER: gracefully save when only Moments are recorded, but no training has been done (also gracefully load in this scenario)
                 Entropy.UI.Widget.label(tab, { text: "Manage NPC Archetypes and Recordings", bold: true });
 
                 composerState.yumonSettings.archetypes.forEach(arch => {

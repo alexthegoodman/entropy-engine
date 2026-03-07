@@ -85,7 +85,7 @@ pub struct YumonBrainState {
 #[derive(Debug, Clone, Copy)]
 pub struct YumonActionState {
     pub action: crate::yumon::system::Action,
-    pub rotation_delta: f32,
+    pub absolute_rotation: f32,
     pub last_infer_time: f64,
 }
 
@@ -3093,7 +3093,7 @@ pub fn op_yumon_brain_observe(
     #[serde] world: Vec<f32>,
     #[serde] self_state: Vec<f32>,
     #[bigint] action_idx: usize,
-    rotation_delta: f32,
+    absolute_rotation: f32,
     reward: f32
 ) -> Result<(), deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
@@ -3105,7 +3105,7 @@ pub fn op_yumon_brain_observe(
         for (i, &v) in self_state.iter().take(crate::yumon::system::SELF_SIZE).enumerate() { self_arr[i] = v; }
 
         let action = crate::yumon::system::Action::from_usize(action_idx);
-        brain.observe(&world_arr, &self_arr, action, rotation_delta, reward);
+        brain.observe(&world_arr, &self_arr, action, absolute_rotation, reward);
         Ok(())
     } else {
         Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
@@ -3126,7 +3126,7 @@ pub fn op_yumon_brain_infer(
         Ok(YumonBrainInference {
             action_idx: res.action as usize,
             action_name: res.action_name.to_string(),
-            rotation_delta: res.rotation_delta,
+            absolute_rotation: res.absolute_rotation,
         })
     } else {
         Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
@@ -3138,7 +3138,7 @@ pub fn op_yumon_brain_infer(
 pub struct YumonBrainInference {
     pub action_idx: usize,
     pub action_name: String,
-    pub rotation_delta: f32,
+    pub absolute_rotation: f32,
 }
 
 #[op2(fast)]

@@ -987,6 +987,7 @@ impl AddonEngine {
                 brain_id: String,
                 world: [f32; crate::yumon::system::WORLD_SIZE],
                 self_state: [f32; crate::yumon::system::SELF_SIZE],
+                yaw: f32,
             }
 
             struct ActorInfo {
@@ -1099,7 +1100,7 @@ impl AddonEngine {
                     let dx = actor.pos[0] - pos[0];
                     let dz = actor.pos[2] - pos[2];
                     let dist = (dx * dx + dz * dz).sqrt();
-                    let world_angle = dz.atan2(dx);
+                    let world_angle = dx.atan2(dz);
                     let relative_angle = (world_angle - yaw) / std::f32::consts::PI;
                     let norm_dist = (dist / 100.0).clamp(0.0, 1.0);
 
@@ -1141,6 +1142,7 @@ impl AddonEngine {
                     brain_id: yumon_id,
                     world,
                     self_state,
+                    yaw,
                 });
                 yumon_processed.insert(entity_id);
             }
@@ -1169,7 +1171,7 @@ impl AddonEngine {
                             
                             YumonActionState {
                                 action: crate::yumon::system::Action::Idle,
-                                rotation_delta: 0.0,
+                                absolute_rotation: 0.0,
                                 last_infer_time: current_time - YUMON_INFER_INTERVAL_SECS + offset,
                             }
                         });
@@ -1192,14 +1194,14 @@ impl AddonEngine {
                                 &target.world,
                                 &target.self_state,
                                 runtime.action,
-                                runtime.rotation_delta,
+                                target.yaw / std::f32::consts::PI, // Pass absolute yaw normalized -1..1
                                 0.0,
                             );
 
                             if let Some(infer) = brain.infer_if_ready() {
                                 // println!("inferred {:?} {:?}", target.entity_id, infer);
                                 runtime.action = infer.action;
-                                runtime.rotation_delta = infer.rotation_delta;
+                                runtime.absolute_rotation = infer.absolute_rotation;
                             }
                             runtime.last_infer_time = current_time;
                         }
@@ -1208,7 +1210,7 @@ impl AddonEngine {
                     commands.push((
                         target.entity_id,
                         runtime.action,
-                        runtime.rotation_delta,
+                        runtime.absolute_rotation,
                     ));
                 }
             }
@@ -1241,7 +1243,7 @@ impl AddonEngine {
                 let mut op_state = op_state.borrow_mut();
                 let ctx = op_state.borrow_mut::<AddonContext>();
 
-                for (entity_id, action, rotation_delta) in commands.clone() {
+                for (entity_id, action, absolute_rotation) in commands.clone() {
                     let state = ctx.npc_motion_states.entry(entity_id.clone()).or_insert_with(|| NpcMotionState {
                         entity_id:      entity_id.clone(),
                         current_move:   0.0,
@@ -1262,7 +1264,7 @@ impl AddonEngine {
             }
 
             {
-                for (entity_id, action, rotation_delta) in commands {
+                for (entity_id, action, absolute_rotation) in commands {
                     // Find the entity to get its position and orientation
                     let mut found_pos = None;
                     let mut found_forward = None;
@@ -1314,7 +1316,7 @@ impl AddonEngine {
                             let entity_id_js = v8::String::new(tc, &pending.entity_id).unwrap().into();
                             let action_js = v8::Integer::new(tc, pending.action as i32).into();
 
-                            let rotation_delta_js = v8::Number::new(tc, rotation_delta as f64);
+                            let absolute_rotation_js = v8::Number::new(tc, absolute_rotation as f64);
                             
                             let origin_js = v8::Array::new(tc, 3);
                             for i in 0..3 {
@@ -1333,13 +1335,13 @@ impl AddonEngine {
                             let action_key = v8::String::new(tc, "action").unwrap();
                             let origin_key = v8::String::new(tc, "origin").unwrap();
                             let direction_key = v8::String::new(tc, "direction").unwrap();
-                            let rotation_delta_key = v8::String::new(tc, "rotationDelta").unwrap();
+                            let absolute_rotation_key = v8::String::new(tc, "absoluteRotation").unwrap();
 
                             obj.set(tc, entity_id_key.into(), entity_id_js);
                             obj.set(tc, action_key.into(), action_js);
                             obj.set(tc, origin_key.into(), origin_js.into());
                             obj.set(tc, direction_key.into(), direction_js.into());
-                            obj.set(tc, rotation_delta_key.into(), rotation_delta_js.into());
+                            obj.set(tc, absolute_rotation_key.into(), absolute_rotation_js.into());
 
                             cb.call(tc, recv, &[obj.into()]);
 

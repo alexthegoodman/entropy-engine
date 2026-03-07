@@ -218,9 +218,9 @@ addon.onInit(() => {
 
     // Hook into action callbacks for Yumon behaviors
     addon.onAction((data) => {
-        const { entityId, action, origin, direction, rotationDelta } = data;
+        const { entityId, action, origin, direction, absoluteRotation } = data;
 
-        // Entropy.println("onAction " + entityId + " " + action + " " + origin + " " + direction + " " + rotationDelta);
+        // Entropy.println("onAction " + entityId + " " + action + " " + origin + " " + direction + " " + absoluteRotation);
         
         // Action Enum from Rust:
         // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
@@ -228,14 +228,6 @@ addon.onInit(() => {
 
         // NOTE: handle MoveForward, MoveBackword, and Rotation right here (instead of Rust-side, which has been commented out) this will ensure proper movement
 
-        if (!entityRotations.get(entityId)) {
-            entityRotations.set(entityId, 0);
-        }
-
-        let currentRotation = entityRotations.get(entityId);
-        entityRotations.set(entityId, currentRotation ? currentRotation + rotationDelta : rotationDelta);
-
-        let finalRotation = entityRotations.get(entityId) || 0;
         let speed = 12.0;
 
         if (action === 0) {
@@ -248,8 +240,9 @@ addon.onInit(() => {
             setAnimation(entityId, "Idle");
         }
         
-        let mouse_sensitivity = 0.05; // taken from step_physics_pipeline
-        Entropy.Entity.setRotation(entityId, [0, finalRotation * mouse_sensitivity, 0]); // "* 360" is likely incorrect, but the delta is very small
+        if (absoluteRotation !== undefined) {
+             Entropy.Entity.setRotation(entityId, [0, absoluteRotation * Math.PI, 0]); 
+        }
         
         if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
             const isPlayer = entityId === gameState.playerId;

@@ -5,7 +5,7 @@
 ///                                                  [Rotation Head: Dense(1, tanh)]
 ///
 ///   Input:  [batch, CONTEXT_LEN=16, MOMENT_SIZE=24]
-///   Output: (button_logits: [batch, ACTION_SIZE], rotation_delta: [batch, 1])
+///   Output: (button_logits: [batch, ACTION_SIZE], absolute_rotation: [batch, 1])
 ///
 /// Training: Behavior Cloning (supervised) from designer play sessions,
 ///           optionally followed by REINFORCE fine-tuning.
@@ -188,11 +188,11 @@ impl Moment {
 /// A recorded designer input frame.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Experience {
-    pub moment:          Moment,
-    pub action_taken:    Action,
-    pub rotation_delta:  f32,   // -1..1, designer's stick/mouse rotation this tick
-    pub reward:          f32,
-    pub danger:          f32,
+    pub moment:            Moment,
+    pub action_taken:      Action,
+    pub absolute_rotation: f32,   // -1..1, designer's absolute yaw this tick (normalized by PI)
+    pub reward:            f32,
+    pub danger:            f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,11 +205,11 @@ pub enum OrganismState {
 
 #[derive(Debug, Clone)]
 pub struct InferenceResult {
-    pub action:           Action,
-    pub action_name:      &'static str,
-    pub rotation_delta:   f32,          // -1..1, scale to your turn speed
-    pub button_logits:    Vec<f32>,
-    pub probabilities:    Vec<f32>,
+    pub action:            Action,
+    pub action_name:       &'static str,
+    pub absolute_rotation: f32,          // -1..1, absolute yaw (multiply by PI for radians)
+    pub button_logits:     Vec<f32>,
+    pub probabilities:     Vec<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -329,7 +329,7 @@ impl BrainModelConfig {
 impl<B: Backend> BrainModel<B> {
     /// Forward pass.
     /// Input:  [batch, CONTEXT_LEN, MOMENT_SIZE]
-    /// Output: (button_logits [batch, ACTION_SIZE], rotation_delta [batch, 1])
+    /// Output: (button_logits [batch, ACTION_SIZE], absolute_rotation [batch, 1])
     pub fn forward(&self, x: Tensor<B, 3>) -> (Tensor<B, 2>, Tensor<B, 2>) {
         let (output_seq, _) = self.lstm.forward(x, None);
 
@@ -348,9 +348,9 @@ impl<B: Backend> BrainModel<B> {
 
         let button_logits   = self.button_head.forward(shared.clone());
         let rotation_raw    = self.rotation_head.forward(shared);
-        let rotation_delta  = burn::tensor::activation::tanh(rotation_raw); // -1..1
+        let absolute_rotation  = burn::tensor::activation::tanh(rotation_raw); // -1..1
 
-        (button_logits, rotation_delta)
+        (button_logits, absolute_rotation)
     }
 }
 
@@ -598,7 +598,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
             for &idx in &mirror_world_indices {
                 mirror.moment.world[idx] *= -1.0;
             }
-            mirror.rotation_delta *= -1.0;
+            mirror.absolute_rotation *= -1.0;
             augmented.push(mirror.clone());
         }
 
@@ -672,7 +672,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         raw_world:       &[f32; WORLD_SIZE],
         raw_self:        &[f32; SELF_SIZE],
         action_taken:    Action,
-        rotation_delta:  f32,
+        absolute_rotation:  f32,
         reward:          f32,
     ) {
         if self.state != OrganismState::Awake { return; }
@@ -694,7 +694,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         self.buffer.push(Experience {
             moment:         moment.clone(),
             action_taken,
-            rotation_delta,
+            absolute_rotation,
             reward,
             danger,
         });
@@ -736,7 +736,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         InferenceResult {
             action:         action_enum,
             action_name:    action_enum.name(),
-            rotation_delta: rotation_out,
+            absolute_rotation: rotation_out,
             button_logits,
             probabilities:  probs,
         }
@@ -823,7 +823,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         //                     let bl = button_bc_loss(button_logits, exp.action_taken);
         //                     // println!("Continuing loss");
         //                     // Rotation head: MSE against designer's recorded rotation
-        //                     let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+        //                     let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
         //                     // println!("Finishing loss");
         //                     // Combined — weight rotation slightly lower
         //                     bl + rl.mul_scalar(0.5)
@@ -832,7 +832,7 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         //                     // Button head: REINFORCE
         //                     let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
         //                     // Rotation head: MSE still — no clean REINFORCE formulation for continuous
-        //                     let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+        //                     let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
         //                     bl + rl.mul_scalar(0.5)
         //                 }
         //             };
@@ -1111,12 +1111,12 @@ impl BackgroundTrainer {
                         let loss = match training_mode {
                             TrainingMode::BehaviorCloning => {
                                 let bl = button_bc_loss(button_logits, exp.action_taken);
-                                let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+                                let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
                                 bl + rl.mul_scalar(0.5)
                             }
                             TrainingMode::Reinforce => {
                                 let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
-                                let rl = rotation_bc_loss(rotation_pred, exp.rotation_delta);
+                                let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
                                 bl + rl.mul_scalar(0.5)
                             }
                         };
