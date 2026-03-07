@@ -1078,6 +1078,8 @@ impl AddonEngine {
             let mut targets: Vec<YumonTarget> = Vec::new();
             let mut yumon_processed = std::collections::HashSet::new();
 
+            if renderer_state.game_mode {
+
             // Process all addon models and meshes
             let all_model_iter = renderer_state.addon_models.values().flatten()
                 .map(|m| (m.id.clone(), m.yumon_id.clone(), m.meshes.first().and_then(|sm| sm.rigid_body_handle), m.meshes.first().map(|sm| &sm.transform)));
@@ -1190,6 +1192,8 @@ impl AddonEngine {
                     yaw,
                 });
                 yumon_processed.insert(entity_id);
+            }
+
             }
 
             let mut commands: Vec<(String, crate::yumon::system::Action, f32)> = Vec::new();

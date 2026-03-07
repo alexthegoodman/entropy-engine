@@ -218,47 +218,60 @@ addon.onInit(() => {
 
     // Hook into action callbacks for Yumon behaviors
     addon.onAction((data) => {
-        let { entityId, action, origin, direction, absoluteRotation } = data;
+        if (gameState.isGameActive) {
+            let { entityId, action, origin, direction: staleDirection, absoluteRotation } = data;
 
-        // Entropy.println("onAction " + entityId + " " + action + " " + origin + " " + direction + " " + absoluteRotation);
-        
-        // Action Enum from Rust:
-        // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
-        // LTrigger = 6, RTrigger = 7, LBumper = 8, RBumper = 9, ...
+            let transform = Entropy.Camera.getTransform();
+            
+            // Action Enum from Rust:
+            // MoveForward = 0, MoveBackward = 1, ButtonA = 2, ButtonB = 3, ButtonX = 4, ButtonY = 5,
+            // LTrigger = 6, RTrigger = 7, LBumper = 8, RBumper = 9, ...
 
-        // NOTE: handle MoveForward, MoveBackword, and Rotation right here (instead of Rust-side, which has been commented out) this will ensure proper movement
+            // NOTE: handle MoveForward, MoveBackword, and Rotation right here (instead of Rust-side, which has been commented out) this will ensure proper movement
 
-        // Derive fresh direction from absoluteRotation if available,
-        // since the passed-in direction may be stale relative to the current rotation.
-        if (absoluteRotation !== undefined) {
-            const yaw = absoluteRotation * Math.PI;
-            direction = [Math.sin(yaw), 0, Math.cos(yaw)];
-        }
+            // Derive fresh direction from absoluteRotation if available,
+            // since the passed-in direction may be stale relative to the current rotation.
+            let direction = [0, 0, 0];
+            if (absoluteRotation !== undefined) {
+                const yaw = absoluteRotation * Math.PI;
+                direction = [Math.sin(yaw), 0, Math.cos(yaw)];
+            }
 
-        let speed = 12.0;
+            Entropy.println(
+                "onAction id: " + entityId + " action: " 
+                + action + " entity origin: " 
+                + origin + " entitiy stale direction: " 
+                + staleDirection + "entity real direction: "
+                + direction + " camera origin: " 
+                + transform[0] + " camera direction: "
+                + transform[1]
+            );
 
-        if (action === 0) {
-            Entropy.Entity.setXZVelocity(entityId, [direction[0] * speed, direction[2] * speed]);
-            setAnimation(entityId, "Walking");
-        } else if (action === 1) {
-            Entropy.Entity.setXZVelocity(entityId, [-direction[0] * speed, -direction[2] * speed]);
-            setAnimation(entityId, "Walking");
-        } else if (action === 11) {
-            setAnimation(entityId, "Idle");
-        }
-        
-        if (absoluteRotation !== undefined) {
-             Entropy.Entity.setRotation(entityId, [0, absoluteRotation * Math.PI, 0]); 
-        }
-        
-        if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
-            const isPlayer = entityId === gameState.playerId;
-            if (combat.attack(entityId, isPlayer, origin, direction)) {
-                combat.playFireSound();
-                if (isPlayer) {
-                    const weapon = combat.getWeapon(entityId);
-                    if (weapon) {
-                        gameState.setAmmo(weapon.ammo || 0);
+            let speed = 12.0;
+
+            if (action === 0) {
+                Entropy.Entity.setXZVelocity(entityId, [direction[0] * speed, direction[2] * speed]);
+                setAnimation(entityId, "Walking");
+            } else if (action === 1) {
+                Entropy.Entity.setXZVelocity(entityId, [-direction[0] * speed, -direction[2] * speed]);
+                setAnimation(entityId, "Walking");
+            } else if (action === 11) {
+                setAnimation(entityId, "Idle");
+            }
+            
+            if (absoluteRotation !== undefined) {
+                Entropy.Entity.setRotation(entityId, [0, absoluteRotation * Math.PI, 0]); 
+            }
+            
+            if (action === 4 || action === 5 || action === 7 || action === 9) { // Attack (ButtonX, ButtonY, RTrigger)
+                const isPlayer = entityId === gameState.playerId;
+                if (combat.attack(entityId, isPlayer, origin, direction as any)) {
+                    combat.playFireSound();
+                    if (isPlayer) {
+                        const weapon = combat.getWeapon(entityId);
+                        if (weapon) {
+                            gameState.setAmmo(weapon.ammo || 0);
+                        }
                     }
                 }
             }
