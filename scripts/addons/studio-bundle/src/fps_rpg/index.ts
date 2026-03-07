@@ -218,7 +218,7 @@ addon.onInit(() => {
 
     // Hook into action callbacks for Yumon behaviors
     addon.onAction((data) => {
-        const { entityId, action, origin, direction, absoluteRotation } = data;
+        let { entityId, action, origin, direction, absoluteRotation } = data;
 
         // Entropy.println("onAction " + entityId + " " + action + " " + origin + " " + direction + " " + absoluteRotation);
         
@@ -227,6 +227,13 @@ addon.onInit(() => {
         // LTrigger = 6, RTrigger = 7, LBumper = 8, RBumper = 9, ...
 
         // NOTE: handle MoveForward, MoveBackword, and Rotation right here (instead of Rust-side, which has been commented out) this will ensure proper movement
+
+        // Derive fresh direction from absoluteRotation if available,
+        // since the passed-in direction may be stale relative to the current rotation.
+        if (absoluteRotation !== undefined) {
+            const yaw = absoluteRotation * Math.PI;
+            direction = [Math.sin(yaw), 0, Math.cos(yaw)];
+        }
 
         let speed = 12.0;
 

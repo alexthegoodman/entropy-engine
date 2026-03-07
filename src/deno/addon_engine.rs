@@ -1151,13 +1151,17 @@ impl AddonEngine {
                         if dist > 0.1 && norm_dist < nearest_ally_dist {
                             nearest_ally_dist = norm_dist;
                             // nearest_ally_angle = relative_angle.clamp(-1.0, 1.0);
-                            nearest_player_angle = world_angle / std::f32::consts::PI;  // Absolute, no yaw subtraction
+                            nearest_ally_angle = world_angle / std::f32::consts::PI;  // Absolute, no yaw subtraction
                         }
                         if dist < 20.0 { nearby_ally_count += 0.1; }
                     } else {
                         if dist < 20.0 { nearby_enemy_count += 0.1; }
                     }
                 }
+
+                // println!(
+                //     "Entity Update: {:?} {:?} {:?} {:?}", entity_id, pos, yaw / std::f32::consts::PI, nearest_player_angle
+                // );
 
                 // NOTE: the nearest player is the primary enemy of these yumon NPCs right now
                 world[crate::yumon::system::WorldIdx::NearestThreatDist as usize] = nearest_player_dist;

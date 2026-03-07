@@ -423,7 +423,7 @@ export interface ComputeDispatchConfig {
 export type InitCallback = () => void | void;
 export type UpdateCallback = (time: number, pos: [number, number, number], dir: [number, number, number]) => void | void;
 export type CleanupCallback = () => void | void;
-export type ActionCallback = (data: { entityId: string, action: number, origin: [number, number, number], direction: [number, number, number], rotationDelta: number }) => void;
+export type ActionCallback = (data: { entityId: string, action: number, origin: [number, number, number], direction: [number, number, number], absoluteRotation: number }) => void;
 export type ProjectChangedCallback = (newProjectId: string) => void | void;
 
 export interface GlobalLandscapeSettings {

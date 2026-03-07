@@ -302,7 +302,7 @@ export class CombatSystem {
         maxRange: number,
         ignoredEntityId: string
     ): RaycastHit | null {
-        Entropy.println("raycast");
+        // Entropy.println("raycast");
 
         let closestHit: RaycastHit | null = null;
         let closestDist = maxRange;
@@ -311,9 +311,9 @@ export class CombatSystem {
         for (const [entityId, entity] of this.entities.entries()) {
             x++;
 
-            if (x < 3) {
-                Entropy.println("raycast " + origin + " " + entityId + " " + ignoredEntityId + " " + entity.isDead + " " + this.getEntityPosition(entityId));
-            }
+            // if (x < 3) {
+            //     Entropy.println("checking raycast " + origin + " " + entityId + " " + ignoredEntityId + " " + entity.isDead + " " + this.getEntityPosition(entityId));
+            // }
 
             if (entityId === ignoredEntityId || entity.isDead) continue;
             
