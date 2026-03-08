@@ -388,6 +388,7 @@ export interface ScopedAPI {
         create: (id: string, archetype: string) => void;
         observe: (id: string, world: number[], self: number[], action: number, rotation: number, reward: number) => void;
         infer: (id: string) => { actionIdx: number; actionName: string; rotationDelta: number };
+        testInfer: (arch: string, context: any) => { actionIdx: number; actionName: string; absoluteRotation: number };
         sleep: (id: string, epochs: number) => void;
         save: (id: string) => void;
         load: (archetype: string) => void;

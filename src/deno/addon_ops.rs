@@ -3133,6 +3133,42 @@ pub fn op_yumon_brain_infer(
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct YumonMomentInput {
+    pub world: Vec<f32>,
+    pub self_state: Vec<f32>,
+}
+
+#[op2]
+#[serde]
+pub fn op_yumon_brain_test_infer(
+    state: &mut OpState,
+    #[string] id: String,
+    #[serde] context: Vec<YumonMomentInput>
+) -> Result<YumonBrainInference, deno_error::JsErrorBox> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    if let Some(brain) = ctx.yumon_brains.get_mut(&id) {
+        let moments: Vec<crate::yumon::system::Moment> = context.into_iter().map(|m| {
+            let mut world_arr = [0.0f32; crate::yumon::system::WORLD_SIZE];
+            let mut self_arr  = [0.0f32; crate::yumon::system::SELF_SIZE];
+            for (i, &v) in m.world.iter().take(crate::yumon::system::WORLD_SIZE).enumerate() { world_arr[i] = v; }
+            for (i, &v) in m.self_state.iter().take(crate::yumon::system::SELF_SIZE).enumerate() { self_arr[i] = v; }
+            crate::yumon::system::Moment { world: world_arr, self_: self_arr }
+        }).collect();
+
+        let res = brain.infer_with_context(&moments);
+        
+        Ok(YumonBrainInference {
+            action_idx: res.action as usize,
+            action_name: res.action_name.to_string(),
+            absolute_rotation: res.absolute_rotation,
+        })
+    } else {
+        Err(deno_error::JsErrorBox::generic("Yumon brain not found"))
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct YumonBrainInference {

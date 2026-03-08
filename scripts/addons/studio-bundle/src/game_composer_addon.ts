@@ -702,6 +702,35 @@ addon.onInit(async () => {
                                     Entropy.println(`Saved Yumon Brain for ${arch}`);
                                 }
                             });
+
+                            Entropy.UI.Widget.button(hTab, {
+                                text: "🧪 Test Infer",
+                                onClick: () => {
+                                    const context = [];
+                                    for (let i = 0; i < 16; i++) {
+                                        const world = new Array(16).fill(0);
+                                        // Simulate a threat approaching from the front
+                                        world[6] = Math.max(0, (16 - i) / 32); // NearestThreatDist decreasing (0.5 to 0)
+                                        world[7] = 0.905; // Test output rotation alignment
+                                        world[12] = i > 8 ? 1.0 : 0.5; // AlertLevel increasing
+
+                                        const self = new Array(8).fill(0);
+                                        self[0] = 1.0; // Health
+                                        self[3] = 1.0; // Grounded
+                                        self[5] = 0.2; // Speed
+                                        self[6] = i / 16; // Clock
+                                        
+                                        context.push({ world, selfState: self });
+                                    }
+
+                                    try {
+                                        const result = addon.Yumon.brain.testInfer(arch, context);
+                                        Entropy.println(`[Test Inference:${arch}] Result: ${result.actionName} (Rot: ${result.absoluteRotation.toFixed(3)})`);
+                                    } catch (e) {
+                                        Entropy.println(`[Test Inference:${arch}] Error: ${e}`);
+                                    }
+                                }
+                            });
                         }
                     });
 

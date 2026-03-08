@@ -443,7 +443,8 @@ fn rotation_bc_loss<B: AutodiffBackend>(
     rotation_gt:   f32,
 ) -> Tensor<B, 1> {
     let diff = rotation_pred.reshape([1]).sub_scalar(rotation_gt);
-    diff.clone().mul(diff)  // MSE
+    // diff.clone().mul(diff)  // MSE (makes for some pretty small loss values)
+    diff.clone().abs() // MSA
 }
 
 /// REINFORCE loss for the button head (used during RL fine-tuning).
@@ -732,6 +733,37 @@ impl<B: AutodiffBackend> YumonBrain<B> {
         let action_idx    = argmax(&probs);
         let action_enum   = Action::from_usize(action_idx);
         let rotation_out  = rotation_raw[0]; // already tanh'd → -1..1
+
+        InferenceResult {
+            action:         action_enum,
+            action_name:    action_enum.name(),
+            absolute_rotation: rotation_out,
+            button_logits,
+            probabilities:  probs,
+        }
+    }
+
+    /// Run inference on a custom sequence of moments (e.g. for testing).
+    pub fn infer_with_context(&self, context: &[Moment]) -> InferenceResult {
+        assert_eq!(self.state, OrganismState::Awake, "[Brain] Cannot infer while sleeping.");
+
+        let padded = pad_moments_vec(context, CONTEXT_LEN);
+        let flat   = moments_to_flat(&padded);
+
+        let input_t = Tensor::<B, 3>::from_floats(
+            TensorData::new(flat, [1, CONTEXT_LEN, MOMENT_SIZE]),
+            &self.device,
+        );
+
+        let model_valid                     = self.model.clone().valid();
+        let (button_logits_t, rotation_t)   = model_valid.forward(input_t.inner());
+
+        let button_logits: Vec<f32>  = button_logits_t.to_data().to_vec().unwrap();
+        let rotation_raw:  Vec<f32>  = rotation_t.to_data().to_vec().unwrap();
+        let probs:         Vec<f32>  = softmax(&button_logits);
+        let action_idx    = argmax(&probs);
+        let action_enum   = Action::from_usize(action_idx);
+        let rotation_out  = rotation_raw[0]; 
 
         InferenceResult {
             action:         action_enum,
@@ -1112,12 +1144,12 @@ impl BackgroundTrainer {
                             TrainingMode::BehaviorCloning => {
                                 let bl = button_bc_loss(button_logits, exp.action_taken);
                                 let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
-                                bl + rl.mul_scalar(0.5)
+                                bl.mul_scalar(0.5) + rl.mul_scalar(4.0)
                             }
                             TrainingMode::Reinforce => {
                                 let bl = button_reinforce_loss(button_logits, exp.action_taken, exp.reward);
                                 let rl = rotation_bc_loss(rotation_pred, exp.absolute_rotation);
-                                bl + rl.mul_scalar(0.5)
+                                bl.mul_scalar(0.5) + rl.mul_scalar(4.0)
                             }
                         };
 

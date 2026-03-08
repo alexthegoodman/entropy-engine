@@ -509,6 +509,7 @@ globalThis.Entropy = {
                         create: (id, archetype) => ops.op_yumon_brain_create(id, archetype),
                         observe: (id, world, self, action, rotation, reward) => ops.op_yumon_brain_observe(id, world, self, action, rotation, reward),
                         infer: (id) => ops.op_yumon_brain_infer(id),
+                        testInfer: (id, context) => ops.op_yumon_brain_test_infer(id, context),
                         sleep: (id, epochs) => ops.op_yumon_brain_sleep(id, epochs),
                         save: (id) => ops.op_yumon_brain_save(id),
                         load: (archetype) => ops.op_yumon_brain_load(archetype),

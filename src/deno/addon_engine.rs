@@ -34,6 +34,7 @@ use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::core::vertex::Vertex;
+use crate::deno::addon_ops::op_yumon_brain_test_infer;
 use crate::deno::addon_ops::{
     AddonContext, 
     AddonMetadata, 
@@ -210,7 +211,8 @@ extension!(
         op_yumon_brain_save,
         op_yumon_brain_load,
         op_yumon_brain_get_state,
-        op_yumon_brain_augment
+        op_yumon_brain_augment,
+        op_yumon_brain_test_infer
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],

@@ -132,7 +132,7 @@ class WorldManager {
             // {
             //     behaviorId: "azure_soldier",
             // }, 
-            // 15,
+            // 1,
             {
                 behaviorId: "movement_tracker",
                 yumonId: "Berserker"

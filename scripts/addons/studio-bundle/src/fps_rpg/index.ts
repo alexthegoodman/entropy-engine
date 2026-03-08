@@ -237,15 +237,15 @@ addon.onInit(() => {
                 direction = [Math.sin(yaw), 0, Math.cos(yaw)];
             }
 
-            Entropy.println(
-                "onAction id: " + entityId + " action: " 
-                + action + " entity origin: " 
-                + origin + " entitiy stale direction: " 
-                + staleDirection + "entity real direction: "
-                + direction + " camera origin: " 
-                + transform[0] + " camera direction: "
-                + transform[1]
-            );
+            // Entropy.println(
+            //     "onAction id: " + entityId + " action: " 
+            //     + action + " entity origin: " 
+            //     + origin + " entitiy stale direction: " 
+            //     + staleDirection + "entity real direction: "
+            //     + direction + " camera origin: " 
+            //     + transform[0] + " camera direction: "
+            //     + transform[1]
+            // );
 
             let speed = 12.0;
 
