@@ -435,209 +435,144 @@ addon.onInit(async () => {
     const tab = addon.UI.createTab({
         title: "Game Composer",
         onRender: () => {
-             // Hide other addons' internal outputs when viewing the composer
-             sourceAddons.forEach(name => {
-                 Entropy.Addon.setVisibility(name, false);
-             });
-             // Always show our own managed components
-             Entropy.Addon.setVisibility("Game Composer", true);
+            // Hide other addons' internal outputs when viewing the composer
+            sourceAddons.forEach(name => {
+                Entropy.Addon.setVisibility(name, false);
+            });
+            // Always show our own managed components
+            Entropy.Addon.setVisibility("Game Composer", true);
 
-            if (Entropy.Composer) {
-                const lightUI = Entropy.Composer.getEditor("Light Hive");
-                if (lightUI) {
-                    // ensure the spawned lights show in Game Composer (need a better API for this, maybe getEditor should autooverride)
-                    lightUI(tab, "Game Composer"); // Renders the light hive controls here!
+            // === TOOLBAR ===
+            Entropy.UI.Widget.button(tab, {
+                text: "💾 Save Scene",
+                onClick: () => {
+                    // Clean up params from components before saving
+                    const cleanState = {
+                        ...composerState,
+                        components: composerState.components.map(c => {
+                            // Explicitly destructure to remove params, even if undefined
+                            const { params, ...rest } = c;
+                            return rest;
+                        })
+                    };
+                    addon.IO.save(cleanState);
+                    Entropy.println("Composition saved!");
                 }
-            }
+            });
+            
+            Entropy.UI.Widget.button(tab, {
+                text: "🔄 Refresh Scene",
+                onClick: () => refreshScene()
+            });
 
-             Entropy.UI.Widget.label(tab, { text: "🎬 Game Composer", bold: true });
-             
-             // === TOOLBAR ===
-             Entropy.UI.Widget.button(tab, {
-                 text: "💾 Save Scene",
-                 onClick: () => {
-                     // Clean up params from components before saving
-                     const cleanState = {
-                         ...composerState,
-                         components: composerState.components.map(c => {
-                             // Explicitly destructure to remove params, even if undefined
-                             const { params, ...rest } = c;
-                             return rest;
-                         })
-                     };
-                     addon.IO.save(cleanState);
-                     Entropy.println("Composition saved!");
-                 }
-             });
-             
-             Entropy.UI.Widget.button(tab, {
-                 text: "🔄 Refresh Scene",
-                 onClick: () => refreshScene()
-             });
+            Entropy.UI.Widget.collapsingHeader(tab, "Game Preview", (headerTab) => {
+                if (gameAdded) {
+                    Entropy.UI.Widget.button(headerTab, {
+                        text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
+                        onClick: () => {
+                            if (gameAdded) {
+                                Entropy.println("Updating game status...");
 
-             if (gameAdded) {
-                Entropy.UI.Widget.button(tab, {
-                    text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
-                    onClick: () => {
-                        if (gameAdded) {
-                            Entropy.println("Updating game status...");
+                                composerState.playMode = !composerState.playMode;
+                                Entropy.setGameMode(composerState.playMode);
 
-                            composerState.playMode = !composerState.playMode;
-                            Entropy.setGameMode(composerState.playMode);
-
-                            if (composerState.playMode) {
-                                Entropy._dispatchGameStarted(gameAdded);
-                                Entropy.println("Game started!");
-                            } else {
-                                Entropy._dispatchGameStopped(gameAdded);
-                                Entropy.println("Game stopped!");
+                                if (composerState.playMode) {
+                                    Entropy._dispatchGameStarted(gameAdded);
+                                    Entropy.println("Game started!");
+                                } else {
+                                    Entropy._dispatchGameStopped(gameAdded);
+                                    Entropy.println("Game stopped!");
+                                }
                             }
-                        }
-                    }
-                });
-             } else {
-                // in liue of a register system dedicated to the composer
-                // actually, registerGame, then let the user seslect one to restore, bingo
-                gameAddons.forEach((addon) => {
-                    Entropy.UI.Widget.button(tab, {
-                        text: "🔄 Add Game: " + addon,
-                        onClick: () => {    
-                            (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
-
-                            Entropy.println("Adding game: " + addon);
-
-                            const renderer = Entropy.Composer?.getGame(addon);
-
-                            gameAdded = addon;
-
-                            if (renderer) {
-                                Entropy.println("Game Composer Game render ... ");
-                                renderer(addon, {});
-                            }
-
-                            (globalThis as any).__entropy_current_addon_context_override = null;
                         }
                     });
+                } else {
+                    // in liue of a register system dedicated to the composer
+                    // actually, registerGame, then let the user seslect one to restore, bingo
+                    gameAddons.forEach((addon) => {
+                        Entropy.UI.Widget.button(headerTab, {
+                            text: "🔄 Add Game: " + addon,
+                            onClick: () => {    
+                                (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+
+                                Entropy.println("Adding game: " + addon);
+
+                                const renderer = Entropy.Composer?.getGame(addon);
+
+                                gameAdded = addon;
+
+                                if (renderer) {
+                                    Entropy.println("Game Composer Game render ... ");
+                                    renderer(addon, {});
+                                }
+
+                                (globalThis as any).__entropy_current_addon_context_override = null;
+                            }
+                        });
+                    });
+                }
+            });             
+
+            // === MANAGE COMPONENTS ===
+            Entropy.UI.Widget.label(tab, { text: "Manage Components", bold: true });
+
+            if (Entropy.Composer && Entropy.Composer.editors) {
+                Object.keys(Entropy.Composer.editors).forEach(addonName => {
+                    Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
+                        Entropy.Composer!.enableGameComposerOverride();
+                        const renderFn = Entropy.Composer!.editors[addonName];
+                        if (renderFn) {
+                            renderFn(headerTab, "Game Composer");
+                        }
+                        Entropy.Composer!.disableGameComposerOverride();
+                    });
                 });
-             }
+            }
 
-             Entropy.UI.Widget.separator(tab);
+            Entropy.UI.Widget.separator(tab);
 
-             // === ADD ENTITY ===
-             Entropy.UI.Widget.button(tab, {
-                 text: (sectionsOpen.addEntity ? "▼ " : "▶ ") + "Add Entity",
-                 onClick: () => { sectionsOpen.addEntity = !sectionsOpen.addEntity; }
-             });
+            // === COMPONENT LIBRARY ===
+            Entropy.UI.Widget.button(tab, {
+                text: (sectionsOpen.library ? "▼ " : "▶ ") + "Add Component",
+                onClick: () => { sectionsOpen.library = !sectionsOpen.library; }
+            });
 
-             if (sectionsOpen.addEntity) {
-                 if (Entropy.Composer && Entropy.Composer.editors) {
-                     Object.keys(Entropy.Composer.editors).forEach(addonName => {
-                         Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
-                             Entropy.Composer!.enableGameComposerOverride();
-                             const renderFn = Entropy.Composer!.editors[addonName];
-                             if (renderFn) {
-                                 renderFn(headerTab, "Game Composer");
-                             }
-                             Entropy.Composer!.disableGameComposerOverride();
-                         });
-                     });
-                 }
-             }
-
-             Entropy.UI.Widget.separator(tab);
-
-             // === SCENE GRAPH ===
-             Entropy.UI.Widget.button(tab, {
-                 text: (sectionsOpen.hierarchy ? "▼ " : "▶ ") + "Scene Hierarchy",
-                 onClick: () => { sectionsOpen.hierarchy = !sectionsOpen.hierarchy; }
-             });
-
-             if (sectionsOpen.hierarchy) {
-                 if (composerState.components.length === 0) {
-                     Entropy.UI.Widget.label(tab, { text: "(Empty Scene)" });
-                 }
-                 
-                 composerState.components.forEach((inst) => {
-                     const isActive = inst.id === composerState.activeInstanceId;
-                     Entropy.UI.Widget.button(tab, {
-                         text: (isActive ? "🔵 " : "⚪ ") + inst.name + (inst.visible ? "" : " (Hidden)"),
-                         onClick: () => {
-                             composerState.activeInstanceId = inst.id;
-                         }
-                     });
-                 });
-             }
-
-             Entropy.UI.Widget.separator(tab);
-
-             // === INSPECTOR ===
-             Entropy.UI.Widget.button(tab, {
-                 text: (sectionsOpen.inspector ? "▼ " : "▶ ") + "Inspector",
-                 onClick: () => { sectionsOpen.inspector = !sectionsOpen.inspector; }
-             });
-
-             if (sectionsOpen.inspector) {
-                 const activeInst = composerState.components.find(c => c.id === composerState.activeInstanceId);
-                 if (activeInst) {
-                     Entropy.UI.Widget.label(tab, { text: `Selected: ${activeInst.name}`, bold: true });
-                     
-                     // Visibility & Delete
-                     Entropy.UI.Widget.button(tab, {
-                         text: activeInst.visible ? "👁️ Visible" : "🌑 Hidden",
-                         onClick: () => { 
-                             activeInst.visible = !activeInst.visible; 
-                             refreshScene();
-                         }
-                     });
-
-                     Entropy.UI.Widget.button(tab, {
-                        text: "🗑️ Delete Object",
-                        onClick: () => {
-                            composerState.components = composerState.components.filter(c => c.id !== activeInst.id);
-                            composerState.activeInstanceId = null;
-                            refreshScene();
-                        }
-                     });
-                     
-                     // Transform
-                     Entropy.UI.Widget.label(tab, { text: "📐 Transform", bold: true });
-                     
-                     // Position
-                     Entropy.UI.Widget.label(tab, { text: "Position" });
-                     Entropy.UI.Widget.slider(tab, { label: "X", value: activeInst.position[0], min: -500, max: 500, onChange: (v) => { activeInst.position[0] = parseFloat(v); refreshScene(); } });
-                     Entropy.UI.Widget.slider(tab, { label: "Y", value: activeInst.position[1], min: -100, max: 500, onChange: (v) => { activeInst.position[1] = parseFloat(v); refreshScene(); } });
-                     Entropy.UI.Widget.slider(tab, { label: "Z", value: activeInst.position[2], min: -500, max: 500, onChange: (v) => { activeInst.position[2] = parseFloat(v); refreshScene(); } });
-
-                     // Scale
-                     Entropy.UI.Widget.label(tab, { text: "Scale" });
-                     Entropy.UI.Widget.slider(tab, { label: "Uniform", value: activeInst.scale[0], min: 0.1, max: 10, onChange: (v) => { 
-                         const s = parseFloat(v); activeInst.scale = [s, s, s]; refreshScene(); 
-                     }});
-
-                     Entropy.UI.Widget.separator(tab);
-                     Entropy.UI.Widget.label(tab, { text: "🧠 Yumon AI", bold: true });
-                     
-                     const brainOptions = ["(None)", ...composerState.yumonSettings.createdBrains];
-                     Entropy.UI.Widget.dropdown(tab, {
-                        label: "Assigned Brain",
-                        options: brainOptions,
-                        selectedIndex: activeInst.yumonBrainId ? brainOptions.indexOf(activeInst.yumonBrainId) : 0,
-                        onChange: (v) => {
-                            const selected = brainOptions[parseInt(v)];
-                            activeInst.yumonBrainId = selected === "(None)" ? undefined : selected;
-                            Entropy.println(`Assigned brain ${activeInst.yumonBrainId} to ${activeInst.name}`);
-                        }
-                     });
-                     
-                     Entropy.UI.Widget.label(tab, { text: "--- Properties ---", bold: true });
-                     const editor = Entropy.Composer?.getEditor(activeInst.addon);
-                     if (editor) {
-                        editor(tab, "Game Composer");
-                     }
-                 } else {
-                     Entropy.UI.Widget.label(tab, { text: "Select an object to inspect." });
-                 }
-             }
+            if (sectionsOpen.library) {
+                let hasComponents = false;
+                sourceAddons.forEach(addonName => {
+                    const components = Entropy.Composer?.getComponents(addonName) || {};
+                    const ids = Object.keys(components);
+                    if (ids.length > 0) {
+                        hasComponents = true;
+                        Entropy.UI.Widget.label(tab, { text: `▶ ${addonName}` }); // Group Header
+                        ids.forEach(compId => {
+                            const comp = components[compId];
+                            Entropy.UI.Widget.button(tab, {
+                                text: `  ➕ ${comp.name}`,
+                                onClick: () => {
+                                    const newInst: ComponentInstance = {
+                                        id: Entropy.generateUUID(),
+                                        name: `${comp.name} Instance`,
+                                        addon: addonName,
+                                        componentId: compId,
+                                        // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
+                                        position: [0, 0, 0],
+                                        scale: [1, 1, 1],
+                                        visible: true
+                                    };
+                                    composerState.components.push(newInst);
+                                    composerState.activeInstanceId = newInst.id;
+                                    refreshScene();
+                                }
+                            });
+                        });
+                    }
+                });
+                
+                if (!hasComponents) {
+                    Entropy.UI.Widget.label(tab, { text: "No components found. Create them in other addons first!" });
+                }
+            }
 
             Entropy.UI.Widget.separator(tab);
 
@@ -779,7 +714,7 @@ addon.onInit(async () => {
                 });
 
                 Entropy.UI.Widget.separator(tab);
-                Entropy.UI.Widget.label(tab, { text: "Session Recording (Behavior Cloning)", bold: true });
+                Entropy.UI.Widget.label(tab, { text: "Session Recording", bold: true });
 
                 if (composerState.yumonSettings.isRecording && lastMoment.length > 0) {
                     // Quick visualizer for the last moment vector (normalized states)
@@ -803,7 +738,7 @@ addon.onInit(async () => {
                     });
 
                     Entropy.UI.Widget.button(tab, {
-                        text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Designer Session",
+                        text: composerState.yumonSettings.isRecording ? "🔴 Stop Recording" : "⏺ Record Play Session",
                         onClick: () => {
                             composerState.yumonSettings.isRecording = !composerState.yumonSettings.isRecording;
                             if (composerState.yumonSettings.isRecording && !composerState.yumonSettings.activeRecordingBrainId) {
@@ -813,51 +748,6 @@ addon.onInit(async () => {
                     });
                 }
             }
-
-            Entropy.UI.Widget.separator(tab);
-
-             // === COMPONENT LIBRARY ===
-             Entropy.UI.Widget.button(tab, {
-                 text: (sectionsOpen.library ? "▼ " : "▶ ") + "Component Library",
-                 onClick: () => { sectionsOpen.library = !sectionsOpen.library; }
-             });
-
-             if (sectionsOpen.library) {
-                 let hasComponents = false;
-                 sourceAddons.forEach(addonName => {
-                     const components = Entropy.Composer?.getComponents(addonName) || {};
-                     const ids = Object.keys(components);
-                     if (ids.length > 0) {
-                         hasComponents = true;
-                         Entropy.UI.Widget.label(tab, { text: `▶ ${addonName}` }); // Group Header
-                         ids.forEach(compId => {
-                             const comp = components[compId];
-                             Entropy.UI.Widget.button(tab, {
-                                 text: `  ➕ ${comp.name}`,
-                                 onClick: () => {
-                                     const newInst: ComponentInstance = {
-                                         id: Entropy.generateUUID(),
-                                         name: `${comp.name} Instance`,
-                                         addon: addonName,
-                                         componentId: compId,
-                                         // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
-                                         position: [0, 0, 0],
-                                         scale: [1, 1, 1],
-                                         visible: true
-                                     };
-                                     composerState.components.push(newInst);
-                                     composerState.activeInstanceId = newInst.id;
-                                     refreshScene();
-                                 }
-                             });
-                         });
-                     }
-                 });
-                 
-                 if (!hasComponents) {
-                     Entropy.UI.Widget.label(tab, { text: "No components found. Create them in other addons first!" });
-                 }
-             }
         }
     });
 

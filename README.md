@@ -4,22 +4,22 @@
 
 ![Entropy Chat UI](public/image-3.png "Entropy Chat UI")
 
-**Entropy Engine is experimental and in beta, and some things may not work as expected**
+**Out-of-the-box open worlds + all the standard features you expect**
 
-Entropy Engine aims to be the first "end-to-end" game engine. You should never have to leave Entropy. 
-Never import, export, re-import, and re-configure. It's a genuine time-hog.
-You should be able to update a PBR texture and have it update everywhere it is applied, instantly.
-You should be able to create massive, open-world terrains with photorealistic water, without using a 3rd party tool. All it takes is a few lines of code, some clicking around, or even chatting with the built-in level design agent.
+Some engines have appeal through intense visual fidelity, while others appeal via broad platform support. Entropy is different.
+
+If you want to build a true open-world in the major engines, you will quickly find yourself deep in custom code. Not so with Entropy.
+Thanks to the first-class, seamless quadtree terrain system, you can create planet-sized worlds without dropping a frame.
+
+Entropy also features a first-class behavior cloning system called Yumon which enables you to train NPCs through imitation learning.
+It is highly effective for organic behaviors and more engaging than predictable, hardcoded behavior logic (although hardcoded logic is supported as well).
 
 Entropy Engine is lightweight and runs great on iGPUs. The Rust core provides all of the native functionality and performance,
 while the TypeScript addon system allows for extensibility and rapid development.
 
-There are some features here which you will be hard-pressed to find anywhere else. One of the most exciting features, currently in beta stage,
-is the Yumon AI System. This System enables you to play a character from your game, such as an enemy, thereby capturing play sessions as data.
-Then, all within the editor, you can Train a machine learning model on that data using a method called Behavior Cloning.
-This enables you to create highly dynamic, rich NPCs that act like real people, rather than hardcoding your behaviors (which is also supported).
-
 Thank you for taking a look. Feel free to ask any questions or open an issue as the need arises.
+
+**Entropy Engine is experimental and in beta, and some things may not work as expected**
 
 ---
 
