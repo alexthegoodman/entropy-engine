@@ -22,8 +22,18 @@ use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
 use crate::core::editor::Point;
-use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
+use std::{collections::{HashMap, HashSet}, fs, sync::{Arc, Mutex}};
 use egui::StrokeKind;
+
+pub struct AddonRenderTarget {
+    pub texture: Arc<wgpu::Texture>,
+    pub view: Arc<wgpu::TextureView>,
+    pub depth_texture: Arc<wgpu::Texture>,
+    pub depth_view: Arc<wgpu::TextureView>,
+    pub egui_tex_id: egui::TextureId,
+    pub width: u32,
+    pub height: u32,
+}
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use transform_gizmo::{EnumSet, GizmoMode};
@@ -179,6 +189,8 @@ pub struct EntropyPipeline {
 
     pub vector_motion: Motion,
     pub alpha_renderer: Option<crate::alpha::AlphaRenderer>,
+    pub open_addon_windows: HashSet<String>,
+    pub addon_render_targets: HashMap<String, AddonRenderTarget>,
 }
 
 impl EntropyPipeline {
@@ -270,7 +282,9 @@ impl EntropyPipeline {
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
 
-            vector_motion: Motion::new()
+            vector_motion: Motion::new(),
+            open_addon_windows: HashSet::new(),
+            addon_render_targets: HashMap::new(),
         }
     }
 
@@ -1855,9 +1869,14 @@ impl EntropyPipeline {
                 self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
             } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
                 // render nothing
-            } else { // Addons
+            } else if let Workspace::Addon(_) = &self.current_workspace { // Addons
                 self.render_addon_frame(Some(&view), current_time, viewport_rect);
             }
+        }
+
+        // Always render addon windows
+        if !self.open_addon_windows.is_empty() {
+            self.render_addon_frame(None, current_time, None);
         }
 
         output.present();

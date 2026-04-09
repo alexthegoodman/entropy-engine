@@ -21,7 +21,8 @@ use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
 use crate::core::editor::Point;
 use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
-use egui::StrokeKind;
+use egui::load::SizedTexture;
+use egui::{ImageSource, StrokeKind};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use transform_gizmo::{EnumSet, GizmoMode};
@@ -146,18 +147,20 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                         // Only show if it has UI/workspace capability (assume yes for now or check metadata)
                                         // We use the first letter of the name as the icon for now
                                         let icon = addon.name.chars().next().unwrap_or('?').to_string();
-                                        let is_active = if let Workspace::Addon(name) = &pipeline.current_workspace {
-                                            name == &addon.name
-                                        } else {
-                                            false
-                                        };
-                                        
-                                        ui.add_space(6.0);
-                                        if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
-                                            pipeline.current_workspace = Workspace::Addon(addon.name.clone());
+                                        let is_open = pipeline.open_addon_windows.contains(&addon.name);
+
+                                        if ui.selectable_label(is_open, icon).on_hover_text(&addon.name).clicked() {
+                                            if is_open {
+                                                pipeline.open_addon_windows.remove(&addon.name);
+                                            } else {
+                                                pipeline.open_addon_windows.insert(addon.name.clone());
+                                            }
                                         }
+
                                     }
                                 }
+                                
+                            
 
                                 ui.add_space(6.0);
                                 if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
@@ -363,5 +366,84 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
 
         if let Some(ws) = next_workspace {
             pipeline.current_workspace = ws;
+        }
+
+        // Show open addon windows
+        let open_addons: Vec<String> = pipeline.open_addon_windows.iter().cloned().collect();
+        for addon_name in open_addons {
+            let mut open = true;
+            egui::Window::new(&addon_name)
+                .open(&mut open)
+                .show(ctx, |ui| {
+                    let rect = ui.available_rect_before_wrap();
+                    let width = rect.width() as u32;
+                    let height = rect.height() as u32;
+
+                    if width > 0 && height > 0 {
+                        if let Some(editor) = &mut pipeline.export_editor {
+                            editor.addon_viewport_rects.insert(addon_name.clone(), [rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                        }
+
+                        let needs_recreate = if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
+                            target.width != width || target.height != height
+                        } else {
+                            true
+                        };
+
+                        if needs_recreate {
+                            if let Some(gpu_resources) = &pipeline.gpu_resources {
+                                let device = &gpu_resources.device;
+                                
+                                // Create texture
+                                let texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba8Unorm, 
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    label: Some(&format!("Addon {} Render Target", addon_name)),
+                                    view_formats: &[],
+                                });
+                                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                // Create depth texture
+                                let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Depth24Plus,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    label: Some(&format!("Addon {} Depth Target", addon_name)),
+                                    view_formats: &[],
+                                });
+                                let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                // Register with egui
+                                let egui_tex_id = gui.renderer.register_native_texture(device, &view, wgpu::FilterMode::Linear);
+
+                                pipeline.addon_render_targets.insert(addon_name.clone(), crate::core::pipeline::AddonRenderTarget {
+                                    texture: Arc::new(texture),
+                                    view: Arc::new(view),
+                                    depth_texture: Arc::new(depth_texture),
+                                    depth_view: Arc::new(depth_view),
+                                    egui_tex_id,
+                                    width,
+                                    height,
+                                });
+                            }
+                        }
+
+                        if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
+                            // ui.image(target.egui_tex_id, ui.available_size());
+                            ui.image(ImageSource::Texture(SizedTexture::new(target.egui_tex_id, ui.available_size())));
+                        }
+                    }
+                });
+
+            if !open {
+                pipeline.open_addon_windows.remove(&addon_name);
+            }
         }
     }

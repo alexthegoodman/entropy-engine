@@ -60,6 +60,39 @@ use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
+    // 1. Handle Workspace Addon
+    // if let Some(tv) = target_view {
+    //     let addon_name = if let Workspace::Addon(name) = &pipeline.current_workspace {
+    //         name.clone()
+    //     } else {
+    //         "Global".to_string()
+    //     };
+        
+    //     let dv = pipeline.depth_view.as_ref().expect("No depth view");
+    //     render_addon_frame_single(pipeline, &addon_name, tv, dv, current_time, viewport_rect);
+    // }
+
+    // 2. Handle Addon Windows
+    let names: Vec<String> = pipeline.open_addon_windows.iter().cloned().collect();
+    for name in names {
+        let (v, dv, rect) = if let Some(target) = pipeline.addon_render_targets.get(&name) {
+            (target.view.clone(), target.depth_view.clone(), [0.0, 0.0, target.width as f32, target.height as f32])
+        } else {
+            continue;
+        };
+
+        render_addon_frame_single(pipeline, &name, &v, &dv, current_time, Some(rect));
+    }
+}
+
+fn render_addon_frame_single(
+    pipeline: &mut EntropyPipeline,
+    addon_name: &str,
+    view: &wgpu::TextureView,
+    depth_view: &wgpu::TextureView,
+    current_time: f64,
+    viewport_rect: Option<[f32; 4]>
+) {
         let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
         let gpu_resources = pipeline
@@ -68,29 +101,12 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             .expect("Couldn't get gpu resources");
         let device = &gpu_resources.device;
         let queue = &gpu_resources.queue;
-        // let device = pipeline.device.as_ref().expect("Couldn't get device");
-        // let queue = pipeline.queue.as_ref().expect("Couldn't get queue");
-        let view = if let Some(target_view) = target_view {
-            target_view
-        } else {
-            pipeline.view.as_ref().expect("Couldn't get texture view")
-        };
-        let depth_view = pipeline
-            .depth_view
-            .as_ref()
-            .expect("Couldn't get depth texture view");
-        // let render_pipeline = pipeline
-        //     .render_pipeline
-        //     .as_ref()
-        //     .expect("Couldn't get render pipeline");
+
         let geometry_pipeline = pipeline
             .geometry_pipeline
             .as_ref()
             .expect("Couldn't get geometry pipeline");
-        // let camera_binding = pipeline
-        //     .camera_binding
-        //     .as_ref()
-        //     .expect("Couldn't get camera binding");
+
         let camera = editor
             .camera
             .as_mut()
@@ -100,15 +116,15 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             .as_mut()
             .expect("Couldn't get camera binding");
 
-        // if let Some(rect) = viewport_rect {
-        //     camera.aspect_ratio = rect[2] / rect[3];
-        //     camera.viewport.width = rect[2];
-        //     camera.viewport.height = rect[3];
-        //     camera.viewport.window_size.width = rect[2] as u32;
-        //     camera.viewport.window_size.height = rect[3] as u32;
-        //     camera.update();
-        //     camera_binding.update_3d(queue, camera);
-        // }
+        if let Some(rect) = viewport_rect {
+            camera.aspect_ratio = rect[2] / rect[3];
+            camera.viewport.width = rect[2];
+            camera.viewport.height = rect[3];
+            camera.viewport.window_size.width = rect[2] as u32;
+            camera.viewport.window_size.height = rect[3] as u32;
+            camera.update();
+            camera_binding.update_3d(queue, camera);
+        }
 
          let window_size_bind_group = pipeline
             .window_size_bind_group
@@ -117,11 +133,6 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let texture = pipeline.texture.as_ref().expect("Couldn't get texture");
 
         let time = pipeline.start_time.elapsed().as_secs_f32();
-
-        let mut addon_name = "Global";
-        if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-            addon_name = active_name;
-        }
 
         // Sync enemy health to UI
         // if let Some(target_id) = &editor.current_enemy_target {
@@ -275,7 +286,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 pipeline.g_buffer_normal_view.as_ref().unwrap(),
                 pipeline.g_buffer_albedo_view.as_ref().unwrap(),
                 pipeline.g_buffer_pbr_material_view.as_ref().unwrap(),
-                pipeline.depth_view.as_ref().unwrap(),
+                depth_view,
                 alpha.current_instance_count
             );
         }
@@ -299,17 +310,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             let mut op_state = editor.addon_engine.runtime.op_state();
             let op_state = op_state.borrow();
             if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-                for (addon_name, cubes) in &renderer_state.addon_cubes {
+                for (addon_name_2, cubes) in &renderer_state.addon_cubes {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for cube in cubes {
                         let mut is_pbr = true;
@@ -329,17 +337,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, landscapes) in &renderer_state.addon_landscapes {
+                for (addon_name_2, landscapes) in &renderer_state.addon_landscapes {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for landscape in landscapes {
                         let mut is_pbr = true;
@@ -359,17 +364,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, landscapes) in &renderer_state.addon_landscape3ds {
+                for (addon_name_2, landscapes) in &renderer_state.addon_landscape3ds {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for landscape in landscapes {
                         let mut is_pbr = true;
@@ -389,17 +391,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, landscapes) in &mut renderer_state.addon_quadscapes {
+                for (addon_name_2, landscapes) in &mut renderer_state.addon_quadscapes {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for landscape in landscapes {
                         let mut is_pbr = true; // all pbr for now on quadscapes
@@ -419,17 +418,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, meshes) in &renderer_state.addon_meshes {
+                for (addon_name_2, meshes) in &renderer_state.addon_meshes {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for mesh in meshes {
                         let mut is_pbr = true;
@@ -445,17 +441,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, models) in &renderer_state.addon_models {
+                for (addon_name_2, models) in &renderer_state.addon_models {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for model in models {
                         // Models from GLB are generally PBR-targeted in this engine
@@ -479,17 +472,14 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                     }
                 }
 
-                for (addon_name, grasses) in &mut renderer_state.addon_grasses {
+                for (addon_name_2, grasses) in &mut renderer_state.addon_grasses {
                     if ctx.hidden_addons.contains(addon_name) {
                         continue;
                     }
-                    if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                        if active_name != "Game Composer" && addon_name != active_name && addon_name != "Global" {
-                            continue;
-                        }
-                    } else if addon_name != "Global" {
+                    if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
+
 
                     for grass in grasses {
                         let mut is_pbr = true;
@@ -938,12 +928,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 Vec::new()
             };
 
-            for (addon_name, lights) in &renderer_state.addon_point_lights {
-                if let Workspace::Addon(active_name) = &pipeline.current_workspace {
-                    if addon_name == active_name || addon_name == "Global" {
-                        collected_lights.extend(lights.clone());
-                    }
-                } else if addon_name == "Global" {
+            for (addon_name_2, lights) in &renderer_state.addon_point_lights {
+                if addon_name_2 == addon_name || addon_name_2 == "Global" {
                     collected_lights.extend(lights.clone());
                 }
             }
