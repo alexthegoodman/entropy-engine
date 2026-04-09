@@ -149,7 +149,6 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
             // We need to create the viewer for each window
             let mut viewer = PipelineTabViewer {
                 context: UiContext {
-                    // pipeline,
                     export_editor: &mut pipeline.export_editor,
                     new_project_name: &mut pipeline.new_project_name,
                     projects: &mut pipeline.projects,
@@ -161,6 +160,8 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
                     next_workspace: &mut next_workspace,
                     egui_renderer: &mut gui.renderer,
                     active_addon: Some(addon_name.clone()),
+                    addon_render_targets: &mut pipeline.addon_render_targets,
+                    egui_tex_id: None,
                 },
             };
 
@@ -189,7 +190,7 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
                         let height = rect.height() as u32;
 
                         if width > 0 && height > 0 {
-                            let needs_recreate = if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
+                            let needs_recreate = if let Some(target) = viewer.context.addon_render_targets.get(&addon_name) {
                                 target.width != width || target.height != height
                             } else {
                                 true
@@ -305,7 +306,7 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
                                     // Register with egui
                                     let egui_tex_id = viewer.context.egui_renderer.register_native_texture(device, &view, wgpu::FilterMode::Linear);
 
-                                    pipeline.addon_render_targets.insert(addon_name.clone(), crate::core::pipeline::AddonRenderTarget {
+                                    viewer.context.addon_render_targets.insert(addon_name.clone(), crate::core::pipeline::AddonRenderTarget {
                                         texture: Arc::new(texture),
                                         view: Arc::new(view),
                                         depth_texture: Arc::new(depth_texture),

@@ -18,7 +18,7 @@ use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
 use crate::core::editor::Point;
-use std::{fs, sync::{Arc, Mutex}};
+use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use transform_gizmo::math::{DMat4, DVec3, DVec4};
@@ -77,7 +77,6 @@ pub enum Tab {
 use crate::startup::Gui;
 
 pub struct UiContext<'a> {
-    // pub pipeline: &'a mut EntropyPipeline,
     pub export_editor: &'a mut Option<Editor>,
     pub new_project_name: &'a mut String,
     pub projects: &'a mut Vec<(String, String)>,
@@ -89,6 +88,8 @@ pub struct UiContext<'a> {
     pub next_workspace: &'a mut Option<Workspace>,
     pub egui_renderer: &'a mut egui_wgpu::Renderer,
     pub active_addon: Option<String>,
+    pub addon_render_targets: &'a mut HashMap<String, crate::core::pipeline::AddonRenderTarget>,
+    pub egui_tex_id: Option<egui::TextureId>,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -205,8 +206,18 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 
                 if let Some(addon_name) = &self.context.active_addon {
                     editor.addon_viewport_rects.insert(addon_name.clone(), [rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                    
+                    // Display the rendered texture for this addon
+                    if let Some(target) = self.context.addon_render_targets.get(addon_name) {
+                        ui.image(egui::load::SizedTexture::new(target.egui_tex_id, ui.available_size()));
+                    }
                 } else {
                     editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                    
+                    // Fallback to global view if no active addon
+                    if let Some(tex_id) = self.context.egui_tex_id {
+                         ui.image(egui::load::SizedTexture::new(tex_id, ui.available_size()));
+                    }
                 }
                 
                 editor.is_viewport_visible = true;
