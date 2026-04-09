@@ -48,323 +48,96 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 
-#[cfg(target_arch = "wasm32")]
-use wasm_timer::Instant;
-use crate::shape_primitives::Cube::Cube;
-use crate::shape_primitives::Sphere::Sphere;
-// use crate::helpers::load_project::load_project;
-// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
-use crate::game_ui::dialogue_ui;
-use crate::game_ui::quest_ui;
-use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
+pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
+    let ctx = &gui.ctx;
 
- pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
-        let ctx = &gui.ctx;
-        let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
-            editor.world_state.is_some() || editor.stunts_state.is_some() || editor.sophia_state.is_some()
-        } else {
-            false
-        };
+    let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
+        editor.world_state.is_some() || editor.stunts_state.is_some() || editor.sophia_state.is_some()
+    } else {
+        false
+    };
 
-        let mut next_workspace = None;
-        {
-            let mut context = UiContext {
-                export_editor: &mut pipeline.export_editor,
-                new_project_name: &mut pipeline.new_project_name,
-                projects: &mut pipeline.projects,
-                selected_component_id: &mut pipeline.selected_component_id,
-                chat: &mut pipeline.chat,
-                video_timeline_ui: &mut pipeline.video_timeline_ui,
-                gpu_resources: &pipeline.gpu_resources,
-                current_app: match &pipeline.current_workspace {
-                    Workspace::GameEngine => AppExperience::OpenWorldStudio,
-                    Workspace::Sophia => AppExperience::Sophia,
-                    Workspace::Stunts => AppExperience::Stunts,
-                    Workspace::CentralChat => AppExperience::OpenWorldStudio,
-                    Workspace::Addon(_) => AppExperience::OpenWorldStudio, // Default for addons
-                },
-                next_workspace: &mut next_workspace,
-                egui_renderer: &mut gui.renderer,
-            };
+    let mut next_workspace = None;
 
-            let mut viewer = PipelineTabViewer { context };
+    egui::SidePanel::left("activity_bar")
+        .exact_width(48.0)
+        .resizable(false)
+        .show(ctx, |ui| {
+            ui.vertical_centered(|ui| {
+                ui.add_space(6.0);
+                
+                // Central Chat Icon
+                if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬")
+                    .on_hover_text("Central Chat")
+                    .clicked() {
+                    next_workspace = Some(Workspace::CentralChat);
+                }
+                
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(10.0);
 
-            if !is_project_loaded {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    viewer.ui(ui, &mut Tab::Projects);
-                });
-            } else {
-                egui::TopBottomPanel::top("top_bar")
-                    .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()).inner_margin(4.0))
-                    .show(ctx, |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.selectable_label(pipeline.focus_mode, "👓").on_hover_text("Focus Mode").clicked() {
-                                pipeline.focus_mode = !pipeline.focus_mode;
-                            }
-                            
-                            ui.separator();
-                            
-                            if let Workspace::Addon(name) = &pipeline.current_workspace {
-                                ui.label(egui::RichText::new(name).strong());
+                // Addon Icons
+                if let Some(editor) = &mut pipeline.export_editor {
+                    let addons = editor.addon_engine.get_registered_addons();
+                    for addon in addons {
+                        // We use the first letter of the name as the icon for now
+                        let icon = addon.name.chars().next().unwrap_or('?').to_string();
+                        let is_open = pipeline.open_addon_windows.contains(&addon.name);
+
+                        if ui.selectable_label(is_open, icon).on_hover_text(&addon.name).clicked() {
+                            if is_open {
+                                pipeline.open_addon_windows.remove(&addon.name);
                             } else {
-                                ui.label(egui::RichText::new(format!("{:?}", pipeline.current_workspace)).strong());
+                                pipeline.open_addon_windows.insert(addon.name.clone());
                             }
+                        }
+                    }
+                }
+            });
+        });
+
+    
+        egui::CentralPanel::default()
+            .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()))
+            .show(ctx, |ui| {
+                // Keep the central space mostly empty/grey
+                ui.centered_and_justified(|ui| {
+                    ui.label(egui::RichText::new("Entropy Engine").size(32.0).color(ui.visuals().weak_text_color()));
+                });
+
+                // Check for new tabs and other global UI logic
+                if let Some(editor) = &mut pipeline.export_editor {
+                    let new_tabs = editor.addon_engine.consume_new_tabs();
+                    for (tab_id, title, addon_name) in new_tabs {
+                        let dock_state = pipeline.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
+                            DockState::new(vec![Tab::Viewport])
                         });
-                    });
+                        let surface = dock_state.main_surface_mut();
 
-                if !pipeline.focus_mode {
-                    egui::SidePanel::left("activity_bar")
-                        .resizable(false)
-                        .default_width(48.0)
-                        .show(ctx, |ui| {
-                            ui.vertical_centered(|ui| {
-                                ui.add_space(6.0);
-                                // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
-                                //     pipeline.current_workspace = Workspace::GameEngine;
-                                // }
-                                // ui.add_space(6.0);
-                                // if ui.selectable_label(pipeline.current_workspace == Workspace::Sophia, "⚡").on_hover_text("Sophia (Writing)").clicked() {
-                                //     pipeline.current_workspace = Workspace::Sophia;
-                                // }
-                                // ui.add_space(6.0);
-                                // if ui.selectable_label(pipeline.current_workspace == Workspace::Stunts, "🎬").on_hover_text("Stunts (Videos)").clicked() {
-                                //     pipeline.current_workspace = Workspace::Stunts;
-                                // }
-                                // ui.add_space(6.0);
-                                // if ui.selectable_label(pipeline.current_workspace == Workspace::CentralChat, "💬").on_hover_text("Central Chat Workspace").clicked() {
-                                //     pipeline.current_workspace = Workspace::CentralChat;
-                                // }
+                        if !pipeline.focus_mode {
+                            surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                            surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                        }
+                    }
 
-                                // Render Addon Workspaces
-                                if let Some(editor) = &mut viewer.context.export_editor {
-                                    let addons = editor.addon_engine.get_registered_addons();
-                                    for addon in addons.iter().rev() {
-                                        // Skip addons marked as atoms
-                                        if addon.is_atom.unwrap_or(false) {
-                                            continue;
-                                        }
-
-                                        // Only show if it has UI/workspace capability (assume yes for now or check metadata)
-                                        // We use the first letter of the name as the icon for now
-                                        let icon = addon.name.chars().next().unwrap_or('?').to_string();
-                                        let is_open = pipeline.open_addon_windows.contains(&addon.name);
-
-                                        if ui.selectable_label(is_open, icon).on_hover_text(&addon.name).clicked() {
-                                            if is_open {
-                                                pipeline.open_addon_windows.remove(&addon.name);
-                                            } else {
-                                                pipeline.open_addon_windows.insert(addon.name.clone());
-                                            }
-                                        }
-
-                                    }
-                                }
-                                
-                            
-
-                                ui.add_space(6.0);
-                                if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
-                                    pipeline.show_addon_manager = !pipeline.show_addon_manager;
-                                }
-                                ui.add_space(6.0);
-                                ui.separator();
-                                ui.add_space(6.0);
+                    let pending_scripts = std::mem::take(&mut editor.pending_script_tabs);
+                    for script_path in pending_scripts {
+                        // For now, if we have a current workspace addon, put it there
+                        if let Workspace::Addon(name) = &pipeline.current_workspace {
+                            let dock_state = pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
+                                DockState::new(vec![Tab::Projects])
                             });
-                        });
+                            let surface = dock_state.main_surface_mut();
+                            surface.split_right(NodeIndex::root(), 0.5, vec![Tab::ScriptEditor { path: script_path }]);
+                        }
+                    }
+
+                    editor.addon_engine.render_ui(ctx, &mut gui.renderer);
                 }
+            });
 
-                if pipeline.show_addon_manager {
-                    // TODO: make a tab so it doesnt float
-                    egui::Window::new("Entropy Addons")
-                        .default_size([400.0, 500.0])
-                        .open(&mut pipeline.show_addon_manager)
-                        .show(ctx, |ui| {
-                            ui.heading("Manage Addons");
-                            ui.separator();
-                            
-                            if ui.button("Load Addon Bundle").clicked() {
-                                if let Some(path) = rfd::FileDialog::new()
-                                    .add_filter("JavaScript", &["js", "mjs", "bundle"])
-                                    .pick_file() {
-                                    
-                                    if let Some(editor) = &mut viewer.context.export_editor {
-                                        println!("Loading addon from: {:?}", path);
-                                        let res = pollster::block_on(editor.addon_engine.load_addon(&path));
-                                        match res {
-                                            Ok(_) => println!("Addon loaded successfully"),
-                                            Err(e) => println!("Failed to load addon: {}", e),
-                                        }
-                                    }
-                                }
-                            }
-
-                            ui.separator();
-                            ui.label("Registered Addons:");
-                            
-                            if let Some(editor) = &mut viewer.context.export_editor {
-                                let addons = editor.addon_engine.get_registered_addons();
-                                if addons.is_empty() {
-                                    ui.label("No addons registered.");
-                                } else {
-                                    for addon in addons {
-                                        ui.group(|ui| {
-                                            ui.strong(&addon.name);
-                                            ui.label(format!("Version: {}", addon.version));
-                                            ui.label(&addon.description);
-                                            ui.label(format!("Author: {}", addon.author.join(", ")));
-                                        });
-                                    }
-                                }
-                            }
-                        });
-                }
-
-                // if pipeline.show_central_chat_overlay {
-                //     egui::Window::new("Central Chat")
-                //         .default_size([400.0, 600.0])
-                //         .open(&mut pipeline.show_central_chat_overlay)
-                //         .show(ctx, |ui| {
-                //             DockArea::new(&mut pipeline.central_chat_dock_state)
-                //                 .style(Style::from_egui(ctx.style().as_ref()))
-                //                 .show_inside(ui, &mut viewer);
-                //         });
-                // }
-
-                // if pipeline.current_workspace == Workspace::Sophia {
-                //     if let Some(editor) = &mut viewer.context.export_editor {
-                //         let quiet_mode = editor.sophia_app_state.quiet_mode;
-
-                //         if quiet_mode {
-                //             egui::CentralPanel::default().show(ctx, |ui| {
-                //                 viewer.ui(ui, &mut Tab::Writing);
-                //             });
-                //         } else {
-                //             egui::CentralPanel::default().show(ctx, |ui| {
-                //                 DockArea::new(&mut pipeline.sophia_dock_state)
-                //                     .style(Style::from_egui(ctx.style().as_ref()))
-                //                     .show_inside(ui, &mut viewer);
-                //             });
-                //         }
-                //     }
-                // } else {
-                    egui::CentralPanel::default()
-                        .show(ctx, |ui| {
-                        
-                        if let Some(editor) = &mut viewer.context.export_editor {
-                            let new_tabs = editor.addon_engine.consume_new_tabs();
-                            for (tab_id, title, addon_name) in new_tabs {
-                                let dock_state = pipeline.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
-                                    let mut ds = DockState::new(vec![Tab::Viewport]);
-                                    ds
-                                });
-                                let surface = dock_state.main_surface_mut();
-
-                                if !pipeline.focus_mode {
-                                    surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
-                                    surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
-                                }
-                            }
-
-                            let pending_scripts = std::mem::take(&mut editor.pending_script_tabs);
-                            for script_path in pending_scripts {
-                                if let Workspace::Addon(name) = &pipeline.current_workspace {
-                                    let dock_state = pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
-                                        DockState::new(vec![Tab::Projects])
-                                    });
-                                    let surface = dock_state.main_surface_mut();
-                                    surface.split_right(NodeIndex::root(), 0.5, vec![Tab::ScriptEditor { path: script_path }]);
-                                }
-                            }
-                        }
-
-                        if pipeline.focus_mode {
-                            viewer.ui(ui, &mut Tab::Viewport);
-                        } else {
-                            let active_dock_state = match &pipeline.current_workspace {
-                                Workspace::Addon(name) => {
-                                    pipeline.addon_dock_states.entry(name.clone()).or_insert_with(|| {
-                                        let mut ds = DockState::new(vec![Tab::Projects]);
-                                        ds
-                                    })
-                                },
-                                _ => return
-                            };
-
-                            DockArea::new(active_dock_state)
-                                .style(Style::from_egui(ctx.style().as_ref()))
-                                .show_inside(ui, &mut viewer);
-                        }
-
-                        if let Some(editor) = &mut viewer.context.export_editor {
-                            editor.addon_engine.render_ui(ctx, viewer.context.egui_renderer);
-                        }
-
-                        // Draw selection highlight for Stunts objects
-                        // if let Some(editor) = &viewer.context.export_editor {
-                        //     if let Some(selected) = &editor.selected_object {
-                        //         let mut rect_pos = None;
-                        //         let mut rect_size = None;
-
-                        //         match selected.object_type {
-                        //             ObjectType::Polygon => {
-                        //                 if let Some(poly) = editor.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
-                        //                     rect_pos = Some(poly.transform.position);
-                        //                     rect_size = Some(poly.dimensions);
-                        //                 }
-                        //             }
-                        //             ObjectType::TextItem => {
-                        //                 if let Some(text) = editor.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
-                        //                     rect_pos = Some(text.transform.position);
-                        //                     rect_size = Some(text.dimensions);
-                        //                 }
-                        //             }
-                        //             ObjectType::ImageItem => {
-                        //                 if let Some(img) = editor.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
-                        //                     rect_pos = Some(img.transform.position);
-                        //                     rect_size = Some((img.transform.scale.x, img.transform.scale.y));
-                        //                 }
-                        //             }
-                        //             ObjectType::VideoItem => {
-                        //                 if let Some(vid) = editor.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
-                        //                     rect_pos = Some(vid.transform.position);
-                        //                     rect_size = Some((vid.transform.scale.x, vid.transform.scale.y));
-                        //                 }
-                        //             }
-                        //         }
-
-                        //         if let (Some(pos), Some(size)) = (rect_pos, rect_size) {
-                        //             let screen_rect = egui::Rect::from_center_size(
-                        //                 egui::pos2(pos.x, pos.y),
-                        //                 egui::vec2(size.0, size.1)
-                        //             );
-                                    
-                        //             let painter = ui.painter();
-                        //             painter.rect_stroke(
-                        //                 screen_rect.expand(2.0),
-                        //                 2.0,
-                        //                 egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 165, 0)), // Orange selection box
-                        //                 StrokeKind::Middle
-                        //             );
-
-                        //             // Draw tiny handles at corners
-                        //             let handle_color = egui::Color32::WHITE;
-                        //             let handle_size = 6.0;
-                        //             for corner in &[screen_rect.left_top(), screen_rect.right_top(), screen_rect.left_bottom(), screen_rect.right_bottom()] {
-                        //                 painter.rect_filled(
-                        //                     egui::Rect::from_center_size(*corner, egui::vec2(handle_size, handle_size)),
-                        //                     1.0,
-                        //                     handle_color
-                        //                 );
-                        //             }
-                        //         }
-                        //     }
-                        // }
-                    });
-                // }
-            }
-        } // context and viewer dropped here
-
-        if let Some(ws) = next_workspace {
+        if let Some(ws) = next_workspace.clone() {
             pipeline.current_workspace = ws;
         }
 
@@ -372,160 +145,192 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
         let open_addons: Vec<String> = pipeline.open_addon_windows.iter().cloned().collect();
         for addon_name in open_addons {
             let mut open = true;
-            egui::Window::new(&addon_name)
-                .open(&mut open)
-                .show(ctx, |ui| {
-                    let rect = ui.available_rect_before_wrap();
-                    let width = rect.width() as u32;
-                    let height = rect.height() as u32;
+            
+            // We need to create the viewer for each window
+            let mut viewer = PipelineTabViewer {
+                context: UiContext {
+                    // pipeline,
+                    export_editor: &mut pipeline.export_editor,
+                    new_project_name: &mut pipeline.new_project_name,
+                    projects: &mut pipeline.projects,
+                    selected_component_id: &mut pipeline.selected_component_id,
+                    chat: &mut pipeline.chat,
+                    video_timeline_ui: &mut pipeline.video_timeline_ui,
+                    gpu_resources: &pipeline.gpu_resources,
+                    current_app: AppExperience::OpenWorldStudio, // or determine from state
+                    next_workspace: &mut next_workspace,
+                    egui_renderer: &mut gui.renderer,
+                    active_addon: Some(addon_name.clone()),
+                },
+            };
 
-                    if width > 0 && height > 0 {
-                        if let Some(editor) = &mut pipeline.export_editor {
-                            editor.addon_viewport_rects.insert(addon_name.clone(), [rect.min.x, rect.min.y, rect.width(), rect.height()]);
-                        }
+            if !is_project_loaded {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    viewer.ui(ui, &mut Tab::Projects);
+                });
+            } else {
 
-                        let needs_recreate = if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
-                            target.width != width || target.height != height
-                        } else {
-                            true
-                        };
+                egui::Window::new(&addon_name)
+                    .open(&mut open)
+                    .default_size(egui::vec2(800.0, 600.0))
+                    .show(ctx, |ui| {
+                        let dock_state = pipeline.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
+                            // Default layout for new addon windows
+                            let mut ds = DockState::new(vec![Tab::Viewport]);
+                            let surface = ds.main_surface_mut();
+                            surface.split_left(NodeIndex::root(), 0.2, vec![Tab::Components]);
+                            surface.split_right(NodeIndex::root(), 0.75, vec![Tab::Properties]);
+                            ds
+                        });
 
-                        if needs_recreate {
-                            if let Some(gpu_resources) = &pipeline.gpu_resources {
-                                let device = &gpu_resources.device;
-                                
-                                // Create texture
-                                let texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba8Unorm, 
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    label: Some(&format!("Addon {} Render Target", addon_name)),
-                                    view_formats: &[],
-                                });
-                                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                        // Window resize detection logic
+                        let rect = ui.available_rect_before_wrap();
+                        let width = rect.width() as u32;
+                        let height = rect.height() as u32;
 
-                                // Create depth texture
-                                let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Depth24Plus,
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    label: Some(&format!("Addon {} Depth Target", addon_name)),
-                                    view_formats: &[],
-                                });
-                                let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                        if width > 0 && height > 0 {
+                            let needs_recreate = if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
+                                target.width != width || target.height != height
+                            } else {
+                                true
+                            };
 
-                                // Create G-Buffer textures
-                                let gbuffer_position_texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Addon G-Buffer Position"),
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba16Float,
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    view_formats: &[],
-                                });
-                                let gbuffer_position_view = gbuffer_position_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                            if needs_recreate {
+                                if let Some(gpu_resources) = &pipeline.gpu_resources {
+                                    let device = &gpu_resources.device;
+                                    
+                                    // Create texture
+                                    let texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba8Unorm, 
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        label: Some(&format!("Addon {} Render Target", addon_name)),
+                                        view_formats: &[],
+                                    });
+                                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                let gbuffer_normal_texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Addon G-Buffer Normal"),
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba16Float,
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    view_formats: &[],
-                                });
-                                let gbuffer_normal_view = gbuffer_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                    // Create depth texture
+                                    let depth_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Depth24Plus,
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        label: Some(&format!("Addon {} Depth Target", addon_name)),
+                                        view_formats: &[],
+                                    });
+                                    let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                let gbuffer_albedo_texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Addon G-Buffer Albedo"),
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba8Unorm,
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    view_formats: &[],
-                                });
-                                let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                    // Create G-Buffer textures
+                                    let gbuffer_position_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        label: Some("Addon G-Buffer Position"),
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba16Float,
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        view_formats: &[],
+                                    });
+                                    let gbuffer_position_view = gbuffer_position_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                let gbuffer_pbr_material_texture = device.create_texture(&wgpu::TextureDescriptor {
-                                    label: Some("Addon G-Buffer PBR Material"),
-                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
-                                    mip_level_count: 1,
-                                    sample_count: 1,
-                                    dimension: wgpu::TextureDimension::D2,
-                                    format: wgpu::TextureFormat::Rgba8Unorm,
-                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                                    view_formats: &[],
-                                });
-                                let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                                    let gbuffer_normal_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        label: Some("Addon G-Buffer Normal"),
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba16Float,
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        view_formats: &[],
+                                    });
+                                    let gbuffer_normal_view = gbuffer_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                // Create G-Buffer bind group
-                                let g_buffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                                    label: Some("Addon G-Buffer Bind Group"),
-                                    layout: pipeline.g_buffer_bind_group_layout.as_ref().unwrap(),
-                                    entries: &[
-                                        wgpu::BindGroupEntry {
-                                            binding: 0,
-                                            resource: wgpu::BindingResource::TextureView(&gbuffer_position_view),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 1,
-                                            resource: wgpu::BindingResource::TextureView(&gbuffer_normal_view),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 2,
-                                            resource: wgpu::BindingResource::TextureView(&gbuffer_albedo_view),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 3,
-                                            resource: wgpu::BindingResource::TextureView(&gbuffer_pbr_material_view),
-                                        },
-                                        wgpu::BindGroupEntry {
-                                            binding: 4,
-                                            resource: wgpu::BindingResource::Sampler(pipeline.g_buffer_sampler.as_ref().unwrap()),
-                                        },
-                                    ],
-                                });
+                                    let gbuffer_albedo_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        label: Some("Addon G-Buffer Albedo"),
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba8Unorm,
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        view_formats: &[],
+                                    });
+                                    let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                // Register with egui
-                                let egui_tex_id = gui.renderer.register_native_texture(device, &view, wgpu::FilterMode::Linear);
+                                    let gbuffer_pbr_material_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                        label: Some("Addon G-Buffer PBR Material"),
+                                        size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                        mip_level_count: 1,
+                                        sample_count: 1,
+                                        dimension: wgpu::TextureDimension::D2,
+                                        format: wgpu::TextureFormat::Rgba8Unorm,
+                                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                        view_formats: &[],
+                                    });
+                                    let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-                                pipeline.addon_render_targets.insert(addon_name.clone(), crate::core::pipeline::AddonRenderTarget {
-                                    texture: Arc::new(texture),
-                                    view: Arc::new(view),
-                                    depth_texture: Arc::new(depth_texture),
-                                    depth_view: Arc::new(depth_view),
-                                    g_buffer_position_view: Arc::new(gbuffer_position_view),
-                                    g_buffer_normal_view: Arc::new(gbuffer_normal_view),
-                                    g_buffer_albedo_view: Arc::new(gbuffer_albedo_view),
-                                    g_buffer_pbr_material_view: Arc::new(gbuffer_pbr_material_view),
-                                    g_buffer_bind_group,
-                                    egui_tex_id,
-                                    width,
-                                    height,
-                                });
+                                    // Create G-Buffer bind group
+                                    let g_buffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                        label: Some("Addon G-Buffer Bind Group"),
+                                        layout: pipeline.g_buffer_bind_group_layout.as_ref().unwrap(),
+                                        entries: &[
+                                            wgpu::BindGroupEntry {
+                                                binding: 0,
+                                                resource: wgpu::BindingResource::TextureView(&gbuffer_position_view),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 1,
+                                                resource: wgpu::BindingResource::TextureView(&gbuffer_normal_view),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 2,
+                                                resource: wgpu::BindingResource::TextureView(&gbuffer_albedo_view),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 3,
+                                                resource: wgpu::BindingResource::TextureView(&gbuffer_pbr_material_view),
+                                            },
+                                            wgpu::BindGroupEntry {
+                                                binding: 4,
+                                                resource: wgpu::BindingResource::Sampler(pipeline.g_buffer_sampler.as_ref().unwrap()),
+                                            },
+                                        ],
+                                    });
+
+                                    // Register with egui
+                                    let egui_tex_id = viewer.context.egui_renderer.register_native_texture(device, &view, wgpu::FilterMode::Linear);
+
+                                    pipeline.addon_render_targets.insert(addon_name.clone(), crate::core::pipeline::AddonRenderTarget {
+                                        texture: Arc::new(texture),
+                                        view: Arc::new(view),
+                                        depth_texture: Arc::new(depth_texture),
+                                        depth_view: Arc::new(depth_view),
+                                        g_buffer_position_view: Arc::new(gbuffer_position_view),
+                                        g_buffer_normal_view: Arc::new(gbuffer_normal_view),
+                                        g_buffer_albedo_view: Arc::new(gbuffer_albedo_view),
+                                        g_buffer_pbr_material_view: Arc::new(gbuffer_pbr_material_view),
+                                        g_buffer_bind_group,
+                                        egui_tex_id,
+                                        width,
+                                        height,
+                                    });
+                                }
                             }
                         }
 
-                        if let Some(target) = pipeline.addon_render_targets.get(&addon_name) {
-                            // ui.image(target.egui_tex_id, ui.available_size());
-                            ui.image(ImageSource::Texture(SizedTexture::new(target.egui_tex_id, ui.available_size())));
-                        }
-                    }
-                });
+                        DockArea::new(dock_state)
+                            .style(Style::from_egui(ctx.style().as_ref()))
+                            .show_inside(ui, &mut viewer);
+                    });
 
+            }
             if !open {
                 pipeline.open_addon_windows.remove(&addon_name);
             }
         }
-    }
+}

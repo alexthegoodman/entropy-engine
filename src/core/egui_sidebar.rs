@@ -77,6 +77,7 @@ pub enum Tab {
 use crate::startup::Gui;
 
 pub struct UiContext<'a> {
+    // pub pipeline: &'a mut EntropyPipeline,
     pub export_editor: &'a mut Option<Editor>,
     pub new_project_name: &'a mut String,
     pub projects: &'a mut Vec<(String, String)>,
@@ -87,6 +88,7 @@ pub struct UiContext<'a> {
     pub current_app: AppExperience,
     pub next_workspace: &'a mut Option<Workspace>,
     pub egui_renderer: &'a mut egui_wgpu::Renderer,
+    pub active_addon: Option<String>,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -200,7 +202,13 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::Viewport => {
                 let editor = self.context.export_editor.as_mut().unwrap();
                 let rect = ui.available_rect_before_wrap();
-                editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                
+                if let Some(addon_name) = &self.context.active_addon {
+                    editor.addon_viewport_rects.insert(addon_name.clone(), [rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                } else {
+                    editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
+                }
+                
                 editor.is_viewport_visible = true;
             }
             Tab::WryChat => {
