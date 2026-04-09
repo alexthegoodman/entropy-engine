@@ -69,19 +69,60 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
     //     };
         
     //     let dv = pipeline.depth_view.as_ref().expect("No depth view");
-    //     render_addon_frame_single(pipeline, &addon_name, tv, dv, current_time, viewport_rect);
+    //     let gv_pos = pipeline.g_buffer_position_view.as_ref().expect("No G-buffer pos view");
+    //     let gv_norm = pipeline.g_buffer_normal_view.as_ref().expect("No G-buffer norm view");
+    //     let gv_albedo = pipeline.g_buffer_albedo_view.as_ref().expect("No G-buffer albedo view");
+    //     let gv_pbr = pipeline.g_buffer_pbr_material_view.as_ref().expect("No G-buffer pbr view");
+    //     let g_bg = pipeline.g_buffer_bind_group.as_ref().expect("No G-buffer bind group");
+
+    //     render_addon_frame_single(
+    //         pipeline, 
+    //         &addon_name, 
+    //         tv, 
+    //         dv, 
+    //         gv_pos,
+    //         gv_norm,
+    //         gv_albedo,
+    //         gv_pbr,
+    //         g_bg,
+    //         current_time, 
+    //         viewport_rect
+    //     );
     // }
 
     // 2. Handle Addon Windows
     let names: Vec<String> = pipeline.open_addon_windows.iter().cloned().collect();
     for name in names {
-        let (v, dv, rect) = if let Some(target) = pipeline.addon_render_targets.get(&name) {
-            (target.view.clone(), target.depth_view.clone(), [0.0, 0.0, target.width as f32, target.height as f32])
+        let (v, dv, gv_pos, gv_norm, gv_albedo, gv_pbr, rect) = if let Some(target) = pipeline.addon_render_targets.get(&name) {
+            (
+                target.view.clone(), 
+                target.depth_view.clone(), 
+                target.g_buffer_position_view.clone(),
+                target.g_buffer_normal_view.clone(),
+                target.g_buffer_albedo_view.clone(),
+                target.g_buffer_pbr_material_view.clone(),
+                [0.0, 0.0, target.width as f32, target.height as f32]
+            )
         } else {
             continue;
         };
 
-        render_addon_frame_single(pipeline, &name, &v, &dv, current_time, Some(rect));
+        // We need a reference to the bind group which is not an Arc
+        // let g_bg = &pipeline.addon_render_targets.get(&name).unwrap().g_buffer_bind_group;
+
+        render_addon_frame_single(
+            pipeline, 
+            &name, 
+            &v, 
+            &dv, 
+            &gv_pos,
+            &gv_norm,
+            &gv_albedo,
+            &gv_pbr,
+            // g_bg,
+            current_time, 
+            Some(rect)
+        );
     }
 }
 
@@ -90,6 +131,11 @@ fn render_addon_frame_single(
     addon_name: &str,
     view: &wgpu::TextureView,
     depth_view: &wgpu::TextureView,
+    gbuffer_position_view: &wgpu::TextureView,
+    gbuffer_normal_view: &wgpu::TextureView,
+    gbuffer_albedo_view: &wgpu::TextureView,
+    gbuffer_pbr_material_view: &wgpu::TextureView,
+    // gbuffer_bind_group: &wgpu::BindGroup,
     current_time: f64,
     viewport_rect: Option<[f32; 4]>
 ) {
@@ -101,6 +147,8 @@ fn render_addon_frame_single(
             .expect("Couldn't get gpu resources");
         let device = &gpu_resources.device;
         let queue = &gpu_resources.queue;
+
+        let g_bg = &pipeline.addon_render_targets.get(addon_name).unwrap().g_buffer_bind_group;
 
         let geometry_pipeline = pipeline
             .geometry_pipeline
@@ -282,10 +330,10 @@ fn render_addon_frame_single(
 
             alpha.render(
                 &mut encoder,
-                pipeline.g_buffer_position_view.as_ref().unwrap(),
-                pipeline.g_buffer_normal_view.as_ref().unwrap(),
-                pipeline.g_buffer_albedo_view.as_ref().unwrap(),
-                pipeline.g_buffer_pbr_material_view.as_ref().unwrap(),
+                gbuffer_position_view,
+                gbuffer_normal_view,
+                gbuffer_albedo_view,
+                gbuffer_pbr_material_view,
                 depth_view,
                 alpha.current_instance_count
             );
@@ -500,11 +548,6 @@ fn render_addon_frame_single(
 
         // 1. Geometry Pass for PBR objects
         if !pbr_cubes.is_empty() || !pbr_landscapes.is_empty() || !pbr_landscape3ds.is_empty() || !pbr_grasses.is_empty() || !pbr_meshes.is_empty() {
-            let gbuffer_position_view = pipeline.g_buffer_position_view.as_ref().unwrap();            
-            let gbuffer_normal_view = pipeline.g_buffer_normal_view.as_ref().unwrap();
-            let gbuffer_albedo_view = pipeline.g_buffer_albedo_view.as_ref().unwrap();
-            let gbuffer_pbr_material_view = pipeline.g_buffer_pbr_material_view.as_ref().unwrap();
-
             let clear_color = wgpu::Color::BLACK;
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

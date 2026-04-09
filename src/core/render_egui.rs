@@ -420,6 +420,83 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                 });
                                 let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
+                                // Create G-Buffer textures
+                                let gbuffer_position_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Addon G-Buffer Position"),
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba16Float,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    view_formats: &[],
+                                });
+                                let gbuffer_position_view = gbuffer_position_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                let gbuffer_normal_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Addon G-Buffer Normal"),
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba16Float,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    view_formats: &[],
+                                });
+                                let gbuffer_normal_view = gbuffer_normal_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                let gbuffer_albedo_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Addon G-Buffer Albedo"),
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba8Unorm,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    view_formats: &[],
+                                });
+                                let gbuffer_albedo_view = gbuffer_albedo_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                let gbuffer_pbr_material_texture = device.create_texture(&wgpu::TextureDescriptor {
+                                    label: Some("Addon G-Buffer PBR Material"),
+                                    size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+                                    mip_level_count: 1,
+                                    sample_count: 1,
+                                    dimension: wgpu::TextureDimension::D2,
+                                    format: wgpu::TextureFormat::Rgba8Unorm,
+                                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                                    view_formats: &[],
+                                });
+                                let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+                                // Create G-Buffer bind group
+                                let g_buffer_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                                    label: Some("Addon G-Buffer Bind Group"),
+                                    layout: pipeline.g_buffer_bind_group_layout.as_ref().unwrap(),
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::TextureView(&gbuffer_position_view),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::TextureView(&gbuffer_normal_view),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 2,
+                                            resource: wgpu::BindingResource::TextureView(&gbuffer_albedo_view),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 3,
+                                            resource: wgpu::BindingResource::TextureView(&gbuffer_pbr_material_view),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 4,
+                                            resource: wgpu::BindingResource::Sampler(pipeline.g_buffer_sampler.as_ref().unwrap()),
+                                        },
+                                    ],
+                                });
+
                                 // Register with egui
                                 let egui_tex_id = gui.renderer.register_native_texture(device, &view, wgpu::FilterMode::Linear);
 
@@ -428,6 +505,11 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                     view: Arc::new(view),
                                     depth_texture: Arc::new(depth_texture),
                                     depth_view: Arc::new(depth_view),
+                                    g_buffer_position_view: Arc::new(gbuffer_position_view),
+                                    g_buffer_normal_view: Arc::new(gbuffer_normal_view),
+                                    g_buffer_albedo_view: Arc::new(gbuffer_albedo_view),
+                                    g_buffer_pbr_material_view: Arc::new(gbuffer_pbr_material_view),
+                                    g_buffer_bind_group,
                                     egui_tex_id,
                                     width,
                                     height,
