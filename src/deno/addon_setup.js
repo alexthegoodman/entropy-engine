@@ -11,9 +11,10 @@ globalThis.Entropy = {
                 if (globalThis.__entropy_current_addon_context_override) {
                     return globalThis.__entropy_current_addon_context_override;
                 }
-                if (metadata.isAtom) {
-                    return "__VOID__";
-                }
+                // breaks new windowed style
+                // if (metadata.isAtom) {
+                //     return "__VOID__";
+                // }
                 return metadata.name;
             };
 
@@ -153,6 +154,8 @@ globalThis.Entropy = {
                         if (config.isNpc && globalThis.registered_npcs) {
                             globalThis.registered_npcs.push({ id: config.id, type: "Enemy", position: config.position });
                         }
+
+                        globalThis.Entropy.println("[DEBUG] Addon Name Create Mesh: " + getAddonName());
 
                         ops.op_mesh_create(getAddonName(), {
                             id: config.id || null,
@@ -365,6 +368,7 @@ globalThis.Entropy = {
                             bindings: config.bindings || []
                         };
                         // ops.op_println(String("CreateOrUpdate Hair (2): " + getAddonName() + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
+                        globalThis.Entropy.println("[DEBUG] Addon Name Create Hair: " + getAddonName());
                         ops.op_grass_create(getAddonName(), merged_config);
                     }
                 },

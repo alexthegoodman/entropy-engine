@@ -1097,7 +1097,7 @@ addon.onInit(async () => {
     });
 
     const renderHairUI = (tab: string, overrideKey?: string) => {
-        Entropy.Addon.setVisibility("Hair Particles with Ornaments", true);
+        Entropy.Addon.setVisibility(addonInfo.name, true);
         Entropy.UI.Widget.label(tab, { text: "🌸 Hair & Grass with Ornaments", bold: true });
         
         Entropy.UI.Widget.button(tab, {
@@ -1106,7 +1106,7 @@ addon.onInit(async () => {
                 addon.IO.save(addonState);
                 if (Entropy.Composer) {
                     addonState.savedComponents.forEach(comp => {
-                        Entropy.Composer!.registerComponent("Hair Particles with Ornaments", comp.id, comp.name, comp.params);
+                        Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
                     });
                 }
                 Entropy.println("Hair state saved!");
@@ -1124,7 +1124,7 @@ addon.onInit(async () => {
                 onClick: () => {
                     addon.IO.save(addonState);
                     if (Entropy.Composer) {
-                        Entropy.Composer.registerComponent("Hair Particles with Ornaments", activeComp.id, activeComp.name, activeComp.params);
+                        Entropy.Composer.registerComponent(addonInfo.name, activeComp.id, activeComp.name, activeComp.params);
                     }
                     Entropy.println(`Updated component: ${activeComp.name}`);
                 }
@@ -1143,7 +1143,7 @@ addon.onInit(async () => {
                 });
                 addonState.activeComponentId = id;
                 if (Entropy.Composer) {
-                    Entropy.Composer!.registerComponent("Hair Particles with Ornaments", id, name, addonState.currentParams);
+                    Entropy.Composer!.registerComponent(addonInfo.name, id, name, addonState.currentParams);
                 }
                 addon.IO.save(addonState);
                 Entropy.println(`Saved new component: ${name}`);
@@ -1164,7 +1164,7 @@ addon.onInit(async () => {
         Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
 
         // === ORNAMENT CONTROLS ===
-        Entropy.Composer?.enableOverride(overrideKey || "Game Composer");
+        // Entropy.Composer?.enableOverride(overrideKey || "Game Composer");
 
         Entropy.UI.Widget.label(tab, { text: "💎 Ornament System", bold: true });
         
@@ -1850,13 +1850,13 @@ addon.onInit(async () => {
             }
         });
 
-        Entropy.Composer?.disableOverride();
+        // Entropy.Composer?.disableOverride();
     }
 
     if (Entropy.Composer) {
-        Entropy.Composer.registerEditor("Hair Particles with Ornaments", renderHairUI);
+        Entropy.Composer.registerEditor(addonInfo.name, renderHairUI);
         if (Entropy.Composer.registerRenderer) {
-            Entropy.Composer.registerRenderer("Hair Particles with Ornaments", (id: string, params: any) => {
+            Entropy.Composer.registerRenderer(addonInfo.name, (id: string, params: any) => {
                 // updateHair(params, id);
                 // updateOrnaments(params, id);
                 Entropy.println("register grass " + id + " " + JSON.stringify(params));
@@ -1876,6 +1876,9 @@ addon.onInit(async () => {
             // if (data.activeComponentId) addonState.activeComponentId = data.activeComponentId;
             addonState.activeComponentId = addonState.savedComponents[0].id;
         }
+
+        updateHair({ ...addonState.currentParams, pipelineId: customPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
+        updateOrnaments({ ...addonState.currentParams, pipelineId: ornamentPipelineId }, addonState.activeComponentId || Entropy.generateUUID());
     });
 
     // if (Entropy.Composer) {

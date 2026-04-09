@@ -359,9 +359,9 @@ fn render_addon_frame_single(
             let op_state = op_state.borrow();
             if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                 for (addon_name_2, cubes) in &renderer_state.addon_cubes {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -386,9 +386,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, landscapes) in &renderer_state.addon_landscapes {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -413,9 +413,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, landscapes) in &renderer_state.addon_landscape3ds {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -440,9 +440,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, landscapes) in &mut renderer_state.addon_quadscapes {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -467,9 +467,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, meshes) in &renderer_state.addon_meshes {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -490,9 +490,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, models) in &renderer_state.addon_models {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
@@ -521,9 +521,9 @@ fn render_addon_frame_single(
                 }
 
                 for (addon_name_2, grasses) in &mut renderer_state.addon_grasses {
-                    if ctx.hidden_addons.contains(addon_name) {
-                        continue;
-                    }
+                    //if ctx.hidden_addons.contains(addon_name) {
+                        //continue;
+                   // }
                     if addon_name != "Game Composer" && addon_name_2 != addon_name && addon_name_2 != "Global" {
                         continue;
                     }
