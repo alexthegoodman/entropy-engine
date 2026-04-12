@@ -631,11 +631,26 @@ impl ApplicationHandler<UserEvent> for Application {
                 }
 
                 if (self.shift_active && !self.game_mode) {
-                    handle_mouse_move_on_shift(
-                    (position.x - last_x) as f32, 
-                    (position.y - last_y) as f32, 
-                editor
-                    );
+                    let mut is_over_viewport = false;
+                    if let Some(logical_pos) = window.gui.ctx.input(|i| i.pointer.latest_pos()) {
+                        is_over_viewport = editor.addon_viewport_rects.values().any(|rect| {
+                            let [rx, ry, rw, rh] = *rect;
+                            logical_pos.x >= rx && logical_pos.x <= (rx + rw) &&
+                            logical_pos.y >= ry && logical_pos.y <= (ry + rh)
+                        }) || editor.viewport_tab_rect.map_or(false, |rect| {
+                            let [rx, ry, rw, rh] = rect;
+                            logical_pos.x >= rx && logical_pos.x <= (rx + rw) &&
+                            logical_pos.y >= ry && logical_pos.y <= (ry + rh)
+                        });
+                    }
+
+                    if is_over_viewport {
+                        handle_mouse_move_on_shift(
+                        (position.x - last_x) as f32, 
+                        (position.y - last_y) as f32, 
+                    editor
+                        );
+                    }
                 }
 
                 let mut last_pos = None;

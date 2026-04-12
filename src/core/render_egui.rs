@@ -49,6 +49,10 @@ use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use std::time::{Duration, Instant};
 
 pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
+    if let Some(editor) = &mut pipeline.export_editor {
+        editor.addon_viewport_rects.clear();
+        editor.viewport_tab_rect = None;
+    }
     let ctx = &gui.ctx;
 
     let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
@@ -97,6 +101,35 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
             });
         });
 
+    if pipeline.current_workspace == Workspace::CentralChat {
+        egui::SidePanel::left("central_chat_panel")
+            .resizable(true)
+            .default_width(350.0)
+            .show(ctx, |ui| {
+                if let Some(_editor) = &mut pipeline.export_editor {
+                    let mut viewer = PipelineTabViewer {
+                        context: UiContext {
+                            export_editor: &mut pipeline.export_editor,
+                            new_project_name: &mut pipeline.new_project_name,
+                            projects: &mut pipeline.projects,
+                            selected_component_id: &mut pipeline.selected_component_id,
+                            chat: &mut pipeline.chat,
+                            video_timeline_ui: &mut pipeline.video_timeline_ui,
+                            gpu_resources: &pipeline.gpu_resources,
+                            current_app: AppExperience::OpenWorldStudio,
+                            next_workspace: &mut next_workspace,
+                            egui_renderer: &mut gui.renderer,
+                            active_addon: None,
+                            addon_render_targets: &mut pipeline.addon_render_targets,
+                            egui_tex_id: None,
+                        },
+                    };
+                    let mut tab = Tab::WryChat;
+                    viewer.ui(ui, &mut tab);
+                }
+            });
+    }
+
     
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()))
@@ -116,7 +149,7 @@ pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
                         let surface = dock_state.main_surface_mut();
 
                         if !pipeline.focus_mode {
-                            surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                            // surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
                             surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
                         }
                     }
