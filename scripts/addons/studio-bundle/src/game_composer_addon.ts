@@ -134,6 +134,40 @@ const gameAddons = [
     "Cannabis Conquest"
 ];
 
+function addAndPlayGame(gameAddonName: string) {
+    let gameAdded = null;
+    
+    (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+
+    Entropy.println("Adding game: " + gameAddonName);
+
+    const renderer = Entropy.Composer?.getGame(gameAddonName);
+
+    gameAdded = gameAddonName;
+
+    if (renderer) {
+        Entropy.println("Game Composer Game render ... ");
+        renderer(gameAddonName, {});
+    }
+
+    (globalThis as any).__entropy_current_addon_context_override = null;
+
+    if (gameAdded) {
+        Entropy.println("Updating game status...");
+
+        composerState.playMode = !composerState.playMode;
+        Entropy.setGameMode(composerState.playMode);
+
+        if (composerState.playMode) {
+            Entropy._dispatchGameStarted(gameAdded);
+            Entropy.println("Game started!");
+        } else {
+            Entropy._dispatchGameStopped(gameAdded);
+            Entropy.println("Game stopped!");
+        }
+    }
+}
+
 function refreshScene() {
     // Use context override so everything spawned belongs to "Game Composer" bucket in Rust
     // (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
@@ -188,6 +222,8 @@ addon.onAllProjectsLoaded(() => {
         }
 
         refreshScene(); // until we clear, lets avoid this?
+
+        addAndPlayGame("The Fractured Realm");
     }
 });
 

@@ -850,7 +850,7 @@ impl ApplicationHandler<UserEvent> for Application {
             if let Some(start_addon) = &self.start_addon {
                 if let Some(window) = self.windows.values_mut().next() {
                     if let Some(editor) = window.pipeline.export_editor.as_mut() {
-                        editor.addon_engine.start_game(start_addon);
+                        // editor.addon_engine.start_game(start_addon); // just do this in the Game Composer code so everything flows in order properly
                         window.pipeline.current_workspace = Workspace::Addon("Game Composer".to_string());
                     }
                 }
