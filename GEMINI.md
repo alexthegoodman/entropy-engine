@@ -1,18 +1,14 @@
 # Entropy Engine
 
-This project is a native editor, chat, and engine for videos, games and other creative projects, with plans for a future add-on marketplace for new, high-performance app experiences.
-
-Ultimately, this engine is similar to MCP but without the hassle of MCP setup processes. The central advantage is the easily-used agentic system based on LLMs and add-on interop, while each app / add-on may have its own benefits and its own workspace.
+Entropy Engine is now a game dev framework with no editor, as it is going code-only. The basic premise to create native games using TypeScript or JavaScript via a Deno layer.
+We want to provide helpful capabilities and primitives so that things are easier than your typical framework. This mostly done by creating a great addon API.
 
 Here's some info on the current architecture:
 
-All the code is in /src/ and /scripts/addons/studio-bundle/src/ and /public/wry-chat/src/.
-
-Within the Wry Chat, we have our React-based AI SDK chat implementation. `entropy-site` repo is the API used by the Wry Chat. Tools provided to entropy-site are dynamically registed by addons.
+All the code is in /src/ and /scripts/addons/studio-bundle/src/.
 
 With the addon studio bundle there is:
 
-- DAW Synth
 - Enviornment (Sun and Sky)
 - Beautiful FFT Water
 - JS-generated Terrain (flexnoise for smaller)
@@ -26,73 +22,23 @@ With the addon studio bundle there is:
 - A couple rivers attempts (neither good yet)
 - Game Composer (mix objects from other addons, start a Yumon training session, etc)
 
+Game Addons (like fps_rpg in the studio-bundle) should handle game behaviors and game ui using native primitives via deno layer.
+
 Within /src/, there are several directories:
 
 /art_assets/ handles GLB import and the wgpu Model creation as well as ScatteredModel (which distributes instances of a Model)
 /core/ handles all kinds of things from shaders to camera to Editor and RendererState, it also has the important pipeline.rs which contains the actual frame render function(s)
-/core/ also contains the egui_sidebar.rs which describes most of egui ui for the Chat as well as Properties, Projects, and Components
-/game_behaviors/ is for in-game AI and mechanics
-/game_ui/ holds the UI pipeline's frontend implementations
 /heightfield_landscapes/ contains two landscape implementations (a quadtree version and a normal version). We are currently using the normal version in Landscape.rs
 /helpers/ will include data regarding the saved state (saved_data.rs)
-/physics/ offers a simple custom physics implementation, but it is not used here. Instead, we use Rapier.
 /procedural_grass/ is a powerful interactive hair particle system featuring grass with wind and its own render pipeline and shader
-/water_plane/ has the water shader and pipeline creation
 /procedural_models/ contains models like House which have dynamic numbers of rooms, roof type, etc
 /procedural_trees/ is the tree pipeline and shader designed to give realistic looking tree variations
 /renderer_images/ is just for rendering raw images in the scene (uncommon in games)
 /renderer_text/ is used for rendering raw text in the scene (uncommon in games, although maybe for UI if UI is integrated)
-/renderer_videos/ is used for rendering raw videos in the scene
-/shape_primitives/ offers a number of simple shapes to render in the scene
-/model_components/ has components that are associated with models such as PlayerCharacter, NPC, and Collectables
-/vector_animations/ helps with 2D motion path animations
-/video_export/ leverages Media Foundation to power mp4 video export on Windows
+/shape_primitives/ offers a number of simple shapes (Cube, polygon, etc) to render in the scene
+/model_components/ has components that are associated with models such as PlayerCharacter, NPC, and Collectables (however, most game logic should be JS / addon-side)
 /deno/ contains the addon engine for both game logic and rendering logic in JS scripts
 /yumon/ contains the system.rs Rust Burn LSTM model which implements behavior cloning concepts for creating NPC behaviors
 
 startup.rs has the winit code
 handlers.rs has a number of event handlers (like click and key handlers)
-
-## Focus
-
-We are focused on the addons now, and just leveraging the underlying Rust capabilities to power the addon experience.
-
-### Future addons may include:
-
-Games (mainly)
-- FK / IK Animation
-- Mesh Sculpting
-- Mesh Modelling
-- Dot Particles
-- Behavior Tree Node Graph Editor
-- UI Designer (for in-game UIs)
-
-ML
-- Machine Learning Node Graph Editor (should ultimately integrate with video and games)
-- Dataset Browser/Labeler - View training data, quick annotations (Browse and download HF datasets)
-- Model Performance Monitor - Loss curves, metrics dashboard (minimal UI)
-- Inference Tester - Quick A/B comparison of model outputs
-- Export/Import Hub - ONNX, safetensors, etc. for external model integration
-- Synethetic Data Workshop - provide a seed of real data
-
-Video (mainly)
-- Color Corrector
-
-Video or Games
-- Storyboarding, Concepts
-
-Audio, Video, or Games
-- DAW Mastering
-
-Industrial
-- CAD, ECAD
-
-Other
-- Media Player
-- Forum Portal
-- File Browser
-- Knowledge Graph
-
-Over time, the goal is to bring balance by working on addons that are actually not related to games. 
-This will help us diversify and establish a true high-performance platform.
-But for now, it IS all about games. Because that's simply the largest audience of them all. It's natural.

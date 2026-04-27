@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use crate::core::RendererState::DebugRay;
 use crate::deno::addon_ops::{AddonContext, InputEvent};
-use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::model_components::Collectable::Collectable;
 use crate::model_components::PlayerCharacter::MovementState;
 use crate::procedural_models::House::HouseConfig;
@@ -25,8 +24,7 @@ use std::str::FromStr;
 
 use crate::model_components::{PlayerCharacter::PlayerCharacter, NPC::NPC};
 use crate::core::SimpleCamera::to_row_major_f64;
-use crate::core::editor::{self, Editor, SelectedObject, Shape, WindowSize};
-use crate::vector_animations::animations::ObjectType;
+use crate::core::editor::{self, Editor, Shape, WindowSize};
 use crate::core::gpu_resources;
 use crate::helpers::utilities;
 use crate::helpers::landscapes::{TextureData, read_landscape_heightmap_as_texture};
@@ -38,8 +36,6 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
 // use crate::deno::script_engine::{ComponentChanges, DenoEngine, ScriptParticleConfig};
 use crate::shape_primitives::Cube::Cube;
 use crate::procedural_grass::grass::{Grass};
-use crate::water_plane::water::WaterPlane;
-use crate::water_plane::config::WaterConfig;
 use rand::{Rng, random, SeedableRng};
 use rand::rngs::StdRng;
 use crate::{
@@ -201,12 +197,12 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
     }
 
     if key_code == "e" {
-        if state.dialogue_state.options.is_empty() {
-            if is_pressed {
-                handle_npc_interaction(state);
-                handle_collectable_interaction(state);
-            }
-        }
+        // if state.dialogue_state.options.is_empty() {
+        //     if is_pressed {
+        //         handle_npc_interaction(state);
+        //         handle_collectable_interaction(state);
+        //     }
+        // }
     } else if key_code == "i" {
         // Now handled JS-side
         // if is_pressed {
@@ -221,37 +217,37 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
         return;
     } else if key_code == "Delete" {
         if is_pressed {
-            if let Some(selected) = state.selected_object.clone() {
-                if let Some(stunts_state) = state.stunts_state.as_mut() {
-                    match selected.object_type {
-                        ObjectType::Polygon => {
-                            if let Some(polys) = &mut stunts_state.active_polygons {
-                                polys.retain(|p| p.id != selected.object_id.to_string());
-                            }
-                        }
-                        ObjectType::TextItem => {
-                            if let Some(texts) = &mut stunts_state.active_text_items {
-                                texts.retain(|t| t.id != selected.object_id.to_string());
-                            }
-                        }
-                        ObjectType::ImageItem => {
-                            if let Some(imgs) = &mut stunts_state.active_image_items {
-                                imgs.retain(|i| i.id != selected.object_id.to_string());
-                            }
-                        }
-                        ObjectType::VideoItem => {
-                            if let Some(vids) = &mut stunts_state.active_video_items {
-                                vids.retain(|v| v.id != selected.object_id.to_string());
-                            }
-                        }
-                    }
-                    if let Some(project_id) = &stunts_state.id {
-                        let _ = utilities::update_project_state(project_id, stunts_state);
-                    }
-                    state.selected_object = None;
-                    state.sync_stunts_objects();
-                }
-            }
+            // if let Some(selected) = state.selected_object.clone() {
+            //     if let Some(stunts_state) = state.stunts_state.as_mut() {
+            //         match selected.object_type {
+            //             ObjectType::Polygon => {
+            //                 if let Some(polys) = &mut stunts_state.active_polygons {
+            //                     polys.retain(|p| p.id != selected.object_id.to_string());
+            //                 }
+            //             }
+            //             ObjectType::TextItem => {
+            //                 if let Some(texts) = &mut stunts_state.active_text_items {
+            //                     texts.retain(|t| t.id != selected.object_id.to_string());
+            //                 }
+            //             }
+            //             ObjectType::ImageItem => {
+            //                 if let Some(imgs) = &mut stunts_state.active_image_items {
+            //                     imgs.retain(|i| i.id != selected.object_id.to_string());
+            //                 }
+            //             }
+            //             ObjectType::VideoItem => {
+            //                 // if let Some(vids) = &mut stunts_state.active_video_items {
+            //                 //     vids.retain(|v| v.id != selected.object_id.to_string());
+            //                 // }
+            //             }
+            //         }
+            //         if let Some(project_id) = &stunts_state.id {
+            //             let _ = utilities::update_project_state(project_id, stunts_state);
+            //         }
+            //         // state.selected_object = None;
+            //         // state.sync_stunts_objects();
+            //     }
+            // }
         }
         return;
     }
@@ -282,31 +278,31 @@ pub fn handle_key_press(state: &mut Editor, key_code: &str, is_pressed: bool) {
         },
         "c" => {
             if is_pressed {
-                if let Some(player) = &mut renderer_state.player_character {
-                    if player.movement_state == MovementState::Crouching {
-                        player.movement_state = MovementState::Walking;
-                    } else {
-                        player.movement_state = MovementState::Crouching;
-                    }
-                }
+                // if let Some(player) = &mut renderer_state.player_character {
+                //     if player.movement_state == MovementState::Crouching {
+                //         player.movement_state = MovementState::Walking;
+                //     } else {
+                //         player.movement_state = MovementState::Crouching;
+                //     }
+                // }
             }
         },
         "z" => {
             if is_pressed {
-                if let Some(player) = &mut renderer_state.player_character {
-                    if player.movement_state == MovementState::Prone {
-                        player.movement_state = MovementState::Walking;
-                    } else {
-                        player.movement_state = MovementState::Prone;
-                    }
-                }
+                // if let Some(player) = &mut renderer_state.player_character {
+                //     if player.movement_state == MovementState::Prone {
+                //         player.movement_state = MovementState::Walking;
+                //     } else {
+                //         player.movement_state = MovementState::Prone;
+                //     }
+                // }
             }
         },
         "r" => {
             if is_pressed {
-                if let Some(player) = &mut renderer_state.player_character {
-                    player.reload();
-                }
+                // if let Some(player) = &mut renderer_state.player_character {
+                //     player.reload();
+                // }
             }
         },
         "w" | "ArrowUp" => {
@@ -424,69 +420,69 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                     let ray = crate::core::editor::visualize_ray_intersection(&window_size_struct, mouse_pos.x, mouse_pos.y, camera);
                     let hit_point = ray.top_left;
 
-                    let mut hit_stunts_obj = None;
+                    // let mut hit_stunts_obj = None;
 
                     // Check polygons
-                    for poly in state.stunts_polygons.iter().rev() {
-                        if poly.contains_point(&hit_point, camera) {
-                            hit_stunts_obj = Some(SelectedObject {
-                                object_id: poly.id,
-                                object_type: ObjectType::Polygon,
-                            });
-                            break;
-                        }
-                    }
+                    // for poly in state.stunts_polygons.iter().rev() {
+                    //     if poly.contains_point(&hit_point, camera) {
+                    //         hit_stunts_obj = Some(SelectedObject {
+                    //             object_id: poly.id,
+                    //             object_type: ObjectType::Polygon,
+                    //         });
+                    //         break;
+                    //     }
+                    // }
 
-                    if hit_stunts_obj.is_none() {
-                        // Check textboxes
-                        for text in state.stunts_textboxes.iter().rev() {
-                            if text.contains_point(&hit_point, camera) {
-                                hit_stunts_obj = Some(SelectedObject {
-                                    object_id: text.id,
-                                    object_type: ObjectType::TextItem,
-                                });
-                                break;
-                            }
-                        }
-                    }
+                    // if hit_stunts_obj.is_none() {
+                    //     // Check textboxes
+                    //     for text in state.stunts_textboxes.iter().rev() {
+                    //         if text.contains_point(&hit_point, camera) {
+                    //             hit_stunts_obj = Some(SelectedObject {
+                    //                 object_id: text.id,
+                    //                 object_type: ObjectType::TextItem,
+                    //             });
+                    //             break;
+                    //         }
+                    //     }
+                    // }
 
-                    if hit_stunts_obj.is_none() {
-                        // Check images
-                        for img in state.stunts_images.iter().rev() {
-                            if img.contains_point(&hit_point) {
-                                if let Ok(id) = Uuid::from_str(&img.id) {
-                                    hit_stunts_obj = Some(SelectedObject {
-                                        object_id: id,
-                                        object_type: ObjectType::ImageItem,
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    // if hit_stunts_obj.is_none() {
+                    //     // Check images
+                    //     for img in state.stunts_images.iter().rev() {
+                    //         if img.contains_point(&hit_point) {
+                    //             if let Ok(id) = Uuid::from_str(&img.id) {
+                    //                 hit_stunts_obj = Some(SelectedObject {
+                    //                     object_id: id,
+                    //                     object_type: ObjectType::ImageItem,
+                    //                 });
+                    //             }
+                    //             break;
+                    //         }
+                    //     }
+                    // }
 
-                    if hit_stunts_obj.is_none() {
-                        // Check videos
-                        for vid in state.stunts_videos.iter().rev() {
-                            if vid.contains_point(&hit_point, camera) {
-                                if let Ok(id) = Uuid::from_str(&vid.id) {
-                                    hit_stunts_obj = Some(SelectedObject {
-                                        object_id: id,
-                                        object_type: ObjectType::VideoItem,
-                                    });
-                                }
-                                break;
-                            }
-                        }
-                    }
+                    // if hit_stunts_obj.is_none() {
+                    //     // Check videos
+                    //     for vid in state.stunts_videos.iter().rev() {
+                    //         if vid.contains_point(&hit_point, camera) {
+                    //             if let Ok(id) = Uuid::from_str(&vid.id) {
+                    //                 hit_stunts_obj = Some(SelectedObject {
+                    //                     object_id: id,
+                    //                     object_type: ObjectType::VideoItem,
+                    //                 });
+                    //             }
+                    //             break;
+                    //         }
+                    //     }
+                    // }
 
-                    if let Some(obj) = hit_stunts_obj {
-                        state.selected_object = Some(obj);
-                        renderer_state.selected_entity_id = None;
-                        renderer_state.selected_component_id = None;
-                        // println!("Selected Stunts object: {:?}", state.selected_object);
-                        return;
-                    }
+                    // if let Some(obj) = hit_stunts_obj {
+                    //     state.selected_object = Some(obj);
+                    //     renderer_state.selected_entity_id = None;
+                    //     renderer_state.selected_component_id = None;
+                    //     // println!("Selected Stunts object: {:?}", state.selected_object);
+                    //     return;
+                    // }
 
                     // println!("Check ray");
 
@@ -561,7 +557,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                     // player_character.defend();
                     // println!("Right mouse button pressed - Player Defend!");
                     let is_pressed = element_state == EntropyElementState::Pressed;
-                    player_character.set_aiming(is_pressed);
+                    // player_character.set_aiming(is_pressed);
                 }
             }
             _ => {}
@@ -578,7 +574,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                 if let Some(player_character) = &mut renderer_state.player_character {
                     // release defend if needed for melee weapon
                     let is_pressed = element_state == EntropyElementState::Pressed;
-                    player_character.set_aiming(is_pressed);
+                    // player_character.set_aiming(is_pressed);
                 }
             }
             _ => {}
@@ -613,109 +609,109 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
     renderer_state.mouse_state.is_dragging = current_is_dragging;
     renderer_state.mouse_state.drag_started = drag_started;
 
-    if current_is_dragging {
-        if let Some(selected) = &state.selected_object {
-            match selected.object_type {
-                ObjectType::Polygon => {
-                    if let Some(poly) = state.stunts_polygons.iter_mut().find(|p| p.id == selected.object_id) {
-                        poly.transform.position.x += dx;
-                        poly.transform.position.y += dy;
-                        poly.transform.update_uniform_buffer(&gpu_resources.queue);
-                    }
-                }
-                ObjectType::TextItem => {
-                    if let Some(text) = state.stunts_textboxes.iter_mut().find(|t| t.id == selected.object_id) {
-                        text.transform.position.x += dx;
-                        text.transform.position.y += dy;
-                        text.transform.update_uniform_buffer(&gpu_resources.queue);
+    // if current_is_dragging {
+    //     if let Some(selected) = &state.selected_object {
+    //         match selected.object_type {
+    //             ObjectType::Polygon => {
+    //                 if let Some(poly) = state.stunts_polygons.iter_mut().find(|p| p.id == selected.object_id) {
+    //                     poly.transform.position.x += dx;
+    //                     poly.transform.position.y += dy;
+    //                     poly.transform.update_uniform_buffer(&gpu_resources.queue);
+    //                 }
+    //             }
+    //             ObjectType::TextItem => {
+    //                 if let Some(text) = state.stunts_textboxes.iter_mut().find(|t| t.id == selected.object_id) {
+    //                     text.transform.position.x += dx;
+    //                     text.transform.position.y += dy;
+    //                     text.transform.update_uniform_buffer(&gpu_resources.queue);
                         
-                        // Also update background polygon
-                        text.background_polygon.transform.position.x += dx;
-                        text.background_polygon.transform.position.y += dy;
-                        text.background_polygon.transform.update_uniform_buffer(&gpu_resources.queue);
-                    }
-                }
-                ObjectType::ImageItem => {
-                    if let Some(img) = state.stunts_images.iter_mut().find(|i| i.id == selected.object_id.to_string()) {
-                        img.transform.position.x += dx;
-                        img.transform.position.y += dy;
-                        img.transform.update_uniform_buffer(&gpu_resources.queue);
-                    }
-                }
-                ObjectType::VideoItem => {
-                    if let Some(vid) = state.stunts_videos.iter_mut().find(|v| v.id == selected.object_id.to_string()) {
-                        vid.transform.position.x += dx;
-                        vid.transform.position.y += dy;
-                        vid.transform.update_uniform_buffer(&gpu_resources.queue);
-                    }
-                }
-            }
-        }
-    }
+    //                     // Also update background polygon
+    //                     text.background_polygon.transform.position.x += dx;
+    //                     text.background_polygon.transform.position.y += dy;
+    //                     text.background_polygon.transform.update_uniform_buffer(&gpu_resources.queue);
+    //                 }
+    //             }
+    //             ObjectType::ImageItem => {
+    //                 if let Some(img) = state.stunts_images.iter_mut().find(|i| i.id == selected.object_id.to_string()) {
+    //                     img.transform.position.x += dx;
+    //                     img.transform.position.y += dy;
+    //                     img.transform.update_uniform_buffer(&gpu_resources.queue);
+    //                 }
+    //             }
+    //             ObjectType::VideoItem => {
+    //                 if let Some(vid) = state.stunts_videos.iter_mut().find(|v| v.id == selected.object_id.to_string()) {
+    //                     vid.transform.position.x += dx;
+    //                     vid.transform.position.y += dy;
+    //                     vid.transform.update_uniform_buffer(&gpu_resources.queue);
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
-    if drag_ended {
-        if let Some(selected) = &state.selected_object {
-            if let Some(stunts_state) = state.stunts_state.as_mut() {
-                let mut updated = false;
-                match selected.object_type {
-                    ObjectType::Polygon => {
-                        if let Some(poly) = state.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
-                            if let Some(saved_polys) = &mut stunts_state.active_polygons {
-                                if let Some(saved) = saved_polys.iter_mut().find(|p| p.id == poly.id.to_string()) {
-                                    saved.position.x = poly.transform.position.x as i32;
-                                    saved.position.y = poly.transform.position.y as i32;
-                                    updated = true;
-                                }
-                            }
-                        }
-                    }
-                    ObjectType::TextItem => {
-                        if let Some(text) = state.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
-                            if let Some(saved_texts) = &mut stunts_state.active_text_items {
-                                if let Some(saved) = saved_texts.iter_mut().find(|t| t.id == text.id.to_string()) {
-                                    saved.position.x = text.transform.position.x as i32;
-                                    saved.position.y = text.transform.position.y as i32;
-                                    updated = true;
-                                }
-                            }
-                        }
-                    }
-                    ObjectType::ImageItem => {
-                        if let Some(img) = state.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
-                            if let Some(saved_imgs) = &mut stunts_state.active_image_items {
-                                if let Some(saved) = saved_imgs.iter_mut().find(|i| i.id == img.id) {
-                                    saved.position.x = img.transform.position.x as i32;
-                                    saved.position.y = img.transform.position.y as i32;
-                                    updated = true;
-                                }
-                            }
-                        }
-                    }
-                    ObjectType::VideoItem => {
-                        if let Some(vid) = state.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
-                            if let Some(saved_vids) = &mut stunts_state.active_video_items {
-                                if let Some(saved) = saved_vids.iter_mut().find(|v| v.id == vid.id) {
-                                    saved.position.x = vid.transform.position.x as i32;
-                                    saved.position.y = vid.transform.position.y as i32;
-                                    updated = true;
-                                }
-                            }
-                        }
-                    }
-                }
+    // if drag_ended {
+    //     if let Some(selected) = &state.selected_object {
+    //         if let Some(stunts_state) = state.stunts_state.as_mut() {
+    //             let mut updated = false;
+    //             match selected.object_type {
+    //                 ObjectType::Polygon => {
+    //                     if let Some(poly) = state.stunts_polygons.iter().find(|p| p.id == selected.object_id) {
+    //                         if let Some(saved_polys) = &mut stunts_state.active_polygons {
+    //                             if let Some(saved) = saved_polys.iter_mut().find(|p| p.id == poly.id.to_string()) {
+    //                                 saved.position.x = poly.transform.position.x as i32;
+    //                                 saved.position.y = poly.transform.position.y as i32;
+    //                                 updated = true;
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 ObjectType::TextItem => {
+    //                     if let Some(text) = state.stunts_textboxes.iter().find(|t| t.id == selected.object_id) {
+    //                         if let Some(saved_texts) = &mut stunts_state.active_text_items {
+    //                             if let Some(saved) = saved_texts.iter_mut().find(|t| t.id == text.id.to_string()) {
+    //                                 saved.position.x = text.transform.position.x as i32;
+    //                                 saved.position.y = text.transform.position.y as i32;
+    //                                 updated = true;
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 ObjectType::ImageItem => {
+    //                     if let Some(img) = state.stunts_images.iter().find(|i| i.id == selected.object_id.to_string()) {
+    //                         if let Some(saved_imgs) = &mut stunts_state.active_image_items {
+    //                             if let Some(saved) = saved_imgs.iter_mut().find(|i| i.id == img.id) {
+    //                                 saved.position.x = img.transform.position.x as i32;
+    //                                 saved.position.y = img.transform.position.y as i32;
+    //                                 updated = true;
+    //                             }
+    //                         }
+    //                     }
+    //                 }
+    //                 ObjectType::VideoItem => {
+    //                     // if let Some(vid) = state.stunts_videos.iter().find(|v| v.id == selected.object_id.to_string()) {
+    //                     //     if let Some(saved_vids) = &mut stunts_state.active_video_items {
+    //                     //         if let Some(saved) = saved_vids.iter_mut().find(|v| v.id == vid.id) {
+    //                     //             saved.position.x = vid.transform.position.x as i32;
+    //                     //             saved.position.y = vid.transform.position.y as i32;
+    //                     //             updated = true;
+    //                     //         }
+    //                     //     }
+    //                     // }
+    //                 }
+    //             }
 
-                if updated {
-                    if let Some(project_id) = &stunts_state.id {
-                        if let Err(e) = utilities::update_project_state(project_id, stunts_state) {
-                            println!("Failed to save stunts state: {}", e);
-                        } else {
-                            println!("Stunts state saved successfully after drag.");
-                        }
-                    }
-                }
-            }
-        }
-    }
+    //             if updated {
+    //                 if let Some(project_id) = &stunts_state.id {
+    //                     if let Err(e) = utilities::update_project_state(project_id, stunts_state) {
+    //                         println!("Failed to save stunts state: {}", e);
+    //                     } else {
+    //                         println!("Stunts state saved successfully after drag.");
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     if let Some(currentPosition) = currentPosition {
         if let Some(component_id) = &renderer_state.selected_component_id {
@@ -980,7 +976,7 @@ pub async fn handle_add_npc(
         npcComponentId.clone(), 
         VisualType::Model, 
         Some(npc_rigid_body_handle), 
-        npc_properties.behavior.clone(), 
+        // npc_properties.behavior.clone(), 
         squad_id,
         None
     );
@@ -1209,25 +1205,25 @@ pub fn handle_add_grass(
     }
 }
 
-pub fn handle_add_water_plane(
-    state: &mut RendererState,
-    device: &wgpu::Device,
-    camera_bind_group_layout: &wgpu::BindGroupLayout,
-    texture_format: wgpu::TextureFormat,
-    component_id: String,
-    water_properties: Option<WaterConfig>,
-    landscape_id: Option<String>
-) {
-    if let Some(config) = water_properties {
-        if let Some(landscape_id) = landscape_id {
-            if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
-                // let config = WaterConfig::default();
-                let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj, config);
-                state.water_planes.push(water_plane);
-            }
-        }
-    }
-}
+// pub fn handle_add_water_plane(
+//     state: &mut RendererState,
+//     device: &wgpu::Device,
+//     camera_bind_group_layout: &wgpu::BindGroupLayout,
+//     texture_format: wgpu::TextureFormat,
+//     component_id: String,
+//     water_properties: Option<WaterConfig>,
+//     landscape_id: Option<String>
+// ) {
+//     if let Some(config) = water_properties {
+//         if let Some(landscape_id) = landscape_id {
+//             if let Some(mut landscape_obj) = state.landscapes.iter_mut().find(|l| l.id == landscape_id) {
+//                 // let config = WaterConfig::default();
+//                 let water_plane = WaterPlane::new(device, camera_bind_group_layout, texture_format, landscape_obj, config);
+//                 state.water_planes.push(water_plane);
+//             }
+//         }
+//     }
+// }
 
 pub fn handle_add_trees(
     renderer_state: &mut RendererState,
@@ -1327,17 +1323,17 @@ pub fn handle_add_particle_system(
     state.particle_systems.push(system);
 }
 
-pub fn handle_configure_water_plane(
-    state: &mut RendererState,
-    queue: &wgpu::Queue,
-    config: WaterConfig,
-) {
-    if let Some(water_plane) = state.water_planes.get_mut(0) {
-        water_plane.update_config(queue, config);
-    }
-}
+// pub fn handle_configure_water_plane(
+//     state: &mut RendererState,
+//     queue: &wgpu::Queue,
+//     config: WaterConfig,
+// ) {
+//     // if let Some(water_plane) = state.water_planes.get_mut(0) {
+//     //     water_plane.update_config(queue, config);
+//     // }
+// }
 
-use crate::game_ui::dialogue_state::DialogueState;
+// use crate::game_ui::dialogue_state::DialogueState;
 
 fn handle_npc_interaction(state: &mut Editor) {
     // println!("Checking interact...");
@@ -1378,40 +1374,40 @@ fn handle_npc_interaction(state: &mut Editor) {
     }
 
     // Check if NPC is dead for looting
-    let mut loot_collected = false;
-    if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == target_id) {
-        if npc.is_dead {
-            if let Some(player) = &mut renderer_state.player_character {
-                // Transfer all items from NPC inventory to player
-                let items_to_transfer: Vec<_> = npc.inventory.items.drain(..).collect();
-                if !items_to_transfer.is_empty() {
-                    for item in items_to_transfer {
-                        // println!("Looted item: {:?}", item.generic_properties.name);
-                        player.inventory.add_item(&item);
-                    }
-                    loot_collected = true;
-                } else {
-                    println!("NPC has no loot.");
-                }
+    // let mut loot_collected = false;
+    // if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == target_id) {
+    //     if npc.is_dead {
+    //         if let Some(player) = &mut renderer_state.player_character {
+    //             // Transfer all items from NPC inventory to player
+    //             let items_to_transfer: Vec<_> = npc.inventory.items.drain(..).collect();
+    //             if !items_to_transfer.is_empty() {
+    //                 for item in items_to_transfer {
+    //                     // println!("Looted item: {:?}", item.generic_properties.name);
+    //                     player.inventory.add_item(&item);
+    //                 }
+    //                 loot_collected = true;
+    //             } else {
+    //                 println!("NPC has no loot.");
+    //             }
 
-                // Also transfer equipped items if any
-                if let Some(weapon) = npc.inventory.equipped_weapon.take() {
-                    // println!("Looted equipped weapon: {:?}", weapon.generic_properties.name);
-                    player.inventory.add_item(&weapon);
-                    loot_collected = true;
-                }
-                if let Some(armor) = npc.inventory.equipped_armor.take() {
-                    // println!("Looted equipped armor: {:?}", armor.generic_properties.name);
-                    player.inventory.add_item(&armor);
-                    loot_collected = true;
-                }
-            }
-            if loot_collected {
-                // println!("Looted NPC {:?}.", target_id);
-            }
-            return; // Don't start dialogue with dead NPC
-        }
-    }
+    //             // Also transfer equipped items if any
+    //             if let Some(weapon) = npc.inventory.equipped_weapon.take() {
+    //                 // println!("Looted equipped weapon: {:?}", weapon.generic_properties.name);
+    //                 player.inventory.add_item(&weapon);
+    //                 loot_collected = true;
+    //             }
+    //             if let Some(armor) = npc.inventory.equipped_armor.take() {
+    //                 // println!("Looted equipped armor: {:?}", armor.generic_properties.name);
+    //                 player.inventory.add_item(&armor);
+    //                 loot_collected = true;
+    //             }
+    //         }
+    //         if loot_collected {
+    //             // println!("Looted NPC {:?}.", target_id);
+    //         }
+    //         return; // Don't start dialogue with dead NPC
+    //     }
+    // }
 
     // println!("Running interact... {:?}", target_id);
     
@@ -1443,36 +1439,36 @@ fn handle_npc_interaction(state: &mut Editor) {
 
     // println!("target_npc_name... {:?} {:?} {:?}", target_id, target_npc_name, target_script_path);
     
-    if let Some(script) = target_script_path {
-        state.dialogue_state.npc_name = target_npc_name.clone();
-        state.dialogue_state.current_npc_id = target_id.clone();
+    // if let Some(script) = target_script_path {
+    //     state.dialogue_state.npc_name = target_npc_name.clone();
+    //     state.dialogue_state.current_npc_id = target_id.clone();
         
-        if let Some(renderer_state) = state.renderer_state.as_mut() {
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                    let pos = rb.translation();
-                    let wrapper = crate::deno::addon_engine::EntityWrapper {
-                        id: npc.id.clone(),
-                        name: target_npc_name.clone(),
-                        position: [pos.x, pos.y, pos.z],
-                        health: npc.stats.health,
-                        stamina: npc.stats.stamina,
-                        is_dead: npc.is_dead,
-                    };
-                    let dialogue_res = state.addon_engine.execute_behavior(renderer_state, &script, wrapper, "on_interact", Some(state.dialogue_state.current_node.clone()));
-                    if let Some(d) = dialogue_res {
-                        if d.is_open {
-                            state.dialogue_state.is_open = true;
-                            state.dialogue_state.current_text = d.text;
-                            state.dialogue_state.options = d.options;
-                            state.dialogue_state.current_node = d.current_node;
-                            state.dialogue_state.ui_dirty = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
+    //     if let Some(renderer_state) = state.renderer_state.as_mut() {
+    //         if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == target_id) {
+    //             if let Some(rb) = renderer_state.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
+    //                 let pos = rb.translation();
+    //                 let wrapper = crate::deno::addon_engine::EntityWrapper {
+    //                     id: npc.id.clone(),
+    //                     name: target_npc_name.clone(),
+    //                     position: [pos.x, pos.y, pos.z],
+    //                     health: npc.stats.health,
+    //                     stamina: npc.stats.stamina,
+    //                     is_dead: npc.is_dead,
+    //                 };
+    //                 let dialogue_res = state.addon_engine.execute_behavior(renderer_state, &script, wrapper, "on_interact", Some(state.dialogue_state.current_node.clone()));
+    //                 if let Some(d) = dialogue_res {
+    //                     if d.is_open {
+    //                         state.dialogue_state.is_open = true;
+    //                         state.dialogue_state.current_text = d.text;
+    //                         state.dialogue_state.options = d.options;
+    //                         state.dialogue_state.current_node = d.current_node;
+    //                         state.dialogue_state.ui_dirty = true;
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 }
 
 fn handle_collectable_interaction(state: &mut Editor) {
@@ -1508,43 +1504,43 @@ fn handle_collectable_interaction(state: &mut Editor) {
         }
     }
 
-    if let (Some(id), Some(index)) = (pickup_id, collectable_index) {
-        // println!("Picking up collectable: {:?}", id);
+    // if let (Some(id), Some(index)) = (pickup_id, collectable_index) {
+    //     // println!("Picking up collectable: {:?}", id);
         
-        // Find ComponentData in world_state
-        let mut component_data = None;
-        if let Some(world_state) = &state.world_state {
-            if let Some(levels) = &world_state.levels {
-                if let Some(level) = levels.get(0) {
-                    if let Some(components) = &level.components {
-                        if let Some(comp) = components.iter().find(|c| c.id == id) {
-                            component_data = Some(comp.clone());
-                        }
-                    }
-                }
-            }
-        }
+    //     // Find ComponentData in world_state
+    //     let mut component_data = None;
+    //     if let Some(world_state) = &state.world_state {
+    //         if let Some(levels) = &world_state.levels {
+    //             if let Some(level) = levels.get(0) {
+    //                 if let Some(components) = &level.components {
+    //                     if let Some(comp) = components.iter().find(|c| c.id == id) {
+    //                         component_data = Some(comp.clone());
+    //                     }
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        if let Some(comp) = component_data {
-            if let Some(player) = &mut renderer_state.player_character {
-                player.inventory.add_item(&comp);
-                // println!("Added {:?} to inventory.", comp.generic_properties.name);
+    //     if let Some(comp) = component_data {
+    //         if let Some(player) = &mut renderer_state.player_character {
+    //             player.inventory.add_item(&comp);
+    //             // println!("Added {:?} to inventory.", comp.generic_properties.name);
                 
-                // Remove from world
-                let col = renderer_state.collectables.remove(index);
+    //             // Remove from world
+    //             let col = renderer_state.collectables.remove(index);
                 
-                // Remove physics
-                // renderer_state.collider_set.remove(col.rigid_body_handle, &mut renderer_state.rigid_body_set, &mut renderer_state.island_manager, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
-                // Wait, collider_set.remove takes ColliderHandle. rigid_body_handle is RigidBodyHandle.
+    //             // Remove physics
+    //             // renderer_state.collider_set.remove(col.rigid_body_handle, &mut renderer_state.rigid_body_set, &mut renderer_state.island_manager, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
+    //             // Wait, collider_set.remove takes ColliderHandle. rigid_body_handle is RigidBodyHandle.
                 
-                // Remove rigidbody (and its colliders)
-                renderer_state.rigid_body_set.remove(col.rigid_body_handle, &mut renderer_state.island_manager, &mut renderer_state.collider_set, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
+    //             // Remove rigidbody (and its colliders)
+    //             renderer_state.rigid_body_set.remove(col.rigid_body_handle, &mut renderer_state.island_manager, &mut renderer_state.collider_set, &mut renderer_state.impulse_joint_set, &mut renderer_state.multibody_joint_set, true);
 
-                // Remove model
-                renderer_state.models.retain(|m| m.id != col.model_id);
-            }
-        }
-    }
+    //             // Remove model
+    //             renderer_state.models.retain(|m| m.id != col.model_id);
+    //         }
+    //     }
+    // }
 }
 
 pub fn handle_gamepad_input(state: &mut Editor, left_stick: (f32, f32), right_stick: (f32, f32)) {

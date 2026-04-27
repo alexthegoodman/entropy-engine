@@ -1,22 +1,19 @@
-use crate::core::egui_sidebar::{PipelineTabViewer, Tab, UiContext};
 use crate::core::render_addon_frame::render_addon_frame;
-use crate::core::render_egui::render_egui;
-use crate::core::render_frame::render_frame;
 use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
-use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
-use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
+use crate::handlers::{handle_add_collectable, handle_add_npc};
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties, AppExperience};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 #[cfg(target_os = "windows")]
 use crate::startup::Gui;
-use crate::vector_animations::motion::Motion;
-use crate::water_plane::config::WaterConfig;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::{Sequence, ObjectType}, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, 
+    heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
+    saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, 
+    timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -63,13 +60,7 @@ pub enum Workspace {
 
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-// use crate::helpers::load_project::load_project;
-// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
-use crate::game_ui::dialogue_ui;
-use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
-
-// use super::chat::Chat;
 
 // Procedural Sky Uniform struct (Rust mirror of WGSL)
 #[repr(C)]
@@ -134,9 +125,9 @@ pub struct EntropyPipeline {
     // pub stunts_dock_state: DockState<Tab>,
     // // pub video_timeline_dock_state: DockState<Tab>,
     // pub central_chat_dock_state: DockState<Tab>,
-    pub addon_dock_state: DockState<Tab>,
-    pub addon_dock_states: HashMap<String, DockState<Tab>>,
-    pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline,
+    // pub addon_dock_state: DockState<Tab>,
+    // pub addon_dock_states: HashMap<String, DockState<Tab>>,
+    // pub video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline,
     pub video_total_duration_ms: i32,
     pub current_workspace: Workspace,
     pub show_central_chat_overlay: bool,
@@ -144,7 +135,6 @@ pub struct EntropyPipeline {
     pub focus_mode: bool,
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
-    pub frame_buffer: Option<FrameCaptureBuffer>,
     pub chat: Chat,
     pub new_project_name: String,
     pub projects: Vec<(String, String)>,
@@ -177,38 +167,16 @@ pub struct EntropyPipeline {
     pub directional_light_position: [f32; 3],
     pub selected_component_id: Option<String>,
 
-    pub vector_motion: Motion,
+    // pub vector_motion: Motion,
     pub alpha_renderer: Option<crate::alpha::AlphaRenderer>,
 }
 
 impl EntropyPipeline {
     pub fn new() -> Self {
-        // let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-        // let surface = dock_state.main_surface_mut();
-        // let [_, _] = surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Components, Tab::AssetLibrary]);
-        // let [_, _] = surface.split_below(NodeIndex::root(), 0.7, vec![Tab::Properties, Tab::Chat]);
 
-        // let game_dock_state = dock_state.clone();
-        
-        // let mut sophia_dock_state = DockState::new(vec![Tab::Writing, Tab::Projects]);
-        // let sophia_surface = sophia_dock_state.main_surface_mut();
-        // sophia_surface.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat, Tab::Research, Tab::Publish, Tab::Grammar, Tab::Manage, Tab::Citations]);
-
-        // // let stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects, Tab::Properties, Tab::Chat, Tab::AssetLibrary]);
-        // // let video_timeline_dock_state = DockState::new(vec![Tab::VideoTimeline]);
-
-        // let mut stunts_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-        // let surface2 = stunts_dock_state.main_surface_mut();
-        // let [_, _] = surface2.split_right(NodeIndex::root(), 0.7, vec![Tab::Animations, Tab::Properties, Tab::Chat]);
-        // let [_, _] = surface2.split_below(NodeIndex::root(), 0.7, vec![Tab::VideoTimeline]);
-
-        // let central_chat_dock_state = DockState::new(vec![Tab::Chat]);
-
-        // let addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Addons]);
-
-        let mut addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
-        let surface3 = addon_dock_state.main_surface_mut();
-        let [_, _] = surface3.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
+        // let mut addon_dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
+        // let surface3 = addon_dock_state.main_surface_mut();
+        // let [_, _] = surface3.split_right(NodeIndex::root(), 0.7, vec![Tab::Chat]);
 
         EntropyPipeline {
             alpha_renderer: None,
@@ -227,9 +195,9 @@ impl EntropyPipeline {
             // stunts_dock_state,
             // // video_timeline_dock_state,
             // central_chat_dock_state,
-            addon_dock_state,
-            addon_dock_states: HashMap::new(),
-            video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline::new(),
+            // addon_dock_state,
+            // addon_dock_states: HashMap::new(),
+            // video_timeline_ui: crate::core::video_timeline_ui::VideoTimeline::new(),
             video_total_duration_ms: 0,
             current_workspace: Workspace::GameEngine,
             show_central_chat_overlay: false,
@@ -237,7 +205,6 @@ impl EntropyPipeline {
             focus_mode: false,
             window_size_bind_group: None,
             export_editor: None,
-            frame_buffer: None,
             chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
@@ -270,7 +237,7 @@ impl EntropyPipeline {
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
 
-            vector_motion: Motion::new()
+            // vector_motion: Motion::new()
         }
     }
 
@@ -1410,15 +1377,15 @@ impl EntropyPipeline {
         // #[cfg(target_arch = "wasm32")]
         // let now = js_sys::Date::now() - self.start_time;
         
-        export_editor.video_start_playing_time = Some(now.clone());
+        // export_editor.video_start_playing_time = Some(now.clone());
 
-        export_editor.video_total_duration_ms = video_total_duration_ms;
+        // export_editor.video_total_duration_ms = video_total_duration_ms;
 
-        export_editor.video_is_playing = is_playing;
+        // export_editor.video_is_playing = is_playing;
 
-        // also set motion path playing
-        export_editor.start_playing_time = Some(now);
-        export_editor.is_playing = is_playing;
+        // // also set motion path playing
+        // export_editor.start_playing_time = Some(now);
+        // export_editor.is_playing = is_playing;
         export_editor.ui_model_bind_group_layout = Some(ui_model_bind_group_layout);
         
 
@@ -1652,92 +1619,25 @@ impl EntropyPipeline {
                 // }
             }
 
-            // resize ui elements
-            let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-            let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get editor");
-            // if editor.viewport_tab_rect.is_none() {
-                let window_size = WindowSize { width: new_size.width, height: new_size.height };
+            // // resize ui elements
+            // let editor = self.export_editor.as_mut().expect("Couldn't get editor");
+            // let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get editor");
+            // // if editor.viewport_tab_rect.is_none() {
+            //     let window_size = WindowSize { width: new_size.width, height: new_size.height };
 
-                if let Some(mini_map) = &mut editor.mini_map {
-                    mini_map.resize(&gpu_resources.queue, &window_size);
-                }
-            // }
+            //     if let Some(mini_map) = &mut editor.mini_map {
+            //         mini_map.resize(&gpu_resources.queue, &window_size);
+            //     }
+            // // }
         }
     }
 
     pub fn render_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, game_mode: bool, viewport_rect: Option<[f32; 4]>) {
-        render_frame(self, target_view, current_time, game_mode, viewport_rect);
+        // render_frame(self, target_view, current_time, game_mode, viewport_rect);
     }
 
     pub fn render_addon_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
         render_addon_frame(self, target_view, current_time, viewport_rect);
-    }
-
-    pub fn render_stunts_frame(&mut self, target_view: Option<&wgpu::TextureView>, current_time: f64, is_exporting: bool, viewport_rect: Option<[f32; 4]>) {
-        let editor = self.export_editor.as_mut().expect("Couldn't get editor");
-
-        let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
-        let device = &gpu_resources.device;
-        let queue = &gpu_resources.queue;
-
-        // Update video frames and animations if playing
-        if editor.video_is_playing {
-            self.vector_motion.step_motion_path_animations(editor, Some(current_time));
-        }
-
-        if let Some(view) = target_view {
-            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Stunts Render Encoder"),
-            });
-
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Stunts Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            // load: wgpu::LoadOp::Clear(wgpu::Color { r: 0.85, g: 0.05, b: 0.05, a: 1.0 }),
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                        view: self.depth_view.as_ref().expect("No depth view"),
-                        depth_ops: Some(wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(1.0),
-                            store: wgpu::StoreOp::Store,
-                        }),
-                        stencil_ops: None,
-                    }),
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-
-                if let Some(rect) = viewport_rect {
-                    // rpass.set_viewport(rect[0], rect[1], rect[2], rect[3], 0.0, 1.0);
-                    rpass.set_scissor_rect(rect[0] as u32, rect[1] as u32, rect[2] as u32, rect[3] as u32);
-                }
-                
-                if let Some(ui_pipeline) = &self.ui_pipeline {
-                    let camera_binding = editor.camera_binding.as_ref().expect("No camera binding");
-                    let window_size_bind_group = self.window_size_bind_group.as_ref().expect("No window size bind group");
-
-                    ui_pipeline.render_stunts(
-                        &mut rpass,
-                        editor,
-                        &camera_binding.bind_group,
-                        window_size_bind_group,
-                        queue,
-                        editor.video_current_time_ms,
-                    );
-                }
-            }
-
-            let command_buffer = encoder.finish();
-            queue.submit(std::iter::once(command_buffer));
-        }
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1745,22 +1645,22 @@ impl EntropyPipeline {
 
     #[cfg(target_os = "windows")]
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
-        let now = std::time::Instant::now();
-        if let Some(editor) = &mut self.export_editor {
-            let delta = if let Some(last) = editor.last_frame_time {
-                now.duration_since(last).as_millis() as i32
-            } else {
-                0
-            };
-            editor.last_frame_time = Some(now);
+        // let now = std::time::Instant::now();
+        // if let Some(editor) = &mut self.export_editor {
+        //     let delta = if let Some(last) = editor.last_frame_time {
+        //         now.duration_since(last).as_millis() as i32
+        //     } else {
+        //         0
+        //     };
+        //     editor.last_frame_time = Some(now);
 
-            if editor.video_is_playing {
-                editor.video_current_time_ms += delta;
-                if editor.video_current_time_ms > editor.video_total_duration_ms {
-                    editor.video_current_time_ms = 0; // Loop or stop
-                }
-            }
-        }
+        //     if editor.video_is_playing {
+        //         editor.video_current_time_ms += delta;
+        //         if editor.video_current_time_ms > editor.video_total_duration_ms {
+        //             editor.video_current_time_ms = 0; // Loop or stop
+        //         }
+        //     }
+        // }
 
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
     
@@ -1775,61 +1675,61 @@ impl EntropyPipeline {
         // println!("pixels_per_point {:?}", scale_factor);
         let scale_factor = 1.0;
         
-        if !game_mode {
-            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("egui encoder"),
-            });
+        // if !game_mode {
+        //     let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        //         label: Some("egui encoder"),
+        //     });
             
-            if let Some(editor) = &mut self.export_editor {
-                editor.wry_webview_bounds = None;
-                editor.viewport_tab_rect = None;
-                editor.is_viewport_visible = false;
-            }
+        //     if let Some(editor) = &mut self.export_editor {
+        //         editor.wry_webview_bounds = None;
+        //         editor.viewport_tab_rect = None;
+        //         editor.is_viewport_visible = false;
+        //     }
 
-            let raw_input = gui.state.take_egui_input(&window);
-            let egui_ctx = gui.ctx.clone();
-            let full_output = egui_ctx.run(raw_input, |ctx| {
-                self.ui(gui);
-            });
+        //     let raw_input = gui.state.take_egui_input(&window);
+        //     let egui_ctx = gui.ctx.clone();
+        //     let full_output = egui_ctx.run(raw_input, |ctx| {
+        //         self.ui(gui);
+        //     });
         
-            gui.state.handle_platform_output(&window, full_output.platform_output);
+        //     gui.state.handle_platform_output(&window, full_output.platform_output);
         
-            let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
-            let screen_descriptor = egui_wgpu::ScreenDescriptor {
-                size_in_pixels: [output.texture.width(), output.texture.height()],
-                pixels_per_point: window.scale_factor() as f32,
-            };
+        //     let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
+        //     let screen_descriptor = egui_wgpu::ScreenDescriptor {
+        //         size_in_pixels: [output.texture.width(), output.texture.height()],
+        //         pixels_per_point: window.scale_factor() as f32,
+        //     };
         
-            for (id, image_delta) in &full_output.textures_delta.set {
-                gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
-            }
+        //     for (id, image_delta) in &full_output.textures_delta.set {
+        //         gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
+        //     }
             
-            gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
+        //     gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
         
-            {
-                let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("egui"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
+        //     {
+        //         let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        //             label: Some("egui"),
+        //             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+        //                 view: &view,
+        //                 resolve_target: None,
+        //                 ops: wgpu::Operations {
+        //                     load: wgpu::LoadOp::Load,
+        //                     store: wgpu::StoreOp::Store,
+        //                 },
+        //                 depth_slice: None
+        //             })],
+        //             depth_stencil_attachment: None,
+        //             timestamp_writes: None,
+        //             occlusion_query_set: None,
+        //         });
 
-                gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
-            }
+        //         gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
+        //     }
         
-            // drop(rpass);
+        //     // drop(rpass);
         
-            gpu_resources.queue.submit(Some(encoder.finish()));
-        }
+        //     gpu_resources.queue.submit(Some(encoder.finish()));
+        // }
 
         let viewport_rect = if let Some(editor) = &self.export_editor {
             editor.viewport_tab_rect.map(|r| [
@@ -1874,6 +1774,6 @@ impl EntropyPipeline {
         //         });
         //     });
 
-        render_egui(self, gui);
+        // render_egui(self, gui);
     }
 }

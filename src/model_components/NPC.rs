@@ -18,118 +18,111 @@ use wgpu::util::DeviceExt;
 
 use crate::{core::Transform_2::matrix4_to_raw_array, deno::addon_ops::VisualConfig, helpers::saved_data::{AttackStats, CharacterStats, VisualType}};
 use crate::{
-    game_behaviors::{
-        melee::{MeleeCombatBehavior},
-        ranged::{RangedCombatBehavior},
-        wander::WanderBehavior,
-        inventory::Inventory,
-        stateful::{StatefulBehavior, BehaviorConfig, CombatType},
-    },
     art_assets::Model::Model,
     core::AnimationState::AnimationState,
 };
 use crate::core::Transform_2::Transform;
 use crate::shape_primitives::Sphere::Sphere;
 
-pub enum NPCBehavior {
-    Melee(MeleeCombatBehavior),
-    Ranged(RangedCombatBehavior),
-    Wander(WanderBehavior),
-    Stateful(StatefulBehavior),
-}
+// pub enum NPCBehavior {
+//     Melee(MeleeCombatBehavior),
+//     Ranged(RangedCombatBehavior),
+//     Wander(WanderBehavior),
+//     Stateful(StatefulBehavior),
+// }
 
-impl NPCBehavior {
-    pub fn update(
-        &mut self,
-        rigid_body_set: &mut RigidBodySet,
-        collider_set: &ColliderSet,
-        query_pipeline: &QueryPipeline,
-        entity_handle: RigidBodyHandle,
-        target_handle: RigidBodyHandle,
-        collider: &Collider,
-        transform: &mut Transform,
-        current_stamina: f32,
-        dt: f32,
-        forward_axis: Vector3<f32>,
-        squad_leader_pos: Option<Point3<f32>>,
-    ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) {
-        match self {
-            NPCBehavior::Melee(behavior) => (behavior.update(
-                rigid_body_set,
-                collider_set,
-                query_pipeline,
-                entity_handle,
-                target_handle,
-                collider,
-                transform,
-                current_stamina,
-                dt,
-                forward_axis,
-            ).map(|damage| (damage, None)), false),
-            NPCBehavior::Ranged(behavior) => (behavior.update(
-                rigid_body_set,
-                collider_set,
-                query_pipeline,
-                entity_handle,
-                target_handle,
-                collider,
-                transform,
-                current_stamina,
-                dt,
-                forward_axis,
-            ), false),
-            NPCBehavior::Wander(behavior) => {
-                behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt, forward_axis);
-                (None, false)
-            },
-            NPCBehavior::Stateful(behavior) => behavior.update(
-                rigid_body_set,
-                collider_set,
-                query_pipeline,
-                entity_handle,
-                target_handle,
-                collider,
-                transform,
-                current_stamina,
-                dt,
-                forward_axis,
-                squad_leader_pos,
-            ),
-        }
-    }
+// impl NPCBehavior {
+//     pub fn update(
+//         &mut self,
+//         rigid_body_set: &mut RigidBodySet,
+//         collider_set: &ColliderSet,
+//         query_pipeline: &QueryPipeline,
+//         entity_handle: RigidBodyHandle,
+//         target_handle: RigidBodyHandle,
+//         collider: &Collider,
+//         transform: &mut Transform,
+//         current_stamina: f32,
+//         dt: f32,
+//         forward_axis: Vector3<f32>,
+//         squad_leader_pos: Option<Point3<f32>>,
+//     ) -> (Option<(f32, Option<(Point3<f32>, Point3<f32>)>)>, bool) {
+//         match self {
+//             NPCBehavior::Melee(behavior) => (behavior.update(
+//                 rigid_body_set,
+//                 collider_set,
+//                 query_pipeline,
+//                 entity_handle,
+//                 target_handle,
+//                 collider,
+//                 transform,
+//                 current_stamina,
+//                 dt,
+//                 forward_axis,
+//             ).map(|damage| (damage, None)), false),
+//             NPCBehavior::Ranged(behavior) => (behavior.update(
+//                 rigid_body_set,
+//                 collider_set,
+//                 query_pipeline,
+//                 entity_handle,
+//                 target_handle,
+//                 collider,
+//                 transform,
+//                 current_stamina,
+//                 dt,
+//                 forward_axis,
+//             ), false),
+//             NPCBehavior::Wander(behavior) => {
+//                 behavior.update(rigid_body_set, collider_set, query_pipeline, entity_handle, collider, transform, dt, forward_axis);
+//                 (None, false)
+//             },
+//             NPCBehavior::Stateful(behavior) => behavior.update(
+//                 rigid_body_set,
+//                 collider_set,
+//                 query_pipeline,
+//                 entity_handle,
+//                 target_handle,
+//                 collider,
+//                 transform,
+//                 current_stamina,
+//                 dt,
+//                 forward_axis,
+//                 squad_leader_pos,
+//             ),
+//         }
+//     }
 
-    pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {
-        match self {
-            NPCBehavior::Melee(behavior) => behavior.handle_incoming_damage(damage, stats),
-            NPCBehavior::Ranged(behavior) => behavior.handle_incoming_damage(damage, stats),
-            NPCBehavior::Wander(behavior) => return,
-            NPCBehavior::Stateful(behavior) => behavior.handle_incoming_damage(damage, stats),
-        }
-    }
+//     pub fn handle_incoming_damage(&mut self, damage: f32, stats: &mut CharacterStats) {
+//         match self {
+//             NPCBehavior::Melee(behavior) => behavior.handle_incoming_damage(damage, stats),
+//             NPCBehavior::Ranged(behavior) => behavior.handle_incoming_damage(damage, stats),
+//             NPCBehavior::Wander(behavior) => return,
+//             NPCBehavior::Stateful(behavior) => behavior.handle_incoming_damage(damage, stats),
+//         }
+//     }
 
-    pub fn get_animation_name(&self) -> &str {
-        match self {
-            NPCBehavior::Melee(behavior) => behavior.get_animation_name(),
-            NPCBehavior::Ranged(behavior) => behavior.get_animation_name(),
-            NPCBehavior::Wander(behavior) => behavior.get_animation_name(),
-            NPCBehavior::Stateful(behavior) => behavior.get_animation_name(),
-        }
-    }
-}
+//     pub fn get_animation_name(&self) -> &str {
+//         match self {
+//             NPCBehavior::Melee(behavior) => behavior.get_animation_name(),
+//             NPCBehavior::Ranged(behavior) => behavior.get_animation_name(),
+//             NPCBehavior::Wander(behavior) => behavior.get_animation_name(),
+//             NPCBehavior::Stateful(behavior) => behavior.get_animation_name(),
+//         }
+//     }
+// }
 
 pub struct NPC {
     pub id: String,
     pub model_id: String,
     pub visual_type: VisualType,
     pub rigid_body_handle: Option<RigidBodyHandle>,
-    pub test_behavior: NPCBehavior,
+    // pub test_behavior: NPCBehavior,
     pub animation_state: AnimationState,
     pub transform: Option<Transform>,
     pub joint_matrices_buffer: Option<wgpu::Buffer>,
     pub skin_bind_group: Option<wgpu::BindGroup>,
     pub model_bind_group: Option<wgpu::BindGroup>,
     pub stats: CharacterStats,
-    pub inventory: Inventory,
+    // pub inventory: Inventory,
     pub is_talking: bool,
     pub is_dead: bool,
     pub on_death_dropped: bool,
@@ -153,13 +146,13 @@ impl NPC {
         model_id: String, 
         visual_type: VisualType, 
         rigid_body_handle: Option<RigidBodyHandle>, 
-        behavior_config: BehaviorConfig, 
+        // behavior_config: BehaviorConfig, 
         squad_id: Option<String>,
         visual_config: Option<VisualConfig>,
     ) -> Self {
         // Default to a Stateful behavior
-        let stateful_behavior = StatefulBehavior::new(behavior_config);
-        let test_behavior = NPCBehavior::Stateful(stateful_behavior);
+        // let stateful_behavior = StatefulBehavior::new(behavior_config);
+        // let test_behavior = NPCBehavior::Stateful(stateful_behavior);
         
         let mut transform = None;
         if let Some(config) = visual_config {
@@ -190,7 +183,7 @@ impl NPC {
             model_id,
             visual_type,
             rigid_body_handle,
-            test_behavior,
+            // test_behavior,
             animation_state: AnimationState::new(0),
             transform,
             joint_matrices_buffer: None,
@@ -200,7 +193,7 @@ impl NPC {
                 health: 100.0,
                 stamina: 100.0,
             },
-            inventory: Inventory::new(),
+            // inventory: Inventory::new(),
             is_talking: false,
             is_dead: false,
             on_death_dropped: false,

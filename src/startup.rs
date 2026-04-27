@@ -31,7 +31,7 @@ use tracing::info;
 use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
-use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
+use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
 use crate::core::pipeline::{EntropyPipeline, Workspace};
 use crate::helpers::load_project::load_game_project;
 use crate::core::editor::WindowSize;
@@ -953,7 +953,7 @@ impl WindowState {
         window.set_ime_allowed(ime);
 
         let ctx = EguiContext::default();
-        crate::core::egui_theme::setup_custom_theme(&ctx);
+        // crate::core::egui_theme::setup_custom_theme(&ctx);
         let mut state = EguiState::new(ctx.clone(), ctx.viewport_id(), &window, None, None, None);
         
         let size = window.inner_size();
@@ -995,8 +995,8 @@ impl WindowState {
         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
 
         // if game_mode {
-            crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
-            crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
+            // crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
+            // crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
         // }
 
         #[cfg(target_os = "windows")]

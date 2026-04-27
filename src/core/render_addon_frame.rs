@@ -1,22 +1,21 @@
-use crate::core::egui_sidebar::{PipelineTabViewer, Tab, UiContext};
 use crate::core::pipeline::{DirectionalLightUniform, EntropyPipeline, ProceduralSkyUniform, Workspace};
 use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::core::chat::{Chat, ChatMessage, ChatSession, ToolCall};
 use crate::deno::addon_ops::AddonContext;
-use crate::game_behaviors::stateful::{BehaviorConfig, CombatType};
-use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_plane};
+use crate::handlers::{handle_add_collectable, handle_add_npc};
 use crate::heightfield_landscapes::QuadScape::draw_quadscape;
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AppExperience, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
 #[cfg(target_os = "windows")]
 use crate::startup::Gui;
-use crate::vector_animations::motion::Motion;
-use crate::water_plane::config::WaterConfig;
 use crate::{
     core::{Grid::{Grid, GridConfig}, RendererState::RendererState, SimpleCamera::SimpleCamera as Camera, Texture::pack_pbr_textures, camera::{self, CameraBinding}, editor::{
         Editor, PointLight, Viewport, WindowSize, WindowSizeShader
-    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees, vector_animations::animations::{Sequence, ObjectType}, video_export::frame_buffer::FrameCaptureBuffer, water_plane::water::DrawWater
+    }, gpu_resources::{self, GpuResources}, vertex::Vertex}, handlers::{EntropySize, handle_add_model}, 
+    heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
+    saved_data::{ComponentData, GenericProperties, ComponentKind, LandscapeTextureKinds, LevelData, PBRTextureData, ProceduralSkyConfig, SavedState}, 
+    timelines::SavedTimelineStateConfig, utilities}, procedural_trees::trees::DrawTrees
 };
 use crate::core::Texture::Texture;
 use crate::core::shadow_pipeline::ShadowPipelineData;
@@ -53,10 +52,6 @@ use std::time::{Duration, Instant};
 use wasm_timer::Instant;
 use crate::shape_primitives::Cube::Cube;
 use crate::shape_primitives::Sphere::Sphere;
-// use crate::helpers::load_project::load_project;
-// use crate::deno::script_engine::{ComponentChanges, DenoEngine};
-use crate::game_ui::dialogue_ui;
-use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
@@ -132,33 +127,33 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         //     }
         // }
 
-        // Sync player health to UI
-        if let Some(player) = &mut renderer_state.player_character {
-            // if let Some(health_bar) = &mut editor.health_bar {
-            //     health_bar.update_health(queue, player.stats.health);
-            // }
+        // // Sync player health to UI
+        // if let Some(player) = &mut renderer_state.player_character {
+        //     // if let Some(health_bar) = &mut editor.health_bar {
+        //     //     health_bar.update_health(queue, player.stats.health);
+        //     // }
 
-            // Update Aim
-            player.update_aim(0.016);
-            let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
-            camera.fovy = target_fov;
-            // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
-            // Better call it here to be safe, but update() is called in step_physics_pipeline?
-            // step_physics_pipeline calls camera.update()
+        //     // Update Aim
+        //     player.update_aim(0.016);
+        //     let target_fov = camera.base_fovy * (1.0 - (player.aim_factor * 0.4)); // 40% zoom
+        //     camera.fovy = target_fov;
+        //     // camera.update_view_projection_matrix(); // Called in step_physics_pipeline or later? 
+        //     // Better call it here to be safe, but update() is called in step_physics_pipeline?
+        //     // step_physics_pipeline calls camera.update()
             
-            if let Some(mini_map) = &mut editor.mini_map {
-                if let Some(rb_handle) = player.movement_rigid_body_handle {
-                     if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
-                        let position = rb.translation();
-                        let yaw = renderer_state.camera_yaw;
-                        let landscape_center = Vector3::new(0.0, 0.0, 0.0);
-                        let landscape_size = 4096.0; // Matches grid size for now // make match addon global settings
+        //     if let Some(mini_map) = &mut editor.mini_map {
+        //         if let Some(rb_handle) = player.movement_rigid_body_handle {
+        //              if let Some(rb) = renderer_state.rigid_body_set.get(rb_handle) {
+        //                 let position = rb.translation();
+        //                 let yaw = renderer_state.camera_yaw;
+        //                 let landscape_center = Vector3::new(0.0, 0.0, 0.0);
+        //                 let landscape_size = 4096.0; // Matches grid size for now // make match addon global settings
 
-                        mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
-                     }
-                }
-            }
-        }
+        //                 mini_map.update_all(queue, *position, yaw, landscape_center, landscape_size, &renderer_state.npcs, &renderer_state.collectables, &renderer_state.rigid_body_set, camera);
+        //              }
+        //         }
+        //     }
+        // }
 
         // update rapier collisions
         renderer_state.update_rapier(); // always update for the sake of raycast
@@ -808,68 +803,68 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
                     }
 
-                    // --- Entity Visuals (NPCs and Player Instances) ---
-                    let mut entities_to_render = Vec::new();
-                    if let Some(player) = &renderer_state.player_character {
-                        if player.transform.is_some() && player.model_id.is_some() {
-                            entities_to_render.push((player.model_id.as_ref().unwrap(), player.transform.as_ref().unwrap(), &player.model_bind_group, &player.skin_bind_group));
-                        }
-                    }
-                    for npc in &renderer_state.npcs {
-                        if npc.transform.is_some() && !npc.model_id.is_empty() {
-                            entities_to_render.push((&npc.model_id, npc.transform.as_ref().unwrap(), &npc.model_bind_group, &npc.skin_bind_group));
-                        }
-                    }
-
-                    // if renderer_state.npcs.len() > 0 {
-                    //     println!("NPCS: {:?} and {:?}", renderer_state.npcs.len(), entities_to_render.len());    
+                    // // --- Entity Visuals (NPCs and Player Instances) ---
+                    // let mut entities_to_render = Vec::new();
+                    // if let Some(player) = &renderer_state.player_character {
+                    //     if player.transform.is_some() && player.model_id.is_some() {
+                    //         entities_to_render.push((player.model_id.as_ref().unwrap(), player.transform.as_ref().unwrap(), &player.model_bind_group, &player.skin_bind_group));
+                    //     }
+                    // }
+                    // for npc in &renderer_state.npcs {
+                    //     if npc.transform.is_some() && !npc.model_id.is_empty() {
+                    //         entities_to_render.push((&npc.model_id, npc.transform.as_ref().unwrap(), &npc.model_bind_group, &npc.skin_bind_group));
+                    //     }
                     // }
 
-                    for (template_id, transform, model_bg, skin_bg) in entities_to_render {
-                        // Find Template (CustomMesh or Model)
-                        if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
-                            // println!("Mesh load {:?} {:?} {:?}", template_id, mesh.pipeline_id, transform.position);
-                            if mesh.pipeline_id == "default" {
-                                render_pass.set_pipeline(geometry_pipeline);
-                            } else {
-                                render_pass.set_pipeline(&mesh.pipeline);
-                            }
-                            render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                            if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
-                            if let Some(bg) = skin_bg { render_pass.set_bind_group(2, bg, &[]); }
+                    // // if renderer_state.npcs.len() > 0 {
+                    // //     println!("NPCS: {:?} and {:?}", renderer_state.npcs.len(), entities_to_render.len());    
+                    // // }
+
+                    // for (template_id, transform, model_bg, skin_bg) in entities_to_render {
+                    //     // Find Template (CustomMesh or Model)
+                    //     if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| &m.id == template_id) {
+                    //         // println!("Mesh load {:?} {:?} {:?}", template_id, mesh.pipeline_id, transform.position);
+                    //         if mesh.pipeline_id == "default" {
+                    //             render_pass.set_pipeline(geometry_pipeline);
+                    //         } else {
+                    //             render_pass.set_pipeline(&mesh.pipeline);
+                    //         }
+                    //         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    //         if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
+                    //         if let Some(bg) = skin_bg { render_pass.set_bind_group(2, bg, &[]); }
                             
-                            for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
-                                render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
-                            }
+                    //         for (i, bind_group) in mesh.bind_groups.iter().enumerate() {
+                    //             render_pass.set_bind_group((i + 3) as u32, bind_group, &[]);
+                    //         }
 
-                            transform.update_uniform_buffer(queue);
-                            render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                            render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                            render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
-                        } else if let Some(model) = renderer_state.models.iter().chain(renderer_state.addon_models.values().flatten()).find(|m| &m.id == template_id) {
-                            for mesh in &model.meshes {
-                                if let Some(skin_bg_instance) = skin_bg {
-                                    if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
-                                        render_pass.set_pipeline(&pipeline_instance.render_pipeline);
-                                        render_pass.set_bind_group(2, skin_bg_instance, &[]);
-                                    } else {
-                                        render_pass.set_pipeline(geometry_pipeline);
-                                    }
-                                } else {
-                                    render_pass.set_pipeline(geometry_pipeline);
-                                }
+                    //         transform.update_uniform_buffer(queue);
+                    //         render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    //         render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    //         render_pass.draw_indexed(0..mesh.num_indices, 0, 0..1);
+                    //     } else if let Some(model) = renderer_state.models.iter().chain(renderer_state.addon_models.values().flatten()).find(|m| &m.id == template_id) {
+                    //         for mesh in &model.meshes {
+                    //             if let Some(skin_bg_instance) = skin_bg {
+                    //                 if let Some(pipeline_instance) = &renderer_state.skinned_pipeline {
+                    //                     render_pass.set_pipeline(&pipeline_instance.render_pipeline);
+                    //                     render_pass.set_bind_group(2, skin_bg_instance, &[]);
+                    //                 } else {
+                    //                     render_pass.set_pipeline(geometry_pipeline);
+                    //                 }
+                    //             } else {
+                    //                 render_pass.set_pipeline(geometry_pipeline);
+                    //             }
 
-                                transform.update_uniform_buffer(queue);
-                                render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                                if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
-                                render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
+                    //             transform.update_uniform_buffer(queue);
+                    //             render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
+                    //             if let Some(bg) = model_bg { render_pass.set_bind_group(1, bg, &[]); }
+                    //             render_pass.set_bind_group(3, &mesh.group_bind_group, &[]);
 
-                                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-                                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                                render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
-                            }
-                        }
-                    }
+                    //             render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                    //             render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                    //             render_pass.draw_indexed(0..mesh.index_count as u32, 0, 0..1);
+                    //         }
+                    //     }
+                    // }
 
                     for grass in &mut pbr_grasses {
                         let mut pipeline_set = false;
@@ -889,27 +884,29 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         // Update uniforms
-                        if let Some(player_character) = &renderer_state.player_character {
-                            if let Some(model_id) = &player_character.model_id {
-                                let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                                if let Some(player_model) = player_model {
-                                    let model_mesh = player_model.meshes.get(0);
-                                    if let Some(model_mesh) = model_mesh {
-                                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
-                                    } else {
-                                        grass.update_uniforms(&queue, time as f32, camera.position);
-                                    }
-                                } else {
-                                    grass.update_uniforms(&queue, time as f32, camera.position);
-                                }
-                            } else if let Some(sphere) = &player_character.sphere {
-                                grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                            } else {
-                                grass.update_uniforms(&queue, time as f32, camera.position);
-                            }
-                        } else {
-                            grass.update_uniforms(&queue, time as f32, camera.position);
-                        }
+                        // if let Some(player_character) = &renderer_state.player_character {
+                        //     if let Some(model_id) = &player_character.model_id {
+                        //         let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        //         if let Some(player_model) = player_model {
+                        //             let model_mesh = player_model.meshes.get(0);
+                        //             if let Some(model_mesh) = model_mesh {
+                        //                 grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                        //             } else {
+                        //                 grass.update_uniforms(&queue, time as f32, camera.position);
+                        //             }
+                        //         } else {
+                        //             grass.update_uniforms(&queue, time as f32, camera.position);
+                        //         }
+                        //     } else if let Some(sphere) = &player_character.sphere {
+                        //         grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                        //     } else {
+                        //         grass.update_uniforms(&queue, time as f32, camera.position);
+                        //     }
+                        // } else {
+                        //     grass.update_uniforms(&queue, time as f32, camera.position);
+                        // }
+
+                        grass.update_uniforms(&queue, time as f32, camera.position);
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                         render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
@@ -1352,27 +1349,29 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         // Update uniforms
-                        if let Some(player_character) = &renderer_state.player_character {
-                            if let Some(model_id) = &player_character.model_id {
-                                let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
-                                if let Some(player_model) = player_model {
-                                    let model_mesh = player_model.meshes.get(0);
-                                    if let Some(model_mesh) = model_mesh {
-                                        grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
-                                    } else {
-                                        grass.update_uniforms(&queue, time as f32, camera.position);
-                                    }
-                                } else {
-                                    grass.update_uniforms(&queue, time as f32, camera.position);
-                                }
-                            } else if let Some(sphere) = &player_character.sphere {
-                                grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
-                            } else {
-                                grass.update_uniforms(&queue, time as f32, camera.position);
-                            }
-                        } else {
-                            grass.update_uniforms(&queue, time as f32, camera.position);
-                        }
+                        // if let Some(player_character) = &renderer_state.player_character {
+                        //     if let Some(model_id) = &player_character.model_id {
+                        //         let player_model = renderer_state.models.iter().find(|m| m.id == model_id.clone());
+                        //         if let Some(player_model) = player_model {
+                        //             let model_mesh = player_model.meshes.get(0);
+                        //             if let Some(model_mesh) = model_mesh {
+                        //                 grass.update_uniforms(&queue, time as f32, Point3::new(model_mesh.transform.position.x, model_mesh.transform.position.y, model_mesh.transform.position.z));
+                        //             } else {
+                        //                 grass.update_uniforms(&queue, time as f32, camera.position);
+                        //             }
+                        //         } else {
+                        //             grass.update_uniforms(&queue, time as f32, camera.position);
+                        //         }
+                        //     } else if let Some(sphere) = &player_character.sphere {
+                        //         grass.update_uniforms(&queue, time as f32, Point3::new(sphere.transform.position.x, sphere.transform.position.y, sphere.transform.position.z));
+                        //     } else {
+                        //         grass.update_uniforms(&queue, time as f32, camera.position);
+                        //     }
+                        // } else {
+                        //     grass.update_uniforms(&queue, time as f32, camera.position);
+                        // }
+
+                        grass.update_uniforms(&queue, time as f32, camera.position);
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
                         render_pass.set_bind_group(1, &grass.uniform_bind_group, &[]);
@@ -1647,17 +1646,17 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 }
             }
 
-        if pipeline.frame_buffer.is_some() {
-            let frame_buffer = pipeline
-                .frame_buffer
-                .as_ref()
-                .expect("Couldn't get frame buffer");
-            frame_buffer.capture_frame(device, queue, texture, &mut encoder);
-        }
+        // if pipeline.frame_buffer.is_some() {
+        //     let frame_buffer = pipeline
+        //         .frame_buffer
+        //         .as_ref()
+        //         .expect("Couldn't get frame buffer");
+        //     frame_buffer.capture_frame(device, queue, texture, &mut encoder);
+        // }
 
-        // Update Dialogue UI
-        dialogue_ui::update_dialogue_ui(editor, device, queue);
-        quest_ui::update_quest_ui(editor, device, queue);
+        // Update Dialogue UI (now handled addon-side, not Rust-side)
+        // dialogue_ui::update_dialogue_ui(editor, device, queue);
+        // quest_ui::update_quest_ui(editor, device, queue);
 
         let command_buffer = encoder.finish();
         queue.submit(std::iter::once(command_buffer));

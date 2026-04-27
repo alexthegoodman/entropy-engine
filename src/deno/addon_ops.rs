@@ -30,7 +30,6 @@ use crate::core::editor::{Editor, Point};
 use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::deno::addon_engine::AddonEngine;
-use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::heightfield_landscapes::QuadScape::QuadScape;
 use crate::heightfield_landscapes::QuadTree::Terrain;
 use crate::helpers::saved_data::{ComponentKind, LandscapeTextureKinds, NPCProperties, PhysicsConfig, VisualType};
@@ -511,7 +510,7 @@ pub struct BehaviorHooks {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct DialogueWrapper {
     pub text: String,
-    pub options: Vec<crate::game_ui::dialogue_state::DialogueOption>,
+    // pub options: Vec<crate::game_ui::dialogue_state::DialogueOption>,
     pub changed: bool,
     pub is_open: bool,
     pub npc_name: String,
@@ -1760,45 +1759,71 @@ pub fn op_system_spawn_particles(state: &mut OpState, #[serde] pos: Vec<f32>, #[
     }
 }
 
+// NOTE: ideally, dialogue would handle TypeScript addon-side, but helpers are good, perhaps higher-level primitives built on game ui rects and texts
+
 #[op2(fast)]
 pub fn op_dialogue_show(state: &mut OpState, #[string] text: String) {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-        if let Some(d) = &mut ctx.dialogue_wrapper {
-            d.text = text;
-            d.options.clear();
-            d.changed = true;
-            d.is_open = true;
-        }
-    }
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //     if let Some(d) = &mut ctx.dialogue_wrapper {
+    //         d.text = text;
+    //         d.options.clear();
+    //         d.changed = true;
+    //         d.is_open = true;
+    //     }
+    // }
 }
 
 #[op2(fast)]
 pub fn op_dialogue_add_option(state: &mut OpState, #[string] text: String, #[string] next_node: String) {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-         if let Some(d) = &mut ctx.dialogue_wrapper {
-            d.options.push(crate::game_ui::dialogue_state::DialogueOption { text, next_node });
-            d.changed = true;
-        }
-    }
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //      if let Some(d) = &mut ctx.dialogue_wrapper {
+    //         // d.options.push(crate::game_ui::dialogue_state::DialogueOption { text, next_node });
+    //         d.changed = true;
+    //     }
+    // }
 }
 
 #[op2(fast)]
 pub fn op_dialogue_start_quest(state: &mut OpState, #[string] quest_id: String) {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-         if let Some(d) = &mut ctx.dialogue_wrapper {
-            d.started_quest = Some(quest_id);
-        }
-    }
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //      if let Some(d) = &mut ctx.dialogue_wrapper {
+    //         d.started_quest = Some(quest_id);
+    //     }
+    // }
 }
 
 #[op2(fast)]
 pub fn op_dialogue_close(state: &mut OpState) {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-         if let Some(d) = &mut ctx.dialogue_wrapper {
-            d.is_open = false;
-            d.changed = true;
-        }
-    }
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //      if let Some(d) = &mut ctx.dialogue_wrapper {
+    //         d.is_open = false;
+    //         d.changed = true;
+    //     }
+    // }
+}
+
+#[op2]
+#[string]
+pub fn op_dialogue_get_node(state: &mut OpState) -> String {
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //      if let Some(d) = &ctx.dialogue_wrapper {
+    //         return d.current_node.clone();
+    //     }
+    // }
+    "".to_string()
+}
+
+#[op2(fast)]
+pub fn op_dialogue_select_option(state: &mut OpState, index: u32) {
+    // if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
+    //     if let Some(d) = &mut ctx.dialogue_wrapper {
+    //         if (index as usize) < d.options.len() {
+    //             let next_node = d.options[index as usize].next_node.clone();
+    //             d.current_node = next_node;
+    //             d.changed = true;
+    //         }
+    //     }
+    // }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1816,30 +1841,6 @@ pub fn op_alpha_model_load(state: &mut OpState, #[string] addon_name: String, #[
     if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_alpha_models.push((addon_name, config));
-    }
-}
-
-#[op2]
-#[string]
-pub fn op_dialogue_get_node(state: &mut OpState) -> String {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-         if let Some(d) = &ctx.dialogue_wrapper {
-            return d.current_node.clone();
-        }
-    }
-    "".to_string()
-}
-
-#[op2(fast)]
-pub fn op_dialogue_select_option(state: &mut OpState, index: u32) {
-    if let Some(ctx) = state.try_borrow_mut::<EngineContext>() {
-        if let Some(d) = &mut ctx.dialogue_wrapper {
-            if (index as usize) < d.options.len() {
-                let next_node = d.options[index as usize].next_node.clone();
-                d.current_node = next_node;
-                d.changed = true;
-            }
-        }
     }
 }
 

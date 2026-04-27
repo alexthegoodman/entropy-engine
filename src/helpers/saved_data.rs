@@ -2,12 +2,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::{
-    game_behaviors::stateful::BehaviorConfig,
-    water_plane::config::WaterConfig,
     shape_primitives::polygon::SavedPolygonConfig,
     renderer_text::text_due::SavedTextRendererConfig,
     renderer_images::st_image::SavedStImageConfig,
-    vector_animations::animations::{SavedStVideoConfig, AnimationData},
 };
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Default, Debug)]
@@ -162,7 +159,7 @@ pub struct CollectableProperties {
 pub struct NPCProperties {
     pub model_id: String,
     pub visual_type: Option<VisualType>,
-    pub behavior: BehaviorConfig,
+    // pub behavior: BehaviorConfig,
     pub squad_id: Option<String>,
 }
 
@@ -201,7 +198,7 @@ pub struct ComponentData {
     pub model_properties: Option<ModelProperties>,
     pub npc_properties: Option<NPCProperties>,
     pub light_properties: Option<LightProperties>,
-    pub water_properties: Option<WaterConfig>,
+    // pub water_properties: Option<WaterConfig>,
     pub collectable_properties: Option<CollectableProperties>,
     pub player_properties: Option<PlayerProperties>,
     pub procedural_tree_properties: Option<ProceduralTreeProperties>,
@@ -383,11 +380,11 @@ pub struct SavedState {
     pub levels: Option<Vec<LevelData>>, // contains Components, which are active instances of library Assets
     pub game_settings: Option<GameSettings>,
     // videos (stunts)
-    pub object_motion_paths: Option<Vec<AnimationData>>,
+    // pub object_motion_paths: Option<Vec<AnimationData>>,
     pub active_polygons: Option<Vec<SavedPolygonConfig>>,
     pub active_text_items: Option<Vec<SavedTextRendererConfig>>,
     pub active_image_items: Option<Vec<SavedStImageConfig>>,
-    pub active_video_items: Option<Vec<SavedStVideoConfig>>,
+    // pub active_video_items: Option<Vec<SavedStVideoConfig>>,
     pub video_settings: Option<VideoSettings>,
     // writing (sophia)
     pub sophia_data: Option<SophiaData>,

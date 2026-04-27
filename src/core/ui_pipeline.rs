@@ -3,7 +3,6 @@ use crate::core::vertex::Vertex;
 use crate::shape_primitives::polygon::Polygon;
 use crate::renderer_text::text_due::TextRenderer;
 use crate::renderer_images::st_image::StImage;
-use crate::renderer_videos::st_video::StVideo;
 use wgpu::RenderPipeline;
 
 pub struct UiPipeline {
@@ -140,49 +139,49 @@ impl UiPipeline {
         }
 
         // Render MiniMap
-        if let Some(mini_map) = &editor.mini_map {
-            if mini_map.visible {
-                // Background
-                mini_map.background.transform.update_uniform_buffer(queue);
-                render_pass.set_bind_group(1, &mini_map.background.bind_group, &[]);
-                render_pass.set_bind_group(3, &mini_map.background.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, mini_map.background.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mini_map.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mini_map.background.indices.len() as u32, 0, 0..1);
+        // if let Some(mini_map) = &editor.mini_map {
+        //     if mini_map.visible {
+        //         // Background
+        //         mini_map.background.transform.update_uniform_buffer(queue);
+        //         render_pass.set_bind_group(1, &mini_map.background.bind_group, &[]);
+        //         render_pass.set_bind_group(3, &mini_map.background.group_bind_group, &[]);
+        //         render_pass.set_vertex_buffer(0, mini_map.background.vertex_buffer.slice(..));
+        //         render_pass.set_index_buffer(mini_map.background.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //         render_pass.draw_indexed(0..mini_map.background.indices.len() as u32, 0, 0..1);
 
-                // Player Marker
-                mini_map.player_marker.transform.update_uniform_buffer(queue);
-                render_pass.set_bind_group(1, &mini_map.player_marker.bind_group, &[]);
-                render_pass.set_bind_group(3, &mini_map.player_marker.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, mini_map.player_marker.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(mini_map.player_marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..mini_map.player_marker.indices.len() as u32, 0, 0..1);
+        //         // Player Marker
+        //         mini_map.player_marker.transform.update_uniform_buffer(queue);
+        //         render_pass.set_bind_group(1, &mini_map.player_marker.bind_group, &[]);
+        //         render_pass.set_bind_group(3, &mini_map.player_marker.group_bind_group, &[]);
+        //         render_pass.set_vertex_buffer(0, mini_map.player_marker.vertex_buffer.slice(..));
+        //         render_pass.set_index_buffer(mini_map.player_marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //         render_pass.draw_indexed(0..mini_map.player_marker.indices.len() as u32, 0, 0..1);
 
-                // NPC Markers
-                for (id, marker) in &mini_map.npc_markers {
-                    if !marker.hidden {
-                        marker.transform.update_uniform_buffer(queue);
-                        render_pass.set_bind_group(1, &marker.bind_group, &[]);
-                        render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
-                    }
-                }
+        //         // NPC Markers
+        //         for (id, marker) in &mini_map.npc_markers {
+        //             if !marker.hidden {
+        //                 marker.transform.update_uniform_buffer(queue);
+        //                 render_pass.set_bind_group(1, &marker.bind_group, &[]);
+        //                 render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
+        //                 render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
+        //                 render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //                 render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+        //             }
+        //         }
 
-                // Collectable Markers
-                for (id, marker) in &mini_map.collectable_markers {
-                    if !marker.hidden {
-                        marker.transform.update_uniform_buffer(queue);
-                        render_pass.set_bind_group(1, &marker.bind_group, &[]);
-                        render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
-                        render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
-                        render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                        render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
-                    }
-                }
-            }
-        }
+        //         // Collectable Markers
+        //         for (id, marker) in &mini_map.collectable_markers {
+        //             if !marker.hidden {
+        //                 marker.transform.update_uniform_buffer(queue);
+        //                 render_pass.set_bind_group(1, &marker.bind_group, &[]);
+        //                 render_pass.set_bind_group(3, &marker.group_bind_group, &[]);
+        //                 render_pass.set_vertex_buffer(0, marker.vertex_buffer.slice(..));
+        //                 render_pass.set_index_buffer(marker.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //                 render_pass.draw_indexed(0..marker.indices.len() as u32, 0, 0..1);
+        //             }
+        //         }
+        //     }
+        // }
     }
 
     pub fn render_stunts<'rp>(
@@ -246,17 +245,17 @@ impl UiPipeline {
         }
 
         // Render Stunts Videos
-        for video_item in &editor.stunts_videos {
-            if !video_item.hidden && current_time_ms >= video_item.start_time_ms && current_time_ms <= video_item.start_time_ms + video_item.duration_ms {
-                // we probably want to call draw_video_frame here if video is playing
-                // but let's just render the current frame for now
-                video_item.transform.update_uniform_buffer(queue);
-                render_pass.set_bind_group(1, &video_item.bind_group, &[]);
-                render_pass.set_bind_group(3, &video_item.group_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, video_item.vertex_buffer.slice(..));
-                render_pass.set_index_buffer(video_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                render_pass.draw_indexed(0..video_item.indices.len() as u32, 0, 0..1);
-            }
-        }
+        // for video_item in &editor.stunts_videos {
+        //     if !video_item.hidden && current_time_ms >= video_item.start_time_ms && current_time_ms <= video_item.start_time_ms + video_item.duration_ms {
+        //         // we probably want to call draw_video_frame here if video is playing
+        //         // but let's just render the current frame for now
+        //         video_item.transform.update_uniform_buffer(queue);
+        //         render_pass.set_bind_group(1, &video_item.bind_group, &[]);
+        //         render_pass.set_bind_group(3, &video_item.group_bind_group, &[]);
+        //         render_pass.set_vertex_buffer(0, video_item.vertex_buffer.slice(..));
+        //         render_pass.set_index_buffer(video_item.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        //         render_pass.draw_indexed(0..video_item.indices.len() as u32, 0, 0..1);
+        //     }
+        // }
     }
 }

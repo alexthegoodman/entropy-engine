@@ -77,7 +77,6 @@ use crate::deno::addon_ops::{
     op_ui_widget_start_horizontal, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state, 
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
 };
-use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::heightfield_landscapes::Landscape::Landscape;
 use crate::heightfield_landscapes::Landscape3D::Landscape3D;
 use crate::heightfield_landscapes::QuadScape::QuadScape;
@@ -272,7 +271,7 @@ impl AddonEngine {
                     dialogue_wrapper: if hook_name == "on_interact" {
                         Some(DialogueWrapper {
                             text: String::new(),
-                            options: Vec::new(),
+                            // options: Vec::new(),
                             changed: false,
                             is_open: false,
                             npc_name: String::new(),
@@ -987,29 +986,29 @@ impl AddonEngine {
         }
 
         // 0.3 Collectables
-        for coll in &renderer_state.collectables {
-            if processed_ids.contains(&coll.id) { continue; }
-            if let Some(bid) = &coll.behavior_id {
-                let pos = if let Some(rb) = renderer_state.rigid_body_set.get(coll.rigid_body_handle) {
-                    let p = rb.translation();
-                    [p.x, p.y, p.z]
-                } else {
-                    [0.0, 0.0, 0.0]
-                };
+        // for coll in &renderer_state.collectables {
+        //     if processed_ids.contains(&coll.id) { continue; }
+        //     if let Some(bid) = &coll.behavior_id {
+        //         let pos = if let Some(rb) = renderer_state.rigid_body_set.get(coll.rigid_body_handle) {
+        //             let p = rb.translation();
+        //             [p.x, p.y, p.z]
+        //         } else {
+        //             [0.0, 0.0, 0.0]
+        //         };
 
-                entity_behaviors.push((
-                    bid.clone(),
-                    EntityWrapper {
-                        id: coll.id.clone(),
-                        name: "Collectable".to_string(),
-                        position: pos,
-                        health: 100.0,
-                        stamina: 100.0,
-                        is_dead: false,
-                    }
-                ));
-            }
-        }
+        //         entity_behaviors.push((
+        //             bid.clone(),
+        //             EntityWrapper {
+        //                 id: coll.id.clone(),
+        //                 name: "Collectable".to_string(),
+        //                 position: pos,
+        //                 health: 100.0,
+        //                 stamina: 100.0,
+        //                 is_dead: false,
+        //             }
+        //         ));
+        //     }
+        // }
 
         for (bid, wrapper) in entity_behaviors {
             self.execute_behavior(renderer_state, &bid, wrapper, "on_update", None);
@@ -1644,168 +1643,168 @@ impl AddonEngine {
             }
         }
 
-        for (id, impulse) in pending_impulses {
-            // Apply to NPC
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                    rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
-                }
-            } 
-            // Apply to Player
-            else if let Some(player) = &renderer_state.player_character {
-                if player.id == id {
-                    if let Some(rb_handle) = player.movement_rigid_body_handle {
-                        if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                            rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
-                        }
-                    }
-                }
-            }
-        }
+        // for (id, impulse) in pending_impulses {
+        //     // Apply to NPC
+        //     if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+        //         if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
+        //             rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
+        //         }
+        //     } 
+        //     // Apply to Player
+        //     else if let Some(player) = &renderer_state.player_character {
+        //         if player.id == id {
+        //             if let Some(rb_handle) = player.movement_rigid_body_handle {
+        //                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+        //                     rb.apply_impulse(nalgebra::vector![impulse[0], impulse[1], impulse[2]], true);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-        for (id, velocity) in pending_velocities {
-            // Apply to NPC
-            if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                    rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
-                    // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
-                }
-            } 
-            // Apply to Player
-            else if let Some(player) = &renderer_state.player_character {
-                if player.id == id {
-                    if let Some(rb_handle) = player.movement_rigid_body_handle {
-                        if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                            rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
-                            // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
-                        }
-                    }
-                }
-            }
-        }
+        // for (id, velocity) in pending_velocities {
+        //     // Apply to NPC
+        //     if let Some(npc) = renderer_state.npcs.iter().find(|n| n.id == id) {
+        //         if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
+        //             rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+        //             // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+        //         }
+        //     } 
+        //     // Apply to Player
+        //     else if let Some(player) = &renderer_state.player_character {
+        //         if player.id == id {
+        //             if let Some(rb_handle) = player.movement_rigid_body_handle {
+        //                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+        //                     rb.set_linvel(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+        //                     // rb.add_force(nalgebra::vector![velocity[0], velocity[1], velocity[2]], true);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-        for (id, velocity_xz) in pending_xz_velocities {
-            // Apply to NPC
-            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                    let current_vel = rb.linvel();
-                    rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
-                }
-            } 
-            // Apply to Player
-            else if let Some(player) = &renderer_state.player_character {
-                if player.id == id {
-                    if let Some(rb_handle) = player.movement_rigid_body_handle {
-                        if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
-                            let current_vel = rb.linvel();
-                            rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
-                        }
-                    }
-                }
-            }
-        }
+        // for (id, velocity_xz) in pending_xz_velocities {
+        //     // Apply to NPC
+        //     if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+        //         if let Some(rb) = renderer_state.rigid_body_set.get_mut(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
+        //             let current_vel = rb.linvel();
+        //             rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
+        //         }
+        //     } 
+        //     // Apply to Player
+        //     else if let Some(player) = &renderer_state.player_character {
+        //         if player.id == id {
+        //             if let Some(rb_handle) = player.movement_rigid_body_handle {
+        //                 if let Some(rb) = renderer_state.rigid_body_set.get_mut(rb_handle) {
+        //                     let current_vel = rb.linvel();
+        //                     rb.set_linvel(nalgebra::vector![velocity_xz[0], current_vel.y, velocity_xz[1]], true);
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
-        for (id, rotation) in pending_entity_rotations {
-            // Apply to NPC
-            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                if let Some(mesh) = renderer_state.addon_meshes.values_mut().flatten().find(|n| n.id == id) {
-                    if let Some(transform) = &mut npc.transform {
-                        transform.update_rotation(rotation);
-                        mesh.transform.update_rotation(rotation);
-                    }
-                } 
-            } 
-            // Apply to Player
-            else if let Some(player) = &mut renderer_state.player_character {
-                if player.id == id {
-                    if let Some(transform) = &mut player.transform {
-                        transform.update_rotation(rotation);
-                    }
-                }
-            }
-        }
+        // for (id, rotation) in pending_entity_rotations {
+        //     // Apply to NPC
+        //     if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+        //         if let Some(mesh) = renderer_state.addon_meshes.values_mut().flatten().find(|n| n.id == id) {
+        //             if let Some(transform) = &mut npc.transform {
+        //                 transform.update_rotation(rotation);
+        //                 mesh.transform.update_rotation(rotation);
+        //             }
+        //         } 
+        //     } 
+        //     // Apply to Player
+        //     else if let Some(player) = &mut renderer_state.player_character {
+        //         if player.id == id {
+        //             if let Some(transform) = &mut player.transform {
+        //                 transform.update_rotation(rotation);
+        //             }
+        //         }
+        //     }
+        // }
 
-        for (id, anim_name) in pending_animations {
-            // Find NPC and its associated model
-            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == npc.model_id) {
-                    if let Some(idx) = model.animations.iter().position(|a| a.name.to_lowercase().contains(&anim_name.to_lowercase())) {
-                        npc.animation_state.animation_index = idx;
-                    }
-                }
-            }
-        }
+        // for (id, anim_name) in pending_animations {
+        //     // Find NPC and its associated model
+        //     if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+        //         if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == npc.model_id) {
+        //             if let Some(idx) = model.animations.iter().position(|a| a.name.to_lowercase().contains(&anim_name.to_lowercase())) {
+        //                 npc.animation_state.animation_index = idx;
+        //             }
+        //         }
+        //     }
+        // }
 
-        for (id, stats) in pending_stats {
-            if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
-                npc.stats = stats;
-            } else if let Some(player) = &mut renderer_state.player_character {
-                if player.id == id {
-                    player.stats = stats;
-                }
-            }
-        }
+        // for (id, stats) in pending_stats {
+        //     if let Some(npc) = renderer_state.npcs.iter_mut().find(|n| n.id == id) {
+        //         npc.stats = stats;
+        //     } else if let Some(player) = &mut renderer_state.player_character {
+        //         if player.id == id {
+        //             player.stats = stats;
+        //         }
+        //     }
+        // }
 
-        for bt in pending_bone_transforms {
-            if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == bt.model_id) {
-                if let Some(node_idx) = model.nodes.iter().position(|n| n.name == bt.bone_name) {
-                    let node = &mut model.nodes[node_idx];
-                    if let Some(pos) = bt.position {
-                        node.transform.position = nalgebra::Vector3::new(pos[0], pos[1], pos[2]);
-                    }
-                    if let Some(rot) = bt.rotation {
-                        node.transform.rotation = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(rot[3], rot[0], rot[1], rot[2]));
-                    }
-                    if let Some(scale) = bt.scale {
-                        node.transform.scale = nalgebra::Vector3::new(scale[0], scale[1], scale[2]);
-                    }
+        // for bt in pending_bone_transforms {
+        //     if let Some(model) = renderer_state.models.iter_mut().find(|m| m.id == bt.model_id) {
+        //         if let Some(node_idx) = model.nodes.iter().position(|n| n.name == bt.bone_name) {
+        //             let node = &mut model.nodes[node_idx];
+        //             if let Some(pos) = bt.position {
+        //                 node.transform.position = nalgebra::Vector3::new(pos[0], pos[1], pos[2]);
+        //             }
+        //             if let Some(rot) = bt.rotation {
+        //                 node.transform.rotation = nalgebra::UnitQuaternion::from_quaternion(nalgebra::Quaternion::new(rot[3], rot[0], rot[1], rot[2]));
+        //             }
+        //             if let Some(scale) = bt.scale {
+        //                 node.transform.scale = nalgebra::Vector3::new(scale[0], scale[1], scale[2]);
+        //             }
                     
-                    // Manually trigger matrix updates
-                    // Note: Ideally we should call a centralized update_global_transforms(model) here
-                    // similar to what animation_system.rs does.
+        //             // Manually trigger matrix updates
+        //             // Note: Ideally we should call a centralized update_global_transforms(model) here
+        //             // similar to what animation_system.rs does.
                     
-                    // We can reuse the update logic from animation_system if we make it public or duplicate it
-                    // For now, let's just mark it as needing update if we had such a flag, 
-                    // or just run the update logic right here for this model.
+        //             // We can reuse the update logic from animation_system if we make it public or duplicate it
+        //             // For now, let's just mark it as needing update if we had such a flag, 
+        //             // or just run the update logic right here for this model.
                     
-                    fn update_node_recursive(nodes: &mut [crate::art_assets::Model::Node], parent_transform: &nalgebra::Matrix4<f32>, node_idx: usize, queue: &wgpu::Queue) {
-                        let (global_transform, children) = {
-                            let node = &mut nodes[node_idx];
-                            let local_transform = node.transform.update_transform();
-                            node.global_transform = parent_transform * local_transform;
-                            (node.global_transform, node.children.clone())
-                        };
+        //             fn update_node_recursive(nodes: &mut [crate::art_assets::Model::Node], parent_transform: &nalgebra::Matrix4<f32>, node_idx: usize, queue: &wgpu::Queue) {
+        //                 let (global_transform, children) = {
+        //                     let node = &mut nodes[node_idx];
+        //                     let local_transform = node.transform.update_transform();
+        //                     node.global_transform = parent_transform * local_transform;
+        //                     (node.global_transform, node.children.clone())
+        //                 };
 
-                        let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&global_transform);
-                        queue.write_buffer(&nodes[node_idx].transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
+        //                 let raw_matrix = crate::core::Transform_2::matrix4_to_raw_array(&global_transform);
+        //                 queue.write_buffer(&nodes[node_idx].transform.uniform_buffer, 0, bytemuck::cast_slice(&raw_matrix));
 
-                        for child_idx in children {
-                            update_node_recursive(nodes, &global_transform, child_idx, queue);
-                        }
-                    }
+        //                 for child_idx in children {
+        //                     update_node_recursive(nodes, &global_transform, child_idx, queue);
+        //                 }
+        //             }
 
-                    if let gpu = &gpu_resources {
-                        let root_nodes = model.root_nodes.clone();
-                        for root_idx in root_nodes {
-                            update_node_recursive(&mut model.nodes, &nalgebra::Matrix4::identity(), root_idx, &gpu.queue);
-                        }
+        //             if let gpu = &gpu_resources {
+        //                 let root_nodes = model.root_nodes.clone();
+        //                 for root_idx in root_nodes {
+        //                     update_node_recursive(&mut model.nodes, &nalgebra::Matrix4::identity(), root_idx, &gpu.queue);
+        //                 }
 
-                        // Also update skinning buffer if it exists
-                        if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
-                            if let Some(skin) = model.skins.first() {
-                                let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
-                                for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
-                                    let joint_node = &model.nodes[*joint_node_index];
-                                    let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
-                                    joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
-                                }
-                                gpu.queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        //                 // Also update skinning buffer if it exists
+        //                 if let Some(joint_matrices_buffer) = model.joint_matrices_buffer.as_ref() {
+        //                     if let Some(skin) = model.skins.first() {
+        //                         let mut joint_transforms: Vec<[f32; 16]> = Vec::with_capacity(skin.joints.len());
+        //                         for (joint_node_index, inverse_bind_matrix) in skin.joints.iter().zip(skin.inverse_bind_matrices.iter()) {
+        //                             let joint_node = &model.nodes[*joint_node_index];
+        //                             let skinning_matrix = joint_node.global_transform * inverse_bind_matrix;
+        //                             joint_transforms.push(skinning_matrix.as_slice().try_into().unwrap());
+        //                         }
+        //                         gpu.queue.write_buffer(joint_matrices_buffer, 0, bytemuck::cast_slice(&joint_transforms));
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     }
+        // }
 
         if pending_ui_clear {
             ui_polygons.clear();
@@ -2332,7 +2331,7 @@ impl AddonEngine {
                                  id.clone(),
                                  VisualType::CustomMesh,
                                  None,
-                                 BehaviorConfig::default(),
+                                //  BehaviorConfig::default(),
                                  None,
                                  Some(VisualConfig {
                                     id: Some(id.clone()),

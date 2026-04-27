@@ -21,11 +21,6 @@ use crate::core::{AnimationState::AnimationState, SimpleCamera::SimpleCamera};
 use crate::helpers::saved_data::{AttackStats, CharacterStats, CollectableType, ComponentData, VisualType};
 use crate::model_components::NPC::{NPC};
 use crate::{
-    game_behaviors::{
-        melee::{MeleeCombatBehavior},
-        wander::WanderBehavior,
-        inventory::Inventory,
-    },
     art_assets::Model::Model,
 };
 
@@ -91,7 +86,7 @@ pub struct PlayerCharacter {
     pub is_defending: bool,
     pub is_firing: bool,
     pub has_fired_this_press: bool,
-    pub inventory: Inventory,
+    // pub inventory: Inventory,
 
     pub default_weapon: Option<ComponentData>,
 
@@ -176,12 +171,12 @@ impl PlayerCharacter {
             true
         );
 
-        let mut inventory = Inventory::new();
+        // let mut inventory = Inventory::new();
 
-        if let Some(default_weapon)  = default_weapon.clone() {
-            inventory.add_item(&default_weapon);
-            inventory.equip_weapon(&default_weapon);
-        }
+        // if let Some(default_weapon)  = default_weapon.clone() {
+        //     inventory.add_item(&default_weapon);
+        //     inventory.equip_weapon(&default_weapon);
+        // }
 
         Self {
             id,
@@ -223,7 +218,7 @@ impl PlayerCharacter {
             is_defending: false,
             is_firing: false,
             has_fired_this_press: false,
-            inventory,
+            // inventory,
             default_weapon,
             animation_state: AnimationState::new(0),
             is_moving: false,
@@ -265,240 +260,242 @@ impl PlayerCharacter {
         camera.rotate(dx, dy);
     }
 
-    pub fn attack(
-        &mut self,
-        rigid_body_set: &RigidBodySet,
-        collider_set: &ColliderSet,
-        query_pipeline: &QueryPipeline,
-        npcs: &mut Vec<NPC>,
-        camera: &SimpleCamera,
-    ) -> (Option<String>, Option<(Point3<f32>, Point3<f32>)>) {
-        let mut cooldown = self.attack_stats.cooldown;
-        if let Some(weapon) = &self.inventory.equipped_weapon {
-            if let Some(props) = &weapon.collectable_properties {
-                if let Some(rate) = props.fire_rate {
-                    if rate > 0.0 {
-                        cooldown = 1.0 / rate;
-                    }
-                }
-            }
-        }
+    // NOTE: all should be handled TypeScript addon-side now ideally
 
-        if self.attack_timer.elapsed().as_secs_f32() < cooldown {
-            return (None, None); // Attack is on cooldown
-        }
+    // pub fn attack(
+    //     &mut self,
+    //     rigid_body_set: &RigidBodySet,
+    //     collider_set: &ColliderSet,
+    //     query_pipeline: &QueryPipeline,
+    //     npcs: &mut Vec<NPC>,
+    //     camera: &SimpleCamera,
+    // ) -> (Option<String>, Option<(Point3<f32>, Point3<f32>)>) {
+    //     let mut cooldown = self.attack_stats.cooldown;
+    //     if let Some(weapon) = &self.inventory.equipped_weapon {
+    //         if let Some(props) = &weapon.collectable_properties {
+    //             if let Some(rate) = props.fire_rate {
+    //                 if rate > 0.0 {
+    //                     cooldown = 1.0 / rate;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-        // Get player position
-        let player_pos = if let Some(rb_handle) = self.movement_rigid_body_handle {
-            if let Some(rb) = rigid_body_set.get(rb_handle) {
-                rb.translation().xyz()
-            } else {
-                println!("Can't find player body");
-                return (None, None);
-            }
-        } else {
-            println!("Can't find player handle");
-            return (None, None);
-        };
+    //     if self.attack_timer.elapsed().as_secs_f32() < cooldown {
+    //         return (None, None); // Attack is on cooldown
+    //     }
 
-        // Determine attack type based on equipped weapon
-        let mut is_ranged = false;
-        let mut has_ammo = false;
+    //     // Get player position
+    //     let player_pos = if let Some(rb_handle) = self.movement_rigid_body_handle {
+    //         if let Some(rb) = rigid_body_set.get(rb_handle) {
+    //             rb.translation().xyz()
+    //         } else {
+    //             println!("Can't find player body");
+    //             return (None, None);
+    //         }
+    //     } else {
+    //         println!("Can't find player handle");
+    //         return (None, None);
+    //     };
 
-        if let Some(weapon) = &mut self.inventory.equipped_weapon {
-            if let Some(props) = &mut weapon.collectable_properties {
-                if props.collectable_type == Some(CollectableType::RangedWeapon) {
-                    is_ranged = true;
-                    // Check ammo
-                    if let Some(ammo) = props.ammo {
-                        if ammo > 0 {
-                            has_ammo = true;
-                            // Decrease ammo
-                            props.ammo = Some(ammo - 1);
-                        } else {
-                            println!("Click! No ammo!");
-                        }
-                    } else {
-                        // Weapon has no ammo logic, assume infinite
-                        has_ammo = true;
-                    }
-                }
-            }
-        }
+    //     // Determine attack type based on equipped weapon
+    //     let mut is_ranged = false;
+    //     let mut has_ammo = false;
 
-        if is_ranged {
-            if !has_ammo {
-                 return (None, None);
-            }
+    //     if let Some(weapon) = &mut self.inventory.equipped_weapon {
+    //         if let Some(props) = &mut weapon.collectable_properties {
+    //             if props.collectable_type == Some(CollectableType::RangedWeapon) {
+    //                 is_ranged = true;
+    //                 // Check ammo
+    //                 if let Some(ammo) = props.ammo {
+    //                     if ammo > 0 {
+    //                         has_ammo = true;
+    //                         // Decrease ammo
+    //                         props.ammo = Some(ammo - 1);
+    //                     } else {
+    //                         println!("Click! No ammo!");
+    //                     }
+    //                 } else {
+    //                     // Weapon has no ammo logic, assume infinite
+    //                     has_ammo = true;
+    //                 }
+    //             }
+    //         }
+    //     }
 
-            // Reset the attack timer only if we actually shoot
-            self.attack_timer = Instant::now();
+    //     if is_ranged {
+    //         if !has_ammo {
+    //              return (None, None);
+    //         }
 
-            // Apply recoil kick
-            let mut rng = rand::thread_rng();
-            use rand::Rng;
-            let intensity = 1.0;
-            let kick_up = 5.0 * intensity;
-            let kick_side = rng.gen_range(-2.0..2.0) * intensity;
-            self.recoil_velocity.y += kick_up;
-            self.recoil_velocity.x += kick_side;
+    //         // Reset the attack timer only if we actually shoot
+    //         self.attack_timer = Instant::now();
 
-            // Ranged Attack (Raycast)
-            // Use camera direction as the attack direction
-            let dir = camera.direction.normalize();
+    //         // Apply recoil kick
+    //         let mut rng = rand::thread_rng();
+    //         use rand::Rng;
+    //         let intensity = 1.0;
+    //         let kick_up = 5.0 * intensity;
+    //         let kick_side = rng.gen_range(-2.0..2.0) * intensity;
+    //         self.recoil_velocity.y += kick_up;
+    //         self.recoil_velocity.x += kick_side;
+
+    //         // Ranged Attack (Raycast)
+    //         // Use camera direction as the attack direction
+    //         let dir = camera.direction.normalize();
             
-            // Start ray slightly in front of the player/camera to avoid hitting self
-            // Or use an exclude filter
-            // Using camera position might be better for "crosshair" aiming, but player model might be offset.
-            // For 3rd person, usually we raycast from camera through crosshair.
-            // Let's use camera position + direction.
-            // let origin = camera.position; 
-            let origin = camera.position + dir * 1.0; // Start 1 unit in front instead of at camera
+    //         // Start ray slightly in front of the player/camera to avoid hitting self
+    //         // Or use an exclude filter
+    //         // Using camera position might be better for "crosshair" aiming, but player model might be offset.
+    //         // For 3rd person, usually we raycast from camera through crosshair.
+    //         // Let's use camera position + direction.
+    //         // let origin = camera.position; 
+    //         let origin = camera.position + dir * 1.0; // Start 1 unit in front instead of at camera
             
-            let ray = Ray::new(
-                Point3::new(origin.x, origin.y, origin.z),
-                Vector3::new(dir.x, dir.y, dir.z),
-            );
+    //         let ray = Ray::new(
+    //             Point3::new(origin.x, origin.y, origin.z),
+    //             Vector3::new(dir.x, dir.y, dir.z),
+    //         );
 
-            let max_toi = 1000.0; // Long range for guns
-            let solid = true;
-            // Exclude player collider if possible. 
-            // We can exclude the player's rigid body.
-            let mut filter = QueryFilter::default();
-            if let Some(rb_handle) = self.movement_rigid_body_handle {
-                filter = filter.exclude_rigid_body(rb_handle);
-            }
-            if let Some(c_handle) = self.collider_handle {
-                filter = filter.exclude_collider(c_handle)
-            }
+    //         let max_toi = 1000.0; // Long range for guns
+    //         let solid = true;
+    //         // Exclude player collider if possible. 
+    //         // We can exclude the player's rigid body.
+    //         let mut filter = QueryFilter::default();
+    //         if let Some(rb_handle) = self.movement_rigid_body_handle {
+    //             filter = filter.exclude_rigid_body(rb_handle);
+    //         }
+    //         if let Some(c_handle) = self.collider_handle {
+    //             filter = filter.exclude_collider(c_handle)
+    //         }
 
-            let mut hit_point = origin + dir * max_toi;
-            let mut hit_id = None;
+    //         let mut hit_point = origin + dir * max_toi;
+    //         let mut hit_id = None;
 
-            if let Some((handle, toi)) = query_pipeline.cast_ray(
-                rigid_body_set,
-                collider_set,
-                &ray,
-                max_toi,
-                solid,
-                filter
-            ) {
-                hit_point = origin + dir * toi;
+    //         if let Some((handle, toi)) = query_pipeline.cast_ray(
+    //             rigid_body_set,
+    //             collider_set,
+    //             &ray,
+    //             max_toi,
+    //             solid,
+    //             filter
+    //         ) {
+    //             hit_point = origin + dir * toi;
 
-                // Check if we hit an NPC
-                if let Some(collider) = collider_set.get(handle) {
-                    if let Some(parent_handle) = collider.parent() {
-                         // Find which NPC has this rigid body handle
-                         if let Some(npc) = npcs.iter_mut().find(|n| *n.rigid_body_handle.as_ref().expect("Couldnt get handle") == parent_handle) {
-                             npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
-                             println!("Player shot NPC! (ranged)");
-                             hit_id = Some(npc.id.clone());
-                         }
-                    }
-                }
-            }
+    //             // Check if we hit an NPC
+    //             if let Some(collider) = collider_set.get(handle) {
+    //                 if let Some(parent_handle) = collider.parent() {
+    //                      // Find which NPC has this rigid body handle
+    //                      if let Some(npc) = npcs.iter_mut().find(|n| *n.rigid_body_handle.as_ref().expect("Couldnt get handle") == parent_handle) {
+    //                          npc.test_behavior.handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
+    //                          println!("Player shot NPC! (ranged)");
+    //                          hit_id = Some(npc.id.clone());
+    //                      }
+    //                 }
+    //             }
+    //         }
             
-            if hit_id.is_none() {
-                println!("Player shot air! (ranged)");
-            }
+    //         if hit_id.is_none() {
+    //             println!("Player shot air! (ranged)");
+    //         }
 
-            return (hit_id, Some((origin, hit_point)));
+    //         return (hit_id, Some((origin, hit_point)));
 
-        } else {
-            // Reset the attack timer
-            self.attack_timer = Instant::now();
+    //     } else {
+    //         // Reset the attack timer
+    //         self.attack_timer = Instant::now();
             
-            // Melee Attack (Distance check)
-            let mut closest_npc_index: Option<usize> = None;
-            let mut min_distance = self.attack_stats.range;
+    //         // Melee Attack (Distance check)
+    //         let mut closest_npc_index: Option<usize> = None;
+    //         let mut min_distance = self.attack_stats.range;
 
-            for (i, npc) in npcs.iter().enumerate() {
-                if let Some(npc_rb) = rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
-                    let npc_pos = npc_rb.translation().xyz();
-                    let distance = nalgebra::distance(&player_pos.into(), &npc_pos.into());
+    //         for (i, npc) in npcs.iter().enumerate() {
+    //             if let Some(npc_rb) = rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
+    //                 let npc_pos = npc_rb.translation().xyz();
+    //                 let distance = nalgebra::distance(&player_pos.into(), &npc_pos.into());
 
-                    if distance <= min_distance {
-                        min_distance = distance;
-                        closest_npc_index = Some(i);
-                    }
-                }
-            }
+    //                 if distance <= min_distance {
+    //                     min_distance = distance;
+    //                     closest_npc_index = Some(i);
+    //                 }
+    //             }
+    //         }
 
-            if let Some(index) = closest_npc_index {
-                // Apply damage to the targeted NPC
-                let npc = &mut npcs[index];
-                npc.test_behavior
-                    .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
+    //         if let Some(index) = closest_npc_index {
+    //             // Apply damage to the targeted NPC
+    //             let npc = &mut npcs[index];
+    //             npc.test_behavior
+    //                 .handle_incoming_damage(self.attack_stats.damage, &mut npc.stats);
                 
-                println!("Player attacked (melee)!"); // Debug print
-                return (Some(npc.id.clone()), None);
-            }
+    //             println!("Player attacked (melee)!"); // Debug print
+    //             return (Some(npc.id.clone()), None);
+    //         }
 
-            println!("Player attacked air (melee)!"); // Debug print
-            (None, None)
-        }
-    }
+    //         println!("Player attacked air (melee)!"); // Debug print
+    //         (None, None)
+    //     }
+    // }
 
-    pub fn set_aiming(&mut self, aiming: bool) {
-        self.is_aiming = aiming;
-    }
+    // pub fn set_aiming(&mut self, aiming: bool) {
+    //     self.is_aiming = aiming;
+    // }
 
-    pub fn update_aim(&mut self, dt: f32) {
-        let aim_speed = 10.0;
-        let target = if self.is_aiming { 1.0 } else { 0.0 };
-        self.aim_factor += (target - self.aim_factor) * aim_speed * dt;
-        self.aim_factor = self.aim_factor.clamp(0.0, 1.0);
+    // pub fn update_aim(&mut self, dt: f32) {
+    //     let aim_speed = 10.0;
+    //     let target = if self.is_aiming { 1.0 } else { 0.0 };
+    //     self.aim_factor += (target - self.aim_factor) * aim_speed * dt;
+    //     self.aim_factor = self.aim_factor.clamp(0.0, 1.0);
 
-        // Recoil recovery (Spring-damper model)
-        let stiffness = 150.0;
-        let damping = 15.0;
+    //     // Recoil recovery (Spring-damper model)
+    //     let stiffness = 150.0;
+    //     let damping = 15.0;
         
-        let force = -stiffness * self.recoil_offset - damping * self.recoil_velocity;
-        self.recoil_velocity += force * dt;
-        self.recoil_offset += self.recoil_velocity * dt;
-    }
+    //     let force = -stiffness * self.recoil_offset - damping * self.recoil_velocity;
+    //     self.recoil_velocity += force * dt;
+    //     self.recoil_offset += self.recoil_velocity * dt;
+    // }
 
-    pub fn reload(&mut self) {
-        if let Some(weapon) = &mut self.inventory.equipped_weapon {
-             if let Some(props) = &mut weapon.collectable_properties {
-                if props.collectable_type == Some(CollectableType::RangedWeapon) {
-                     // Simple reload: Fill to max
-                     // In future, check inventory for ammo items
-                     if let Some(max) = props.max_ammo {
-                         props.ammo = Some(max);
-                         println!("Reloaded!");
-                     } else {
-                         // If no max defined, maybe set to a default?
-                         props.ammo = Some(30);
-                         println!("Reloaded to default 30!");
-                     }
-                }
-             }
-        }
-    }
+    // pub fn reload(&mut self) {
+    //     if let Some(weapon) = &mut self.inventory.equipped_weapon {
+    //          if let Some(props) = &mut weapon.collectable_properties {
+    //             if props.collectable_type == Some(CollectableType::RangedWeapon) {
+    //                  // Simple reload: Fill to max
+    //                  // In future, check inventory for ammo items
+    //                  if let Some(max) = props.max_ammo {
+    //                      props.ammo = Some(max);
+    //                      println!("Reloaded!");
+    //                  } else {
+    //                      // If no max defined, maybe set to a default?
+    //                      props.ammo = Some(30);
+    //                      println!("Reloaded to default 30!");
+    //                  }
+    //             }
+    //          }
+    //     }
+    // }
 
-    pub fn defend(&mut self) {
-        self.is_defending = true;
-        println!("Player is now defending!");
-    }
+    // pub fn defend(&mut self) {
+    //     self.is_defending = true;
+    //     println!("Player is now defending!");
+    // }
 
-    pub fn handle_incoming_damage(&mut self, damage: f32) {
-        let actual_damage = if self.is_defending {
-            println!("Player defended! Damage reduced.");
-            damage * 0.5 // Reduce damage by 50% if defending
-        } else {
-            damage
-        };
+    // pub fn handle_incoming_damage(&mut self, damage: f32) {
+    //     let actual_damage = if self.is_defending {
+    //         println!("Player defended! Damage reduced.");
+    //         damage * 0.5 // Reduce damage by 50% if defending
+    //     } else {
+    //         damage
+    //     };
 
-        self.stats.health -= actual_damage;
-        if self.stats.health < 0.0 {
-            self.stats.health = 0.0;
-        }
-        self.is_defending = false; // Reset defending state after taking damage
+    //     self.stats.health -= actual_damage;
+    //     if self.stats.health < 0.0 {
+    //         self.stats.health = 0.0;
+    //     }
+    //     self.is_defending = false; // Reset defending state after taking damage
 
-        println!(
-            "Player Character - Health: {:.2}, Stamina: {:.2}",
-            self.stats.health, self.stats.stamina
-        );
-    }
+    //     println!(
+    //         "Player Character - Health: {:.2}, Stamina: {:.2}",
+    //         self.stats.health, self.stats.stamina
+    //     );
+    // }
 }

@@ -5,7 +5,8 @@ use crate::helpers::wasm_loaders::read_landscape_heightmap_as_texture_wasm;
 use crate::{
     core::{Texture::{Texture, pack_pbr_textures, repack_arm_to_mra}, editor::Editor}, 
     deno::addon_engine::AddonEngine, 
-    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, handle_add_model, handle_add_npc, handle_add_particle_system, handle_add_player, handle_add_scattered_model, handle_add_trees, handle_add_water_plane},
+    handlers::{fetch_mask_data, handle_add_collectable, handle_add_grass, handle_add_house, handle_add_landscape, 
+        handle_add_model, handle_add_npc, handle_add_particle_system, handle_add_player, handle_add_scattered_model, handle_add_trees},
     heightfield_landscapes::Landscape::{PBRMaterialType, PBRTextureKind}, helpers::{landscapes::{read_landscape_heightmap_as_texture, read_texture_bytes}, 
     saved_data::{CollectableType, ComponentKind, LandscapeTextureKinds, SavedState}, utilities::{self, load_project_state_native}}, procedural_models::House::HouseConfig
 };

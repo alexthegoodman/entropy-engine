@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use crate::helpers::saved_data::{CharacterStats, ComponentData};
-use crate::game_behaviors::inventory::Inventory;
+// use crate::game_behaviors::inventory::Inventory;
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct NpcSessionState {
     pub health: f32,
     pub is_dead: bool,
     pub position: [f32; 3],
-    pub inventory: Inventory,
+    // pub inventory: Inventory,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -19,7 +19,7 @@ pub struct SessionState {
     
     // Player State
     pub player_stats: CharacterStats,
-    pub player_inventory: Inventory,
+    // pub player_inventory: Inventory,
     pub player_position: [f32; 3],
     pub player_rotation: [f32; 3],
 

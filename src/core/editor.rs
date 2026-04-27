@@ -23,15 +23,11 @@ use crate::helpers::timelines::SavedTimelineStateConfig;
 use crate::renderer_images::st_image::StImage;
 use crate::renderer_text::fonts::FontManager;
 use crate::renderer_text::text_due::TextRenderer;
-use crate::renderer_videos::st_video::StVideo;
-use crate::screen_capture::capture::{MousePosition, SourceData};
 // use crate::renderer_videos::st_video::StVideo;
 use crate::shape_primitives::polygon::{Polygon, Stroke};
-use crate::vector_animations::animations::{AnimationProperty, EasingType, KeyType, KeyframeValue, ObjectType, Sequence, UIKeyframe};
 use crate::shape_primitives::Cube::Cube;
 // use crate::deno::script_engine::DenoEngine;
 use crate::deno::addon_engine::AddonEngine;
-use crate::game_ui::dialogue_state::DialogueState;
 
 use cgmath::SquareMatrix;
 
@@ -243,15 +239,15 @@ pub enum ObjectProperty {
     // Points(Vec<Point>),
 }
 
-#[derive(Debug)]
-pub struct ObjectEditConfig {
-    pub object_id: Uuid,
-    pub object_type: ObjectType,
-    pub field_name: String,
-    pub old_value: ObjectProperty,
-    pub new_value: ObjectProperty,
-    // pub signal: RwSignal<String>,
-}
+// #[derive(Debug)]
+// pub struct ObjectEditConfig {
+//     pub object_id: Uuid,
+//     pub object_type: ObjectType,
+//     pub field_name: String,
+//     pub old_value: ObjectProperty,
+//     pub new_value: ObjectProperty,
+//     // pub signal: RwSignal<String>,
+// }
 
 // pub type PolygonClickHandler = dyn Fn() -> Option<Box<dyn FnMut(Uuid, PolygonConfig)>>;
 
@@ -269,29 +265,29 @@ pub struct ObjectEditConfig {
 // pub type OnPathMouseUp =
 //     dyn Fn() -> Option<Box<dyn FnMut(Uuid, Point) -> (Sequence, Vec<UIKeyframe>)>>;
 
-#[derive(Eq, PartialEq, Clone, Copy, EnumIter, Debug)]
-pub enum ControlMode {
-    Select,
-    Pan,
-}
+// #[derive(Eq, PartialEq, Clone, Copy, EnumIter, Debug)]
+// pub enum ControlMode {
+//     Select,
+//     Pan,
+// }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum HandlePosition {
-    TopLeft,
-    Top,
-    TopRight,
-    Right,
-    BottomRight,
-    Bottom,
-    BottomLeft,
-    Left,
-}
+// #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+// pub enum HandlePosition {
+//     TopLeft,
+//     Top,
+//     TopRight,
+//     Right,
+//     BottomRight,
+//     Bottom,
+//     BottomLeft,
+//     Left,
+// }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct SelectedObject {
-    pub object_id: Uuid,
-    pub object_type: ObjectType,
-}
+// #[derive(Clone, Debug, PartialEq)]
+// pub struct SelectedObject {
+//     pub object_id: Uuid,
+//     pub object_type: ObjectType,
+// }
 
 // pub struct ResizeHandle {
 //     pub id: Uuid,
@@ -307,20 +303,13 @@ pub struct Editor {
     pub renderer_state: Option<RendererState>,
 
     // visual
-    // pub st_capture: StCapture,
-    // pub exporter: Option<Exporter>,
-    // pub selected_polygon_id: Uuid,
     pub polygons: Vec<Polygon>,
-    // pub dragging_polygon: Option<Uuid>,
     pub ui_polygons: Vec<Polygon>,
     pub stunts_polygons: Vec<Polygon>,
-    // pub project_selected: Option<Uuid>,
     pub ui_textboxes: Vec<TextRenderer>,
     pub stunts_textboxes: Vec<TextRenderer>,
-    // pub dragging_text: Option<Uuid>,
     pub ui_images: Vec<StImage>,
     pub stunts_images: Vec<StImage>,
-    pub stunts_videos: Vec<crate::renderer_videos::st_video::StVideo>,
     pub current_enemy_target: Option<String>,
     
     // Inventory UI
@@ -328,49 +317,22 @@ pub struct Editor {
     pub inventory_ui_ids: Vec<Uuid>,
     pub quest_ui_ids: Vec<Uuid>,
     pub font_manager: FontManager,
-    pub mini_map: Option<crate::game_ui::mini_map::MiniMap>,
 
-    // Dialogue State
-    pub dialogue_state: DialogueState,
-
-    // pub dragging_image: Option<Uuid>,
-    // pub font_manager: FontManager,
-    // pub dragging_path: Option<Uuid>,
-    // pub dragging_path_handle: Option<Uuid>,
-    // pub dragging_path_object: Option<Uuid>,
-    // pub dragging_path_keyframe: Option<Uuid>,
-    // pub cursor_dot: Option<RingDot>,
-    // pub video_items: Vec<StVideo>,
-    // pub dragging_video: Option<Uuid>,
     pub world_state: Option<SavedState>,
     pub stunts_state: Option<SavedState>,
     pub sophia_state: Option<SavedState>,
     pub sophia_app_state: crate::core::sophia::SophiaState,
-    // pub deno_engine: DenoEngine,
     pub addon_engine: AddonEngine,
     pub script_editors: HashMap<PathBuf, crate::core::script_editor::ScriptEditor>,
     pub pending_script_tabs: Vec<PathBuf>,
     
-    // resize handles system
-    pub selected_object: Option<SelectedObject>,
-    // pub resize_handles: Vec<ResizeHandle>,
-    pub dragging_handle: Option<(Uuid, HandlePosition)>,
-    
-    // pub motion_paths: Vec<MotionPath>,
-    // pub motion_arrows: Vec<MotionArrow>,
-    // pub canvas_hidden: bool,
-    // pub motion_arrow_just_placed: bool,
-    // pub last_motion_arrow_object_id: Uuid,
-    // pub last_motion_arrow_object_type: ObjectType,
-    // pub last_motion_arrow_object_dimensions: Option<(f32, f32)>,
-    // pub last_motion_arrow_end_positions: Option<(Point, Point)>,
+    // // resize handles system
+    // pub selected_object: Option<SelectedObject>,
+    // // pub resize_handles: Vec<ResizeHandle>,
+    // pub dragging_handle: Option<(Uuid, HandlePosition)>,
 
     // viewport
     pub viewport: Arc<Mutex<Viewport>>,
-    // pub handle_polygon_click: Option<Arc<PolygonClickHandler>>,
-    // pub handle_text_click: Option<Arc<TextItemClickHandler>>,
-    // pub handle_image_click: Option<Arc<ImageItemClickHandler>>,
-    // pub handle_video_click: Option<Arc<VideoItemClickHandler>>,
     pub gpu_resources: Option<Arc<GpuResources>>,
     pub camera: Option<Camera>,
     pub camera_binding: Option<CameraBinding>,
@@ -380,25 +342,9 @@ pub struct Editor {
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub window_size_buffer: Option<Arc<wgpu::Buffer>>,
     pub render_pipeline: Option<Arc<wgpu::RenderPipeline>>,
-    // pub on_mouse_up: Option<Arc<OnMouseUp>>,
-    // pub on_handle_mouse_up: Option<Arc<OnHandleMouseUp>>,
-    // pub on_path_mouse_up: Option<Arc<OnPathMouseUp>>,
     pub current_view: String,
     pub interactive_bounds: BoundingBox,
     pub depth_view: Option<wgpu::TextureView>,
-
-    // state
-    pub is_playing: bool,
-
-    pub last_frame_time: Option<Instant>,
-    pub start_playing_time: Option<Instant>,
-    pub video_is_playing: bool,
-    pub video_start_playing_time: Option<Instant>,
-    pub video_current_time_ms: i32,
-    pub video_total_duration_ms: i32,
-    pub control_mode: ControlMode,
-    pub is_panning: bool,
-    pub motion_mode: bool,
 
     // points
     pub last_mouse_pos: Option<Point>,
@@ -517,147 +463,6 @@ impl Editor {
         self.polygons.push(canvas_polygon);
     }
 
-    pub fn sync_stunts_objects(&mut self) {
-        if let Some(stunts_state) = &self.stunts_state {
-            let gpu_resources = self.gpu_resources.as_ref().expect("No gpu resources");
-            let device = &gpu_resources.device;
-            let queue = &gpu_resources.queue;
-            let ui_model_bind_group_layout = self.ui_model_bind_group_layout.as_ref().expect("No model bind group layout");
-            let group_bind_group_layout = self.group_bind_group_layout.as_ref().expect("No group bind group layout");
-            let camera = self.camera.as_ref().expect("No camera");
-            let window_size = camera.viewport.window_size;
-
-            // Sync Polygons
-            if let Some(saved_polygons) = &stunts_state.active_polygons {
-                // simple sync: if id not in stunts_polygons, add it.
-                // for now, let's just rebuild if lengths differ or always? 
-                // Better: only add if missing.
-                for saved in saved_polygons {
-                    if !self.stunts_polygons.iter().any(|p| p.id.to_string() == saved.id) {
-                        let poly = Polygon::from_saved_config(
-                            saved,
-                            &window_size,
-                            device,
-                            queue,
-                            ui_model_bind_group_layout,
-                            group_bind_group_layout,
-                            camera,
-                        );
-                        self.stunts_polygons.push(poly);
-                    }
-                }
-                // remove if not in saved
-                self.stunts_polygons.retain(|p| saved_polygons.iter().any(|s| s.id == p.id.to_string()));
-            } else {
-                self.stunts_polygons.clear();
-            }
-
-            // Sync Text
-            if let Some(saved_text) = &stunts_state.active_text_items {
-                for saved in saved_text {
-                    if !self.stunts_textboxes.iter().any(|t| t.id.to_string() == saved.id) {
-                        let font_data = self.font_manager.get_font_by_name(&saved.font_family).expect("Font not found");
-                        let mut text = TextRenderer::from_saved_config(
-                            saved,
-                            &window_size,
-                            device,
-                            queue,
-                            ui_model_bind_group_layout,
-                            group_bind_group_layout,
-                            camera,
-                            font_data,
-                        );
-
-                        text.render_text(&device, &queue);
-
-                        self.stunts_textboxes.push(text);
-                    }
-                }
-                self.stunts_textboxes.retain(|t| saved_text.iter().any(|s| s.id == t.id.to_string()));
-            } else {
-                self.stunts_textboxes.clear();
-            }
-
-            // Sync Images
-            if let Some(saved_images) = &stunts_state.active_image_items {
-                for saved in saved_images {
-                    if !self.stunts_images.iter().any(|i| i.id == saved.id) {
-                        let img = StImage::from_saved_config(
-                            saved,
-                            &window_size,
-                            device,
-                            queue,
-                            ui_model_bind_group_layout,
-                            group_bind_group_layout,
-                        );
-                        self.stunts_images.push(img);
-                    }
-                }
-                self.stunts_images.retain(|i| saved_images.iter().any(|s| s.id == i.id));
-            } else {
-                self.stunts_images.clear();
-            }
-
-            // Sync Videos
-            if let Some(saved_videos) = &stunts_state.active_video_items {
-                for saved in saved_videos {
-                    if !self.stunts_videos.iter().any(|v| v.id == saved.id) {
-                        let mut source_data_path = None;
-                        let mut stored_mouse_positions = None;
-                        if let Some(mouse_path) = &saved.mouse_path {
-                            let mut mouse_pathbuf = Path::new(&mouse_path).to_path_buf();
-                            mouse_pathbuf.pop();
-                            source_data_path = Some(mouse_pathbuf.join("sourceData.json"));
-
-                            if let Ok(positions) = fs::read_to_string(mouse_path) {
-                                if let Ok(mouse_positions) =
-                                    serde_json::from_str::<Vec<MousePosition>>(&positions)
-                                {
-                                    // saved_mouse_path = Some(mouse_path);
-                                    stored_mouse_positions = Some(mouse_positions);
-                                }
-                            }
-                        }
-
-                        let mut stored_source_data = None;
-                        if let Some(source_path) = &source_data_path {
-                            if let Ok(source_data) = fs::read_to_string(source_path) {
-                                if let Ok(data) = serde_json::from_str::<SourceData>(&source_data) {
-                                    stored_source_data = Some(data);
-                                }
-                            }
-                        }
-
-                        if let Ok(mut vid) = StVideo::from_saved_config(
-                            saved,
-                            &window_size,
-                            device,
-                            queue,
-                            ui_model_bind_group_layout,
-                            group_bind_group_layout,
-                        ) {
-                            // set window data from capture
-                            vid.source_data = stored_source_data;
-
-                            // set mouse positions
-                            vid.mouse_positions = stored_mouse_positions;
-
-                            // render 1 frame to provide preview image
-                            vid
-                                .draw_video_frame(device, queue)
-                                .expect("Couldn't draw video frame");
-
-                            self.stunts_videos.push(vid);
-                        }
-                    }
-                }
-                self.stunts_videos.retain(|v| saved_videos.iter().any(|s| s.id == v.id));
-            } else {
-                self.stunts_videos.clear();
-            }
-        }
-    }
-
     pub fn new(
         viewport: Arc<Mutex<Viewport>>,
         project_id: Option<String>
@@ -680,26 +485,12 @@ impl Editor {
             stunts_state: None,
             sophia_state: None,
             sophia_app_state: crate::core::sophia::SophiaState::new(),
-            // deno_engine: DenoEngine::new(project_id.clone()),
             addon_engine: AddonEngine::new(project_id.clone()),
             script_editors: HashMap::new(),
             pending_script_tabs: Vec::new(),
-            // st_capture,
-            // exporter: None,
-            // font_manager,
-            // // inference,
-            // selected_polygon_id: Uuid::nil(),
-            // last_motion_arrow_object_id: Uuid::nil(),
-            // last_motion_arrow_object_type: ObjectType::Polygon,
             polygons: Vec::new(),
-            // dragging_polygon: None,
-            // dragging_path_assoc_path: None,
             drag_start: None,
             viewport: viewport.clone(),
-            // handle_polygon_click: None,
-            // handle_text_click: None,
-            // handle_image_click: None,
-            // handle_video_click: None,
             gpu_resources: None,
             camera: None,
             camera_binding: None,
@@ -711,9 +502,6 @@ impl Editor {
             global_top_left: Point { x: 0.0, y: 0.0 },
             ndc: Point { x: 0.0, y: 0.0 },
             previous_top_left: Point { x: 0.0, y: 0.0 },
-            is_playing: false,
-            last_frame_time: None,
-            start_playing_time: None,
             model_bind_group_layout: None,
             group_bind_group_layout: None,
             window_size_bind_group_layout: None,
@@ -722,52 +510,17 @@ impl Editor {
             render_pipeline: None,
             ui_polygons: Vec::new(),
             stunts_polygons: Vec::new(),
-            // on_mouse_up: None,
             current_view: "manage_projects".to_string(),
-            // project_selected: None,
             ui_textboxes: Vec::new(),
             stunts_textboxes: Vec::new(),
-            // dragging_text: None,
             ui_images: Vec::new(),
             stunts_images: Vec::new(),
-            stunts_videos: Vec::new(),
             current_enemy_target: None,
             is_inventory_open: false,
             inventory_ui_ids: Vec::new(),
             quest_ui_ids: Vec::new(),
             font_manager,
-            mini_map: None,
-            dialogue_state: DialogueState::default(),
-            // dragging_image: None,
-            video_is_playing: false,
-            video_start_playing_time: None,
-            video_current_time_ms: 0,
-            video_total_duration_ms: 60000, // 60 seconds default
             is_viewport_visible: false,
-            // dragging_path: None,
-            // dragging_path_handle: None,
-            // on_handle_mouse_up: None,
-            // on_path_mouse_up: None,
-            // dragging_path_object: None,
-            // dragging_path_keyframe: None,
-            // cursor_dot: None,
-            control_mode: ControlMode::Select,
-            is_panning: false,
-            motion_mode: false,
-            // video_items: Vec::new(),
-            // dragging_video: None,
-            // saved_state: None,
-            
-            // resize handles system  
-            selected_object: None,
-            // resize_handles: Vec::new(),
-            dragging_handle: None,
-            
-            // motion_paths: Vec::new(),
-            // motion_arrows: Vec::new(),
-            // canvas_hidden: false,
-            // motion_arrow_just_placed: false,
-            // last_motion_arrow_object_dimensions: None,
             generation_count: 4,
             generation_curved: false,
             generation_choreographed: true,
