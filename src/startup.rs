@@ -32,7 +32,7 @@ use tracing::error;
 
 use crate::core::gpu_resources::{self, GpuResources};
 use crate::handlers::{EntropyElementState, EntropyMouseButton, EntropyPosition, EntropySize, handle_add_water_plane, handle_key_press, handle_mouse_move, handle_mouse_move_on_shift};
-use crate::core::pipeline::{EntropyPipeline};
+use crate::core::pipeline::{EntropyPipeline, Workspace};
 use crate::helpers::load_project::load_game_project;
 use crate::core::editor::WindowSize;
 use wgpu; // For wgpu::SurfaceConfiguration
@@ -837,7 +837,7 @@ impl ApplicationHandler<UserEvent> for Application {
                 break; // Just handle first gamepad for now
             }
         }
-
+        
         if !self.project_loaded {
             if let Some(project_id) = &self.project_id {
                 if let Some(window) = self.windows.values_mut().next() {
@@ -846,11 +846,12 @@ impl ApplicationHandler<UserEvent> for Application {
                         self.project_loaded = true;
                     }
                 }
-            } else if let Some(start_addon) = &self.start_addon {
+            }
+            if let Some(start_addon) = &self.start_addon {
                 if let Some(window) = self.windows.values_mut().next() {
                     if let Some(editor) = window.pipeline.export_editor.as_mut() {
                         editor.addon_engine.start_game(start_addon);
-                        self.project_loaded = true;
+                        window.pipeline.current_workspace = Workspace::Addon("Game Composer".to_string());
                     }
                 }
             }

@@ -2925,7 +2925,11 @@ impl AddonEngine {
     }
 
     pub fn start_game(&mut self, game_name: &str) {
-        let script = format!("globalThis.Entropy._dispatchGameStarted('{}')", game_name);
+        let script = "const renderer = Entropy.Composer?.getGame('".to_owned() + game_name.clone() + "');
+if (renderer) {
+renderer(addon, {});
+};
+globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         if let Err(e) = self.runtime.execute_script("start_game", script) {
             println!("Failed to start game {}: {}", game_name, e);
         }
