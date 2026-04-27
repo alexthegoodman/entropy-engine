@@ -469,12 +469,12 @@ class EnvironmentDecorator {
      * Place a dome structure (could be used as a central hub or special location)
      */
     buildDomeStructure(x: number, z: number) {
-        const y = addon.Landscape.getHeightAt(x, z);
+        // const y = addon.Landscape.getHeightAt(x, z);
         
         addon.Model.load({
-            path: "DomeKit5.glb",
-            position: [x, y, z],
-            scale: [1.5, 1.5, 1.5],
+            path: "DomeKit8.glb",
+            position: [x, -50, z],
+            scale: [1.0, 1.0, 1.0],
             physics: {
                 bodyType: "fixed",
                 colliderShape: "trimesh"
@@ -488,36 +488,36 @@ class EnvironmentDecorator {
      * Master function to decorate the entire world
      */
     decorateWorld() {
-        // just trees during testing
-        this.spawnTrees(30);
+        // // just trees during testing
+        // this.spawnTrees(30);
         
-        this.spawnFoliage(20);
-        // this.buildCentralBridge();
+        // this.spawnFoliage(20);
+        // // this.buildCentralBridge();
         
-        // // Build outposts for each faction
-        this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
-        this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
-        this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
+        // // // Build outposts for each faction
+        // this.buildFactionOutpost(Faction.CRIMSON_GUARD, 4);
+        // this.buildFactionOutpost(Faction.AZURE_ORDER, 4);
+        // this.buildFactionOutpost(Faction.SHADOW_COVENANT, 3);
         
-        // Add towers
-        this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
-        this.buildFactionTowers(Faction.AZURE_ORDER, 4);
-        this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
+        // // Add towers
+        // this.buildFactionTowers(Faction.CRIMSON_GUARD, 4);
+        // this.buildFactionTowers(Faction.AZURE_ORDER, 4);
+        // this.buildFactionTowers(Faction.SHADOW_COVENANT, 4);
         
-        // Add weapon displays
-        this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
-        this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
-        this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
+        // // Add weapon displays
+        // this.spawnWeaponDisplays(Faction.CRIMSON_GUARD, 6);
+        // this.spawnWeaponDisplays(Faction.AZURE_ORDER, 6);
+        // this.spawnWeaponDisplays(Faction.SHADOW_COVENANT, 6);
         
-        // Scatter props
-        this.spawnScatteredProps(50);
+        // // Scatter props
+        // this.spawnScatteredProps(50);
         
         // Build a dome at neutral zone
-        this.buildDomeStructure(-240, 0);
+        this.buildDomeStructure(0, 0);
 
-        this.spawnHouseCluster({
-            x: 250, z: 250
-        }, 200, 40);
+        // this.spawnHouseCluster({
+        //     x: 250, z: 250
+        // }, 200, 40);
         
         Entropy.println("[World] Full decoration complete! 🌍");
     }

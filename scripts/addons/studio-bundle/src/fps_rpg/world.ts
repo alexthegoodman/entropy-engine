@@ -17,7 +17,7 @@ class WorldManager {
     initialize() {
         gameState.setupCombat();
         this.spawnPlayer();
-        this.populateWorld();
+        // this.populateWorld();
 
         environmentDecorator.decorateWorld();
     }
