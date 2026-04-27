@@ -2924,6 +2924,13 @@ impl AddonEngine {
         }
     }
 
+    pub fn start_game(&mut self, game_name: &str) {
+        let script = format!("globalThis.Entropy._dispatchGameStarted('{}')", game_name);
+        if let Err(e) = self.runtime.execute_script("start_game", script) {
+            println!("Failed to start game {}: {}", game_name, e);
+        }
+    }
+
     pub fn load_bundle_sync(&mut self, name: &'static str, source: &str) -> Result<(), AnyError> {
         self.runtime.execute_script(name, source.to_string())?;
         self.run_on_init();

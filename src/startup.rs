@@ -53,7 +53,7 @@ use wry;
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
 
-pub fn run_game(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
+pub fn run_game(project_id: Option<String>, start_addon: Option<String>) -> Result<(), Box<dyn Error>> {
     #[cfg(web_platform)]
     console_error_panic_hook::set_once();
 
@@ -74,7 +74,7 @@ pub fn run_game(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut state = Application::new(&event_loop, true, project_id);
+    let mut state = Application::new(&event_loop, true, project_id, start_addon);
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
@@ -100,7 +100,7 @@ pub fn run(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
         }
     });
 
-    let mut state = Application::new(&event_loop, false, project_id);
+    let mut state = Application::new(&event_loop, false, project_id, None);
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
@@ -134,13 +134,14 @@ struct Application {
     last_mouse_position: Option<PhysicalPosition<f64>>,
     game_mode: bool,
     project_id: Option<String>,
+    start_addon: Option<String>,
     project_loaded: bool,
     mouse_pressed: bool,
     gilrs: Option<Gilrs>,
 }
 
 impl Application {
-    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool, project_id: Option<String>) -> Self {
+    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool, project_id: Option<String>, start_addon: Option<String>) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
         // let context = Some(
@@ -187,6 +188,7 @@ impl Application {
             last_mouse_position: None,
             game_mode,
             project_id,
+            start_addon,
             project_loaded: false,
             mouse_pressed: false,
             gilrs
@@ -844,6 +846,13 @@ impl ApplicationHandler<UserEvent> for Application {
                         self.project_loaded = true;
                     }
                 }
+            } else if let Some(start_addon) = &self.start_addon {
+                if let Some(window) = self.windows.values_mut().next() {
+                    if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                        editor.addon_engine.start_game(start_addon);
+                        self.project_loaded = true;
+                    }
+                }
             }
         }
 
@@ -1340,36 +1349,38 @@ impl WindowState {
         self.pipeline.render_display_frame(&mut self.gui, &self.window, self.game_mode);
 
         #[cfg(target_os = "windows")]
-        if let Some(webview) = &self.webview {
-            if let Some(editor) = &mut self.pipeline.export_editor {
-                if let Some(bounds) = editor.wry_webview_bounds {
-                    let scale_factor = self.window.scale_factor();
-                    
-                    let x = (bounds[0] * scale_factor as f32) as i32;
-                    let y = (bounds[1] * scale_factor as f32) as i32;
-                    let width = (bounds[2] * scale_factor as f32) as u32;
-                    let height = (bounds[3] * scale_factor as f32) as u32;
-                    
-                    webview.set_bounds(wry::Rect {
-                        position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(x, y)),
-                        size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width, height)),
-                    });
-                    webview.set_visible(true);
-                    editor.webview_visible = true;
-                } else {
-                    if editor.webview_visible {
-                        webview.focus_parent();
+        if !self.game_mode {
+            if let Some(webview) = &self.webview {
+                if let Some(editor) = &mut self.pipeline.export_editor {
+                    if let Some(bounds) = editor.wry_webview_bounds {
+                        let scale_factor = self.window.scale_factor();
+                        
+                        let x = (bounds[0] * scale_factor as f32) as i32;
+                        let y = (bounds[1] * scale_factor as f32) as i32;
+                        let width = (bounds[2] * scale_factor as f32) as u32;
+                        let height = (bounds[3] * scale_factor as f32) as u32;
+                        
+                        webview.set_bounds(wry::Rect {
+                            position: wry::dpi::Position::Physical(wry::dpi::PhysicalPosition::new(x, y)),
+                            size: wry::dpi::Size::Physical(wry::dpi::PhysicalSize::new(width, height)),
+                        });
+                        webview.set_visible(true);
+                        editor.webview_visible = true;
+                    } else {
+                        if editor.webview_visible {
+                            webview.focus_parent();
+                        }
+
+                        webview.set_visible(false);
+                        editor.webview_visible = false;
                     }
 
-                    webview.set_visible(false);
-                    editor.webview_visible = false;
-                }
-
-                // Process pending scripts
-                let scripts: Vec<String> = std::mem::take(&mut editor.pending_webview_scripts);
-                for script in scripts {
-                    if let Err(e) = webview.evaluate_script(&script) {
-                        error!("Failed to evaluate script in webview: {}", e);
+                    // Process pending scripts
+                    let scripts: Vec<String> = std::mem::take(&mut editor.pending_webview_scripts);
+                    for script in scripts {
+                        if let Err(e) = webview.evaluate_script(&script) {
+                            error!("Failed to evaluate script in webview: {}", e);
+                        }
                     }
                 }
             }
