@@ -513,7 +513,7 @@ class EnvironmentDecorator {
         // this.spawnScatteredProps(50);
         
         // Build a dome at neutral zone
-        this.buildDomeStructure(0, 0);
+        this.buildDomeStructure(350, 0);
 
         // this.spawnHouseCluster({
         //     x: 250, z: 250
