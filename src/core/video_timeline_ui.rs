@@ -57,6 +57,8 @@ impl VideoTimeline {
         egui::Frame::none()
             .fill(ui.visuals().window_fill())
             .stroke(ui.visuals().window_stroke())
+            .corner_radius(12.0)
+            .inner_margin(10.0)
             .show(ui, |ui| {
                 ui.set_min_height(300.0);
                 
@@ -227,11 +229,11 @@ impl VideoTimeline {
                     };
 
                     // Background
-                    painter.rect_filled(timeline_rect, 0.0, Color32::from_rgb(25, 25, 25));
+                    painter.rect_filled(timeline_rect, 0.0, Color32::from_rgb(20, 17, 14));
 
                     // Ruler
                     let ruler_rect = Rect::from_min_size(timeline_rect.min, Vec2::new(timeline_rect.width(), self.header_height));
-                    painter.rect_filled(ruler_rect, 0.0, Color32::from_rgb(40, 40, 40));
+                    painter.rect_filled(ruler_rect, 0.0, Color32::from_rgb(36, 31, 25));
                     
                     // Ruler Ticks
                     let tick_interval_ms = if self.zoom < 10.0 { 100 } else if self.zoom < 50.0 { 500 } else { 1000 };
@@ -588,10 +590,10 @@ impl VideoTimeline {
                                                 let track_id = Id::new("prop_track").with(anim_uuid).with(prop_idx);
                                                 let track_res = ui.interact(track_rect, track_id, Sense::click_and_drag());
                                                 
-                                                painter.rect_filled(track_rect, 0.0, Color32::from_rgb(30, 30, 30));
+                                                painter.rect_filled(track_rect, 0.0, Color32::from_rgb(26, 22, 18));
                                                 painter.line_segment(
                                                     [Pos2::new(timeline_rect.min.x, prop_y + 25.0), Pos2::new(timeline_rect.max.x, prop_y + 25.0)],
-                                                    Stroke::new(1.0, Color32::from_rgb(45, 45, 45))
+                                                    Stroke::new(1.0, Color32::from_rgb(48, 41, 33))
                                                 );
                                                 
                                                 painter.text(
@@ -707,7 +709,7 @@ impl VideoTimeline {
                     let ph_x = time_to_x(editor.video_current_time_ms);
                     painter.line_segment(
                         [Pos2::new(ph_x, timeline_rect.min.y), Pos2::new(ph_x, timeline_rect.max.y)],
-                        Stroke::new(1.5, Color32::from_rgb(255, 50, 50)),
+                        Stroke::new(1.5, Color32::from_rgb(0xDD, 0xA3, 0x3D)),
                     );
                     
                     // Playhead handle
@@ -715,7 +717,7 @@ impl VideoTimeline {
                         Pos2::new(ph_x, timeline_rect.min.y + self.header_height / 2.0),
                         Vec2::new(12.0, 18.0)
                     );
-                    painter.rect_filled(ph_handle_rect, 2.0, Color32::from_rgb(255, 50, 50));
+                    painter.rect_filled(ph_handle_rect, 3.0, Color32::from_rgb(0xDD, 0xA3, 0x3D));
                 });
             });
     }

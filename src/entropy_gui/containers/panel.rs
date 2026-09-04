@@ -5,7 +5,7 @@
 
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::context::Context;
-use crate::entropy_gui::geometry::{pos2, vec2, Align, CursorIcon, Layout, Margin, Rect, StrokeKind};
+use crate::entropy_gui::geometry::{pos2, vec2, Align, CornerRadius, CursorIcon, Layout, Margin, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::{DrawTarget, Painter};
 use crate::entropy_gui::response::Sense;
@@ -16,11 +16,12 @@ pub struct Frame {
     pub fill: Color32,
     pub inner_margin: Margin,
     pub stroke: Stroke,
+    pub corner_radius: CornerRadius,
 }
 
 impl Frame {
     pub fn none() -> Self {
-        Self { fill: Color32::TRANSPARENT, inner_margin: Margin::default(), stroke: Stroke::NONE }
+        Self { fill: Color32::TRANSPARENT, inner_margin: Margin::default(), stroke: Stroke::NONE, corner_radius: CornerRadius::same(0) }
     }
     pub fn fill(mut self, c: Color32) -> Self {
         self.fill = c;
@@ -32,6 +33,10 @@ impl Frame {
     }
     pub fn stroke(mut self, s: Stroke) -> Self {
         self.stroke = s;
+        self
+    }
+    pub fn corner_radius(mut self, r: impl Into<CornerRadius>) -> Self {
+        self.corner_radius = r.into();
         self
     }
 
@@ -62,10 +67,10 @@ fn shrink_by_margin(rect: Rect, m: Margin) -> Rect {
 fn paint_frame_bg(ctx: &Context, rect: Rect, frame: &Frame) {
     let painter = Painter::new(ctx.clone(), rect, DrawTarget::Main);
     if frame.fill.a() > 0 {
-        painter.rect_filled(rect, 0u8, frame.fill);
+        painter.rect_filled(rect, frame.corner_radius, frame.fill);
     }
     if frame.stroke.width > 0.0 {
-        painter.rect_stroke(rect, 0u8, frame.stroke, StrokeKind::Middle);
+        painter.rect_stroke(rect, frame.corner_radius, frame.stroke, StrokeKind::Middle);
     }
 }
 
