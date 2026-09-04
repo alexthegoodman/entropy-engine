@@ -131,8 +131,9 @@ fn render_node<Tab>(ui: &mut Ui, surface: &mut Surface<Tab>, idx: NodeIndex, rec
 
 fn render_leaf<Tab>(ui: &mut Ui, surface: &mut Surface<Tab>, idx: NodeIndex, rect: Rect, style: &Style, viewer: &mut impl TabViewer<Tab = Tab>) {
     let tab_bar_h = 30.0;
+    let content_margin = 10.0; // thematic padding
     let tab_bar_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + tab_bar_h));
-    let content_rect = Rect::from_min_max(pos2(rect.min.x, rect.min.y + tab_bar_h), rect.max);
+    let content_rect = Rect::from_min_max(pos2(rect.min.x, rect.min.y + tab_bar_h), rect.max).shrink(content_margin);
     let font = FontId::proportional(DEFAULT_FONT_SIZE);
 
     ui.painter().rect_filled(tab_bar_rect, 0u8, style.tab_bg);

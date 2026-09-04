@@ -995,8 +995,8 @@ impl WindowState {
         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
 
         // if game_mode {
-            crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
-            crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
+            // crate::game_ui::controls_ui::init_controls_ui(editor, &gpu_resources.device, &gpu_resources.queue);
+            // crate::game_ui::mini_map::init_mini_map(editor, &gpu_resources.device, &gpu_resources.queue);
         // }
 
         #[cfg(target_os = "windows")]
