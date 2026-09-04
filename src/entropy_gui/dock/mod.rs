@@ -133,7 +133,12 @@ fn render_leaf<Tab>(ui: &mut Ui, surface: &mut Surface<Tab>, idx: NodeIndex, rec
     let tab_bar_h = 30.0;
     let content_margin = 10.0; // thematic padding
     let tab_bar_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + tab_bar_h));
-    let content_rect = Rect::from_min_max(pos2(rect.min.x, rect.min.y + tab_bar_h), rect.max).shrink(content_margin);
+    // `unclipped_content_rect` is the full area below the tab bar, used only to build the clip
+    // rect. `content_rect` (shrunk by the margin) is what widgets actually lay out into. Clipping
+    // to the *unshrunk* rect gives widgets sitting flush against the padded edge room for their
+    // border stroke / AA fringe, instead of slicing it off exactly at the layout boundary.
+    let unclipped_content_rect = Rect::from_min_max(pos2(rect.min.x, rect.min.y + tab_bar_h), rect.max);
+    let content_rect = unclipped_content_rect.shrink(content_margin);
     let font = FontId::proportional(DEFAULT_FONT_SIZE);
 
     ui.painter().rect_filled(tab_bar_rect, 0u8, style.tab_bg);
@@ -176,7 +181,7 @@ fn render_leaf<Tab>(ui: &mut Ui, surface: &mut Surface<Tab>, idx: NodeIndex, rec
     let active_idx = if let Node::Leaf { active, .. } = &surface.nodes[idx.0] { *active } else { 0 };
     if let Node::Leaf { tabs, .. } = &mut surface.nodes[idx.0] {
         if let Some(tab) = tabs.get_mut(active_idx) {
-            let clip = ui.clip_rect.intersect(content_rect);
+            let clip = ui.clip_rect.intersect(unclipped_content_rect);
             let mut child_ui = Ui::new(ui.ctx().clone(), idx_id(idx), content_rect, Layout::top_down(Align::Min), clip, ui.draw_target);
             viewer.ui(&mut child_ui, tab);
         }

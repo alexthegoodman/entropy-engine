@@ -136,6 +136,11 @@ impl Ui {
                     Align::Max => self.max_rect.max.y - size.y,
                     Align::Min => self.cursor.y,
                 };
+                // `max_rect`'s height is a single-pass row-height *estimate* (see
+                // `with_layout`'s row clamp); a widget taller than that estimate must never be
+                // centered/bottom-aligned above the row's top, or its top gets sliced off by
+                // the row's clip rect.
+                let y = y.max(self.max_rect.min.y);
                 let r = Rect::from_min_size(pos2(self.cursor.x, y), size);
                 self.cursor.x += size.x + spacing.x;
                 r
@@ -146,6 +151,7 @@ impl Ui {
                     Align::Max => self.max_rect.max.y - size.y,
                     Align::Min => self.cursor.y,
                 };
+                let y = y.max(self.max_rect.min.y);
                 let r = Rect::from_min_size(pos2(self.cursor.x - size.x, y), size);
                 self.cursor.x -= size.x + spacing.x;
                 r
