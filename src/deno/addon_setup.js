@@ -1298,6 +1298,7 @@ globalThis.Entropy.Composer = {
     textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
     components: {}, // addonName -> { componentId -> { name, params } }
     instances: {}, // instanceId -> { addonName, componentId, defaults }
+    actions: {}, // addonName -> { actionName -> fn(...args) }
     initCallbacks: {}, // addonName -> initCallback()
     globalSettings: {
         landscapeSettings: {
@@ -1352,6 +1353,21 @@ globalThis.Entropy.Composer = {
     },
     getInstances: () => {
         return globalThis.Entropy.Composer.instances;
+    },
+    // General-purpose escape hatch for cross-addon integration: any addon can expose
+    // a plain callable function under its own name/action-name pair, and any other
+    // addon can look it up and call it directly (same shared JS realm, no engine
+    // round-trip). This is the same shape as registerRenderer/registerEditor/
+    // registerTextureGenerator above, generalized so future integrations don't each
+    // need their own bespoke register*/get* pair.
+    registerAction: (addonName, actionName, fn) => {
+        if (!globalThis.Entropy.Composer.actions[addonName]) {
+            globalThis.Entropy.Composer.actions[addonName] = {};
+        }
+        globalThis.Entropy.Composer.actions[addonName][actionName] = fn;
+    },
+    getAction: (addonName, actionName) => {
+        return (globalThis.Entropy.Composer.actions[addonName] || {})[actionName];
     },
     setRolePipeline: (role, pipelineId) => {
         ops.op_composer_set_role_pipeline(role, pipelineId);

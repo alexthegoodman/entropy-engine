@@ -694,9 +694,31 @@ addon.onInit(async () => {
             // Entropy.UI.Widget.separator(tab);
 
             // === COMPONENT LIBRARY ===
-            Entropy.UI.Widget.button(tab, {
-                text: (sectionsOpen.library ? "▼ " : "▶ ") + "Add Component",
-                onClick: () => { sectionsOpen.library = !sectionsOpen.library; }
+            Entropy.UI.Widget.horizontal(tab, (libTab) => {
+                Entropy.UI.Widget.button(libTab, {
+                    text: (sectionsOpen.library ? "▼ " : "▶ ") + "Add Component",
+                    onClick: () => { sectionsOpen.library = !sectionsOpen.library; }
+                });
+
+                // Convenience import, without leaving Game Composer. This calls
+                // straight into Model Viewer's own import pipeline (registered via
+                // Entropy.Composer.registerAction) instead of duplicating it here,
+                // so the imported model stays owned/persisted by Model Viewer and
+                // still shows up wherever "Model Viewer" components normally do.
+                const importModel = Entropy.Composer?.getAction("Model Viewer", "importModel");
+                if (importModel) {
+                    Entropy.UI.Widget.button(libTab, {
+                        text: "📂 Import Model",
+                        onClick: async () => {
+                            const result = await importModel();
+                            if (result && result.id) {
+                                reconcileInstances();
+                                composerState.activeInstanceId = result.id;
+                                refreshScene();
+                            }
+                        }
+                    });
+                }
             });
 
             if (sectionsOpen.library) {

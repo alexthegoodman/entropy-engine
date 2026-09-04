@@ -97,6 +97,30 @@ function refreshModels() {
     });
 }
 
+function spawnModel(path: string): ModelInstance {
+    const id = Entropy.generateUUID();
+    const newModel: ModelInstance = {
+        id,
+        path,
+        position: [0, 10, 0],
+        rotation: [0, 0, 0],
+        scale: [1, 1, 1],
+        kind: "None"
+    };
+    state.models.push(newModel);
+    state.activeModelId = id;
+    refreshModels();
+    return newModel;
+}
+
+async function importModelFromDisk(): Promise<ModelInstance | null> {
+    if (!addon.IO.pickAndImportModel) return null;
+    const fileName = await addon.IO.pickAndImportModel();
+    if (!fileName || fileName === "") return null;
+    await updateAvailableModels();
+    return spawnModel(fileName);
+}
+
 // Register as a renderer for Game Composer
 if (Entropy.Composer) {
     Entropy.Composer.registerRenderer(addonInfo.name, (id, params) => {
@@ -130,6 +154,14 @@ if (Entropy.Composer) {
             addon.Model.load(loadConfig);
         }
     });
+
+    // Cross-addon integration point: any other addon (e.g. Game Composer) can
+    // trigger Model Viewer's own import pipeline directly - same shared-JS-realm
+    // pattern FlexNoise Terrain already uses to call PBR Texture Designer's
+    // registerTextureGenerator. Importing here (rather than duplicating the pick
+    // + load logic elsewhere) keeps Model Viewer as the single owner of what a
+    // "model" component is, so it stays correctly persisted/re-registered on load.
+    Entropy.Composer.registerAction(addonInfo.name, "importModel", importModelFromDisk);
 }
 
 addon.onInit(async () => {
@@ -157,27 +189,7 @@ addon.onInit(async () => {
 
             Entropy.UI.Widget.button(tabId, {
                 text: "📂 Import Model from Disk",
-                onClick: async () => {
-                    if (addon.IO.pickAndImportModel) {
-                        const fileName = await addon.IO.pickAndImportModel();
-                        if (fileName && fileName !== "") {
-                            await updateAvailableModels();
-                            // Automatically load it
-                            let id = Entropy.generateUUID();
-                            const newModel: ModelInstance = {
-                                id,
-                                path: fileName,
-                                position: [0, 10, 0],
-                                rotation: [0, 0, 0],
-                                scale: [1, 1, 1],
-                                kind: "None"
-                            };
-                            state.models.push(newModel);
-                            state.activeModelId = id;
-                            refreshModels();
-                        }
-                    }
-                }
+                onClick: () => { importModelFromDisk(); }
             });
 
             Entropy.UI.Widget.label(tabId, { text: "--- Available in Project ---", bold: true });
@@ -188,20 +200,7 @@ addon.onInit(async () => {
             availableModels.forEach(modelFile => {
                 Entropy.UI.Widget.button(tabId, {
                     text: "➕ " + modelFile,
-                    onClick: () => {
-                        const id = Entropy.generateUUID();
-                        const newModel: ModelInstance = {
-                            id,
-                            path: modelFile,
-                            position: [0, 10, 0],
-                            rotation: [0, 0, 0],
-                            scale: [1, 1, 1],
-                            kind: "None"
-                        };
-                        state.models.push(newModel);
-                        state.activeModelId = id;
-                        refreshModels();
-                    }
+                    onClick: () => { spawnModel(modelFile); }
                 });
             });
 
