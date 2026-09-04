@@ -432,6 +432,20 @@ globalThis.Entropy = {
                             gain: config.gain || 0.2
                         });
                     },
+                    playNote: (config) => {
+                        ops.op_audio_play_note({
+                            freq: config.freq || 440.0,
+                            waveform: config.waveform || "sine",
+                            duration: config.duration || 0.5,
+                            cutoff: config.cutoff || 20000.0,
+                            resonance: config.resonance || 1.0,
+                            gain: config.gain || 0.2,
+                            attack: config.attack ?? 0.005,
+                            decay: config.decay ?? 0.05,
+                            sustain: config.sustain ?? 0.85,
+                            release: config.release ?? 0.05
+                        });
+                    },
                     playTestTone: () => {
                         ops.op_audio_play_test();
                     }
@@ -726,6 +740,31 @@ globalThis.Entropy = {
                 render(windowId);
                 ops.op_ui_widget_end_horizontal(windowId);
             },
+            pianoRoll: (windowId, config) => {
+                const rows = config?.rows || 12;
+                const steps = config?.steps || 16;
+                const stepsPerBeat = config?.stepsPerBeat || 4;
+                const rowLabels = config?.rowLabels || null;
+                const cells = config?.cells || [];
+                const playhead = config?.playhead ?? -1;
+                const count = (globalThis._entropy_widget_counter || 0);
+                const id = config?.id || (windowId + "_pianoroll_" + count);
+                globalThis._entropy_widget_counter = count + 1;
+
+                ops.op_ui_widget_piano_roll(windowId, rows, steps, stepsPerBeat, rowLabels, cells, playhead, id);
+
+                if (config?.onNoteDown || config?.onNoteDrag || config?.onNoteUp) {
+                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
+                    globalThis._entropy_event_listeners[id] = (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        const [row, step] = parts[2].split(',').map(Number);
+                        if (type === "PIANOROLL_DOWN" && config.onNoteDown) config.onNoteDown(row, step);
+                        else if (type === "PIANOROLL_DRAG" && config.onNoteDrag) config.onNoteDrag(row, step);
+                        else if (type === "PIANOROLL_UP" && config.onNoteUp) config.onNoteUp(row, step);
+                    };
+                }
+            },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const count = (globalThis._entropy_widget_counter || 0);
@@ -768,6 +807,7 @@ globalThis.Entropy = {
             let payload = null;
             let isHover = false;
             let isClick = false;
+            let isRaw = false; // payload is the whole raw event string; skip numeric parsing
 
             // ops.op_println(String("Process Addon Event: " + event));
 
@@ -785,20 +825,27 @@ globalThis.Entropy = {
                 const parts = event.split("|");
                 id = parts[1]; // snarl_id
                 payload = event; // pass the whole event to the listener
+                isRaw = true;
+            } else if (event.startsWith("PIANOROLL_")) {
+                const parts = event.split("|");
+                id = parts[1]; // pianoRoll id
+                payload = event; // pass the whole event to the listener
+                isRaw = true;
             } else if (event.includes("|")) {
                 const parts = event.split("|");
                 id = parts[0];
                 payload = parts[1];
             }
 
-            const listener_pool = isHover ? globalThis._entropy_hover_listeners : 
+            const listener_pool = isHover ? globalThis._entropy_hover_listeners :
                                  isClick ? globalThis._entropy_click_listeners :
                                  globalThis._entropy_event_listeners;
 
             if (listener_pool && listener_pool[id]) {
                 if (payload !== null) {
-                    // Try to parse payload if it looks like a color or array or drawing event
-                    if (payload.includes(",")) {
+                    if (isRaw) {
+                        listener_pool[id](payload);
+                    } else if (payload.includes(",")) {
                         const values = payload.split(",").map(v => parseFloat(v));
                         
                         // For minimap draw/hover events: x, y, brushSize
@@ -1047,6 +1094,20 @@ globalThis.Entropy = {
                 duration: config.duration || 0.5,
                 cutoff: config.cutoff || 20000.0,
                 gain: config.gain || 0.2
+            });
+        },
+        playNote: (config) => {
+            ops.op_audio_play_note({
+                freq: config.freq || 440.0,
+                waveform: config.waveform || "sine",
+                duration: config.duration || 0.5,
+                cutoff: config.cutoff || 20000.0,
+                resonance: config.resonance || 1.0,
+                gain: config.gain || 0.2,
+                attack: config.attack ?? 0.005,
+                decay: config.decay ?? 0.05,
+                sustain: config.sustain ?? 0.85,
+                release: config.release ?? 0.05
             });
         },
         playTestTone: () => {

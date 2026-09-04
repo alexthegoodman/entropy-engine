@@ -19,19 +19,19 @@ export class BehaviorNodesAddon extends ComponentAddon<AddonState> {
 
         this.renderUI();
 
-        // Register a tool to assign behavior to an entity
-        this.tool("assignBehavior")
-            .description("Assign a behavior graph to an entity")
-            .parameters({
-                entityId: "string",
-                behaviorId: "string"
-            })
-            .handler((params) => {
-                const { entityId, behaviorId } = params;
-                Entropy.println(`Assigning behavior ${behaviorId} to entity ${entityId}`);
-                // In a real implementation, we would register this behavior with the global Behavior system
-            })
-            .register();
+        // // Register a tool to assign behavior to an entity
+        // this.tool("assignBehavior")
+        //     .description("Assign a behavior graph to an entity")
+        //     .parameters({
+        //         entityId: "string",
+        //         behaviorId: "string"
+        //     })
+        //     .handler((params) => {
+        //         const { entityId, behaviorId } = params;
+        //         Entropy.println(`Assigning behavior ${behaviorId} to entity ${entityId}`);
+        //         // In a real implementation, we would register this behavior with the global Behavior system
+        //     })
+        //     .register();
     }
 
     private setupProjectHandlers(): void {

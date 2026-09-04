@@ -75,6 +75,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         } else {
             pipeline.view.as_ref().expect("Couldn't get texture view")
         };
+
         let depth_view = pipeline
             .depth_view
             .as_ref()
@@ -201,6 +202,30 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                 addon_name.to_string(),
                 pipeline.alpha_renderer.as_mut()
             );
+        }
+
+        // Addons that declare `capabilities.needsViewport = false` (e.g. the DAW) don't need
+        // the 3D scene. This function runs *after* the egui pass (see pipeline.rs), and the
+        // egui pass already painted an opaque frame (CentralPanel's fill + the WryChat/AddonTab
+        // panels) into `view` using LoadOp::Load. So we must NOT clear or draw anything here —
+        // doing so (even a "clear to a color") would wipe out everything egui just drew, since
+        // there's nothing left afterwards to redraw over it. We just skip the whole 3D pipeline
+        // and leave `view` exactly as egui left it. addon_engine.update() above still ran (it
+        // drives addon onUpdate callbacks, e.g. the DAW's sequencer), so nothing else is lost.
+        let needs_viewport = {
+            let mut active_addon_name = "Global".to_string();
+            if let Workspace::Addon(active_name) = &pipeline.current_workspace {
+                active_addon_name = active_name.clone();
+            }
+            editor.addon_engine.get_registered_addons()
+                .iter()
+                .find(|a| a.name == active_addon_name)
+                .and_then(|a| a.capabilities.get("needsViewport").copied())
+                .unwrap_or(true)
+        };
+
+        if !needs_viewport {
+            return;
         }
 
         // Update procedural sky and directional light from addon or world state

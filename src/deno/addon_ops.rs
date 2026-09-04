@@ -98,6 +98,8 @@ pub struct AddonMetadata {
     pub author: Vec<String>,
     pub capabilities: HashMap<String, bool>,
     pub is_atom: Option<bool>,
+    #[serde(default)]
+    pub category: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -263,6 +265,15 @@ pub struct MiniMapPolyline {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PianoRollCell {
+    pub row: u32,
+    pub step: u32,
+    pub length: u32,
+    pub velocity: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
     Label { text: String, bold: Option<bool> },
@@ -283,6 +294,15 @@ pub enum UiWidget {
     Snarl {
         id: String,
         graph: BehaviorGraph,
+    },
+    PianoRoll {
+        id: String,
+        rows: u32,
+        steps: u32,
+        steps_per_beat: u32,
+        row_labels: Option<Vec<String>>,
+        cells: Vec<PianoRollCell>,
+        playhead: f32,
     },
     CollapsingHeader { title: String, id: String },
     EndCollapsingHeader,
@@ -454,6 +474,21 @@ pub struct SynthConfig {
     pub duration: f64,
     pub cutoff: f64,
     pub gain: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteConfig {
+    pub freq: f64,
+    pub waveform: String,
+    pub duration: f64,
+    pub cutoff: f64,
+    pub resonance: f64,
+    pub gain: f64,
+    pub attack: f64,
+    pub decay: f64,
+    pub sustain: f64,
+    pub release: f64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1502,6 +1537,23 @@ pub fn op_audio_play_synth(state: &mut OpState, #[serde] config: SynthConfig) {
     }
 }
 
+#[op2]
+pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.play_note(&config.waveform, crate::audio::NoteParams {
+            freq: config.freq,
+            duration: config.duration,
+            cutoff: config.cutoff,
+            resonance: config.resonance,
+            gain: config.gain,
+            attack: config.attack,
+            decay: config.decay,
+            sustain: config.sustain,
+            release: config.release,
+        });
+    }
+}
+
 #[op2(fast)]
 pub fn op_audio_play_test(state: &mut OpState) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
@@ -2128,6 +2180,31 @@ pub fn op_ui_widget_snarl(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Snarl { id, graph });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_piano_roll(
+    state: &mut OpState,
+    #[string] window_id: String,
+    rows: u32,
+    steps: u32,
+    steps_per_beat: u32,
+    #[serde] row_labels: Option<Vec<String>>,
+    #[serde] cells: Vec<PianoRollCell>,
+    playhead: f32,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PianoRoll {
+            id,
+            rows,
+            steps,
+            steps_per_beat,
+            row_labels,
+            cells,
+            playhead,
+        });
     }
 }
 

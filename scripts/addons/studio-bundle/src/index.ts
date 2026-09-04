@@ -2,7 +2,7 @@
 // import "./water_plane_addon";
 
 // initialize first (tier 0)
-// import "./daw_synth_addon";
+import "./daw_synth_addon";
 
 // tier 1
 import "./environment_addon";
@@ -33,13 +33,13 @@ import "./inorganic_modelling_addon";
 import "./procedural_houses_addon";
 import "./behavior_nodes_addon";
 import "./alpha_preview_addon";
-import "./legacy_yumon_addon";
+// import "./legacy_yumon_addon";
 
 // game logic tier
 // import "./horde_mode_game";
 // import "./wave_spawner_game";
-import "./fps_rpg";
-import "./conquest";
+// import "./fps_rpg";
+// import "./conquest";
 
 // initialize last (tier 3)
 import "./game_composer_addon";

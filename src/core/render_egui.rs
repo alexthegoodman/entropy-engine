@@ -134,27 +134,79 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                 //     pipeline.current_workspace = Workspace::CentralChat;
                                 // }
 
-                                // Render Addon Workspaces
+                                // Render Addon Workspaces, grouped into labeled categories so the
+                                // launcher doesn't become one long undifferentiated icon column.
                                 if let Some(editor) = &mut viewer.context.export_editor {
                                     let addons = editor.addon_engine.get_registered_addons();
-                                    for addon in addons.iter().rev() {
+
+                                    let mut grouped: HashMap<String, Vec<_>> = HashMap::new();
+                                    for addon in addons.iter() {
                                         // Skip addons marked as atoms
                                         if addon.is_atom.unwrap_or(false) {
                                             continue;
                                         }
+                                        let category = addon.category.clone().unwrap_or_else(|| "Game Creation".to_string());
+                                        grouped.entry(category).or_default().push(addon);
+                                    }
 
-                                        // Only show if it has UI/workspace capability (assume yes for now or check metadata)
-                                        // We use the first letter of the name as the icon for now
-                                        let icon = addon.name.chars().next().unwrap_or('?').to_string();
-                                        let is_active = if let Workspace::Addon(name) = &pipeline.current_workspace {
-                                            name == &addon.name
-                                        } else {
-                                            false
+                                    // Preferred, stable ordering; any future/unexpected categories
+                                    // fall in after these, alphabetically.
+                                    let preferred_order = ["Game Creation", "Audio Creation"];
+                                    let mut category_names: Vec<&String> = grouped.keys().collect();
+                                    category_names.sort_by(|a, b| {
+                                        let ai = preferred_order.iter().position(|p| *p == a.as_str()).unwrap_or(preferred_order.len());
+                                        let bi = preferred_order.iter().position(|p| *p == b.as_str()).unwrap_or(preferred_order.len());
+                                        ai.cmp(&bi).then_with(|| a.cmp(b))
+                                    });
+
+                                    for category in category_names {
+                                        let addons_in_category = &grouped[category];
+                                        if addons_in_category.is_empty() {
+                                            continue;
+                                        }
+
+                                        let category_icon = match category.as_str() {
+                                            "Game Creation" => "🎮",
+                                            "Audio Creation" => "🎵",
+                                            _ => "📦",
                                         };
-                                        
-                                        ui.add_space(6.0);
-                                        if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
-                                            pipeline.current_workspace = Workspace::Addon(addon.name.clone());
+
+                                        // Keep the category open while one of its addons is active,
+                                        // so you don't lose track of where you are.
+                                        let contains_active = addons_in_category.iter().any(|a| {
+                                            matches!(&pipeline.current_workspace, Workspace::Addon(name) if name == &a.name)
+                                        });
+                                        let is_expanded = contains_active || pipeline.expanded_addon_categories.contains(category);
+
+                                        ui.add_space(8.0);
+                                        if ui.selectable_label(is_expanded, category_icon)
+                                            .on_hover_text(format!("{} ({})", category, addons_in_category.len()))
+                                            .clicked()
+                                        {
+                                            if pipeline.expanded_addon_categories.contains(category) {
+                                                pipeline.expanded_addon_categories.remove(category);
+                                            } else {
+                                                pipeline.expanded_addon_categories.insert(category.clone());
+                                            }
+                                        }
+
+                                        if is_expanded {
+                                            ui.separator();
+
+                                            for addon in addons_in_category.iter().rev() {
+                                                // We use the first letter of the name as the icon for now
+                                                let icon = addon.name.chars().next().unwrap_or('?').to_string();
+                                                let is_active = if let Workspace::Addon(name) = &pipeline.current_workspace {
+                                                    name == &addon.name
+                                                } else {
+                                                    false
+                                                };
+
+                                                ui.add_space(6.0);
+                                                if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
+                                                    pipeline.current_workspace = Workspace::Addon(addon.name.clone());
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -250,15 +302,35 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                         if let Some(editor) = &mut viewer.context.export_editor {
                             let new_tabs = editor.addon_engine.consume_new_tabs();
                             for (tab_id, title, addon_name) in new_tabs {
+                                // Addons that don't need the 3D viewport (e.g. the DAW) declare
+                                // `capabilities.needsViewport = false` so their tab gets the full
+                                // work area instead of sharing space with the wgpu scene preview.
+                                let needs_viewport = editor.addon_engine.get_registered_addons()
+                                    .iter()
+                                    .find(|a| a.name == addon_name)
+                                    .and_then(|a| a.capabilities.get("needsViewport").copied())
+                                    .unwrap_or(true);
+
                                 let dock_state = pipeline.addon_dock_states.entry(addon_name.clone()).or_insert_with(|| {
-                                    let mut ds = DockState::new(vec![Tab::Viewport]);
-                                    ds
+                                    if needs_viewport {
+                                        DockState::new(vec![Tab::Viewport])
+                                    } else {
+                                        DockState::new(vec![Tab::WryChat])
+                                    }
                                 });
                                 let surface = dock_state.main_surface_mut();
 
                                 if !pipeline.focus_mode {
-                                    surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
-                                    surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                                    if needs_viewport {
+                                        surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                                        surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                                    } else {
+                                        // egui_dock's split `fraction` is always the *left* child's
+                                        // share, regardless of split_left/split_right. Root here is
+                                        // WryChat (the "old" content, which split_right places on the
+                                        // left), so 0.25 gives it 25% and leaves the addon tab 75%.
+                                        surface.split_right(NodeIndex::root(), 0.25, vec![Tab::AddonTab { id: tab_id, label: title }]);
+                                    }
                                 }
                             }
 

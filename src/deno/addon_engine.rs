@@ -60,8 +60,8 @@ use crate::deno::addon_ops::{
     op_addon_on_cleanup, 
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
-    op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility, 
-    op_alpha_model_load, op_audio_play_synth, op_audio_play_test, op_behavior_register, op_buffer_create, 
+    op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_behavior_register, op_buffer_create,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_transform, op_composer_set_role_pipeline, 
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
@@ -73,7 +73,7 @@ use crate::deno::addon_ops::{
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update, op_ui_clear, 
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl, 
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state, 
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
 };
@@ -148,6 +148,7 @@ extension!(
         op_ui_widget_code_editor,
         op_ui_widget_mini_map,
         op_ui_widget_snarl,
+        op_ui_widget_piano_roll,
         op_ui_widget_collapsing_header,
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
@@ -166,6 +167,7 @@ extension!(
         op_texture_update,
         op_addon_load_data,
         op_audio_play_synth,
+        op_audio_play_note,
         op_audio_play_test,
         op_addon_on_project_changed,
         op_addon_set_visibility,
@@ -3477,6 +3479,140 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                 egui::FontId::proportional(12.0),
                                 egui::Color32::WHITE,
                             );
+                        }
+                    }
+                }
+                UiWidget::PianoRoll {
+                    id: pr_id,
+                    rows,
+                    steps,
+                    steps_per_beat,
+                    row_labels,
+                    cells,
+                    playhead,
+                } => {
+                    let rows = (*rows).max(1) as usize;
+                    let steps = (*steps).max(1) as usize;
+                    let steps_per_beat = (*steps_per_beat).max(1) as usize;
+
+                    let label_w: f32 = 46.0;
+                    let row_h: f32 = 16.0;
+                    let avail_w = ui.available_size().x.max(label_w + steps as f32 * 6.0);
+                    let grid_w = avail_w - label_w;
+                    let col_w = grid_w / steps as f32;
+                    let grid_h = row_h * rows as f32;
+
+                    let (full_rect, response) = ui.allocate_exact_size(
+                        egui::vec2(avail_w, grid_h),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let grid_rect = egui::Rect::from_min_size(
+                        full_rect.min + egui::vec2(label_w, 0.0),
+                        egui::vec2(grid_w, grid_h),
+                    );
+                    let painter = ui.painter();
+
+                    // Row backgrounds (shade "black key" / alternating lanes) + labels
+                    for r in 0..rows {
+                        let y0 = grid_rect.min.y + r as f32 * row_h;
+                        let is_dark = row_labels
+                            .as_ref()
+                            .and_then(|labels| labels.get(r))
+                            .map(|l| l.contains('#'))
+                            .unwrap_or(r % 2 == 1);
+                        let bg = if is_dark {
+                            egui::Color32::from_gray(38)
+                        } else {
+                            egui::Color32::from_gray(50)
+                        };
+                        painter.rect_filled(
+                            egui::Rect::from_min_size(egui::pos2(grid_rect.min.x, y0), egui::vec2(grid_w, row_h)),
+                            0.0,
+                            bg,
+                        );
+                        if let Some(label) = row_labels.as_ref().and_then(|l| l.get(r)) {
+                            painter.text(
+                                egui::pos2(full_rect.min.x + 4.0, y0 + row_h * 0.5),
+                                egui::Align2::LEFT_CENTER,
+                                label,
+                                egui::FontId::monospace(10.0),
+                                egui::Color32::from_gray(200),
+                            );
+                        }
+                    }
+
+                    // Beat / bar separators
+                    for s in 0..=steps {
+                        let x = grid_rect.min.x + s as f32 * col_w;
+                        let is_bar = s % steps_per_beat == 0;
+                        painter.line_segment(
+                            [egui::pos2(x, grid_rect.min.y), egui::pos2(x, grid_rect.max.y)],
+                            egui::Stroke::new(
+                                if is_bar { 1.5 } else { 0.5 },
+                                egui::Color32::from_gray(if is_bar { 95 } else { 62 }),
+                            ),
+                        );
+                    }
+
+                    // Notes
+                    for cell in cells {
+                        if cell.row as usize >= rows || cell.step as usize >= steps {
+                            continue;
+                        }
+                        let x0 = grid_rect.min.x + cell.step as f32 * col_w;
+                        let y0 = grid_rect.min.y + cell.row as f32 * row_h;
+                        let w = (cell.length.max(1) as f32 * col_w - 2.0).max(2.0);
+                        let alpha = (70.0 + cell.velocity.clamp(0.0, 1.0) * 160.0) as u8;
+                        painter.rect_filled(
+                            egui::Rect::from_min_size(egui::pos2(x0 + 1.0, y0 + 1.0), egui::vec2(w, row_h - 2.0)),
+                            2.0,
+                            egui::Color32::from_rgba_unmultiplied(90, 170, 255, alpha),
+                        );
+                    }
+
+                    // Playhead
+                    if *playhead >= 0.0 {
+                        let x = grid_rect.min.x + playhead.clamp(0.0, 1.0) * grid_w;
+                        painter.line_segment(
+                            [egui::pos2(x, grid_rect.min.y), egui::pos2(x, grid_rect.max.y)],
+                            egui::Stroke::new(2.0, egui::Color32::from_rgb(255, 210, 60)),
+                        );
+                    }
+
+                    painter.rect_stroke(grid_rect, 0.0, egui::Stroke::new(1.0, egui::Color32::from_gray(100)), egui::StrokeKind::Middle);
+
+                    // Interaction: report raw press/drag/release cell coordinates so the
+                    // addon script (which owns the pattern data) can decide add vs. erase.
+                    if let Some(pos) = ui.input(|i| i.pointer.interact_pos()) {
+                        if full_rect.contains(pos) {
+                            if let Some((row, step)) = {
+                                let local = pos - grid_rect.min;
+                                if local.x < 0.0 || local.y < 0.0 {
+                                    None
+                                } else {
+                                    let step = ((local.x / col_w) as usize).min(steps - 1);
+                                    let row = ((local.y / row_h) as usize).min(rows - 1);
+                                    Some((row, step))
+                                }
+                            } {
+                                let (pressed, down, released) = ui.input(|i| (
+                                    i.pointer.primary_pressed(),
+                                    i.pointer.primary_down(),
+                                    i.pointer.primary_released(),
+                                ));
+                                let kind = if pressed {
+                                    Some("DOWN")
+                                } else if down {
+                                    Some("DRAG")
+                                } else if released {
+                                    Some("UP")
+                                } else {
+                                    None
+                                };
+                                if let Some(kind) = kind {
+                                    events_to_push.push(format!("PIANOROLL_{}|{}|{},{}", kind, pr_id, row, step));
+                                }
+                            }
                         }
                     }
                 }

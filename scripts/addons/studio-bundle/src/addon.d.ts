@@ -31,9 +31,13 @@ export interface AddonMetadata {
   version?: string;
   description?: string;
   author?: string[];
+  /** Groups this addon under a labeled section in the side launcher. Defaults to "Game Creation" when omitted. */
+  category?: "Game Creation" | "Audio Creation" | string;
   capabilities?: {
     graphics?: boolean;
     ui?: boolean;
+    /** Set to false to give this addon's tab the full work area instead of splitting it with the 3D viewport (e.g. non-visual tools like the DAW). Defaults to true. */
+    needsViewport?: boolean;
   }
   [key: string]: unknown;
 }
@@ -303,6 +307,7 @@ export interface ScopedAPI {
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
+    playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
   };
   Particles: {
@@ -343,6 +348,7 @@ export interface ScopedAPI {
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
+      pianoRoll: (windowId: string, config: PianoRollConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
@@ -503,6 +509,42 @@ export interface SynthConfig {
   duration?: number;
   cutoff?: number;
   gain?: number;
+}
+
+export type SynthWaveform = "sine" | "square" | "saw" | "triangle" | "noise";
+export type DrumVoice = "kick" | "snare" | "hihat" | "clap" | "tom";
+
+export interface NoteConfig {
+  freq: number;
+  waveform?: SynthWaveform | DrumVoice | string;
+  duration?: number;
+  cutoff?: number;
+  resonance?: number;
+  gain?: number;
+  attack?: number;
+  decay?: number;
+  sustain?: number;
+  release?: number;
+}
+
+export interface PianoRollCell {
+  row: number;
+  step: number;
+  length: number;
+  velocity: number;
+}
+
+export interface PianoRollConfig {
+  id?: string;
+  rows?: number;
+  steps?: number;
+  stepsPerBeat?: number;
+  rowLabels?: string[];
+  cells?: PianoRollCell[];
+  playhead?: number; // 0-1 fraction across the pattern, or negative to hide
+  onNoteDown?: (row: number, step: number) => void;
+  onNoteDrag?: (row: number, step: number) => void;
+  onNoteUp?: (row: number, step: number) => void;
 }
 
 export interface ButtonConfig {
@@ -710,6 +752,7 @@ export interface EntropyAPI {
       codeEditor: (windowId: string, config: CodeEditorConfig) => void;
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
+      pianoRoll: (windowId: string, config: PianoRollConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
@@ -805,6 +848,7 @@ export interface EntropyAPI {
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;
+    playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
   };
   println: (msg: unknown) => void;
