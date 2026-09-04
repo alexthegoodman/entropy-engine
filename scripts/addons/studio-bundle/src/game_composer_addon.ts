@@ -111,7 +111,7 @@ function raySphereIntersect(
 let sectionsOpen = {
     hierarchy: true,
     inspector: true,
-    library: true,
+    library: false,
     addEntity: false,
     yumonAI: false
 };
