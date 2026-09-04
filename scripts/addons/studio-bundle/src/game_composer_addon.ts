@@ -732,7 +732,7 @@ addon.onInit(async () => {
                         ids.forEach(compId => {
                             const comp = components[compId];
                             Entropy.UI.Widget.button(tab, {
-                                text: `  ➕ ${comp.name}`,
+                                text: `  ➕ Add: ${comp.name}`,
                                 onClick: () => {
                                     const newInst = addInstance({
                                         addonName,
