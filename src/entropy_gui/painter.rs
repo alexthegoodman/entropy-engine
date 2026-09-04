@@ -94,9 +94,9 @@ impl Painter {
         let text = text.to_string();
         let mut guard = self.ctx.inner_mut();
         let ContextInner { fonts, atlas, draw_list, overlay_draw_list, .. } = &mut *guard;
-        let font: &fontdue::Font = fonts.font_for(font_id.family);
+        let face_set = fonts.shaping_set(font_id.family);
 
-        let shaped = crate::entropy_gui::text_layout::shape_text(font, font_id.size, None, &text);
+        let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, &text);
         let (ox, oy) = match align {
             Align2::LEFT_TOP => (pos.x, pos.y),
             Align2::LEFT_CENTER => (pos.x, pos.y - shaped.height / 2.0),
@@ -108,7 +108,8 @@ impl Painter {
         let mut indices = Vec::with_capacity(shaped.glyphs.len() * 6);
         let c = color.to_array_f32();
         for g in &shaped.glyphs {
-            let cached = atlas.get_or_rasterize(font, font_id.family, g.raster_config);
+            let font = face_set[g.font_index as usize];
+            let cached = atlas.get_or_rasterize(font, g.raster_config);
             if cached.width <= 0.0 || cached.height <= 0.0 {
                 continue;
             }
@@ -142,8 +143,8 @@ impl Painter {
     pub fn measure_text(ctx: &Context, font_id: FontId, text: &str) -> crate::entropy_gui::geometry::Vec2 {
         let mut guard = ctx.inner_mut();
         let ContextInner { fonts, .. } = &mut *guard;
-        let font: &fontdue::Font = fonts.font_for(font_id.family);
-        let shaped = crate::entropy_gui::text_layout::shape_text(font, font_id.size, None, text);
+        let face_set = fonts.shaping_set(font_id.family);
+        let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, text);
         crate::entropy_gui::geometry::vec2(shaped.width, shaped.height.max(font_id.size))
     }
 }

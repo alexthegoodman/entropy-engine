@@ -8,7 +8,6 @@
 //! `textures_delta.set` works. The render backend (`backend/wgpu_renderer.rs`) is what
 //! actually owns the `wgpu::Texture` and applies these uploads via `queue.write_texture`.
 
-use crate::entropy_gui::geometry::FontFamily;
 use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -33,7 +32,7 @@ pub struct AtlasUpload {
 pub struct GlyphAtlas {
     allocator: etagere::AtlasAllocator,
     size: u32,
-    cache: HashMap<(FontFamily, fontdue::layout::GlyphRasterConfig), CachedGlyph>,
+    cache: HashMap<fontdue::layout::GlyphRasterConfig, CachedGlyph>,
     pending_uploads: Vec<AtlasUpload>,
 }
 
@@ -59,10 +58,9 @@ impl GlyphAtlas {
     pub fn get_or_rasterize(
         &mut self,
         font: &fontdue::Font,
-        family: FontFamily,
         raster_config: fontdue::layout::GlyphRasterConfig,
     ) -> CachedGlyph {
-        let key = (family, raster_config);
+        let key = raster_config;
         if let Some(g) = self.cache.get(&key) {
             return *g;
         }
