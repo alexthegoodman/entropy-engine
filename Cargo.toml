@@ -58,10 +58,13 @@ exr = "1.74.0"
 gilrs = "0.11.1"
 rodio = "0.21.1"
 fundsp = "0.23.0"
-egui-snarl = "0.9.0"
 ordered-float = "5.1.0"
 burn = { version = "0.20", features = ["ndarray", "autodiff"] }
 fastrand = "2"
+
+# entropy_gui (the in-house immediate-mode GUI kit that replaces egui) dependencies
+etagere = "0.2"
+arboard = "3"
 
 [dependencies.gltf]
 features = ["utils", "KHR_texture_transform"]
@@ -89,10 +92,8 @@ windows-core = "0.58.0"
 windows-capture = "1.5.0"
 meshopt = "0.4.1"
 winit = { version = "0.30.12", features = ["rwh_06"] }
-egui = "0.33.2"
-egui-wgpu = { version = "0.33.2", features = ["winit"] }
-egui-winit = "0.33.2"
-egui_dock = "0.18"
+# egui / egui-wgpu / egui-winit / egui_dock / egui-snarl / egui_code_editor all removed:
+# replaced by our own entropy_gui kit (see src/entropy_gui/).
 device_query = "2.1.0"
 tokio = { version = "1.41.0", features = ["fs", "full"] }
 deno_core = "0.332.0"
@@ -100,7 +101,6 @@ deno_error = "0.5.5"
 # deno_core = "0.382.0"
 # deno_error = "0.7.3"
 rfd = "0.17.2"
-egui_code_editor = "0.2.20"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Navigator", "Location"] }

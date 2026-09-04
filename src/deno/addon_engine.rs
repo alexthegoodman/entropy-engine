@@ -36,11 +36,9 @@ use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::core::vertex::Vertex;
 use crate::deno::addon_ops::op_yumon_brain_test_infer;
 use crate::deno::addon_ops::{
-    AddonContext, 
-    AddonMetadata, 
-    BehaviorNodeState, 
-    BehaviorViewer, 
-    BindingConfig, 
+    AddonContext,
+    AddonMetadata,
+    BindingConfig,
     CompositeInstance, 
     DialogueWrapper, 
     EngineContext, 
@@ -97,9 +95,9 @@ use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
 use crate::yumon::legacy::{OrganismSim, MyBackend};
-use egui;
+use crate::egui;
 use wgpu::util::DeviceExt;
-use egui_wgpu;
+use crate::egui_wgpu;
 
 extension!(
     entropy_addons,
@@ -461,7 +459,6 @@ impl AddonEngine {
             registered_tools: HashMap::new(),
             op_addon_on_all_projects_loaded_callbacks: Vec::new(),
             egui_textures: HashMap::new(),
-            snarl_states: HashMap::new(),
             input_events: Vec::new(),
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
@@ -3336,24 +3333,16 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     id: editor_id,
                     label,
                     content,
-                    language,
+                    language: _,
                 } => {
                     ui.label(label);
-                    let syntax = if language == "javascript" || language == "js" {
-                        egui_code_editor::Syntax::lua()
-                    } else {
-                        egui_code_editor::Syntax::rust()
-                    };
 
                     let mut current_content = content.clone();
-                    let response = egui_code_editor::CodeEditor::default()
-                        .id_source(editor_id)
-                        .with_syntax(syntax)
-                        .with_theme(egui_code_editor::ColorTheme::AYU_DARK)
-                        .with_numlines(true)
-                        .show(ui, &mut current_content);
+                    // Plain multiline edit + line-number gutter, no syntax highlighting yet —
+                    // see src/entropy_gui/widgets_code_editor.rs (replaces egui_code_editor).
+                    let response = crate::entropy_gui::widgets_code_editor::code_editor(ui, &mut current_content);
 
-                    if response.response.changed() {
+                    if response.changed() {
                         let payload = format!("{}|{}", editor_id, current_content);
                         events_to_push.push(payload);
                     }
@@ -3616,39 +3605,28 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::Snarl { id: snarl_id, graph } => {
-                    let snarl = context
-                        .snarl_states
-                        .entry(snarl_id.clone())
-                        .or_insert_with(egui_snarl::Snarl::new);
-
-                    if snarl.nodes().next().is_none() && !graph.nodes.is_empty() {
-                        for node in &graph.nodes {
-                            snarl.insert_node(
-                                egui::Pos2::new(node.position[0], node.position[1]),
-                                BehaviorNodeState {
-                                    id: node.id.clone(),
-                                    name: node.name.clone(),
-                                    node_type: node.node_type.clone(),
-                                    inputs: node.inputs.clone(),
-                                    outputs: node.outputs.clone(),
-                                    properties: node.properties.clone(),
-                                },
-                            );
-                        }
-                    }
-
-                    let mut viewer = BehaviorViewer {
-                        snarl_id: snarl_id.clone(),
-                        events: context.ui_events.clone(),
-                    };
-
-                    snarl.show(
-                        &mut viewer,
-                        &egui_snarl::ui::SnarlStyle::default(),
-                        egui::Id::new(snarl_id),
-                        ui,
-                    );
+                UiWidget::Snarl { id: _snarl_id, graph } => {
+                    let nodes: Vec<crate::entropy_gui::widgets_node_graph::GraphNodeInfo> = graph
+                        .nodes
+                        .iter()
+                        .map(|n| crate::entropy_gui::widgets_node_graph::GraphNodeInfo {
+                            name: n.name.clone(),
+                            node_type: n.node_type.clone(),
+                            inputs: n.inputs.iter().map(|p| p.name.clone()).collect(),
+                            outputs: n.outputs.iter().map(|p| p.name.clone()).collect(),
+                        })
+                        .collect();
+                    let connections: Vec<crate::entropy_gui::widgets_node_graph::GraphConnectionInfo> = graph
+                        .connections
+                        .iter()
+                        .map(|c| crate::entropy_gui::widgets_node_graph::GraphConnectionInfo {
+                            from_node: c.from_node.clone(),
+                            from_pin: c.from_pin.clone(),
+                            to_node: c.to_node.clone(),
+                            to_pin: c.to_pin.clone(),
+                        })
+                        .collect();
+                    crate::entropy_gui::widgets_node_graph::node_graph_view(ui, &nodes, &connections);
                 }
                 UiWidget::CollapsingHeader { title, id } => {
                     // Find matching EndCollapsingHeader

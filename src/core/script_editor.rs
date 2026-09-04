@@ -1,7 +1,6 @@
-use egui_code_editor::{CodeEditor, ColorTheme, Syntax};
 use std::fs;
 use std::path::PathBuf;
-use egui;
+use crate::egui;
 
 pub struct ScriptEditor {
     pub path: PathBuf,
@@ -28,12 +27,6 @@ impl ScriptEditor {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui) {
-        let syntax = if self.language == "javascript" || self.language == "js" {
-            Syntax::lua()
-        } else {
-            Syntax::rust() // fallback
-        };
-
         ui.vertical(|ui| {
             ui.horizontal(|ui| {
                 ui.label(format!("Editing: {:?}", self.path));
@@ -47,14 +40,11 @@ impl ScriptEditor {
 
             ui.separator();
 
-            let response = CodeEditor::default()
-                .id_source("script_editor")
-                .with_syntax(syntax)
-                .with_theme(ColorTheme::AYU_DARK)
-                .with_numlines(true)
-                .show(ui, &mut self.content);
+            // Plain multiline edit + line-number gutter, no syntax highlighting yet — see
+            // src/entropy_gui/widgets_code_editor.rs for why (this replaces egui_code_editor).
+            let response = crate::entropy_gui::widgets_code_editor::code_editor(ui, &mut self.content);
 
-            if response.response.changed() {
+            if response.changed() {
                 self.is_dirty = true;
             }
         });

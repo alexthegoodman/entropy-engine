@@ -48,9 +48,9 @@ use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
 use crate::yumon::legacy::{OrganismSim, MyBackend};
-use egui;
+use crate::egui;
 use wgpu::util::DeviceExt;
-use egui_wgpu;
+use crate::egui_wgpu;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -608,86 +608,13 @@ pub struct BoneTransformConfig {
     pub scale: Option<[f32; 3]>,
 }
 
-#[derive(Clone)]
-pub struct BehaviorNodeState {
-    pub id: String,
-    pub name: String,
-    pub node_type: String,
-    pub inputs: Vec<BehaviorPin>,
-    pub outputs: Vec<BehaviorPin>,
-    pub properties: serde_json::Value,
-}
-
-pub struct BehaviorViewer {
-    pub snarl_id: String,
-    pub events: Arc<Mutex<Vec<String>>>,
-}
-
-impl egui_snarl::ui::SnarlViewer<BehaviorNodeState> for BehaviorViewer {
-    fn title(&mut self, node: &BehaviorNodeState) -> String {
-        node.name.clone()
-    }
-
-    fn inputs(&mut self, node: &BehaviorNodeState) -> usize {
-        node.inputs.len()
-    }
-
-    fn outputs(&mut self, node: &BehaviorNodeState) -> usize {
-        node.outputs.len()
-    }
-
-    fn show_input(
-        &mut self,
-        pin: &egui_snarl::InPin,
-        ui: &mut egui::Ui,
-        snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
-    ) -> egui_snarl::ui::PinInfo {
-        let node = &snarl[pin.id.node];
-        ui.label(&node.inputs[pin.id.input].name);
-        egui_snarl::ui::PinInfo::circle()
-    }
-
-    fn show_output(
-        &mut self,
-        pin: &egui_snarl::OutPin,
-        ui: &mut egui::Ui,
-        snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
-    ) -> egui_snarl::ui::PinInfo {
-        let node = &snarl[pin.id.node];
-        ui.label(&node.outputs[pin.id.output].name);
-        egui_snarl::ui::PinInfo::circle()
-    }
-
-    fn connect(
-        &mut self,
-        from: &egui_snarl::OutPin,
-        to: &egui_snarl::InPin,
-        _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
-    ) {
-        let payload = format!(
-            "SNARL_CONNECT|{}|{:?}|{:?}|{:?}|{:?}",
-            self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input
-        );
-        if let Ok(mut events) = self.events.lock() {
-            events.push(payload);
-        }
-    }
-
-    fn disconnect(
-        &mut self,
-        from: &egui_snarl::OutPin,
-        to: &egui_snarl::InPin,
-        _snarl: &mut egui_snarl::Snarl<BehaviorNodeState>,
-    ) {
-        let payload = format!(
-            "SNARL_DISCONNECT|{}|{:?}|{:?}|{:?}|{:?}",
-            self.snarl_id, from.id.node, from.id.output, to.id.node, to.id.input
-        );
-        if let Ok(mut events) = self.events.lock() {
-            events.push(payload);
-        }
-    }
-}
+// `BehaviorNodeState`/`BehaviorViewer`/the egui-snarl `SnarlViewer` impl that used to live
+// here were removed along with `egui-snarl`: the node-graph editor is now a read-only
+// fallback view (`entropy_gui::widgets_node_graph::node_graph_view`, driven directly from
+// `BehaviorGraph` in `addon_engine.rs`) rather than a real pin-dragging editor — see the
+// entropy_gui migration plan's decision on deferred widgets. This is an accepted, documented
+// product regression (addons can no longer let users draw new connections via this UI) until
+// a real graph editor is built as a follow-up.
 
 pub struct AddonContext {
     pub registered_addons: Vec<(String, AddonMetadata)>,
@@ -770,7 +697,6 @@ pub struct AddonContext {
     pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
-    pub snarl_states: HashMap<String, egui_snarl::Snarl<BehaviorNodeState>>,
     pub input_events: Vec<InputEvent>,
     pub pressed_keys: HashSet<String>,
     pub mouse_position: [f32; 2],

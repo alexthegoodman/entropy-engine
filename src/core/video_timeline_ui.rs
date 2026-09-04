@@ -6,7 +6,8 @@ use crate::shape_primitives::polygon::{SavedPolygonConfig, SavedPoint, SavedStro
 use crate::renderer_text::text_due::SavedTextRendererConfig;
 use crate::renderer_images::st_image::SavedStImageConfig;
 use crate::vector_animations::animations::SavedStVideoConfig;
-use egui::{Ui, Rect, Pos2, Vec2, Color32, Stroke, Sense, Align2, FontId, Id};
+use crate::egui;
+use crate::egui::{Ui, Rect, Pos2, Vec2, Color32, Stroke, Sense, Align2, FontId, Id};
 use uuid::Uuid;
 use rfd::FileDialog;
 

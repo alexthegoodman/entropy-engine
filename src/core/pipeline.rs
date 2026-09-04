@@ -23,7 +23,7 @@ use crate::core::shadow_pipeline::ShadowPipelineData;
 use crate::core::ui_pipeline::UiPipeline;
 use crate::core::editor::Point;
 use std::{collections::HashMap, fs, sync::{Arc, Mutex}};
-use egui::StrokeKind;
+use crate::egui::StrokeKind;
 // use cgmath::{Point3, Vector3};
 use nalgebra::{Isometry3, Point3, Translation3, UnitQuaternion, Vector3};
 use transform_gizmo::{EnumSet, GizmoMode};
@@ -43,8 +43,9 @@ use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 use winit::window::Window;
 
 #[cfg(target_os = "windows")]
-use egui;
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use crate::egui;
+use crate::egui_wgpu;
+use crate::egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 
 #[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};

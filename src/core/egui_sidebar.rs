@@ -46,8 +46,9 @@ use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 use winit::window::Window;
 
 #[cfg(target_os = "windows")]
-use egui;
-use egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
+use crate::egui;
+use crate::egui_wgpu;
+use crate::egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 use rfd::FileDialog;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

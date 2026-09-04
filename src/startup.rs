@@ -24,9 +24,9 @@ use gilrs::{Gilrs, Button, Event, Axis};
 
 use std::time::Instant;
 
-use egui_wgpu::{Renderer as EguiRenderer, RendererOptions};
-use egui_winit::State as EguiState;
-use egui::Context as EguiContext;
+use crate::egui_wgpu::{Renderer as EguiRenderer, RendererOptions};
+use crate::egui_winit::State as EguiState;
+use crate::egui::Context as EguiContext;
 use tracing::info;
 use tracing::error;
 
