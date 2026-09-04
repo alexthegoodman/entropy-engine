@@ -260,7 +260,7 @@ impl Application {
             window.recognize_pan_gesture(true, 2, 2);
         }
 
-        let window_state = WindowState::new(self, window, self.game_mode)?;
+        let window_state = WindowState::new(self, event_loop, window, self.game_mode)?;
         let window_id = window_state.window.id();
         info!("Created new window with id={window_id:?}");
         self.windows.insert(window_id, window_state);
@@ -922,7 +922,7 @@ struct WindowState {
 }
 
 impl WindowState {
-    fn new(app: &Application, window: Window, game_mode: bool) -> Result<Self, Box<dyn Error>> {
+    fn new(app: &Application, event_loop: &ActiveEventLoop, window: Window, game_mode: bool) -> Result<Self, Box<dyn Error>> {
         let window = Arc::new(window);
 
         let mut pipeline = EntropyPipeline::new();
@@ -955,6 +955,7 @@ impl WindowState {
         let ctx = EguiContext::default();
         crate::core::egui_theme::setup_custom_theme(&ctx);
         let mut state = EguiState::new(ctx.clone(), ctx.viewport_id(), &window, None, None, None);
+        state.set_pointer_cursors(crate::egui_winit::build_pointer_cursors(event_loop));
         
         let size = window.inner_size();
         let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;

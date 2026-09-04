@@ -12,8 +12,9 @@ use crate::entropy_gui::context::Key as GuiKey;
 use crate::entropy_gui::context::ViewportId;
 use crate::entropy_gui::geometry::{pos2, vec2, CursorIcon as GuiCursorIcon, Rect, Vec2};
 use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key as WinitKey, NamedKey};
-use winit::window::Window;
+use winit::window::{CustomCursor, CustomCursorSource, Window};
 
 pub struct EventResponse {
     pub consumed: bool,
@@ -31,6 +32,56 @@ pub struct State {
     key_accum: Vec<KeyEvent>,
     ime_preedit: Option<String>,
     last_frame_instant: std::time::Instant,
+    pointer_cursors: Option<PointerCursors>,
+}
+
+/// The custom "modern pointer" art, one bitmap per DPI tier, swapped in for
+/// `GuiCursorIcon::Default` in place of the OS's stock arrow. Built once (needs an
+/// `ActiveEventLoop` to hand to winit) via [`build_pointer_cursors`] and installed with
+/// [`State::set_pointer_cursors`]; every other `GuiCursorIcon` still maps to a native OS icon.
+pub struct PointerCursors {
+    c1x: CustomCursor,
+    c2x: CustomCursor,
+    c3x: CustomCursor,
+    c4x: CustomCursor,
+}
+
+const POINTER_1X: &[u8] = include_bytes!("../cursors/pointer_32.png");
+const POINTER_2X: &[u8] = include_bytes!("../cursors/pointer_64.png");
+const POINTER_3X: &[u8] = include_bytes!("../cursors/pointer_96.png");
+const POINTER_4X: &[u8] = include_bytes!("../cursors/pointer_128.png");
+
+/// Decodes a pointer PNG (RGBA, hotspot at the art's top-left tip) into a cursor source ready
+/// for `ActiveEventLoop::create_custom_cursor`.
+fn decode_pointer_cursor(bytes: &[u8]) -> CustomCursorSource {
+    let img = image::load_from_memory(bytes).expect("decode pointer cursor PNG").to_rgba8();
+    let (w, h) = img.dimensions();
+    CustomCursor::from_rgba(img.into_raw(), w as u16, h as u16, 0, 0).expect("build pointer cursor")
+}
+
+/// Builds every DPI tier of the custom pointer. Call once per window (needs the
+/// `ActiveEventLoop` winit hands out in `resumed`/`create_window`) and pass the result to
+/// [`State::set_pointer_cursors`].
+pub fn build_pointer_cursors(event_loop: &ActiveEventLoop) -> PointerCursors {
+    PointerCursors {
+        c1x: event_loop.create_custom_cursor(decode_pointer_cursor(POINTER_1X)),
+        c2x: event_loop.create_custom_cursor(decode_pointer_cursor(POINTER_2X)),
+        c3x: event_loop.create_custom_cursor(decode_pointer_cursor(POINTER_3X)),
+        c4x: event_loop.create_custom_cursor(decode_pointer_cursor(POINTER_4X)),
+    }
+}
+
+/// Nearest DPI tier for `scale_factor` (1x/2x/3x/4x assets, midpoint thresholds).
+fn pick_pointer_cursor(cursors: &PointerCursors, scale_factor: f64) -> &CustomCursor {
+    if scale_factor <= 1.5 {
+        &cursors.c1x
+    } else if scale_factor <= 2.5 {
+        &cursors.c2x
+    } else if scale_factor <= 3.5 {
+        &cursors.c3x
+    } else {
+        &cursors.c4x
+    }
 }
 
 impl State {
@@ -54,7 +105,14 @@ impl State {
             key_accum: Vec::new(),
             ime_preedit: None,
             last_frame_instant: std::time::Instant::now(),
+            pointer_cursors: None,
         }
+    }
+
+    /// Installs the custom "modern pointer" art built by [`build_pointer_cursors`]; without
+    /// this, `GuiCursorIcon::Default` just falls back to the OS's native arrow.
+    pub fn set_pointer_cursors(&mut self, cursors: PointerCursors) {
+        self.pointer_cursors = Some(cursors);
     }
 
     pub fn on_window_event(&mut self, _window: &Window, event: &WindowEvent) -> EventResponse {
@@ -151,6 +209,12 @@ impl State {
     }
 
     pub fn handle_platform_output(&mut self, window: &Window, output: PlatformOutput) {
+        if output.cursor_icon == GuiCursorIcon::Default {
+            if let Some(cursors) = &self.pointer_cursors {
+                window.set_cursor(pick_pointer_cursor(cursors, window.scale_factor()).clone());
+                return;
+            }
+        }
         window.set_cursor(map_cursor_icon(output.cursor_icon));
     }
 }
