@@ -29,6 +29,7 @@ let composerState: {
     activeInstanceId: string | null;
     components: ComponentInstance[];
     playMode: boolean;
+    gameAdded: string | null;
     globalSettings?: GlobalSettings;
     yumonSettings: {
         archetypes: ["Berserker", "Coward", "Support"],
@@ -48,6 +49,10 @@ let composerState: {
     activeInstanceId: null,
     components: [],
     playMode: false,
+    // The game (from `gameAddons`) currently associated with/added to this
+    // project's composition. Persisted via addon.IO so it's restored when the
+    // project reloads, mirroring the sidebar's preferred-addon behavior.
+    gameAdded: null,
     globalSettings: {
         landscapeSettings: {
             size: 4096,
@@ -189,10 +194,18 @@ addon.onAllProjectsLoaded(() => {
         }
 
         refreshScene(); // until we clear, lets avoid this?
+
+        // Restore the previously-associated game's visuals, if any.
+        if (composerState.gameAdded) {
+            (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
+            const renderer = Entropy.Composer?.getGame(composerState.gameAdded);
+            if (renderer) {
+                renderer(composerState.gameAdded, {});
+            }
+            (globalThis as any).__entropy_current_addon_context_override = null;
+        }
     }
 });
-
-let gameAdded: string | null = null;
 
 addon.onInit(async () => {
     Entropy.println("Game Composer 2.0 Initializing...");
@@ -469,44 +482,72 @@ addon.onInit(async () => {
             });
 
             Entropy.UI.Widget.collapsingHeader(tab, "Game Preview", (headerTab) => {
-                if (gameAdded) {
-                    Entropy.UI.Widget.button(headerTab, {
-                        text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
-                        onClick: () => {
-                            if (gameAdded) {
-                                Entropy.println("Updating game status...");
+                if (composerState.gameAdded) {
+                    Entropy.UI.Widget.label(headerTab, { text: `✔ ${composerState.gameAdded}`, bold: true });
 
-                                composerState.playMode = !composerState.playMode;
-                                Entropy.setGameMode(composerState.playMode);
+                    Entropy.UI.Widget.horizontal(headerTab, (hTab) => {
+                        Entropy.UI.Widget.button(hTab, {
+                            text: composerState.playMode ? "⏹ Stop Game" : "▶ Play Game",
+                            onClick: () => {
+                                if (composerState.gameAdded) {
+                                    Entropy.println("Updating game status...");
 
-                                if (composerState.playMode) {
-                                    Entropy._dispatchGameStarted(gameAdded);
-                                    Entropy.println("Game started!");
-                                } else {
-                                    Entropy._dispatchGameStopped(gameAdded);
-                                    Entropy.println("Game stopped!");
+                                    composerState.playMode = !composerState.playMode;
+                                    Entropy.setGameMode(composerState.playMode);
+
+                                    if (composerState.playMode) {
+                                        Entropy._dispatchGameStarted(composerState.gameAdded);
+                                        Entropy.println("Game started!");
+                                    } else {
+                                        Entropy._dispatchGameStopped(composerState.gameAdded);
+                                        Entropy.println("Game stopped!");
+                                    }
                                 }
                             }
-                        }
+                        });
+
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "🗑 Unload Game",
+                            onClick: () => {
+                                const previousGame = composerState.gameAdded;
+                                if (!previousGame) return;
+
+                                // Make sure we're not mid-play before tearing down.
+                                if (composerState.playMode) {
+                                    composerState.playMode = false;
+                                    Entropy.setGameMode(false);
+                                    Entropy._dispatchGameStopped(previousGame);
+                                    Entropy.println("Game stopped!");
+                                }
+
+                                // Hide the previous game's rendered visuals so nothing lingers
+                                // in the viewport before a new one is added.
+                                Entropy.Addon.setVisibility(previousGame, false);
+
+                                composerState.gameAdded = null;
+                                Entropy.println("Unloaded game: " + previousGame);
+                            }
+                        });
                     });
                 } else {
                     // in liue of a register system dedicated to the composer
                     // actually, registerGame, then let the user seslect one to restore, bingo
-                    gameAddons.forEach((addon) => {
+                    gameAddons.forEach((addonName) => {
                         Entropy.UI.Widget.button(headerTab, {
-                            text: "🔄 Add Game: " + addon,
-                            onClick: () => {    
+                            text: "🔄 Add Game: " + addonName,
+                            onClick: () => {
                                 (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
 
-                                Entropy.println("Adding game: " + addon);
+                                Entropy.println("Adding game: " + addonName);
 
-                                const renderer = Entropy.Composer?.getGame(addon);
+                                const renderer = Entropy.Composer?.getGame(addonName);
 
-                                gameAdded = addon;
+                                composerState.gameAdded = addonName;
+                                Entropy.Addon.setVisibility(addonName, true);
 
                                 if (renderer) {
                                     Entropy.println("Game Composer Game render ... ");
-                                    renderer(addon, {});
+                                    renderer(addonName, {});
                                 }
 
                                 (globalThis as any).__entropy_current_addon_context_override = null;
@@ -514,7 +555,7 @@ addon.onInit(async () => {
                         });
                     });
                 }
-            });             
+            });
 
             // tl;dr:
             // this is too complex to all be centralized into one view
