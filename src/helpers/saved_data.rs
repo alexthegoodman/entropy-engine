@@ -393,4 +393,8 @@ pub struct SavedState {
     pub sophia_data: Option<SophiaData>,
     // Global
     pub global_js_scripts: Option<Vec<String>>,
+    // The addon (Game Preview) the user last selected in the sidebar for this
+    // project, so it's re-selected automatically the next time the project loads.
+    #[serde(default)]
+    pub preferred_game_addon: Option<String>,
 }

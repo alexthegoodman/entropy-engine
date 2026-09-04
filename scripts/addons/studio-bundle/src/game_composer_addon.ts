@@ -102,7 +102,7 @@ function raySphereIntersect(
 let sectionsOpen = {
     hierarchy: false,
     inspector: false,
-    library: false,
+    library: true,
     addEntity: false,
     yumonAI: false
 };
@@ -129,6 +129,7 @@ const sourceAddons = [
     "Yumon Organism"
 ];
 
+// TODO: make this dynamic
 const gameAddons = [
     "The Fractured Realm",
     "Cannabis Conquest"
@@ -515,23 +516,28 @@ addon.onInit(async () => {
                 }
             });             
 
-            // === MANAGE COMPONENTS ===
-            Entropy.UI.Widget.label(tab, { text: "Manage Components", bold: true });
+            // tl;dr:
+            // this is too complex to all be centralized into one view
+            // i appreciate the desire to make certain edits convenient and in-context
+            // but we need to carefully weigh the tradeoffs
 
-            if (Entropy.Composer && Entropy.Composer.editors) {
-                Object.keys(Entropy.Composer.editors).forEach(addonName => {
-                    Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
-                        Entropy.Composer!.enableGameComposerOverride();
-                        const renderFn = Entropy.Composer!.editors[addonName];
-                        if (renderFn) {
-                            renderFn(headerTab, "Game Composer");
-                        }
-                        Entropy.Composer!.disableGameComposerOverride();
-                    });
-                });
-            }
+            // // === MANAGE COMPONENTS ===
+            // Entropy.UI.Widget.label(tab, { text: "Manage Components", bold: true });
 
-            Entropy.UI.Widget.separator(tab);
+            // if (Entropy.Composer && Entropy.Composer.editors) {
+            //     Object.keys(Entropy.Composer.editors).forEach(addonName => {
+            //         Entropy.UI.Widget.collapsingHeader(tab, addonName, (headerTab) => {
+            //             Entropy.Composer!.enableGameComposerOverride();
+            //             const renderFn = Entropy.Composer!.editors[addonName];
+            //             if (renderFn) {
+            //                 renderFn(headerTab, "Game Composer");
+            //             }
+            //             Entropy.Composer!.disableGameComposerOverride();
+            //         });
+            //     });
+            // }
+
+            // Entropy.UI.Widget.separator(tab);
 
             // === COMPONENT LIBRARY ===
             Entropy.UI.Widget.button(tab, {

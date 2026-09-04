@@ -194,6 +194,9 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                         if is_expanded {
                                             ui.separator();
 
+                                            let preferred_addon = editor.world_state.as_ref()
+                                                .and_then(|s| s.preferred_game_addon.clone());
+
                                             for addon in addons_in_category.iter().rev() {
                                                 // We use the first letter of the name as the icon for now
                                                 let icon = addon.name.chars().next().unwrap_or('?').to_string();
@@ -202,10 +205,24 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                                 } else {
                                                     false
                                                 };
+                                                let is_preferred = preferred_addon.as_deref() == Some(addon.name.as_str());
 
                                                 ui.add_space(6.0);
-                                                if ui.selectable_label(is_active, icon).on_hover_text(&addon.name).clicked() {
+                                                let label = if is_preferred { format!("{} ✔", icon) } else { icon };
+                                                if ui.selectable_label(is_active, label)
+                                                    .on_hover_text(format!("{}{}", &addon.name, if is_preferred { " (preferred Game Preview)" } else { "" }))
+                                                    .clicked()
+                                                {
                                                     pipeline.current_workspace = Workspace::Addon(addon.name.clone());
+
+                                                    if let Some(world_state) = &mut editor.world_state {
+                                                        if world_state.preferred_game_addon.as_deref() != Some(addon.name.as_str()) {
+                                                            world_state.preferred_game_addon = Some(addon.name.clone());
+                                                            if let Some(project_id) = world_state.id.clone() {
+                                                                let _ = utilities::update_project_state(&project_id, world_state);
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

@@ -38,7 +38,7 @@ import "./alpha_preview_addon";
 // game logic tier
 // import "./horde_mode_game";
 // import "./wave_spawner_game";
-// import "./fps_rpg";
+import "./fps_rpg";
 // import "./conquest";
 
 // initialize last (tier 3)

@@ -332,7 +332,10 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                     let mut button_ui = ui.child_ui_at(button_rect, egui::Layout::right_to_left(egui::Align::Center), ("project_row_open", project_id.as_str()));
                                     if button_ui.button("Open").clicked() {
                                         pollster::block_on(load_game_project(editor, project_id));
-                                        *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
+                                        let preferred_addon = editor.world_state.as_ref()
+                                            .and_then(|s| s.preferred_game_addon.clone())
+                                            .unwrap_or_else(|| "Game Composer".to_string());
+                                        *self.context.next_workspace = Some(Workspace::Addon(preferred_addon));
                                     }
                                 }
                             });

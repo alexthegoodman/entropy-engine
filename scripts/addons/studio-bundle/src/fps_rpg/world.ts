@@ -15,8 +15,16 @@ class WorldManager {
     public npcAnimations: Record<string, string> = {};
 
     initialize() {
+        Entropy.println("--------------------------- FPS RPG PLAYER INITIALIZE");
+
         gameState.setupCombat();
+
+        Entropy.println("--------------------------- FPS RPG PLAYER SPAWN PLAYER");
+
         this.spawnPlayer();
+
+        Entropy.println("--------------------------- FPS RPG PLAYER POPULATE WORLD");
+
         this.populateWorld();
 
         environmentDecorator.decorateWorld();
