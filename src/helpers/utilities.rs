@@ -276,6 +276,17 @@ pub fn update_project_state_component(project_id: &str, component: &ComponentDat
     Ok(())
 }
 
+/// Last-modified date of a project's saved state, read from filesystem metadata (there's no
+/// `updated_at` tracked in the registry itself) — `None` if the project file is missing or the
+/// platform can't report a modified time.
+pub fn get_project_last_modified(project_id: &str) -> Option<String> {
+    let project_dir = get_project_dir(project_id)?;
+    let json_path = project_dir.join("midpoint.json");
+    let modified = fs::metadata(&json_path).ok()?.modified().ok()?;
+    let datetime: chrono::DateTime<chrono::Local> = modified.into();
+    Some(datetime.format("%b %d, %Y").to_string())
+}
+
 pub fn update_project_state(project_id: &str, saved_state: &SavedState) -> Result<(), Box<dyn std::error::Error>> {
     let project_dir = get_project_dir(project_id).expect("Couldn't get project directory");
     let json_path = project_dir.join("midpoint.json");

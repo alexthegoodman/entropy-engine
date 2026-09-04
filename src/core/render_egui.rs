@@ -71,6 +71,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                 export_editor: &mut pipeline.export_editor,
                 new_project_name: &mut pipeline.new_project_name,
                 projects: &mut pipeline.projects,
+                project_filter: &mut pipeline.project_filter,
                 selected_component_id: &mut pipeline.selected_component_id,
                 chat: &mut pipeline.chat,
                 video_timeline_ui: &mut pipeline.video_timeline_ui,

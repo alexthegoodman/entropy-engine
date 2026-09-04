@@ -81,6 +81,7 @@ pub struct UiContext<'a> {
     pub export_editor: &'a mut Option<Editor>,
     pub new_project_name: &'a mut String,
     pub projects: &'a mut Vec<(String, String)>,
+    pub project_filter: &'a mut String,
     pub selected_component_id: &'a mut Option<String>,
     pub chat: &'a mut Chat,
     pub video_timeline_ui: &'a mut crate::core::video_timeline_ui::VideoTimeline,
@@ -212,56 +213,144 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
             Tab::Projects => {
                 let editor = self.context.export_editor.as_mut().unwrap();
 
-                ui.heading("Your Projects");
+                egui::Frame::none().inner_margin(32.0).show(ui, |ui| {
+                    // Keep the picker a comfortable reading width and center it in the
+                    // panel instead of letting every widget stretch edge-to-edge.
+                    let full_rect = ui.available_rect_before_wrap();
+                    let card_width = 460.0_f32.min(full_rect.width());
+                    let card_x = full_rect.min.x + (full_rect.width() - card_width) / 2.0;
+                    let card_rect = egui::Rect::from_min_max(
+                        egui::pos2(card_x, full_rect.min.y),
+                        egui::pos2(card_x + card_width, full_rect.max.y),
+                    );
+                    let mut column = ui.child_ui_at(card_rect, egui::Layout::top_down(egui::Align::Min), "project_picker_column");
 
-                // Games
-                if editor.world_state.is_none() {
-                    ui.label("Create New Project");
-                    ui.text_edit_singleline(self.context.new_project_name);
-                    if ui.button("Create New Project").clicked() {
-                        if !self.context.new_project_name.is_empty() {
-                            match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
-                                Ok(new_state) => {
-                                    if let Some(new_project_id) = new_state.id.clone() {
-                                        editor.world_state = Some(new_state);
-                                        pollster::block_on(load_game_project(editor, &new_project_id));
+                    if editor.world_state.is_none() {
+                        column.add_space(24.0);
+                        column.vertical_centered(|ui| {
+                            ui.heading("Entropy Engine");
+                            ui.label("Pick a project to get started, or create a new one.");
+                        });
+                        column.add_space(28.0);
+
+                        column.group(|ui| {
+                            ui.add_space(2.0);
+                            ui.strong("Create New Project");
+                            ui.add_space(6.0);
+                            ui.label("Project name");
+                            ui.add_space(2.0);
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                let create_clicked = ui.button("Create").clicked();
+                                ui.text_edit_singleline(self.context.new_project_name);
+                                if create_clicked {
+                                    if !self.context.new_project_name.is_empty() {
+                                        match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
+                                            Ok(new_state) => {
+                                                if let Some(new_project_id) = new_state.id.clone() {
+                                                    editor.world_state = Some(new_state);
+                                                    pollster::block_on(load_game_project(editor, &new_project_id));
+                                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                println!("Failed to create project: {}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            ui.add_space(2.0);
+                        });
+
+                        column.add_space(28.0);
+                        column.strong("Your Projects");
+                        column.add_space(10.0);
+                        column.label("Search");
+                        column.add_space(2.0);
+                        column.text_edit_singleline(self.context.project_filter);
+                        column.add_space(10.0);
+
+                        self.context.projects.clear();
+                        if let Ok(registry) = utilities::load_project_registry() {
+                            for project in registry.projects {
+                                if project.app == self.context.current_app {
+                                    self.context.projects.push((project.project_name, project.project_id));
+                                }
+                            }
+                        }
+
+                        let filter_lower = self.context.project_filter.trim().to_lowercase();
+                        let filtered: Vec<&(String, String)> = self.context.projects.iter()
+                            .filter(|(name, _)| filter_lower.is_empty() || name.to_lowercase().contains(&filter_lower))
+                            .collect();
+
+                        if self.context.projects.is_empty() {
+                            column.label("No projects yet — create one above to begin.");
+                        } else if filtered.is_empty() {
+                            column.label("No projects match your search.");
+                        } else {
+                            // Every row shares a fixed width/height and a manually-split
+                            // left (name+date) / right (Open button) region — ui.group()'s
+                            // border shrinks to its content's natural size, which would give
+                            // every row a different width depending on the project name's
+                            // length, so we paint the row's card ourselves at a known size
+                            // instead of relying on it.
+                            egui::ScrollArea::vertical().show(&mut column, |ui| {
+                                let row_width = ui.available_width();
+                                let row_height = 56.0;
+                                let button_zone_width = 84.0;
+                                let pad = 14.0;
+
+                                for (project_name, project_id) in filtered {
+                                    let row_rect = ui.allocate_space(egui::vec2(row_width, row_height));
+
+                                    let row_id = ui.next_auto_id(project_id.as_str());
+                                    let resp = ui.interact(row_rect, row_id, egui::Sense::hover());
+                                    let visuals = ui.visuals();
+                                    if resp.hovered() {
+                                        ui.painter().rect_filled(row_rect, visuals.widgets.hovered.corner_radius, visuals.widgets.hovered.bg_fill.linear_multiply(0.25));
+                                    }
+                                    ui.painter().rect_stroke(row_rect, visuals.widgets.noninteractive.corner_radius, visuals.widgets.noninteractive.bg_stroke, egui::StrokeKind::Middle);
+
+                                    let text_rect = egui::Rect::from_min_max(
+                                        egui::pos2(row_rect.min.x + pad, row_rect.min.y),
+                                        egui::pos2(row_rect.max.x - button_zone_width - pad, row_rect.max.y),
+                                    );
+                                    let button_rect = egui::Rect::from_min_max(
+                                        egui::pos2(row_rect.max.x - button_zone_width - pad, row_rect.min.y),
+                                        egui::pos2(row_rect.max.x - pad, row_rect.max.y),
+                                    );
+
+                                    let mut text_ui = ui.child_ui_at(text_rect, egui::Layout::top_down(egui::Align::Min), project_id.as_str());
+                                    text_ui.add_space(8.0);
+                                    text_ui.strong(project_name);
+                                    match utilities::get_project_last_modified(project_id) {
+                                        Some(date) => { text_ui.label(format!("Updated {}", date)); }
+                                        None => { text_ui.label("—"); }
+                                    }
+
+                                    let mut button_ui = ui.child_ui_at(button_rect, egui::Layout::right_to_left(egui::Align::Center), ("project_row_open", project_id.as_str()));
+                                    if button_ui.button("Open").clicked() {
+                                        pollster::block_on(load_game_project(editor, project_id));
                                         *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                                     }
                                 }
-                                Err(e) => {
-                                    println!("Failed to create project: {}", e);
-                                }
+                            });
+                        }
+                    } else {
+                        column.add_space(40.0);
+                        column.vertical_centered(|ui| {
+                            ui.heading("Project Loaded");
+                            if let Some(world_state) = &editor.world_state {
+                                ui.label(format!("Project: {}", world_state.project_name));
                             }
-                        }
-                    }
-        
-                    ui.separator();
-                    ui.label("Existing Projects");
-        
-                    self.context.projects.clear();
-                    if let Ok(registry) = utilities::load_project_registry() {
-                        for project in registry.projects {
-                            if project.app == self.context.current_app {
-                                self.context.projects.push((project.project_name, project.project_id));
+                            ui.add_space(16.0);
+                            if ui.button("Close Project").clicked() {
+                                editor.world_state = None;
                             }
-                        }
+                        });
                     }
-        
-                    for (project_name, project_id) in self.context.projects.iter() {
-                        if ui.button(project_name).clicked() {
-                            pollster::block_on(load_game_project(editor, project_id));
-                            *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                        }
-                    }
-                } else {
-                    ui.label("Project Loaded");
-                    if let Some(world_state) = &editor.world_state {
-                         ui.label(format!("Project: {}", world_state.project_name));
-                    }
-                    if ui.button("Close Project").clicked() {
-                         editor.world_state = None;
-                    }
-                }
+                });
             }
             Tab::Components => {
                 let editor = self.context.export_editor.as_mut().unwrap();

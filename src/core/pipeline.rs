@@ -150,6 +150,7 @@ pub struct EntropyPipeline {
     pub chat: Chat,
     pub new_project_name: String,
     pub projects: Vec<(String, String)>,
+    pub project_filter: String,
     pub command_bar_input: String,
     pub command_bar_project_id: Option<String>,
 
@@ -244,6 +245,7 @@ impl EntropyPipeline {
             chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
+            project_filter: String::new(),
             command_bar_input: String::new(),
             command_bar_project_id: None,
             
