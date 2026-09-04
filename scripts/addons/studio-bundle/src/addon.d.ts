@@ -773,6 +773,8 @@ export interface EntropyAPI {
       getTextureGenerator: (addonName: string) => ((id: string, params: any, res: number) => { diffId: string, norId: string, armId: string }) | undefined;
       registerComponent: (addonName: string, componentId: string, name: string, params: any) => void;
       getComponents: (addonName: string) => Record<string, { id: string, name: string, params: any }>;
+      registerInstance: (addonName: string, componentId: string, instanceId: string, defaults: any) => void;
+      getInstances: () => Record<string, { addonName: string, componentId: string, defaults: any }>;
       setRolePipeline: (role: string, pipelineId: string) => void;
       initCallbacks: {
         [key: string]: () => void

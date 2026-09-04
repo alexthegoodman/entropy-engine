@@ -1297,6 +1297,7 @@ globalThis.Entropy.Composer = {
     games: {}, // addonName -> renderFn(id, params)
     textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
     components: {}, // addonName -> { componentId -> { name, params } }
+    instances: {}, // instanceId -> { addonName, componentId, defaults }
     initCallbacks: {}, // addonName -> initCallback()
     globalSettings: {
         landscapeSettings: {
@@ -1340,6 +1341,17 @@ globalThis.Entropy.Composer = {
     },
     getComponents: (addonName) => {
         return globalThis.Entropy.Composer.components[addonName] || {};
+    },
+    // Idempotent upsert so any addon can announce "this instance exists" without
+    // clobbering whatever a consumer (e.g. Game Composer) already knows about it.
+    // Only addonName/componentId/defaults are (re)written here - position, scale,
+    // visibility and per-field overrides live downstream and must survive repeat calls,
+    // since producers like Model Viewer's refreshModels() re-announce on every edit.
+    registerInstance: (addonName, componentId, instanceId, defaults) => {
+        globalThis.Entropy.Composer.instances[instanceId] = { addonName, componentId, defaults };
+    },
+    getInstances: () => {
+        return globalThis.Entropy.Composer.instances;
     },
     setRolePipeline: (role, pipelineId) => {
         ops.op_composer_set_role_pipeline(role, pipelineId);

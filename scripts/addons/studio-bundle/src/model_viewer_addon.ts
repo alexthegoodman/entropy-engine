@@ -84,6 +84,15 @@ function refreshModels() {
                 kind: m.kind,
                 npcProps: m.npcProps
             });
+
+            // Announce this placed instance so it shows up in Game Composer's
+            // Hierarchy even if it was never added via the "Add Component" button.
+            if (Entropy.Composer.registerInstance) {
+                Entropy.Composer.registerInstance(addonInfo.name, m.path, m.id, {
+                    position: m.position,
+                    scale: m.scale
+                });
+            }
         }
     });
 }

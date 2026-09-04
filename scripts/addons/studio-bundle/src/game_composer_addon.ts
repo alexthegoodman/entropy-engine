@@ -22,6 +22,10 @@ interface ComponentInstance {
     scale: [number, number, number];
     visible: boolean;
     yumonBrainId?: string;
+    // Per-field editor overrides. These always win over the source addon's live
+    // params (see renderInstance) so an editor tweak survives the source addon
+    // re-registering its component with fresh defaults.
+    overrides?: Record<string, any>;
 }
 
 let composerState: {
@@ -105,12 +109,104 @@ function raySphereIntersect(
 }
 
 let sectionsOpen = {
-    hierarchy: false,
-    inspector: false,
+    hierarchy: true,
+    inspector: true,
     library: true,
     addEntity: false,
     yumonAI: false
 };
+
+// Translate-only gizmo tracking (rotate/scale still edited via Inspector sliders -
+// the engine only feeds a real transform to the addon gizmo in translate mode).
+let activeGizmoId: string | null = null;
+let lastGizmoInstanceId: string | null = null;
+
+function trySelectAt(x: number, y: number) {
+    const ray = Entropy.Camera?.screenToWorldRay(x, y);
+    if (!ray) return;
+
+    let bestId: string | null = null;
+    let bestDist = Infinity;
+    composerState.components.forEach(inst => {
+        if (!inst.visible) return;
+        const hit = raySphereIntersect(ray.origin, ray.direction, inst.position, 1.5);
+        if (hit && hit.distance < bestDist) {
+            bestDist = hit.distance;
+            bestId = inst.id;
+        }
+    });
+    composerState.activeInstanceId = bestId;
+}
+
+function syncGizmoToSelection() {
+    if (composerState.activeInstanceId === lastGizmoInstanceId) return;
+    lastGizmoInstanceId = composerState.activeInstanceId;
+
+    if (activeGizmoId) {
+        Entropy.Gizmo?.hide(activeGizmoId);
+        activeGizmoId = null;
+    }
+
+    const inst = composerState.components.find(c => c.id === composerState.activeInstanceId);
+    if (inst && Entropy.Gizmo) {
+        activeGizmoId = Entropy.Gizmo.show({
+            position: inst.position,
+            mode: "translate",
+            space: "world",
+            onTransform: (delta) => {
+                inst.position = [
+                    inst.position[0] + delta[0],
+                    inst.position[1] + delta[1],
+                    inst.position[2] + delta[2]
+                ];
+                renderInstance(inst);
+            }
+        });
+    }
+}
+
+function addInstance(opts: {
+    id?: string;
+    addonName: string;
+    componentId: string;
+    name: string;
+    position?: [number, number, number];
+    scale?: [number, number, number];
+}): ComponentInstance {
+    const newInst: ComponentInstance = {
+        id: opts.id || Entropy.generateUUID(),
+        name: opts.name,
+        addon: opts.addonName,
+        componentId: opts.componentId,
+        position: opts.position || [0, 0, 0],
+        scale: opts.scale || [1, 1, 1],
+        visible: true,
+        overrides: {}
+    };
+    composerState.components.push(newInst);
+    return newInst;
+}
+
+// Picks up instances announced via Entropy.Composer.registerInstance (e.g. models
+// spawned directly in Model Viewer) that aren't already tracked here. Additive only -
+// never touches an existing instance, so user edits are never clobbered.
+function reconcileInstances() {
+    const registry = Entropy.Composer?.getInstances ? Entropy.Composer.getInstances() : {};
+    Object.keys(registry).forEach(instanceId => {
+        if (composerState.components.some(c => c.id === instanceId)) return;
+
+        const rec = registry[instanceId];
+        const comp = (Entropy.Composer?.getComponents(rec.addonName) || {})[rec.componentId];
+        addInstance({
+            id: instanceId,
+            addonName: rec.addonName,
+            componentId: rec.componentId,
+            name: (comp?.name || rec.componentId) + " Instance",
+            position: rec.defaults?.position,
+            scale: rec.defaults?.scale
+        });
+    });
+}
 
 const availablePipelines = [
     "default", 
@@ -140,45 +236,46 @@ const gameAddons = [
     "Cannabis Conquest"
 ];
 
-function refreshScene() {
+// Renders a single instance. Split out from refreshScene so a gizmo drag or a
+// single Inspector field edit only re-renders the one instance that changed,
+// instead of re-invoking every visible instance's renderer on every tick.
+function renderInstance(inst: ComponentInstance) {
+    if (!inst.visible) return;
+
     // Use context override so everything spawned belongs to "Game Composer" bucket in Rust
-    // (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
     Entropy.Composer?.enableGameComposerOverride();
-    
-    // Clear existing meshes owned by Game Composer (implicit in how Addons work usually, 
-    // but if we want to be safe we might need a clear command. 
-    // For now, re-running renderers usually overwrites if IDs match).
-    
-    composerState.components.forEach(inst => {
-        if (inst.visible) {
-            const renderer = Entropy.Composer?.getRenderer(inst.addon);
-            
-            // Fetch the latest params from the source addon
-            const components = Entropy.Composer?.getComponents(inst.addon) || {};
-            const sourceParams = components[inst.componentId]?.params;
-            
-            // Fallback to inst.params if source is missing (legacy support), or {}
-            const paramsToUse = sourceParams || inst.params || {};
 
-            if (renderer) {
-                // Pass transform data so the renderer can position the mesh
-                const renderParams = { 
-                    ...paramsToUse, 
-                    _transform: { 
-                        position: inst.position, 
-                        scale: inst.scale 
-                    } 
-                };
+    const renderer = Entropy.Composer?.getRenderer(inst.addon);
 
-                Entropy.println("Game Composer render ... " + JSON.stringify(renderParams));
+    // Fetch the latest params from the source addon
+    const components = Entropy.Composer?.getComponents(inst.addon) || {};
+    const sourceParams = components[inst.componentId]?.params;
 
-                renderer(inst.id, renderParams);
+    // Fallback to inst.params if source is missing (legacy support), or {}
+    // Editor overrides always win over whatever the source addon currently reports.
+    const paramsToUse = { ...(sourceParams || inst.params || {}), ...(inst.overrides || {}) };
+
+    if (renderer) {
+        // Pass transform data so the renderer can position the mesh
+        const renderParams = {
+            ...paramsToUse,
+            _transform: {
+                position: inst.position,
+                scale: inst.scale
             }
-        }
-    });
+        };
 
-    // (globalThis as any).__entropy_current_addon_context_override = null;
+        renderer(inst.id, renderParams);
+    }
+
     Entropy.Composer?.disableGameComposerOverride();
+}
+
+function refreshScene() {
+    // Clear existing meshes owned by Game Composer (implicit in how Addons work usually,
+    // but if we want to be safe we might need a clear command.
+    // For now, re-running renderers usually overwrites if IDs match).
+    composerState.components.forEach(inst => renderInstance(inst));
 }
 
 // runs after all projects are loaded in non-composer addons
@@ -456,6 +553,22 @@ addon.onInit(async () => {
             // Always show our own managed components
             Entropy.Addon.setVisibility("Game Composer", true);
 
+            // Pick up instances announced by other addons (e.g. models spawned
+            // directly in Model Viewer) that aren't in our list yet.
+            reconcileInstances();
+
+            // Re-arm click-to-select every frame this tab is open, same idiom the
+            // Yumon recording logic below uses - Entropy.Input.onMouseDown is a
+            // single global slot, so whoever last (re-)registers it each frame wins.
+            // Skip while recording a Yumon session so the two don't fight over clicks.
+            Entropy.Input.onMouseDown((btn, x, y) => {
+                if (btn !== 0) return;
+                if (composerState.yumonSettings.isRecording) return;
+                trySelectAt(x, y);
+            });
+
+            syncGizmoToSelection();
+
             Entropy.UI.Widget.horizontal(tab, (trainTab) => {
                 // === TOOLBAR ===
                 Entropy.UI.Widget.button(trainTab, {
@@ -599,17 +712,11 @@ addon.onInit(async () => {
                             Entropy.UI.Widget.button(tab, {
                                 text: `  ➕ ${comp.name}`,
                                 onClick: () => {
-                                    const newInst: ComponentInstance = {
-                                        id: Entropy.generateUUID(),
-                                        name: `${comp.name} Instance`,
-                                        addon: addonName,
+                                    const newInst = addInstance({
+                                        addonName,
                                         componentId: compId,
-                                        // params: JSON.parse(JSON.stringify(comp.params)), // REMOVED: We don't store params anymore
-                                        position: [0, 0, 0],
-                                        scale: [1, 1, 1],
-                                        visible: true
-                                    };
-                                    composerState.components.push(newInst);
+                                        name: `${comp.name} Instance`
+                                    });
                                     composerState.activeInstanceId = newInst.id;
                                     refreshScene();
                                 }
@@ -620,6 +727,160 @@ addon.onInit(async () => {
                 
                 if (!hasComponents) {
                     Entropy.UI.Widget.label(tab, { text: "No components found. Create them in other addons first!" });
+                }
+            }
+
+            Entropy.UI.Widget.separator(tab);
+
+            // === HIERARCHY (all placed components, including ones spawned
+            // programmatically elsewhere via Entropy.Composer.registerInstance) ===
+            Entropy.UI.Widget.button(tab, {
+                text: (sectionsOpen.hierarchy ? "▼ " : "▶ ") + `Hierarchy (${composerState.components.length})`,
+                onClick: () => { sectionsOpen.hierarchy = !sectionsOpen.hierarchy; }
+            });
+
+            if (sectionsOpen.hierarchy) {
+                if (composerState.components.length === 0) {
+                    Entropy.UI.Widget.label(tab, { text: "No components placed yet." });
+                }
+                composerState.components.forEach(inst => {
+                    Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        const isActive = composerState.activeInstanceId === inst.id;
+                        Entropy.UI.Widget.button(hTab, {
+                            text: (isActive ? "● " : "○ ") + inst.name,
+                            onClick: () => { composerState.activeInstanceId = inst.id; }
+                        });
+                        Entropy.UI.Widget.checkbox(hTab, {
+                            label: "Visible",
+                            value: inst.visible,
+                            onChange: (v) => { inst.visible = v; refreshScene(); }
+                        });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: "🗑",
+                            onClick: () => {
+                                composerState.components = composerState.components.filter(c => c.id !== inst.id);
+                                if (composerState.activeInstanceId === inst.id) composerState.activeInstanceId = null;
+                            }
+                        });
+                    });
+                });
+            }
+
+            Entropy.UI.Widget.separator(tab);
+
+            // === INSPECTOR (only rendered for the currently selected component,
+            // so we don't overwhelm the user with every addon's settings at once) ===
+            Entropy.UI.Widget.button(tab, {
+                text: (sectionsOpen.inspector ? "▼ " : "▶ ") + "Inspector",
+                onClick: () => { sectionsOpen.inspector = !sectionsOpen.inspector; }
+            });
+
+            if (sectionsOpen.inspector) {
+                const inst = composerState.components.find(c => c.id === composerState.activeInstanceId);
+                if (!inst) {
+                    Entropy.UI.Widget.label(tab, { text: "Select a component (in the viewport or Hierarchy) to inspect it." });
+                } else {
+                    Entropy.UI.Widget.label(tab, { text: inst.name, bold: true });
+
+                    (["X", "Y", "Z"] as const).forEach((axis, i) => {
+                        Entropy.UI.Widget.numericInput(tab, {
+                            label: "Position " + axis,
+                            value: inst.position[i],
+                            onChange: (v) => {
+                                const n = parseFloat(v);
+                                if (!isNaN(n)) {
+                                    inst.position[i] = n;
+                                    renderInstance(inst);
+                                }
+                            }
+                        });
+                    });
+                    (["X", "Y", "Z"] as const).forEach((axis, i) => {
+                        Entropy.UI.Widget.numericInput(tab, {
+                            label: "Scale " + axis,
+                            value: inst.scale[i],
+                            onChange: (v) => {
+                                const n = parseFloat(v);
+                                if (!isNaN(n)) {
+                                    inst.scale[i] = n;
+                                    renderInstance(inst);
+                                }
+                            }
+                        });
+                    });
+                    Entropy.UI.Widget.checkbox(tab, {
+                        label: "Visible",
+                        value: inst.visible,
+                        onChange: (v) => { inst.visible = v; refreshScene(); }
+                    });
+
+                    // Addon-supplied "complex" property view, scoped to just this
+                    // selection (Entropy.Composer.editors already exists and is
+                    // populated by ~10 addons - it was never shown here before
+                    // because rendering ALL of them at once was overwhelming).
+                    const editorFn = Entropy.Composer?.getEditor(inst.addon);
+                    if (editorFn) {
+                        Entropy.UI.Widget.collapsingHeader(tab, `${inst.addon} Settings`, (eTab) => {
+                            Entropy.Composer!.enableGameComposerOverride();
+                            editorFn(eTab, inst.id);
+                            Entropy.Composer!.disableGameComposerOverride();
+                        });
+                    }
+
+                    // Generic per-field overrides: any primitive field the source
+                    // component currently reports can be pinned to an editor-chosen
+                    // value that survives the source addon re-registering.
+                    const sourceParams = (Entropy.Composer?.getComponents(inst.addon) || {})[inst.componentId]?.params || {};
+                    const overridableKeys = Object.keys(sourceParams).filter(k => {
+                        const v = sourceParams[k];
+                        return typeof v === "number" || typeof v === "boolean" || typeof v === "string";
+                    });
+                    if (overridableKeys.length > 0) {
+                        Entropy.UI.Widget.collapsingHeader(tab, "Overrides", (oTab) => {
+                            overridableKeys.forEach(key => {
+                                inst.overrides = inst.overrides || {};
+                                const hasOverride = Object.prototype.hasOwnProperty.call(inst.overrides, key);
+                                const current = hasOverride ? inst.overrides[key] : sourceParams[key];
+
+                                Entropy.UI.Widget.horizontal(oTab, (rowTab) => {
+                                    if (typeof sourceParams[key] === "boolean") {
+                                        Entropy.UI.Widget.checkbox(rowTab, {
+                                            label: key,
+                                            value: !!current,
+                                            onChange: (v) => {
+                                                inst.overrides![key] = v;
+                                                renderInstance(inst);
+                                            }
+                                        });
+                                    } else if (typeof sourceParams[key] === "number") {
+                                        Entropy.UI.Widget.numericInput(rowTab, {
+                                            label: key,
+                                            value: current,
+                                            onChange: (v) => {
+                                                const n = parseFloat(v);
+                                                if (!isNaN(n)) {
+                                                    inst.overrides![key] = n;
+                                                    renderInstance(inst);
+                                                }
+                                            }
+                                        });
+                                    } else {
+                                        Entropy.UI.Widget.label(rowTab, { text: `${key}: ${current}` });
+                                    }
+
+                                    if (hasOverride) {
+                                        Entropy.UI.Widget.button(rowTab, {
+                                            text: "↺",
+                                            onClick: () => {
+                                                delete inst.overrides![key];
+                                                renderInstance(inst);
+                                            }
+                                        });
+                                    }
+                                });
+                            });
+                        });
+                    }
                 }
             }
 
@@ -827,16 +1088,13 @@ addon.onInit(async () => {
     }, (args: any) => {
         Entropy.println("Adding component to scene via tool: " + args.componentId);
         const y = addon.Landscape.getHeightAt(args.position[0], args.position[2]);
-        const newInst: ComponentInstance = {
-            id: Entropy.generateUUID(),
-            name: args.name || `${args.componentId} Instance`,
-            addon: args.addonName,
+        const newInst = addInstance({
+            addonName: args.addonName,
             componentId: args.componentId,
+            name: args.name || `${args.componentId} Instance`,
             position: [args.position[0] || 0, y || 0, args.position[2] || 0],
-            scale: args.scale || [1, 1, 1],
-            visible: true
-        };
-        composerState.components.push(newInst);
+            scale: args.scale || [1, 1, 1]
+        });
         composerState.activeInstanceId = newInst.id;
         refreshScene();
         return { success: true, id: newInst.id };
