@@ -221,7 +221,17 @@ impl Ui {
     }
 
     pub fn with_layout<R>(&mut self, layout: Layout, add_contents: impl FnOnce(&mut Ui) -> R) -> InnerResponse<R> {
-        let region = self.child_region();
+        let mut region = self.child_region();
+        // `child_region()` extends all the way to this Ui's bottom edge, which is fine for a
+        // TopDown child (cross-axis is Min-aligned so it doesn't matter) but wrong for a
+        // LeftToRight/RightToLeft row: `allocate_space`'s Align::Center/Max cross-axis
+        // placement centers within `max_rect.height()`, so an unclamped region would center
+        // the row's content across the *entire remaining panel height* instead of one row.
+        // Clamp to a single row's height as a single-pass estimate.
+        if matches!(layout.main_dir, Direction::LeftToRight | Direction::RightToLeft) {
+            let row_height = self.style().spacing.interact_size.y;
+            region.max.y = region.min.y + row_height;
+        }
         let mut child = Ui::new(self.ctx.clone(), self.next_auto_id("child"), region, layout, self.clip_rect, self.draw_target);
         let inner = add_contents(&mut child);
         let used = child.used_rect();

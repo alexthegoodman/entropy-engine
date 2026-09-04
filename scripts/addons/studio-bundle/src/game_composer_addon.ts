@@ -442,27 +442,29 @@ addon.onInit(async () => {
             // Always show our own managed components
             Entropy.Addon.setVisibility("Game Composer", true);
 
-            // === TOOLBAR ===
-            Entropy.UI.Widget.button(tab, {
-                text: "💾 Save Scene",
-                onClick: () => {
-                    // Clean up params from components before saving
-                    const cleanState = {
-                        ...composerState,
-                        components: composerState.components.map(c => {
-                            // Explicitly destructure to remove params, even if undefined
-                            const { params, ...rest } = c;
-                            return rest;
-                        })
-                    };
-                    addon.IO.save(cleanState);
-                    Entropy.println("Composition saved!");
-                }
-            });
-            
-            Entropy.UI.Widget.button(tab, {
-                text: "🔄 Refresh Scene",
-                onClick: () => refreshScene()
+            Entropy.UI.Widget.horizontal(tab, (trainTab) => {
+                // === TOOLBAR ===
+                Entropy.UI.Widget.button(trainTab, {
+                    text: "💾 Save Scene",
+                    onClick: () => {
+                        // Clean up params from components before saving
+                        const cleanState = {
+                            ...composerState,
+                            components: composerState.components.map(c => {
+                                // Explicitly destructure to remove params, even if undefined
+                                const { params, ...rest } = c;
+                                return rest;
+                            })
+                        };
+                        addon.IO.save(cleanState);
+                        Entropy.println("Composition saved!");
+                    }
+                });
+                
+                Entropy.UI.Widget.button(trainTab, {
+                    text: "🔄 Refresh Scene",
+                    onClick: () => refreshScene()
+                });
             });
 
             Entropy.UI.Widget.collapsingHeader(tab, "Game Preview", (headerTab) => {
