@@ -157,7 +157,6 @@ function syncGizmoToSelection() {
 
     const inst = composerState.components.find(c => c.id === composerState.activeInstanceId);
     if (inst && Entropy.Gizmo) {
-        Entropy.println(`[GC-DEBUG] Gizmo.show called for ${inst.id} at ${JSON.stringify(inst.position)}`);
         activeGizmoId = Entropy.Gizmo.show({
             position: inst.position,
             mode: "translate",
@@ -169,6 +168,15 @@ function syncGizmoToSelection() {
                     inst.position[2] + delta[2]
                 ];
                 renderInstance(inst);
+                // The widget's own position (ctx.active_gizmo.position, Rust-side) is
+                // separate from inst.position and only ever set by Gizmo.show's initial
+                // value - without this it stays stale, so once dragging ends and the
+                // engine rebuilds the widget's transform from that stale position, it
+                // visually snaps back to where it started even though the entity itself
+                // (driven by inst.position above) stays at the new spot.
+                if (activeGizmoId) {
+                    Entropy.Gizmo.updatePosition(activeGizmoId, inst.position);
+                }
             }
         });
     }
