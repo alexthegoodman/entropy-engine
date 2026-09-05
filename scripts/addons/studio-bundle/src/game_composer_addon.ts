@@ -135,7 +135,15 @@ function trySelectAt(x: number, y: number) {
             bestId = inst.id;
         }
     });
-    composerState.activeInstanceId = bestId;
+
+    // Only set selection on an actual hit - never clear it on a miss. There's no
+    // signal exposed yet for "did this click land on a UI panel vs. the viewport"
+    // (Entropy.Input.onMouseDown fires for every click, including ones on this
+    // tab's own Hierarchy/Inspector buttons), so treating a miss as "deselect"
+    // would immediately undo a selection just made by clicking a list row.
+    if (bestId) {
+        composerState.activeInstanceId = bestId;
+    }
 }
 
 function syncGizmoToSelection() {
@@ -149,6 +157,7 @@ function syncGizmoToSelection() {
 
     const inst = composerState.components.find(c => c.id === composerState.activeInstanceId);
     if (inst && Entropy.Gizmo) {
+        Entropy.println(`[GC-DEBUG] Gizmo.show called for ${inst.id} at ${JSON.stringify(inst.position)}`);
         activeGizmoId = Entropy.Gizmo.show({
             position: inst.position,
             mode: "translate",
@@ -197,6 +206,7 @@ function reconcileInstances() {
 
         const rec = registry[instanceId];
         const comp = (Entropy.Composer?.getComponents(rec.addonName) || {})[rec.componentId];
+        Entropy.println(`[GC-DEBUG] reconcileInstances adding ${instanceId} from ${rec.addonName}/${rec.componentId}`);
         addInstance({
             id: instanceId,
             addonName: rec.addonName,
@@ -278,19 +288,36 @@ function refreshScene() {
     composerState.components.forEach(inst => renderInstance(inst));
 }
 
-// runs after all projects are loaded in non-composer addons
+// Despite the name, this fires once PER sub-project loaded into a level, not once
+// overall - a single "open project" action can trigger it many times in a row.
+// The saved-state merge below must only happen on the first firing, or every later
+// firing wipes composerState.components/activeInstanceId back to whatever was last
+// saved to disk, discarding anything reconciled or edited since (including
+// programmatic instances picked up via reconcileInstances).
+let hasLoadedSavedComposerState = false;
+
 addon.onAllProjectsLoaded(() => {
     Entropy.println("[Game Composer] All projects loaded...");
 
+    if (hasLoadedSavedComposerState) {
+        // A later sub-project may have registered new components/instances -
+        // pick those up without clobbering session state.
+        reconcileInstances();
+        refreshScene();
+        return;
+    }
+
     const data = addon.IO.load();
     if (data) {
+        hasLoadedSavedComposerState = true;
         composerState = { ...composerState, ...data };
 
         if (composerState.globalSettings) {
             Entropy.Composer?.setGlobalSettings(composerState.globalSettings);
         }
 
-        refreshScene(); // until we clear, lets avoid this?
+        reconcileInstances();
+        refreshScene();
 
         // Restore the previously-associated game's visuals, if any.
         if (composerState.gameAdded) {
@@ -766,19 +793,26 @@ addon.onInit(async () => {
                     Entropy.UI.Widget.label(tab, { text: "No components placed yet." });
                 }
                 composerState.components.forEach(inst => {
+                    const isActive = composerState.activeInstanceId === inst.id;
+                    const shortId = inst.id.substring(0, 4);
+
+                    // Select button gets its own full-width line - it's the one
+                    // widget here with unbounded (name-length-dependent) width, so
+                    // it can't safely share a row with fixed-size controls without
+                    // risking pushing them outside the dock panel's visible/clickable
+                    // area on a narrow panel or a long instance name.
+                    Entropy.UI.Widget.button(tab, {
+                        text: (isActive ? "● " : "○ ") + inst.name,
+                        onClick: () => { composerState.activeInstanceId = inst.id; }
+                    });
                     Entropy.UI.Widget.horizontal(tab, (hTab) => {
-                        const isActive = composerState.activeInstanceId === inst.id;
-                        Entropy.UI.Widget.button(hTab, {
-                            text: (isActive ? "● " : "○ ") + inst.name,
-                            onClick: () => { composerState.activeInstanceId = inst.id; }
-                        });
                         Entropy.UI.Widget.checkbox(hTab, {
-                            label: "Visible",
+                            label: "Visible " + shortId,
                             value: inst.visible,
                             onChange: (v) => { inst.visible = v; refreshScene(); }
                         });
                         Entropy.UI.Widget.button(hTab, {
-                            text: "🗑",
+                            text: "🗑 " + shortId,
                             onClick: () => {
                                 composerState.components = composerState.components.filter(c => c.id !== inst.id);
                                 if (composerState.activeInstanceId === inst.id) composerState.activeInstanceId = null;

@@ -593,16 +593,18 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
     // Push event to Addons
+    let mut addon_gizmo_active = false;
     {
         let mut op_state = state.addon_engine.runtime.op_state();
         let mut op_state = op_state.borrow_mut();
         if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
             if let Some(mouse_pos) = currentPosition {
-                ctx.input_events.push(InputEvent::MouseMove { 
-                    x: mouse_pos.x, 
-                    y: mouse_pos.y 
+                ctx.input_events.push(InputEvent::MouseMove {
+                    x: mouse_pos.x,
+                    y: mouse_pos.y
                 });
             }
+            addon_gizmo_active = ctx.active_gizmo.is_some();
         }
     }
 
@@ -718,6 +720,15 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
     }
 
     if let Some(currentPosition) = currentPosition {
+        // renderer_state.gizmo is shared between this native editor drag path and the
+        // addon-facing Entropy.Gizmo API (see addon_engine.rs "2.1 Process Gizmo").
+        // Native selected_entity_id/selected_component_id are never cleared on a miss
+        // (see the "check ray" branch above), so once any native model has ever been
+        // selected this session, this block would otherwise keep calling
+        // renderer_state.gizmo.update() every frame too - fighting the addon's own
+        // update() call on the same shared instance and making neither one draggable.
+        // Give an active addon gizmo undisputed ownership of the shared instance.
+        if !addon_gizmo_active {
         if let Some(component_id) = &renderer_state.selected_component_id {
             if let Some(selected_id) = renderer_state.selected_entity_id.clone() {
                 let mut found_and_updated = false;
@@ -832,6 +843,7 @@ pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosi
             // Nothing is selected, ensure gizmo is not considered hovered
             renderer_state.mouse_state.hovered_gizmo = false;
         }
+        } // !addon_gizmo_active
     }
 }
 

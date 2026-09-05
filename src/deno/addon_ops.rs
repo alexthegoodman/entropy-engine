@@ -1606,7 +1606,12 @@ pub fn op_camera_screen_to_world(
         let inv_view_proj = (proj * view).try_inverse()
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not invert view-projection matrix"))?;
 
-        let near_ndc = Vector4::new(ndc_x, ndc_y, 0.0, 1.0);
+        // NDC z range must match the projection matrix's convention (OpenGL-style
+        // -1..1, built by SimpleCamera::get_projection) - not WebGPU's 0..1 - or the
+        // "near" sample lands mid-frustum instead of at the near plane, producing a
+        // ray direction that can point away from the clicked object. This mirrors
+        // the working native picker in Rays.rs::create_ray_from_mouse.
+        let near_ndc = Vector4::new(ndc_x, ndc_y, -1.0, 1.0);
         let far_ndc = Vector4::new(ndc_x, ndc_y, 1.0, 1.0);
 
         let near_world_h = inv_view_proj * near_ndc;

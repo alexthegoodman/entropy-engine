@@ -1963,10 +1963,31 @@ impl AddonEngine {
                 cursor_pos: (renderer_state.current_mouse_position.map(|p| p.x).unwrap_or(0.0), renderer_state.current_mouse_position.map(|p| p.y).unwrap_or(0.0)),
                 dragging: renderer_state.mouse_state.is_dragging,
                 drag_started: renderer_state.mouse_state.drag_started,
+                // Gizmo::update() only calls pick_subgizmo() (the actual hit-test) when
+                // `hovered` is true (transform-gizmo-0.8.0 src/gizmo.rs:135) - it is NOT
+                // computed internally despite the field name suggesting otherwise.
+                // Without this, no subgizmo is ever picked/focused regardless of cursor
+                // position or dragging state, so update() always returns None. The native
+                // gizmo-drag path (handlers.rs) already sets this to true; this one didn't.
+                hovered: true,
                 ..Default::default()
             };
 
-            if let Some((gizmo_result, new_transforms)) = renderer_state.gizmo.update(interaction, &mut transforms) {
+            let update_result = renderer_state.gizmo.update(interaction, &mut transforms);
+
+            // Log unconditionally (not just while dragging) so we can see whether even
+            // hover-only interaction is ever detected as a hit, throttled to every 10th
+            // frame to keep output readable during a manual test.
+            static GIZMO_LOG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = GIZMO_LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if n % 10 == 0 {
+                println!("[GIZMO-DEBUG] dragging={} drag_started={} cursor={:?} gizmo_pos={:?} viewport={:?} update_returned_some={} hovered_gizmo={}",
+                    interaction.dragging, interaction.drag_started, interaction.cursor_pos, gs.position,
+                    (camera.viewport.window_size.width, camera.viewport.window_size.height),
+                    update_result.is_some(), renderer_state.mouse_state.hovered_gizmo);
+            }
+
+            if let Some((gizmo_result, new_transforms)) = update_result {
                 renderer_state.mouse_state.hovered_gizmo = true;
                 
                 // If it changed, trigger JS callbacks
