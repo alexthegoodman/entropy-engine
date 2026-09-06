@@ -219,11 +219,26 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                     let full_rect = ui.available_rect_before_wrap();
                     let card_width = 460.0_f32.min(full_rect.width());
                     let card_x = full_rect.min.x + (full_rect.width() - card_width) / 2.0;
-                    let card_rect = egui::Rect::from_min_max(
+                    let glass_rect = egui::Rect::from_min_max(
                         egui::pos2(card_x, full_rect.min.y),
-                        egui::pos2(card_x + card_width, full_rect.max.y),
+                        egui::pos2(card_x + card_width, full_rect.max.y - 8.0),
                     );
-                    let mut column = ui.child_ui_at(card_rect, egui::Layout::top_down(egui::Align::Min), "project_picker_column");
+
+                    // "Glass" card: a soft layered shadow (no blur primitive exists, so a
+                    // few expanding low-alpha rects fake one), a translucent fill that lets
+                    // the animated gradient backdrop (paint_morphing_gradient, render_egui.rs)
+                    // bleed through faintly, and a hairline light rim instead of a hard
+                    // border - reads as a pane of glass floating over the backdrop rather
+                    // than an opaque box stacked on top of it.
+                    let painter = ui.painter();
+                    for (expand, alpha) in [(22.0, 8u8), (12.0, 14u8), (5.0, 20u8)] {
+                        painter.rect_filled(glass_rect.expand(expand), 24u8, egui::Color32::from_black_alpha(alpha));
+                    }
+                    painter.rect_filled(glass_rect, 24u8, egui::Color32::from_rgba_unmultiplied(0x18, 0x15, 0x12, 210));
+                    painter.rect_stroke(glass_rect, 24u8, egui::Stroke::new(1.0, egui::Color32::from_white_alpha(22)), egui::StrokeKind::Middle);
+
+                    let content_rect = glass_rect.shrink(28.0);
+                    let mut column = ui.child_ui_at(content_rect, egui::Layout::top_down(egui::Align::Min), "project_picker_column");
 
                     if editor.world_state.is_none() {
                         column.add_space(24.0);
@@ -233,34 +248,43 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                         });
                         column.add_space(28.0);
 
-                        column.group(|ui| {
-                            ui.add_space(2.0);
-                            ui.strong("Create New Project");
-                            ui.add_space(6.0);
-                            ui.label("Project name");
-                            ui.add_space(2.0);
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                let create_clicked = ui.button("Create").clicked();
-                                ui.text_edit_singleline(self.context.new_project_name);
-                                if create_clicked {
-                                    if !self.context.new_project_name.is_empty() {
-                                        match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
-                                            Ok(new_state) => {
-                                                if let Some(new_project_id) = new_state.id.clone() {
-                                                    editor.world_state = Some(new_state);
-                                                    pollster::block_on(load_game_project(editor, &new_project_id));
-                                                    *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
-                                                }
+                        // No nested bordered box here: the outer glass card already frames
+                        // this section, so another box right inside it would just be a box
+                        // within a box. A bold label plus a hairline rule underneath gives
+                        // the same "this is its own section" cue with a lot less visual
+                        // weight.
+                        column.strong("Create New Project");
+                        column.add_space(8.0);
+                        column.label("Project name");
+                        column.add_space(4.0);
+                        column.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            let create_clicked = ui.button("Create").clicked();
+                            ui.text_edit_singleline(self.context.new_project_name);
+                            if create_clicked {
+                                if !self.context.new_project_name.is_empty() {
+                                    match utilities::create_project_state(self.context.new_project_name, self.context.current_app) {
+                                        Ok(new_state) => {
+                                            if let Some(new_project_id) = new_state.id.clone() {
+                                                editor.world_state = Some(new_state);
+                                                pollster::block_on(load_game_project(editor, &new_project_id));
+                                                *self.context.next_workspace = Some(Workspace::Addon("Game Composer".to_string()));
                                             }
-                                            Err(e) => {
-                                                println!("Failed to create project: {}", e);
-                                            }
+                                        }
+                                        Err(e) => {
+                                            println!("Failed to create project: {}", e);
                                         }
                                     }
                                 }
-                            });
-                            ui.add_space(2.0);
+                            }
                         });
+                        column.add_space(14.0);
+                        {
+                            let rule_rect = column.available_rect_before_wrap();
+                            column.painter().line_segment(
+                                [egui::pos2(rule_rect.min.x, rule_rect.min.y), egui::pos2(rule_rect.max.x, rule_rect.min.y)],
+                                egui::Stroke::new(1.0, egui::Color32::from_white_alpha(16)),
+                            );
+                        }
 
                         column.add_space(28.0);
                         column.strong("Your Projects");
@@ -310,7 +334,14 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                                     if resp.hovered() {
                                         ui.painter().rect_filled(row_rect, visuals.widgets.hovered.corner_radius, visuals.widgets.hovered.bg_fill.linear_multiply(0.25));
                                     }
-                                    ui.painter().rect_stroke(row_rect, visuals.widgets.noninteractive.corner_radius, visuals.widgets.noninteractive.bg_stroke, egui::StrokeKind::Middle);
+                                    // A hairline under each row instead of a full rounded-rect
+                                    // outline around it: a stack of individually-boxed cards
+                                    // reads as a spreadsheet; a plain list with dividers (and a
+                                    // hover fill for feedback) reads as one coherent list.
+                                    ui.painter().line_segment(
+                                        [egui::pos2(row_rect.min.x, row_rect.max.y), egui::pos2(row_rect.max.x, row_rect.max.y)],
+                                        egui::Stroke::new(1.0, egui::Color32::from_white_alpha(14)),
+                                    );
 
                                     let text_rect = egui::Rect::from_min_max(
                                         egui::pos2(row_rect.min.x + pad, row_rect.min.y),

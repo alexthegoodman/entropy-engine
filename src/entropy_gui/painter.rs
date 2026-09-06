@@ -51,6 +51,21 @@ impl Painter {
         self.push(DrawTexture::White, v, i);
     }
 
+    /// An axis-aligned rect with an independent color per corner, bilinearly interpolated
+    /// across the quad by the renderer — used for soft animated backdrops (see
+    /// `core::gradient_backdrop`). No rounding/stroke support; layer a plain `rect_filled`
+    /// on top if a hard edge is needed.
+    pub fn rect_filled_gradient(&self, rect: Rect, top_left: Color32, top_right: Color32, bottom_left: Color32, bottom_right: Color32) {
+        let verts = vec![
+            Vertex { position: [rect.min.x, rect.min.y, 0.0], normal: [0.0; 3], tex_coords: [0.0, 0.0], color: top_left.to_array_f32() },
+            Vertex { position: [rect.max.x, rect.min.y, 0.0], normal: [0.0; 3], tex_coords: [1.0, 0.0], color: top_right.to_array_f32() },
+            Vertex { position: [rect.max.x, rect.max.y, 0.0], normal: [0.0; 3], tex_coords: [1.0, 1.0], color: bottom_right.to_array_f32() },
+            Vertex { position: [rect.min.x, rect.max.y, 0.0], normal: [0.0; 3], tex_coords: [0.0, 1.0], color: bottom_left.to_array_f32() },
+        ];
+        let idx = vec![0, 1, 2, 0, 2, 3];
+        self.push(DrawTexture::White, verts, idx);
+    }
+
     pub fn rect_stroke(&self, rect: Rect, corner_radius: impl Into<CornerRadius>, stroke: Stroke, _kind: StrokeKind) {
         let (v, i) = shape::tessellate_rect(rect, corner_radius.into(), Color32::TRANSPARENT, stroke);
         self.push(DrawTexture::White, v, i);

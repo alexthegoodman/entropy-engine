@@ -57,6 +57,42 @@ use crate::game_ui::dialogue_ui;
 use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
+/// A slow, low-contrast animated gradient behind the pre-project-load Projects picker —
+/// the first thing anyone sees, and (unlike the rest of the chrome) full-bleed with no 3D
+/// viewport competing for attention, so it's the highest-leverage place to make the app
+/// feel like a crafted product rather than a dev tool. Colors stay inside the "Ember"
+/// theme's own dark/warm palette (`egui_theme.rs`) so it reads as one surface, not a
+/// decoration bolted on top; four corners drift independently on mismatched slow periods
+/// (23-41s) so the motion never resolves into an obvious pulse or diagonal wipe.
+fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
+    let rect = ui.max_rect();
+    let bg = egui::Color32::from_rgb(0x0F, 0x0E, 0x0D);
+    // Deliberately mixes warm (wine/ember/gold) and cool (teal/plum) jewel tones against
+    // the near-black base - a purely warm palette read as "mood lighting"; the cool notes
+    // are what make the drift actually register as a colorful gradient at a glance.
+    let wine = egui::Color32::from_rgb(0x5C, 0x1B, 0x24);
+    let ember = egui::Color32::from_rgb(0x7A, 0x3E, 0x12);
+    let teal = egui::Color32::from_rgb(0x0E, 0x3A, 0x3C);
+    let plum = egui::Color32::from_rgb(0x3A, 0x1A, 0x4A);
+
+    let lerp = |a: egui::Color32, b: egui::Color32, x: f32| -> egui::Color32 {
+        let x = x.clamp(0.0, 1.0);
+        egui::Color32::from_rgb(
+            (a.r() as f32 + (b.r() as f32 - a.r() as f32) * x).round() as u8,
+            (a.g() as f32 + (b.g() as f32 - a.g() as f32) * x).round() as u8,
+            (a.b() as f32 + (b.b() as f32 - a.b() as f32) * x).round() as u8,
+        )
+    };
+    let wave = |period: f32, phase: f32| -> f32 { 0.5 + 0.5 * (t * std::f32::consts::TAU / period + phase).sin() };
+
+    let top_left = lerp(bg, wine, wave(37.0, 0.0));
+    let top_right = lerp(bg, teal, wave(29.0, 1.7));
+    let bottom_left = lerp(bg, plum, wave(41.0, 3.1));
+    let bottom_right = lerp(bg, ember, wave(23.0, 4.6));
+
+    ui.painter().rect_filled_gradient(rect, top_left, top_right, bottom_left, bottom_right);
+}
+
  pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
         let ctx = &gui.ctx;
         let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
@@ -91,6 +127,7 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
 
             if !is_project_loaded {
                 egui::CentralPanel::default().show(ctx, |ui| {
+                    paint_morphing_gradient(ui, ctx.time());
                     viewer.ui(ui, &mut Tab::Projects);
                 });
             } else {
