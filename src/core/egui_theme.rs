@@ -75,10 +75,13 @@ pub fn setup_custom_theme(ctx: &Context) {
         ..Visuals::dark()
     };
 
-    style.spacing.item_spacing = egui::vec2(10.0, 10.0);
-    style.spacing.window_margin = egui::Margin::same(14);
-    style.spacing.button_padding = egui::vec2(12.0, 6.0);
+    style.spacing.item_spacing = egui::vec2(10.0, 12.0);
+    style.spacing.window_margin = egui::Margin::same(16);
+    style.spacing.button_padding = egui::vec2(14.0, 8.0);
     style.spacing.indent = 18.0;
+    // Default interact_size (24x22) reads as cramped for a "beautiful, uncluttered" feel —
+    // give every button/toggle a comfier minimum footprint app-wide from one place.
+    style.spacing.interact_size = egui::vec2(34.0, 30.0);
 
     ctx.set_style(style);
 }

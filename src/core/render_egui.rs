@@ -95,30 +95,35 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                 });
             } else {
                 egui::TopBottomPanel::top("top_bar")
-                    .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()).inner_margin(4.0))
+                    // Panel height is fixed, not auto-fit to content — bump it to match, or the
+                    // wider margin/interact_size from the theme pass clips the label/button.
+                    .default_height(48.0)
+                    .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()).inner_margin(10.0))
                     .show(ctx, |ui| {
                         ui.horizontal(|ui| {
-                            if ui.selectable_label(pipeline.focus_mode, "👓").on_hover_text("Focus Mode").clicked() {
-                                pipeline.focus_mode = !pipeline.focus_mode;
-                            }
-                            
-                            ui.separator();
-                            
                             if let Workspace::Addon(name) = &pipeline.current_workspace {
                                 ui.label(egui::RichText::new(name).strong());
                             } else {
                                 ui.label(egui::RichText::new(format!("{:?}", pipeline.current_workspace)).strong());
                             }
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                // A word instead of a glyph (👓 previously): unambiguous at a
+                                // glance, no icon-guessing required.
+                                if ui.selectable_label(pipeline.focus_mode, "Focus").on_hover_text("Hide side panels to focus on the viewport").clicked() {
+                                    pipeline.focus_mode = !pipeline.focus_mode;
+                                }
+                            });
                         });
                     });
 
                 if !pipeline.focus_mode {
                     egui::SidePanel::left("activity_bar")
                         .resizable(false)
-                        .default_width(48.0)
+                        .default_width(56.0)
                         .show(ctx, |ui| {
                             ui.vertical_centered(|ui| {
-                                ui.add_space(6.0);
+                                ui.add_space(8.0);
                                 // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
                                 //     pipeline.current_workspace = Workspace::GameEngine;
                                 // }
@@ -166,10 +171,16 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                             continue;
                                         }
 
-                                        let category_icon = match category.as_str() {
-                                            "Game Creation" => "🎮",
-                                            "Audio Creation" => "🎵",
-                                            _ => "📦",
+                                        // A bold initial instead of an emoji glyph (🎮/🎵/📦
+                                        // previously), matching the per-addon icons below (also
+                                        // a first-letter badge) instead of mixing two icon
+                                        // languages in the same column. Full name is a hover away.
+                                        let category_icon: String = match category.as_str() {
+                                            "Game Creation" => "G".to_string(),
+                                            "Audio Creation" => "A".to_string(),
+                                            other => other.chars().next()
+                                                .map(|c| c.to_ascii_uppercase().to_string())
+                                                .unwrap_or_else(|| "?".to_string()),
                                         };
 
                                         // Keep the category open while one of its addons is active,
@@ -208,7 +219,14 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                                 let is_preferred = preferred_addon.as_deref() == Some(addon.name.as_str());
 
                                                 ui.add_space(6.0);
-                                                let label = if is_preferred { format!("{} ✔", icon) } else { icon };
+                                                // Tint the letter with the theme's accent instead of
+                                                // appending a ✔ glyph, so the badge stays a single
+                                                // clean character; the hover text still spells out
+                                                // "preferred".
+                                                let mut label = egui::RichText::new(icon);
+                                                if is_preferred {
+                                                    label = label.color(ui.visuals().selection.stroke.color);
+                                                }
                                                 if ui.selectable_label(is_active, label)
                                                     .on_hover_text(format!("{}{}", &addon.name, if is_preferred { " (preferred Game Preview)" } else { "" }))
                                                     .clicked()
@@ -229,13 +247,13 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                                     }
                                 }
 
-                                ui.add_space(6.0);
-                                if ui.selectable_label(pipeline.show_addon_manager, "➕").on_hover_text("Manage Addons").clicked() {
+                                ui.add_space(8.0);
+                                // Plain "+" rather than the heavy-plus emoji, for the same
+                                // single-clean-glyph reason as the letter badges above.
+                                if ui.selectable_label(pipeline.show_addon_manager, "+").on_hover_text("Manage Addons").clicked() {
                                     pipeline.show_addon_manager = !pipeline.show_addon_manager;
                                 }
-                                ui.add_space(6.0);
-                                ui.separator();
-                                ui.add_space(6.0);
+                                ui.add_space(8.0);
                             });
                         });
                 }
@@ -243,17 +261,17 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                 if pipeline.show_addon_manager {
                     // TODO: make a tab so it doesnt float
                     egui::Window::new("Entropy Addons")
-                        .default_size([400.0, 500.0])
+                        .default_size([420.0, 540.0])
                         .open(&mut pipeline.show_addon_manager)
                         .show(ctx, |ui| {
                             ui.heading("Manage Addons");
-                            ui.separator();
-                            
+                            ui.add_space(4.0);
+
                             if ui.button("Load Addon Bundle").clicked() {
                                 if let Some(path) = rfd::FileDialog::new()
                                     .add_filter("JavaScript", &["js", "mjs", "bundle"])
                                     .pick_file() {
-                                    
+
                                     if let Some(editor) = &mut viewer.context.export_editor {
                                         println!("Loading addon from: {:?}", path);
                                         let res = pollster::block_on(editor.addon_engine.load_addon(&path));
@@ -266,21 +284,28 @@ use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUnifo
                             }
 
                             ui.separator();
-                            ui.label("Registered Addons:");
-                            
+                            ui.add_space(4.0);
+
                             if let Some(editor) = &mut viewer.context.export_editor {
                                 let addons = editor.addon_engine.get_registered_addons();
+                                ui.label(egui::RichText::new(format!("Registered Addons ({})", addons.len())).strong());
+                                ui.add_space(6.0);
+
                                 if addons.is_empty() {
                                     ui.label("No addons registered.");
                                 } else {
-                                    for addon in addons {
-                                        ui.group(|ui| {
-                                            ui.strong(&addon.name);
-                                            ui.label(format!("Version: {}", addon.version));
-                                            ui.label(&addon.description);
-                                            ui.label(format!("Author: {}", addon.author.join(", ")));
-                                        });
-                                    }
+                                    // Collapsed by default: with ~20 addons in a stock install, a
+                                    // one-line-per-addon list stays scannable, and the version /
+                                    // description / author dump is a click away instead of always
+                                    // on screen. Expand any row to "layer" its details back in.
+                                    egui::ScrollArea::vertical().show(ui, |ui| {
+                                        for addon in addons {
+                                            ui.collapsing(format!("{}  ·  v{}", addon.name, addon.version), |ui| {
+                                                ui.label(&addon.description);
+                                                ui.label(format!("Author: {}", addon.author.join(", ")));
+                                            });
+                                        }
+                                    });
                                 }
                             }
                         });

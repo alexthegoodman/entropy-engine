@@ -802,7 +802,6 @@ addon.onInit(async () => {
                 }
                 composerState.components.forEach(inst => {
                     const isActive = composerState.activeInstanceId === inst.id;
-                    const shortId = inst.id.substring(0, 4);
 
                     // Select button gets its own full-width line - it's the one
                     // widget here with unbounded (name-length-dependent) width, so
@@ -814,13 +813,18 @@ addon.onInit(async () => {
                         onClick: () => { composerState.activeInstanceId = inst.id; }
                     });
                     Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        // No need to hand-suffix the label with inst.id to keep it unique:
+                        // the JS widget bridge already assigns every widget its own id from a
+                        // per-frame call counter (see Entropy.UI.Widget.checkbox/button in
+                        // addon_setup.js), independent of the visible label text. Showing the
+                        // raw id here just leaked an internal detail into user-facing UI.
                         Entropy.UI.Widget.checkbox(hTab, {
-                            label: "Visible " + shortId,
+                            label: "Visible",
                             value: inst.visible,
                             onChange: (v) => { inst.visible = v; refreshScene(); }
                         });
                         Entropy.UI.Widget.button(hTab, {
-                            text: "🗑 " + shortId,
+                            text: "🗑 Delete",
                             onClick: () => {
                                 composerState.components = composerState.components.filter(c => c.id !== inst.id);
                                 if (composerState.activeInstanceId === inst.id) composerState.activeInstanceId = null;

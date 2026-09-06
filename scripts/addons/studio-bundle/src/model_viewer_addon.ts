@@ -216,10 +216,16 @@ addon.onInit(async () => {
                 Entropy.UI.Widget.label(tabId, { text: "(No models active)" });
             }
 
-            state.models.forEach(m => {
+            state.models.forEach((m, idx) => {
                 const isActive = m.id === state.activeModelId;
+                // A raw id fragment isn't meaningful to a user; only disambiguate with a
+                // friendly "(n)" when the same path is genuinely loaded more than once
+                // (widget identity doesn't need the label to be unique - see
+                // game_composer_addon.ts for the same simplification).
+                const priorCount = state.models.slice(0, idx).filter(other => other.path === m.path).length;
+                const suffix = priorCount > 0 ? ` (${priorCount + 1})` : "";
                 Entropy.UI.Widget.button(tabId, {
-                    text: (isActive ? "🔵 " : "⚪ ") + m.path + " (" + m.id.substring(0,4) + ")",
+                    text: (isActive ? "🔵 " : "⚪ ") + m.path + suffix,
                     onClick: () => {
                         state.activeModelId = m.id;
                     }
