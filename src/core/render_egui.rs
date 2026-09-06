@@ -468,7 +468,7 @@ fn paint_glass_backdrop(ui: &mut egui::Ui, blur_texture_id: egui::TextureId, rec
 
                                 if !pipeline.focus_mode {
                                     if needs_viewport {
-                                        surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]);
+                                        // surface.split_left(NodeIndex::root(), 0.25, vec![Tab::WryChat]); // no because MCP is superior for such people, practically due to rate limits
                                         surface.split_right(NodeIndex::root(), 0.75, vec![Tab::AddonTab { id: tab_id, label: title }]);
                                     } else {
                                         // egui_dock's split `fraction` is always the *left* child's

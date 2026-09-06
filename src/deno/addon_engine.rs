@@ -3770,7 +3770,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                  let widgets = context.ui_widgets.remove(tab_id);
                  if let Some(widgets) = widgets {
-                    Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                    });
                  }
             }
         }

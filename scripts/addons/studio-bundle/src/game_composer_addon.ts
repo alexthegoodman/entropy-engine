@@ -850,30 +850,39 @@ addon.onInit(async () => {
                 } else {
                     Entropy.UI.Widget.label(tab, { text: inst.name, bold: true });
 
-                    (["X", "Y", "Z"] as const).forEach((axis, i) => {
-                        Entropy.UI.Widget.numericInput(tab, {
-                            label: "Position " + axis,
-                            value: inst.position[i],
-                            onChange: (v) => {
-                                const n = parseFloat(v);
-                                if (!isNaN(n)) {
-                                    inst.position[i] = n;
-                                    renderInstance(inst);
+                    Entropy.UI.Widget.label(tab, { text: "Position", bold: false });
+
+                    Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        (["X", "Y", "Z"] as const).forEach((axis, i) => {
+                            Entropy.UI.Widget.numericInput(hTab, {
+                                label: axis,
+                                value: inst.position[i],
+                                onChange: (v) => {
+                                    const n = parseFloat(v);
+                                    if (!isNaN(n)) {
+                                        inst.position[i] = n;
+                                        renderInstance(inst);
+                                    }
                                 }
-                            }
+                            });
                         });
                     });
-                    (["X", "Y", "Z"] as const).forEach((axis, i) => {
-                        Entropy.UI.Widget.numericInput(tab, {
-                            label: "Scale " + axis,
-                            value: inst.scale[i],
-                            onChange: (v) => {
-                                const n = parseFloat(v);
-                                if (!isNaN(n)) {
-                                    inst.scale[i] = n;
-                                    renderInstance(inst);
+
+                    Entropy.UI.Widget.label(tab, { text: "Scale", bold: false });
+
+                    Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        (["X", "Y", "Z"] as const).forEach((axis, i) => {
+                            Entropy.UI.Widget.numericInput(hTab, {
+                                label: axis,
+                                value: inst.scale[i],
+                                onChange: (v) => {
+                                    const n = parseFloat(v);
+                                    if (!isNaN(n)) {
+                                        inst.scale[i] = n;
+                                        renderInstance(inst);
+                                    }
                                 }
-                            }
+                            });
                         });
                     });
                     Entropy.UI.Widget.checkbox(tab, {
