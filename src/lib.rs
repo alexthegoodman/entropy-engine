@@ -38,6 +38,7 @@ pub mod model_components;
 pub mod procedural_heightmaps;
 pub mod game_ui;
 pub mod deno;
+pub mod mcp;
 pub mod audio;
 pub mod alpha;
 pub mod yumon;

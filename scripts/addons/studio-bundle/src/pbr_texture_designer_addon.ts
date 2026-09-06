@@ -173,8 +173,6 @@ let addonState = {
 };
 addonState.activeComponentId = addonState.savedComponents[0].id;
 
-let newComponentName = "New Texture Component";
-
 function generateCubeData() {
     // Format: position(3) + normal(3) + uv(2) + color(4) = 12 floats per vertex
     const vertices = [
@@ -703,28 +701,15 @@ addon.onInit(async () => {
 
     // --- Tools Registration ---
 
-    const persistState = (newComponent = false) => {
-        let id = addonState.activeComponentId;
-        
-        // persist state
-        if (newComponent) {
-            id = Entropy.generateUUID();
-
-            addonState.savedComponents.push({
-                id,
-                name: newComponentName,
-                params: JSON.parse(JSON.stringify(addonState.currentParams))
-            });
-
-            if (Entropy.Composer) {
-                Entropy.Composer!.registerComponent(addonInfo.name, id, newComponentName, addonState.currentParams);
-            }
+    const persistState = (register?: { id: string; name: string; params: any }) => {
+        if (register && Entropy.Composer) {
+            Entropy.Composer.registerComponent(addonInfo.name, register.id, register.name, register.params);
         }
 
         // at least, save the current state
         addon.IO.save(addonState);
 
-        return id;
+        return register?.id ?? addonState.activeComponentId;
     }
 
     addon.registerTool({
@@ -770,7 +755,7 @@ addon.onInit(async () => {
         addonState.activeComponentId = id;
         addonState.currentParams = newParams;
 
-        persistState(true);
+        persistState({ id, name: args.name, params: newParams });
 
         updatePreview(newParams, id);
 
@@ -820,8 +805,8 @@ addon.onInit(async () => {
         }
 
         updatePreview(params, compId || "temp");
-        
-        persistState();
+
+        persistState(component.id !== "temp" ? { id: component.id, name: component.name, params } : undefined);
 
         return { success: true, params: { ...params } };
     });

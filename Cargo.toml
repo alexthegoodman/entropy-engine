@@ -66,6 +66,10 @@ fastrand = "2"
 etagere = "0.2"
 arboard = "3"
 
+# Minimal blocking HTTP server backing the automatic MCP server (src/mcp/) that
+# exposes every addon-registered tool to external MCP clients like Claude Code.
+tiny_http = "0.12"
+
 [dependencies.gltf]
 features = ["utils", "KHR_texture_transform"]
 version = "1"

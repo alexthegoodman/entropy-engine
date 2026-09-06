@@ -427,6 +427,11 @@ pub struct Editor {
     pub webview_ipc_rx: Option<std::sync::mpsc::Receiver<String>>,
     pub pending_webview_scripts: Vec<String>,
 
+    /// Drained once per frame (see `about_to_wait` in src/startup.rs) to answer MCP
+    /// `tools/list`/`tools/call` requests against this editor's live `addon_engine`.
+    /// See src/mcp/mod.rs for why this has to be a channel rather than a direct call.
+    pub mcp_rx: Option<std::sync::mpsc::Receiver<crate::mcp::McpRequest>>,
+
     pub webview_visible: bool,
 
     // Animation Presets UI State
@@ -789,6 +794,7 @@ impl Editor {
             viewport_tab_rect: None,
             webview_ipc_rx: None,
             pending_webview_scripts: Vec::new(),
+            mcp_rx: Some(crate::mcp::spawn()),
             webview_visible: false,
             anim_preset_circle_radius: 100.0,
             anim_preset_circle_duration: 2000.0,

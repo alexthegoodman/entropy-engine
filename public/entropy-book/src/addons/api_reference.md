@@ -63,3 +63,19 @@ addon.registerTool({
     return { success: true };
 });
 ```
+
+Every tool registered this way is automatically exposed two ways - nothing extra to configure:
+
+1. To the in-app WryChat panel, as before.
+2. Over a local **MCP server** the engine starts by itself as soon as the editor opens, at
+   `http://127.0.0.1:47100/mcp` (override the port with the `ENTROPY_MCP_PORT` env var). This
+   is a standard MCP server over the Streamable HTTP transport, so any MCP client - including
+   Claude Code - can connect directly to a running instance of the app and call `tools/list` /
+   `tools/call` against whatever addons happen to be loaded. To hook up Claude Code:
+
+   ```sh
+   claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp
+   ```
+
+   The tool list always reflects whatever is currently registered, so addons don't need to do
+   anything beyond calling `registerTool` as shown above.

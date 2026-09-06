@@ -840,6 +840,27 @@ impl ApplicationHandler<UserEvent> for Application {
             }
         }
         
+        // Answer any MCP tools/list or tools/call requests that came in from the
+        // background MCP server thread (src/mcp/mod.rs) since the last tick. This has to
+        // happen here, on the main thread, because AddonEngine's V8 isolate isn't Send.
+        if let Some(window) = self.windows.values_mut().next() {
+            if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                if let Some(rx) = editor.mcp_rx.take() {
+                    while let Ok(req) = rx.try_recv() {
+                        match req {
+                            crate::mcp::McpRequest::ListTools { reply } => {
+                                let _ = reply.send(editor.addon_engine.get_registered_tools());
+                            }
+                            crate::mcp::McpRequest::CallTool { name, arguments, reply } => {
+                                let _ = reply.send(editor.addon_engine.call_tool(&name, &arguments));
+                            }
+                        }
+                    }
+                    editor.mcp_rx = Some(rx);
+                }
+            }
+        }
+
         if !self.project_loaded {
             if let Some(project_id) = &self.project_id {
                 if let Some(window) = self.windows.values_mut().next() {
