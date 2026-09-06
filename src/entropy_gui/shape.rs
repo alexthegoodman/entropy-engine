@@ -86,6 +86,32 @@ pub fn tessellate_rect(rect: Rect, corner_radius: CornerRadius, fill: Color32, s
     fill_and_stroke(&path, fill, stroke, true)
 }
 
+/// Like `tessellate_rect`, but every vertex gets a UV computed from its position within
+/// `rect` (remapped into `uv`) instead of a flat fill color - used to paint a rounded quad
+/// sampling an arbitrary texture (the "glass" backdrop blur) rather than a solid color.
+/// `tint` still multiplies the sampled color (usually opaque white - the translucency is
+/// layered separately, as a plain `tessellate_rect` fill on top).
+pub fn tessellate_rounded_rect_textured(rect: Rect, radius: f32, uv: Rect, tint: Color32) -> (Vec<Vertex>, Vec<u32>) {
+    if !rect.is_positive() {
+        return (Vec::new(), Vec::new());
+    }
+    let path = rounded_rect_path(rect, radius);
+    let mut geometry: VertexBuffers<Vertex, u32> = VertexBuffers::new();
+    let mut fill_tess = FillTessellator::new();
+    let color = tint.to_array_f32();
+    let _ = fill_tess.tessellate_path(
+        &path,
+        &FillOptions::default(),
+        &mut BuffersBuilder::new(&mut geometry, |v: FillVertex| {
+            let p = v.position();
+            let u = uv.min.x + (p.x - rect.min.x) / rect.width().max(1e-5) * uv.width();
+            let vcoord = uv.min.y + (p.y - rect.min.y) / rect.height().max(1e-5) * uv.height();
+            Vertex { position: [p.x, p.y, 0.0], normal: [0.0, 0.0, 0.0], tex_coords: [u, vcoord], color }
+        }),
+    );
+    (geometry.vertices, geometry.indices)
+}
+
 pub fn tessellate_circle(center: Pos2, radius: f32, fill: Color32, stroke: Stroke) -> (Vec<Vertex>, Vec<u32>) {
     if radius <= 0.0 {
         return (Vec::new(), Vec::new());

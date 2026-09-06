@@ -115,6 +115,8 @@ pub struct Gui {
     pub ctx: EguiContext,
     pub state: EguiState,
     pub renderer: EguiRenderer,
+    pub glass_blur: crate::core::glass_blur::GlassBlur,
+    pub glass_blur_texture_id: crate::egui::TextureId,
 }
 
 /// Application state and event handling.
@@ -960,7 +962,10 @@ impl WindowState {
         let size = window.inner_size();
         let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // TEXTURE_BINDING in addition to the usual RENDER_ATTACHMENT: the glass blur
+            // pass (see glass_blur.rs) samples straight from this frame's swapchain view
+            // as its blur source, rather than an extra copy.
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             format: swapchain_format,
             width: size.width,
             height: size.height,
@@ -972,7 +977,7 @@ impl WindowState {
 
         let gpu_resources = pipeline.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
-        let renderer = EguiRenderer::new(
+        let mut renderer = EguiRenderer::new(
             &gpu_resources.device,
             surface_config.format,
             RendererOptions {
@@ -982,10 +987,15 @@ impl WindowState {
             // false
         );
 
+        let glass_blur = crate::core::glass_blur::GlassBlur::new(&gpu_resources.device, surface_config.format);
+        let glass_blur_texture_id = renderer.register_native_texture(&gpu_resources.device, glass_blur.blur_view(), wgpu::FilterMode::Linear);
+
         let gui = Gui {
             ctx,
             state,
             renderer,
+            glass_blur,
+            glass_blur_texture_id,
         };
 
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();

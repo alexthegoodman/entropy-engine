@@ -167,14 +167,15 @@ pub struct SidePanel {
     side: Side,
     resizable: bool,
     default_width: f32,
+    frame: Option<Frame>,
 }
 
 impl SidePanel {
     pub fn left(id_source: impl std::hash::Hash) -> Self {
-        Self { id: Id::new(id_source), side: Side::Left, resizable: true, default_width: 200.0 }
+        Self { id: Id::new(id_source), side: Side::Left, resizable: true, default_width: 200.0, frame: None }
     }
     pub fn right(id_source: impl std::hash::Hash) -> Self {
-        Self { id: Id::new(id_source), side: Side::Right, resizable: true, default_width: 200.0 }
+        Self { id: Id::new(id_source), side: Side::Right, resizable: true, default_width: 200.0, frame: None }
     }
     pub fn resizable(mut self, r: bool) -> Self {
         self.resizable = r;
@@ -182,6 +183,10 @@ impl SidePanel {
     }
     pub fn default_width(mut self, w: f32) -> Self {
         self.default_width = w;
+        self
+    }
+    pub fn frame(mut self, f: Frame) -> Self {
+        self.frame = Some(f);
         self
     }
 
@@ -204,7 +209,7 @@ impl SidePanel {
         ctx.set_used_rect(remaining);
 
         let style = ctx.style();
-        let frame = Frame::none().fill(style.visuals.panel_fill);
+        let frame = self.frame.unwrap_or_else(|| Frame::none().fill(style.visuals.panel_fill));
 
         if self.resizable {
             let handle_rect = Rect::from_min_max(pos2(splitter_x - 3.0, rect.min.y), pos2(splitter_x + 3.0, rect.max.y));

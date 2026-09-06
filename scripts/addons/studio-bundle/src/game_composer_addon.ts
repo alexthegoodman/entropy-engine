@@ -214,7 +214,7 @@ function reconcileInstances() {
 
         const rec = registry[instanceId];
         const comp = (Entropy.Composer?.getComponents(rec.addonName) || {})[rec.componentId];
-        Entropy.println(`[GC-DEBUG] reconcileInstances adding ${instanceId} from ${rec.addonName}/${rec.componentId}`);
+        // Entropy.println(`[GC-DEBUG] reconcileInstances adding ${instanceId} from ${rec.addonName}/${rec.componentId}`);
         addInstance({
             id: instanceId,
             addonName: rec.addonName,

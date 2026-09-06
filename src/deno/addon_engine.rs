@@ -1980,12 +1980,12 @@ impl AddonEngine {
             // frame to keep output readable during a manual test.
             static GIZMO_LOG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let n = GIZMO_LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            if n % 10 == 0 {
-                println!("[GIZMO-DEBUG] dragging={} drag_started={} cursor={:?} gizmo_pos={:?} viewport={:?} update_returned_some={} hovered_gizmo={}",
-                    interaction.dragging, interaction.drag_started, interaction.cursor_pos, gs.position,
-                    (camera.viewport.window_size.width, camera.viewport.window_size.height),
-                    update_result.is_some(), renderer_state.mouse_state.hovered_gizmo);
-            }
+            // if n % 10 == 0 {
+            //     println!("[GIZMO-DEBUG] dragging={} drag_started={} cursor={:?} gizmo_pos={:?} viewport={:?} update_returned_some={} hovered_gizmo={}",
+            //         interaction.dragging, interaction.drag_started, interaction.cursor_pos, gs.position,
+            //         (camera.viewport.window_size.width, camera.viewport.window_size.height),
+            //         update_result.is_some(), renderer_state.mouse_state.hovered_gizmo);
+            // }
 
             if let Some((gizmo_result, new_transforms)) = update_result {
                 renderer_state.mouse_state.hovered_gizmo = true;

@@ -1775,16 +1775,19 @@ impl EntropyPipeline {
     
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // let scale_factor = window.scale_factor() as f32;
-        // let scale_factor = gui.ctx.pixels_per_point();
-        // println!("pixels_per_point {:?}", scale_factor);
-        let scale_factor = 1.0;
-        
+        let current_time = self.start_time.elapsed().as_secs_f64();
+
+        // CPU-side UI pass runs first regardless of render order: this is what actually
+        // processes clicks/interactions for the frame (adding components, etc.), and its
+        // output (`tris`) is just data until we submit it further down. Deferred to a
+        // local so the *drawing* of it can happen after the 3D scene - see below.
+        let mut pending_egui_draw = None;
+
         if !game_mode {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("egui encoder"),
             });
-            
+
             if let Some(editor) = &mut self.export_editor {
                 editor.wry_webview_bounds = None;
                 editor.viewport_tab_rect = None;
@@ -1796,21 +1799,43 @@ impl EntropyPipeline {
             let full_output = egui_ctx.run(raw_input, |ctx| {
                 self.ui(gui);
             });
-        
+
             gui.state.handle_platform_output(&window, full_output.platform_output);
-        
+
             let tris = gui.ctx.tessellate(full_output.shapes, full_output.pixels_per_point);
             let screen_descriptor = egui_wgpu::ScreenDescriptor {
                 size_in_pixels: [output.texture.width(), output.texture.height()],
                 pixels_per_point: window.scale_factor() as f32,
             };
-        
+
             for (id, image_delta) in &full_output.textures_delta.set {
                 gui.renderer.update_texture(&gpu_resources.device, &gpu_resources.queue, *id, image_delta);
             }
-            
+
             gui.renderer.update_buffers(&gpu_resources.device, &gpu_resources.queue, &mut encoder, &tris, &screen_descriptor);
-        
+
+            pending_egui_draw = Some((encoder, tris, screen_descriptor));
+        }
+
+        // The 3D scene now renders full-window BEFORE the UI (previously: UI first, then
+        // the scene drawn second but scissored to its dock rect so it wouldn't overwrite
+        // panels elsewhere - see egui_sidebar.rs's Tab::Viewport for that history). Passing
+        // `None` here means no scissor at all, i.e. always full screen: the (translucent)
+        // panels below then composite as glass on top of it instead of sitting beside it.
+        self.render_addon_frame(Some(&view), current_time, None);
+
+        // Re-blur the frame we just drew into a small offscreen target so the glass
+        // panels (painted next, in the egui pass) have something to sample as their
+        // backdrop - see glass_blur.rs and render_egui.rs's paint_glass_backdrop.
+        if !game_mode {
+            let mut blur_encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("glass blur encoder"),
+            });
+            gui.glass_blur.render(&gpu_resources.device, &gpu_resources.queue, &mut blur_encoder, &view, output.texture.width(), output.texture.height());
+            gpu_resources.queue.submit(Some(blur_encoder.finish()));
+        }
+
+        if let Some((mut encoder, tris, screen_descriptor)) = pending_egui_draw {
             {
                 let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("egui"),
@@ -1830,42 +1855,9 @@ impl EntropyPipeline {
 
                 gui.renderer.render(&mut rpass.forget_lifetime(), &tris, &screen_descriptor);
             }
-        
-            // drop(rpass);
-        
+
             gpu_resources.queue.submit(Some(encoder.finish()));
         }
-
-        let viewport_rect = if let Some(editor) = &self.export_editor {
-            editor.viewport_tab_rect.map(|r| [
-                r[0] * scale_factor,
-                r[1] * scale_factor,
-                r[2] * scale_factor,
-                r[3] * scale_factor,
-            ])
-        } else {
-            None
-        };
-
-        let is_viewport_visible = self.export_editor.as_ref().map(|e| e.is_viewport_visible).unwrap_or(true);
-        let current_time = self.start_time.elapsed().as_secs_f64();
-
-        // if is_viewport_visible || game_mode {
-        //     if self.current_workspace == Workspace::GameEngine {
-        //         self.render_frame(Some(&view), current_time, game_mode, viewport_rect);
-        //     } else if self.current_workspace == Workspace::Stunts {
-        //         let current_time_s = self.export_editor.as_ref()
-        //             .map(|e| e.video_current_time_ms as f64 / 1000.0)
-        //             .unwrap_or(0.0);
-        //         self.render_stunts_frame(Some(&view), current_time_s, false, viewport_rect);
-        //     } else if self.current_workspace == Workspace::Sophia || self.current_workspace == Workspace::CentralChat {
-        //         // render nothing
-        //     } else { // Addons
-        //         self.render_addon_frame(Some(&view), current_time, viewport_rect);
-        //     }
-        // }
-
-        self.render_addon_frame(Some(&view), current_time, viewport_rect);
 
         output.present();
     }

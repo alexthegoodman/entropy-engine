@@ -91,6 +91,15 @@ impl Painter {
         self.push(DrawTexture::White, v, i);
     }
 
+    /// A rounded version of `image` — samples `texture_id` into a rounded-rect mesh
+    /// instead of a plain quad. Used for glass backdrop blur, where the blurred image and
+    /// a translucent tint (a plain `rect_filled` layered on top, same `corner_radius`)
+    /// need matching rounded silhouettes.
+    pub fn image_rounded(&self, texture_id: TextureId, rect: Rect, corner_radius: impl Into<CornerRadius>, uv: Rect, tint: Color32) {
+        let (v, i) = shape::tessellate_rounded_rect_textured(rect, corner_radius.into().as_f32(), uv, tint);
+        self.push(DrawTexture::Native(texture_id), v, i);
+    }
+
     pub fn image(&self, texture_id: TextureId, rect: Rect, uv: Rect, tint: Color32) {
         let c = tint.to_array_f32();
         let verts = vec![

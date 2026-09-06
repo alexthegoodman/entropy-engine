@@ -89,6 +89,7 @@ pub struct UiContext<'a> {
     pub current_app: AppExperience,
     pub next_workspace: &'a mut Option<Workspace>,
     pub egui_renderer: &'a mut egui_wgpu::Renderer,
+    pub glass_blur_texture_id: egui::TextureId,
 }
 
 pub struct PipelineTabViewer<'a> {
@@ -130,6 +131,23 @@ fn apply_keyframes_to_selected(editor: &mut Editor, property_name: &str, keyfram
             }
         }
     }
+}
+
+/// Paints a dock tab's glass background (blurred backdrop + translucent tint, rounded) at
+/// its full available rect, and returns a padded-in rect for the tab's own content to lay
+/// out into - mirrors render_egui.rs's `paint_glass_backdrop` (kept separate since this
+/// one also owns handing back the content inset, which the panel-level callers don't need).
+fn paint_glass_panel_backdrop(ui: &mut egui::Ui, blur_texture_id: egui::TextureId) -> egui::Rect {
+    let rect = ui.max_rect();
+    let screen = ui.ctx().screen_rect();
+    let uv = egui::Rect::from_min_max(
+        egui::pos2((rect.min.x - screen.min.x) / screen.width().max(1.0), (rect.min.y - screen.min.y) / screen.height().max(1.0)),
+        egui::pos2((rect.max.x - screen.min.x) / screen.width().max(1.0), (rect.max.y - screen.min.y) / screen.height().max(1.0)),
+    );
+    let painter = ui.painter();
+    painter.image_rounded(blur_texture_id, rect, 12u8, uv, egui::Color32::WHITE);
+    painter.rect_filled(rect, 12u8, egui::Color32::from_rgba_unmultiplied(0x14, 0x12, 0x10, 195));
+    rect.shrink(16.0)
 }
 
 impl<'a> TabViewer for PipelineTabViewer<'a> {
@@ -201,6 +219,12 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
         match tab {
             Tab::Viewport => {
                 let editor = self.context.export_editor.as_mut().unwrap();
+                // NOTE: this rect drives a *scissor* in the 3D pass, which runs AFTER the
+                // egui pass and overwrites (not blends) whatever's inside it - see
+                // pipeline.rs's render() and the comment on render_addon_frame's final
+                // composite pass. Full window here means the 3D scene stomps every panel
+                // the UI pass just drew, not "renders behind them" - reverted; see
+                // render_egui.rs for the real (reordered-pass) fix this needs.
                 let rect = ui.available_rect_before_wrap();
                 editor.viewport_tab_rect = Some([rect.min.x, rect.min.y, rect.width(), rect.height()]);
                 editor.is_viewport_visible = true;
@@ -1715,15 +1739,19 @@ impl<'a> TabViewer for PipelineTabViewer<'a> {
                 ui.label("Organize and manage your project citations here.");
             }
             Tab::AddonTab { id, .. } => {
+                let content_rect = paint_glass_panel_backdrop(ui, self.context.glass_blur_texture_id);
+                let mut inset = ui.child_ui_at(content_rect, egui::Layout::top_down(egui::Align::Min), "addon_tab_glass_inset");
                 let editor = self.context.export_editor.as_mut().unwrap();
-                editor.addon_engine.render_tab(ui, id, self.context.egui_renderer);
+                editor.addon_engine.render_tab(&mut inset, id, self.context.egui_renderer);
             }
             Tab::ScriptEditor { path } => {
+                let content_rect = paint_glass_panel_backdrop(ui, self.context.glass_blur_texture_id);
+                let mut inset = ui.child_ui_at(content_rect, egui::Layout::top_down(egui::Align::Min), "script_editor_glass_inset");
                 let editor = self.context.export_editor.as_mut().unwrap();
                 if let Some(script_editor) = editor.script_editors.get_mut(path) {
-                    script_editor.show(ui);
+                    script_editor.show(&mut inset);
                 } else {
-                    ui.label("Script editor not found for this path.");
+                    inset.label("Script editor not found for this path.");
                 }
             }
             _ => {

@@ -93,8 +93,48 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
     ui.painter().rect_filled_gradient(rect, top_left, top_right, bottom_left, bottom_right);
 }
 
+/// The "Ember" theme's near-black surface tone at a given alpha — used everywhere the
+/// editor chrome (top bar, activity bar, dock tab bars) wants to float as translucent
+/// glass over the full-window 3D viewport (see `Tab::Viewport` in egui_sidebar.rs, which
+/// now renders full-bleed) instead of sitting on an opaque background beside it.
+fn glass_fill(alpha: u8) -> egui::Color32 {
+    egui::Color32::from_rgba_unmultiplied(0x18, 0x15, 0x12, alpha)
+}
+
+/// `Style::from_egui` with its three background fields swapped for translucent glass —
+/// used instead so docked tab bars float over the full-window viewport rather than
+/// sitting on the theme's normally-opaque `panel_fill`. (The dock's own tab-bar painting
+/// only supports flat colors, not the textured blur below, so these stay flat-translucent
+/// rather than true frosted glass - a smaller, contained gap noted for a follow-up.)
+fn glass_dock_style(ctx: &egui::Context) -> Style {
+    let base = Style::from_egui(ctx.style().as_ref());
+    Style {
+        tab_bg: glass_fill(140),
+        hovered_tab_bg: egui::Color32::from_rgba_unmultiplied(0x24, 0x1F, 0x19, 175),
+        active_tab_bg: egui::Color32::from_rgba_unmultiplied(0x24, 0x1F, 0x19, 205),
+        ..base
+    }
+}
+
+/// The actual "glass": a blurred backdrop image (see `glass_blur.rs`) sampling whatever
+/// the 3D scene looked like this frame at `rect`'s position, rounded, with a translucent
+/// tint layered on top for color/contrast. `rect` should be the panel's true outer
+/// bounds (edge to edge) - callers add padding separately (e.g. via `Frame::inner_margin`)
+/// so the glass itself isn't shrunk away from its own panel's edges.
+fn paint_glass_backdrop(ui: &mut egui::Ui, blur_texture_id: egui::TextureId, rect: egui::Rect, corner_radius: u8, tint: egui::Color32) {
+    let screen = ui.ctx().screen_rect();
+    let uv = egui::Rect::from_min_max(
+        egui::pos2((rect.min.x - screen.min.x) / screen.width().max(1.0), (rect.min.y - screen.min.y) / screen.height().max(1.0)),
+        egui::pos2((rect.max.x - screen.min.x) / screen.width().max(1.0), (rect.max.y - screen.min.y) / screen.height().max(1.0)),
+    );
+    let painter = ui.painter();
+    painter.image_rounded(blur_texture_id, rect, corner_radius, uv, egui::Color32::WHITE);
+    painter.rect_filled(rect, corner_radius, tint);
+}
+
  pub fn render_egui(pipeline: &mut EntropyPipeline, gui: &mut Gui) {
         let ctx = &gui.ctx;
+        let blur_texture_id = gui.glass_blur_texture_id;
         let is_project_loaded = if let Some(editor) = &pipeline.export_editor {
             editor.world_state.is_some() || editor.stunts_state.is_some() || editor.sophia_state.is_some()
         } else {
@@ -121,6 +161,7 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
                 },
                 next_workspace: &mut next_workspace,
                 egui_renderer: &mut gui.renderer,
+                glass_blur_texture_id: blur_texture_id,
             };
 
             let mut viewer = PipelineTabViewer { context };
@@ -131,12 +172,24 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
                     viewer.ui(ui, &mut Tab::Projects);
                 });
             } else {
+                let top_bar_pad = 14.0;
                 egui::TopBottomPanel::top("top_bar")
                     // Panel height is fixed, not auto-fit to content — bump it to match, or the
                     // wider margin/interact_size from the theme pass clips the label/button.
                     .default_height(48.0)
-                    .frame(egui::Frame::none().fill(ctx.style().visuals.window_fill()).inner_margin(10.0))
+                    // No fill/stroke here - just padding. The frame machinery paints its
+                    // (flat-color) background at the panel's full outer rect before this
+                    // margin is applied to the content, which is the opposite of what glass
+                    // needs (blurred backdrop full-bleed, content padded in from its edges),
+                    // so the actual glass is painted manually below instead.
+                    .frame(egui::Frame::none().inner_margin(top_bar_pad))
                     .show(ctx, |ui| {
+                        // Reconstruct the panel's true outer rect from the padded one Ui was
+                        // built with (`inner_margin` above was uniform, so this is exact).
+                        let outer_rect = ui.max_rect().expand(top_bar_pad);
+                        paint_glass_backdrop(ui, blur_texture_id, outer_rect, 14, glass_fill(150));
+                        ui.painter().rect_stroke(outer_rect, 14u8, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(60)), egui::StrokeKind::Middle);
+
                         ui.horizontal(|ui| {
                             if let Workspace::Addon(name) = &pipeline.current_workspace {
                                 ui.label(egui::RichText::new(name).strong());
@@ -155,10 +208,18 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
                     });
 
                 if !pipeline.focus_mode {
+                    let activity_bar_pad = 10.0;
                     egui::SidePanel::left("activity_bar")
                         .resizable(false)
-                        .default_width(56.0)
+                        .default_width(64.0)
+                        // Padding only, same reasoning as the top bar - the actual glass is
+                        // painted manually below at the true (unpadded) outer rect.
+                        .frame(egui::Frame::none().inner_margin(activity_bar_pad))
                         .show(ctx, |ui| {
+                            let outer_rect = ui.max_rect().expand(activity_bar_pad);
+                            paint_glass_backdrop(ui, blur_texture_id, outer_rect, 14, glass_fill(150));
+                            ui.painter().rect_stroke(outer_rect, 14u8, egui::Stroke::new(1.0, egui::Color32::from_black_alpha(60)), egui::StrokeKind::Middle);
+
                             ui.vertical_centered(|ui| {
                                 ui.add_space(8.0);
                                 // if ui.selectable_label(pipeline.current_workspace == Workspace::GameEngine, "🎮").on_hover_text("Open World Studio (Games)").clicked() {
@@ -377,8 +438,13 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
                 //     }
                 // } else {
                     egui::CentralPanel::default()
+                        // Fully transparent: the viewport now renders full-window behind
+                        // this whole panel (see Tab::Viewport), so anywhere the dock itself
+                        // doesn't paint (splitters/tab bars) should show the 3D scene, not
+                        // an opaque backdrop.
+                        .frame(egui::Frame::none())
                         .show(ctx, |ui| {
-                        
+
                         if let Some(editor) = &mut viewer.context.export_editor {
                             let new_tabs = editor.addon_engine.consume_new_tabs();
                             for (tab_id, title, addon_name) in new_tabs {
@@ -440,7 +506,7 @@ fn paint_morphing_gradient(ui: &mut egui::Ui, t: f32) {
                             };
 
                             DockArea::new(active_dock_state)
-                                .style(Style::from_egui(ctx.style().as_ref()))
+                                .style(glass_dock_style(ctx))
                                 .show_inside(ui, &mut viewer);
                         }
 
