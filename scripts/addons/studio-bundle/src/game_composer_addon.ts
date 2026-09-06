@@ -801,30 +801,39 @@ addon.onInit(async () => {
                     Entropy.UI.Widget.label(tab, { text: "No components placed yet." });
                 }
                 composerState.components.forEach(inst => {
-                    const isActive = composerState.activeInstanceId === inst.id;
-
                     // Select button gets its own full-width line - it's the one
                     // widget here with unbounded (name-length-dependent) width, so
                     // it can't safely share a row with fixed-size controls without
                     // risking pushing them outside the dock panel's visible/clickable
                     // area on a narrow panel or a long instance name.
-                    Entropy.UI.Widget.button(tab, {
-                        text: (isActive ? "● " : "○ ") + inst.name,
-                        onClick: () => { composerState.activeInstanceId = inst.id; }
-                    });
+                    
                     Entropy.UI.Widget.horizontal(tab, (hTab) => {
+                        const isActive = composerState.activeInstanceId === inst.id;
+
+                        Entropy.UI.Widget.button(hTab, {
+                            text: (isActive ? "● " : "○ ") + inst.name,
+                            onClick: () => { composerState.activeInstanceId = inst.id; }
+                        });
+
                         // No need to hand-suffix the label with inst.id to keep it unique:
                         // the JS widget bridge already assigns every widget its own id from a
                         // per-frame call counter (see Entropy.UI.Widget.checkbox/button in
                         // addon_setup.js), independent of the visible label text. Showing the
                         // raw id here just leaked an internal detail into user-facing UI.
-                        Entropy.UI.Widget.checkbox(hTab, {
-                            label: "Visible",
-                            value: inst.visible,
-                            onChange: (v) => { inst.visible = v; refreshScene(); }
+                        // Entropy.UI.Widget.checkbox(hTab, {
+                        //     label: "Visible",
+                        //     value: inst.visible,
+                        //     onChange: (v) => { inst.visible = v; refreshScene(); }
+                        // });
+                        Entropy.UI.Widget.button(hTab, {
+                            text: inst.visible ? "👁" : "👁‍🗨",
+                            onClick: () => {
+                                inst.visible = !inst.visible;
+                                refreshScene();
+                            }
                         });
                         Entropy.UI.Widget.button(hTab, {
-                            text: "🗑 Delete",
+                            text: "🗑",
                             onClick: () => {
                                 composerState.components = composerState.components.filter(c => c.id !== inst.id);
                                 if (composerState.activeInstanceId === inst.id) composerState.activeInstanceId = null;
@@ -885,10 +894,17 @@ addon.onInit(async () => {
                             });
                         });
                     });
-                    Entropy.UI.Widget.checkbox(tab, {
-                        label: "Visible",
-                        value: inst.visible,
-                        onChange: (v) => { inst.visible = v; refreshScene(); }
+                    // Entropy.UI.Widget.checkbox(tab, {
+                    //     label: "Visible",
+                    //     value: inst.visible,
+                    //     onChange: (v) => { inst.visible = v; refreshScene(); }
+                    // });
+                    Entropy.UI.Widget.button(tab, {
+                        text: inst.visible ? "👁 Visble" : "👁‍🗨 Hidden",
+                        onClick: () => {
+                            inst.visible = !inst.visible;
+                            refreshScene();
+                        }
                     });
 
                     // Addon-supplied "complex" property view, scoped to just this
