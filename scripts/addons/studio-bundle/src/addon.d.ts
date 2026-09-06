@@ -251,6 +251,40 @@ export interface ScopedAPI {
           scale?: [number, number, number];
       }) => void;
   };
+  Visual: {
+      load: (config: {
+          id?: string;
+          visualName: string;
+          meshId?: string;
+          modelPath?: string;
+          position?: number[];
+          rotation?: number[];
+          scale?: number[];
+          pipelineId?: string;
+          renderRole?: string;
+          physics?: PhysicsConfig;
+          player?: {
+              modelId?: string;
+              defaultWeaponId?: string;
+          };
+          isNpc?: boolean;
+          npc?: {
+              modelId: string;
+              behavior: {
+                  aggressiveness: number;
+                  combatType: "Melee" | "Ranged";
+                  wanderRadius: number;
+                  wanderSpeed: number;
+                  detectionRadius: number;
+                  meleeStats?: AttackStats;
+                  rangedStats?: AttackStats;
+              };
+              squadId?: string;
+          };
+          behaviorId?: string;
+          yumonId?: string;
+      }) => void;
+  };
   Landscape: {
     create: (config: LandscapeConfig) => void;
     updateTexture: (textureId: string, kind: LandscapeTextureKind) => void;

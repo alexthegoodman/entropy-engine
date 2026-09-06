@@ -1,131 +1,117 @@
-const addonInfo = {
-    name: "Alpha Preview",
-    version: "0.1.0",
-    description: "Preview the new GPU-driven Alpha Renderer",
-    author: ["Entropy Team"],
-    capabilities: {
-        ui: true
-    }
-};
+import { InstanceAddon } from "./system";
 
-const addon = Entropy.Addon.register(addonInfo);
-
-let state: {
-    models: any[];
-} = {
-    models: []
-};
-
-let availableModels: string[] = [];
-
-async function updateAvailableModels() {
-    if (addon.IO.listModels) {
-        availableModels = await addon.IO.listModels();
-    }
+interface AlphaModelInstance {
+    id: string;
+    path: string;
+    position: [number, number, number];
+    rotation: [number, number, number];
+    scale: [number, number, number];
 }
 
-function refreshModels() {
-    state.models.forEach(m => {
-        addon.AlphaModel.load({
-            id: m.id,
-            path: m.path,
-            position: m.position,
-            rotation: m.rotation,
-            scale: m.scale
+class AlphaPreviewAddon extends InstanceAddon<AlphaModelInstance> {
+    private availableModels: string[] = [];
+
+    constructor() {
+        super({
+            name: "Alpha Preview",
+            version: "0.1.0",
+            description: "Preview the new GPU-driven Alpha Renderer",
+            author: ["Entropy Team"],
+            capabilities: { ui: true }
         });
-    });
-}
+    }
 
-addon.onInit(async () => {
-    Entropy.println("Alpha Preview Addon Initialized");
+    protected createInstance(path: string): AlphaModelInstance {
+        return {
+            id: Entropy.generateUUID(),
+            path,
+            position: [0, 5, 0],
+            rotation: [0, 0, 0],
+            scale: [1, 1, 1]
+        };
+    }
 
-    const loadData = async () => {
-        const saved = addon.IO.load();
-        if (saved) {
-            state = { ...state, ...saved };
-            refreshModels();
+    protected renderInstance(instance: AlphaModelInstance) {
+        this.AlphaModel.load(instance);
+    }
+
+    // Pre-InstanceAddon saves used field name "models" instead of "instances".
+    protected migrateLegacyState(data: any) {
+        if (!data.instances && data.models) {
+            data.instances = data.models;
         }
-        await updateAvailableModels();
-    };
+    }
 
-    addon.onProjectChanged(async () => {
-        await loadData();
-    });
-
-    addon.Model.createProcedural({
-        type: "cube",
-        // pipelineId: envPipeline,
-        parameters: {
-            position: [1.0, 10.0, 0.0],
-            scale: [1.0, 1.0, 1.0]
+    private async updateAvailableModels() {
+        if (this.IO.listModels) {
+            this.availableModels = await this.IO.listModels();
         }
-    });
+    }
 
-    const tabId = addon.UI.createTab({
-        title: "Alpha Preview",
-        onRender: () => {
-            Entropy.UI.Widget.label(tabId, { text: "🚀 Alpha GPU Renderer", bold: true });
+    protected setup(): void {
+        this.Model.createProcedural({
+            type: "cube",
+            parameters: {
+                position: [1.0, 10.0, 0.0],
+                scale: [1.0, 1.0, 1.0]
+            }
+        });
+    }
 
-            Entropy.UI.Widget.button(tabId, {
-                text: "📂 Import Model & Load into Alpha",
-                onClick: async () => {
-                    if (addon.IO.pickAndImportModel) {
-                        const fileName = await addon.IO.pickAndImportModel();
-                        if (fileName && fileName !== "") {
-                            await updateAvailableModels();
-                            let id = Entropy.generateUUID();
-                            const newModel = {
-                                id,
-                                path: fileName,
-                                position: [0, 5, 0],
-                                rotation: [0, 0, 0],
-                                scale: [1, 1, 1]
-                            };
-                            state.models.push(newModel);
-                            refreshModels();
+    protected onInit() {
+        Entropy.println("Alpha Preview Addon Initialized");
+
+        this.tab({
+            title: "Alpha Preview",
+            onRender: (ui) => {
+                ui.label({ text: "🚀 Alpha GPU Renderer", bold: true });
+
+                ui.button({
+                    text: "📂 Import Model & Load into Alpha",
+                    onClick: async () => {
+                        if (this.IO.pickAndImportModel) {
+                            const fileName = await this.IO.pickAndImportModel();
+                            if (fileName && fileName !== "") {
+                                await this.updateAvailableModels();
+                                this.spawn(fileName);
+                            }
                         }
                     }
-                }
-            });
+                });
 
-            Entropy.UI.Widget.label(tabId, { text: "--- Models in Project ---", bold: true });
-            availableModels.forEach(modelFile => {
-                Entropy.UI.Widget.button(tabId, {
-                    text: "⚡ Load " + modelFile,
+                ui.label({ text: "--- Models in Project ---", bold: true });
+                this.availableModels.forEach(modelFile => {
+                    ui.button({
+                        text: "⚡ Load " + modelFile,
+                        onClick: () => { this.spawn(modelFile); }
+                    });
+                });
+
+                ui.button({
+                    text: "🔄 Refresh File List",
+                    onClick: async () => { await this.updateAvailableModels(); }
+                });
+
+                ui.label({ text: "--- Active Alpha Models ---", bold: true });
+                this.instances.forEach(m => {
+                    ui.label({ text: "• " + m.path });
+                });
+
+                ui.button({
+                    text: "💾 Save State",
                     onClick: () => {
-                        const id = Entropy.generateUUID();
-                        const newModel = {
-                            id,
-                            path: modelFile,
-                            position: [0, 5, 0],
-                            rotation: [0, 0, 0],
-                            scale: [1, 1, 1]
-                        };
-                        state.models.push(newModel);
-                        refreshModels();
+                        this.saveToProject();
+                        Entropy.println("Alpha Preview state saved");
                     }
                 });
-            });
+            }
+        });
+    }
 
-            Entropy.UI.Widget.button(tabId, {
-                text: "🔄 Refresh File List",
-                onClick: async () => {
-                    await updateAvailableModels();
-                }
-            });
+    protected async onProjectChanged() {
+        this.loadFromProject();
+        await this.updateAvailableModels();
+    }
+}
 
-            Entropy.UI.Widget.label(tabId, { text: "--- Active Alpha Models ---", bold: true });
-            state.models.forEach(m => {
-                Entropy.UI.Widget.label(tabId, { text: "• " + m.path });
-            });
-
-            Entropy.UI.Widget.button(tabId, {
-                text: "💾 Save State",
-                onClick: () => {
-                    addon.IO.save(state);
-                    Entropy.println("Alpha Preview state saved");
-                }
-            });
-        }
-    });
-});
+new AlphaPreviewAddon().register();
