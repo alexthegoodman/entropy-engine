@@ -31,6 +31,8 @@ export interface AddonMetadata {
   version?: string;
   description?: string;
   author?: string[];
+  /** Set internally by AddonAtom.register(); addons should not set this directly. */
+  isAtom?: boolean;
   /** Groups this addon under a labeled section in the side launcher. Defaults to "Game Creation" when omitted. */
   category?: "Game Creation" | "Audio Creation" | string;
   capabilities?: {

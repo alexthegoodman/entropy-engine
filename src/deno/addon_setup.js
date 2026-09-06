@@ -2,11 +2,200 @@ const { ops } = Deno.core;
 
 globalThis.registered_npcs = [];
 
+// ---------------------------------------------------------------------------
+// Shared namespace implementations.
+//
+// A handful of namespaces used to be hand-copied once for the scoped API
+// (returned from Entropy.Addon.register()) and once again for the top-level
+// globalThis.Entropy object, differing only in how the "owning addon" name
+// was resolved (or, for several of them, not differing at all). That drift
+// is exactly how global Landscape.create silently lost its size/scale
+// fields and global Lighting never got updateSun even though addon.d.ts
+// promised it. These are now defined once and reused from both places.
+// ---------------------------------------------------------------------------
+
+// Namespaces below take no addon-name/context argument at the ops layer, so
+// the scoped and global surfaces are identical - build them once and share
+// the same object.
+const audioAPI = {
+    playSynth: (config) => {
+        ops.op_audio_play_synth({
+            freq: config.freq || 440.0,
+            waveform: config.waveform || "sine",
+            duration: config.duration || 0.5,
+            cutoff: config.cutoff || 20000.0,
+            gain: config.gain || 0.2
+        });
+    },
+    playNote: (config) => {
+        ops.op_audio_play_note({
+            freq: config.freq || 440.0,
+            waveform: config.waveform || "sine",
+            duration: config.duration || 0.5,
+            cutoff: config.cutoff || 20000.0,
+            resonance: config.resonance || 1.0,
+            gain: config.gain || 0.2,
+            attack: config.attack ?? 0.005,
+            decay: config.decay ?? 0.05,
+            sustain: config.sustain ?? 0.85,
+            release: config.release ?? 0.05
+        });
+    },
+    playTestTone: () => {
+        ops.op_audio_play_test();
+    }
+};
+
+const textureAPI = {
+    create: (width, height, data) => ops.op_texture_create(width, height, data),
+    createStorage: (width, height, format = "Rgba32Float") => ops.op_texture_create_ex({
+        width,
+        height,
+        format,
+        usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
+    }, null),
+    createEx: (config, data = null) => ops.op_texture_create_ex(config, data),
+    update: (textureId, data) => ops.op_texture_update(textureId, data),
+    load: (filename) => ops.op_texture_load(filename)
+};
+
+const noiseAPI = {
+    create: (config) => ops.op_noise_create({
+        noiseType: config.type || "fbm",
+        source: config.source || "perlin",
+        seed: config.seed || 0,
+        octaves: config.octaves || 6,
+        frequency: config.frequency || 0.01,
+        persistence: config.persistence || 0.5,
+        lacunarity: config.lacunarity || 2.0
+    })
+};
+
+const bufferAPI = {
+    create: (config) => ops.op_buffer_create({
+        size: BigInt(config.size),
+        usage: config.usage || "Storage"
+    }),
+    write: (bufferId, data, offset = 0) => {
+        const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
+        ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
+    }
+};
+
+const createComputePipeline = (config) => ops.op_compute_pipeline_create({
+    name: config.name || "unnamed_compute",
+    shaderSource: config.shaderSource,
+    bindGroups: config.bindGroups || []
+});
+
+const computeAPI = {
+    createPipeline: createComputePipeline,
+    dispatch: (config) => ops.op_compute_dispatch({
+        pipelineId: config.pipelineId,
+        groups: config.groups || [1, 1, 1],
+        bindings: config.bindings || []
+    })
+};
+
+// Namespaces below DO take an addon-name/context, but the only difference
+// between the scoped and global surfaces is how that context is resolved:
+// the scoped API resolves it from the registering addon's own metadata,
+// while the global API resolves it from the current override (or "Global").
+function createAddonContextualAPI(resolveTarget) {
+    return {
+        Landscape: {
+            create: (config) => ops.op_landscape_create(resolveTarget(), {
+                id: config.id || null,
+                width: config.width,
+                height: config.height,
+                heights: config.heights || null,
+                noiseId: config.noiseId || null,
+                position: config.position || [0, 0, 0],
+                pipelineId: config.pipelineId || null,
+                render_role: config.renderRole || null,
+                size: config.size,
+                scale: config.scale
+            }),
+            updateTexture: (textureId, kind) => ops.op_landscape_update_texture(resolveTarget(), textureId, kind),
+            updatePbrTexture: (textureId, kind, materialType) => ops.op_landscape_update_pbr_texture(resolveTarget(), textureId, kind, materialType),
+            getHeightAt: (x, z) => ops.op_landscape_get_height(x, z)
+        },
+        Landscape3D: {
+            create: (config) => ops.op_landscape3d_create(resolveTarget(), {
+                id: config.id || null,
+                vertices: config.vertices || [],
+                indices: config.indices || [],
+                position: config.position || [0, 0, 0],
+                pipelineId: config.pipelineId || null,
+                renderRole: config.renderRole || null
+            })
+        },
+        Particles: {
+            createHair: (config) => ops.op_grass_create(resolveTarget(), {
+                id: config.id || null,
+                gridSize: config.gridSize || 2.0,
+                renderDistance: config.renderDistance || 150.0,
+                windStrength: config.windStrength || 2.5,
+                windSpeed: config.windSpeed || 0.3,
+                bladeHeight: config.bladeHeight || 2.75,
+                bladeWidth: config.bladeWidth || 0.03,
+                brownianStrength: config.brownianStrength || 0.03,
+                bladeDensity: config.bladeDensity || 15.0,
+                landscapeSize: config.landscapeSize || 4096.0,
+                landscapeHeight: config.landscapeHeight || 0.0,
+                landscapeYOffset: config.landscapeYOffset || 0.0,
+                baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
+                tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
+                pipelineId: config.pipelineId || null,
+                render_role: config.renderRole || null,
+                bindings: config.bindings || []
+            })
+        },
+        Lighting: {
+            createPointLight: (config) => ops.op_point_light_create(resolveTarget(), {
+                position: config.position || [0, 0, 0],
+                color: config.color || [1, 1, 1],
+                intensity: config.intensity || 1.0,
+                maxDistance: config.maxDistance || 20.0
+            }),
+            updateSun: (config) => ops.op_lighting_update_sun({
+                horizonColor: config.horizonColor || [0.7, 0.8, 1.0],
+                zenithColor: config.zenithColor || [0.2, 0.3, 0.6],
+                sunDirection: config.sunDirection || [0.0, 1.0, 0.0],
+                sunColor: config.sunColor || [1.0, 0.9, 0.7],
+                sunIntensity: config.sunIntensity || 5.0
+            })
+        }
+    };
+}
+
+const globalContextualAPI = createAddonContextualAPI(() => globalThis.__entropy_current_addon_context_override || "Global");
+
+// ---------------------------------------------------------------------------
+// UI widget helpers.
+//
+// Every widget used to hand-roll its own "generate an id from a counter
+// unless one was given, then optionally remember a callback under that id"
+// dance. Factored out so adding a new widget doesn't mean re-deriving it.
+// ---------------------------------------------------------------------------
+function nextWidgetId(windowId, label, explicitId) {
+    const count = (globalThis._entropy_widget_counter || 0);
+    const id = explicitId || (windowId + "_" + label + "_" + count);
+    globalThis._entropy_widget_counter = count + 1;
+    return id;
+}
+
+function bindListener(poolName, id, fn) {
+    if (!fn) return;
+    globalThis[poolName] = globalThis[poolName] || {};
+    globalThis[poolName][id] = fn;
+}
+
 globalThis.Entropy = {
     Addon: {
         register: (metadata) => {
             ops.op_addon_register(metadata);
-            
+
             const getAddonName = () => {
                 if (globalThis.__entropy_current_addon_context_override) {
                     return globalThis.__entropy_current_addon_context_override;
@@ -16,6 +205,8 @@ globalThis.Entropy = {
                 }
                 return metadata.name;
             };
+
+            const contextualAPI = createAddonContextualAPI(getAddonName);
 
             // Return scoped API
             return {
@@ -43,7 +234,7 @@ globalThis.Entropy = {
                 },
                 onProjectChanged: (callback) => {
                     ops.op_addon_on_project_changed(metadata.name, callback);
-                    
+
                     // automatically call on init hooks
                     if (globalThis.Entropy.Composer && typeof globalThis.Entropy.Composer.initCallbacks[metadata.name] === "function") {
                         try {
@@ -219,36 +410,12 @@ globalThis.Entropy = {
                     }
                 },
                 Landscape: {
-                    create: (config) => {
-                        ops.op_landscape_create(getAddonName(), {
-                            id: config.id || null,
-                            width: config.width,
-                            height: config.height,
-                            heights: config.heights || null,
-                            noiseId: config.noiseId || null,
-                            position: config.position || [0, 0, 0],
-                            pipelineId: config.pipelineId || null,
-                            render_role: config.renderRole || null,
-                            size: config.size,
-                            scale: config.scale
-                        });
-                    },
-                    updateTexture: (textureId, kind) => {
-                        ops.op_landscape_update_texture(getAddonName(), textureId, kind);
-                    },
-                    updatePbrTexture: (textureId, kind, materialType) => {
-                        ops.op_landscape_update_pbr_texture(getAddonName(), textureId, kind, materialType);
-                    },
+                    ...contextualAPI.Landscape,
                     updateTexturePlus: (addonName, textureId, kind) => {
-                        // ops.op_println(String("updateTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind));
                         ops.op_landscape_update_texture(addonName, textureId, kind);
                     },
                     updatePbrTexturePlus: (addonName, textureId, kind, materialType) => {
-                        // ops.op_println(String("updatePbrTexturePlus: " + metadata.name + " " + addonName + " " + textureId + " " + kind + " " + materialType));
                         ops.op_landscape_update_pbr_texture(addonName, textureId, kind, materialType);
-                    },
-                    getHeightAt: (x, z) => {
-                        return ops.op_landscape_get_height(x, z);
                     }
                 },
                 Quadscape: {
@@ -267,19 +434,7 @@ globalThis.Entropy = {
                         });
                     },
                 },
-                Landscape3D: {
-                    create: (config) => {
-                        const target = globalThis.__entropy_current_addon_context_override || metadata.name;
-                        ops.op_landscape3d_create(target, {
-                            id: config.id || null,
-                            vertices: config.vertices || [],
-                            indices: config.indices || [],
-                            position: config.position || [0, 0, 0],
-                            pipelineId: config.pipelineId || null,
-                            renderRole: config.renderRole || null
-                        });
-                    }
-                },
+                Landscape3D: contextualAPI.Landscape3D,
                 Collectable: {
                     create: (config) => {
                         const id = globalThis.Entropy.generateUUID();
@@ -294,13 +449,13 @@ globalThis.Entropy = {
                                 colliderShape: "cuboid"
                             }
                         });
-                        
+
                         globalThis.Entropy._collectables = globalThis.Entropy._collectables || {};
                         globalThis.Entropy._collectables[id] = config;
                         return id;
                     },
                     remove: (id) => {
-                        ops.op_meshes_clear(getAddonName()); // Note: this clears ALL meshes for the addon context. 
+                        ops.op_meshes_clear(getAddonName()); // Note: this clears ALL meshes for the addon context.
                         // In a better version we'd have clearMesh(id).
                         if (globalThis.Entropy._collectables) delete globalThis.Entropy._collectables[id];
                     }
@@ -343,113 +498,11 @@ globalThis.Entropy = {
                         return json ? JSON.parse(json) : null;
                     }
                 },
-                Particles: {
-                    createHair: (config) => {
-                        let merged_config = {
-                            id: config.id || null,
-                            gridSize: config.gridSize || 2.0,
-                            renderDistance: config.renderDistance || 150.0,
-                            windStrength: config.windStrength || 2.5,
-                            windSpeed: config.windSpeed || 0.3,
-                            bladeHeight: config.bladeHeight || 2.75,
-                            bladeWidth: config.bladeWidth || 0.03,
-                            brownianStrength: config.brownianStrength || 0.03,
-                            bladeDensity: config.bladeDensity || 15.0,
-                            landscapeSize: config.landscapeSize || 4096.0,
-                            landscapeHeight: config.landscapeHeight || 0.0,
-                            landscapeYOffset: config.landscapeYOffset || 0.0,
-                            baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
-                            tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
-                            pipelineId: config.pipelineId || null,
-                            render_role: config.renderRole || null,
-                            bindings: config.bindings || []
-                        };
-                        // ops.op_println(String("CreateOrUpdate Hair (2): " + getAddonName() + " " + JSON.stringify(merged_config.baseColor)+ " " + JSON.stringify(merged_config.tipColor)));
-                        ops.op_grass_create(getAddonName(), merged_config);
-                    }
-                },
-                Noise: {
-                    create: (config) => {
-                        return ops.op_noise_create({
-                            noiseType: config.type || "fbm",
-                            source: config.source || "perlin",
-                            seed: config.seed || 0,
-                            octaves: config.octaves || 6,
-                            frequency: config.frequency || 0.01,
-                            persistence: config.persistence || 0.5,
-                            lacunarity: config.lacunarity || 2.0
-                        });
-                    }
-                },
-                Texture: {
-                    create: (width, height, data) => {
-                        return ops.op_texture_create(width, height, data);
-                    },
-                    createStorage: (width, height, format = "Rgba32Float") => {
-                        return ops.op_texture_create_ex({
-                            width,
-                            height,
-                            format,
-                            usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
-                        }, null);
-                    },
-                    createEx: (config, data = null) => {
-                        return ops.op_texture_create_ex(config, data);
-                    },
-                    update: (textureId, data) => {
-                        return ops.op_texture_update(textureId, data);
-                    },
-                    load: (filename) => {
-                        return ops.op_texture_load(filename);
-                    }
-                },
-                Lighting: {
-                    createPointLight: (config) => {
-                        ops.op_point_light_create(getAddonName(), {
-                            position: config.position || [0, 0, 0],
-                            color: config.color || [1, 1, 1],
-                            intensity: config.intensity || 1.0,
-                            maxDistance: config.maxDistance || 20.0
-                        });
-                    },
-                    updateSun: (config) => {
-                        ops.op_lighting_update_sun({
-                            horizonColor: config.horizonColor || [0.7, 0.8, 1.0],
-                            zenithColor: config.zenithColor || [0.2, 0.3, 0.6],
-                            sunDirection: config.sunDirection || [0.0, 1.0, 0.0],
-                            sunColor: config.sunColor || [1.0, 0.9, 0.7],
-                            sunIntensity: config.sunIntensity || 5.0
-                        });
-                    }
-                },
-                Audio: {
-                    playSynth: (config) => {
-                        ops.op_audio_play_synth({
-                            freq: config.freq || 440.0,
-                            waveform: config.waveform || "sine",
-                            duration: config.duration || 0.5,
-                            cutoff: config.cutoff || 20000.0,
-                            gain: config.gain || 0.2
-                        });
-                    },
-                    playNote: (config) => {
-                        ops.op_audio_play_note({
-                            freq: config.freq || 440.0,
-                            waveform: config.waveform || "sine",
-                            duration: config.duration || 0.5,
-                            cutoff: config.cutoff || 20000.0,
-                            resonance: config.resonance || 1.0,
-                            gain: config.gain || 0.2,
-                            attack: config.attack ?? 0.005,
-                            decay: config.decay ?? 0.05,
-                            sustain: config.sustain ?? 0.85,
-                            release: config.release ?? 0.05
-                        });
-                    },
-                    playTestTone: () => {
-                        ops.op_audio_play_test();
-                    }
-                },
+                Particles: contextualAPI.Particles,
+                Noise: noiseAPI,
+                Texture: textureAPI,
+                Lighting: contextualAPI.Lighting,
+                Audio: audioAPI,
                 IO: {
                     save: (data) => {
                         ops.op_println(String("Saving Data: " + metadata.name));
@@ -486,35 +539,8 @@ globalThis.Entropy = {
                         return ops.op_script_write(filename, content);
                     }
                 },
-                Buffer: {
-                    create: (config) => {
-                        return ops.op_buffer_create({
-                            size: BigInt(config.size),
-                            usage: config.usage || "Storage"
-                        });
-                    },
-                    write: (bufferId, data, offset = 0) => {
-                        // Ensure data is a typed array for the buffer op
-                        const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
-                        ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
-                    }
-                },
-                Compute: {
-                    createPipeline: (config) => {
-                        return ops.op_compute_pipeline_create({
-                            name: config.name || "unnamed_compute",
-                            shaderSource: config.shaderSource,
-                            bindGroups: config.bindGroups || []
-                        });
-                    },
-                    dispatch: (config) => {
-                        ops.op_compute_dispatch({
-                            pipelineId: config.pipelineId,
-                            groups: config.groups || [1, 1, 1],
-                            bindings: config.bindings || []
-                        });
-                    }
-                },
+                Buffer: bufferAPI,
+                Compute: computeAPI,
                 Yumon: {
                     create: (name) => ops.op_yumon_create(name),
                     tick: (name) => ops.op_yumon_tick(name),
@@ -570,7 +596,7 @@ globalThis.Entropy = {
         playAnimation: (id, animName) => {
             globalThis.Entropy._entityAnimations = globalThis.Entropy._entityAnimations || {};
             globalThis.Entropy._entityAnimations[id] = animName;
-            
+
             // Trigger Visual Provider if applicable
             const visualName = globalThis.Entropy._entityVisuals?.[id];
             if (visualName && globalThis.__ENTROPY_ADDONS__) {
@@ -609,131 +635,74 @@ globalThis.Entropy = {
             },
             button: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + text + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
-                
+                const id = nextWidgetId(windowId, text, config?.id);
+
                 ops.op_ui_widget_button(windowId, text, id);
-                
-                // Add to event listeners
-                if (typeof config === 'object' && config?.onClick) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onClick;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onClick);
             },
             colorInput: (windowId, config) => {
                 const label = config?.label || "";
                 const color = config?.color || [1, 1, 1, 1];
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_color_input(windowId, label, color, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             slider: (windowId, config) => {
                 const label = config?.label || "";
                 const value = config?.value || 0;
                 const min = config?.min || 0;
                 const max = config?.max || 100;
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_slider(windowId, label, value, min, max, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             numericInput: (windowId, config) => {
                 const label = config?.label || "";
                 const value = config?.value || 0;
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_numeric_input(windowId, label, value, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             dropdown: (windowId, config) => {
                 const label = config?.label || "";
                 const options = config?.options || [];
                 const selectedIndex = BigInt(config?.selectedIndex || 0);
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_dropdown(windowId, label, options, selectedIndex, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             checkbox: (windowId, config) => {
                 const label = config?.label || "";
                 const value = config?.value || false;
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_checkbox(windowId, label, value, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             codeEditor: (windowId, config) => {
                 const label = config?.label || "";
                 const content = config?.content || "";
                 const language = config?.language || "javascript";
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_" + label + "_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, label, config?.id);
 
                 ops.op_ui_widget_code_editor(windowId, label, content, language, id);
-
-                if (config?.onChange) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onChange;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             miniMap: (windowId, config) => {
                 const landscapeId = config?.landscapeId || "Global";
                 const brushSize = config?.brushSize || 5.0;
                 const markers = config?.markers || [];
                 const polylines = config?.polylines || [];
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_minimap_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, "minimap", config?.id);
 
                 ops.op_ui_widget_mini_map(windowId, landscapeId, brushSize, markers, polylines, id);
-
-                if (config?.onDraw) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = config.onDraw;
-                }
-
-                if (config?.onHover) {
-                    globalThis._entropy_hover_listeners = globalThis._entropy_hover_listeners || {};
-                    globalThis._entropy_hover_listeners[id] = config.onHover;
-                }
-
-                if (config?.onClick) {
-                    globalThis._entropy_click_listeners = globalThis._entropy_click_listeners || {};
-                    globalThis._entropy_click_listeners[id] = config.onClick;
-                }
+                bindListener('_entropy_event_listeners', id, config?.onDraw);
+                bindListener('_entropy_hover_listeners', id, config?.onHover);
+                bindListener('_entropy_click_listeners', id, config?.onClick);
             },
             horizontal: (windowId, render) => {
                 ops.op_ui_widget_start_horizontal(windowId);
@@ -747,35 +716,29 @@ globalThis.Entropy = {
                 const rowLabels = config?.rowLabels || null;
                 const cells = config?.cells || [];
                 const playhead = config?.playhead ?? -1;
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_pianoroll_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, "pianoroll", config?.id);
 
                 ops.op_ui_widget_piano_roll(windowId, rows, steps, stepsPerBeat, rowLabels, cells, playhead, id);
 
                 if (config?.onNoteDown || config?.onNoteDrag || config?.onNoteUp) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = (eventData) => {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
                         const [row, step] = parts[2].split(',').map(Number);
                         if (type === "PIANOROLL_DOWN" && config.onNoteDown) config.onNoteDown(row, step);
                         else if (type === "PIANOROLL_DRAG" && config.onNoteDrag) config.onNoteDrag(row, step);
                         else if (type === "PIANOROLL_UP" && config.onNoteUp) config.onNoteUp(row, step);
-                    };
+                    });
                 }
             },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = config?.id || (windowId + "_snarl_" + count);
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, "snarl", config?.id);
 
                 ops.op_ui_widget_snarl(windowId, graph, id);
 
                 if (config?.onConnect || config?.onDisconnect || config?.onNodeMoved) {
-                    globalThis._entropy_event_listeners = globalThis._entropy_event_listeners || {};
-                    globalThis._entropy_event_listeners[id] = (eventData) => {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
                         if (type === "SNARL_CONNECT" && config.onConnect) {
@@ -785,13 +748,11 @@ globalThis.Entropy = {
                         } else if (type === "SNARL_NODE_MOVED" && config.onNodeMoved) {
                             config.onNodeMoved(parts[2], [parseFloat(parts[3].split(',')[0]), parseFloat(parts[3].split(',')[1])]);
                         }
-                    };
+                    });
                 }
             },
             collapsingHeader: (windowId, title, render) => {
-                const count = (globalThis._entropy_widget_counter || 0);
-                const id = windowId + "_collapsing_" + count;
-                globalThis._entropy_widget_counter = count + 1;
+                const id = nextWidgetId(windowId, "collapsing", null);
                 ops.op_ui_widget_collapsing_header(windowId, title, id);
                 render(windowId);
                 ops.op_ui_widget_end_collapsing_header(windowId);
@@ -847,7 +808,7 @@ globalThis.Entropy = {
                         listener_pool[id](payload);
                     } else if (payload.includes(",")) {
                         const values = payload.split(",").map(v => parseFloat(v));
-                        
+
                         // For minimap draw/hover events: x, y, brushSize
                         if (values.length === 3) {
                              listener_pool[id](values[0], values[1], values[2]);
@@ -865,10 +826,10 @@ globalThis.Entropy = {
     },
     _process_game_logic: () => {
         if (!globalThis.Entropy.gameMode) return;
-        
+
         const [playerPos] = globalThis.Entropy.Camera.getTransform();
         const collectables = globalThis.Entropy._collectables;
-        
+
         if (collectables) {
             for (const id in collectables) {
                 const config = collectables[id];
@@ -876,7 +837,7 @@ globalThis.Entropy = {
                 const dy = playerPos[1] - config.position[1];
                 const dz = playerPos[2] - config.position[2];
                 const distSq = dx*dx + dy*dy + dz*dz;
-                
+
                 if (distSq < 4.0) { // 2.0 meters radius
                     if (config.onCollect) {
                         try {
@@ -959,161 +920,21 @@ globalThis.Entropy = {
                 lightingBindings: config.lightingBindings || null
             });
         },
-        createCompute: (config) => {
-            return ops.op_compute_pipeline_create({
-                name: config.name || "unnamed_compute",
-                shaderSource: config.shaderSource,
-                bindGroups: config.bindGroups || []
-            });
-        }
+        createCompute: createComputePipeline
     },
     Compute: {
-        dispatch: (config) => {
-            ops.op_compute_dispatch({
-                pipelineId: config.pipelineId,
-                groups: config.groups || [1, 1, 1],
-                bindings: config.bindings || []
-            });
-        }
+        dispatch: computeAPI.dispatch
     },
-    Buffer: {
-        create: (config) => {
-            return ops.op_buffer_create({
-                size: BigInt(config.size),
-                usage: config.usage || "Storage"
-            });
-        },
-        write: (bufferId, data, offset = 0) => {
-            const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);
-            ops.op_buffer_write(bufferId, BigInt(offset), bufferData);
-        }
-    },
+    Buffer: bufferAPI,
     Landscape: {
-        create: (config) => {
-            const target = globalThis.__entropy_current_addon_context_override || "Global";
-            return ops.op_landscape_create(target, {
-                id: config.id || null,
-                width: config.width,
-                height: config.height,
-                heights: config.heights || null,
-                noiseId: config.noiseId || null,
-                position: config.position || [0, 0, 0],
-                pipelineId: config.pipelineId || null,
-                render_role: config.renderRole || null
-            });
-        }
+        create: globalContextualAPI.Landscape.create
     },
-    Landscape3D: {
-        create: (config) => {
-            const target = globalThis.__entropy_current_addon_context_override || "Global";
-            return ops.op_landscape3d_create(target, {
-                id: config.id || null,
-                vertices: config.vertices || [],
-                indices: config.indices || [],
-                position: config.position || [0, 0, 0],
-                pipelineId: config.pipelineId || null,
-                renderRole: config.renderRole || null
-            });
-        }
-    },
-    Particles: {
-        createHair: (config) => {
-            const target = globalThis.__entropy_current_addon_context_override || "Global";
-            return ops.op_grass_create(target, {
-                id: config.id || null,
-                gridSize: config.gridSize || 2.0,
-                renderDistance: config.renderDistance || 150.0,
-                windStrength: config.windStrength || 2.5,
-                windSpeed: config.windSpeed || 0.3,
-                bladeHeight: config.bladeHeight || 2.75,
-                bladeWidth: config.bladeWidth || 0.03,
-                brownianStrength: config.brownianStrength || 0.03,
-                bladeDensity: config.bladeDensity || 15.0,
-                landscapeSize: config.landscapeSize || 4096.0,
-                landscapeHeight: config.landscapeHeight || 0.0,
-                landscapeYOffset: config.landscapeYOffset || 0.0,
-                baseColor: config.baseColor || [0.1, 0.4, 0.1, 1.0],
-                tipColor: config.tipColor || [0.4, 0.8, 0.2, 1.0],
-                pipelineId: config.pipelineId || null,
-                render_role: config.renderRole || null,
-                bindings: config.bindings || []
-            });
-        }
-    },
-    Noise: {
-        create: (config) => {
-            return ops.op_noise_create({
-                noiseType: config.type || "fbm",
-                source: config.source || "perlin",
-                seed: config.seed || 0,
-                octaves: config.octaves || 6,
-                frequency: config.frequency || 0.01,
-                persistence: config.persistence || 0.5,
-                lacunarity: config.lacunarity || 2.0
-            });
-        }
-    },
-    Texture: {
-        create: (width, height, data) => {
-            return ops.op_texture_create(width, height, data);
-        },
-        createStorage: (width, height, format = "Rgba32Float") => {
-            return ops.op_texture_create_ex({
-                width,
-                height,
-                format,
-                usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
-            }, null);
-        },
-        createEx: (config, data = null) => {
-            return ops.op_texture_create_ex(config, data);
-        },
-        update: (textureId, data) => {
-            return ops.op_texture_update(textureId, data);
-        },
-        load: (filename) => {
-            return ops.op_texture_load(filename);
-        }
-    },
-    Lighting: {
-        createPointLight: (config) => {
-            const target = globalThis.__entropy_current_addon_context_override || "Global";
-            return ops.op_point_light_create(target, {
-                position: config.position || [0, 0, 0],
-                color: config.color || [1, 1, 1],
-                intensity: config.intensity || 1.0,
-                maxDistance: config.maxDistance || 20.0
-            });
-        }
-    },
-    Audio: {
-        playSynth: (config) => {
-            ops.op_audio_play_synth({
-                freq: config.freq || 440.0,
-                waveform: config.waveform || "sine",
-                duration: config.duration || 0.5,
-                cutoff: config.cutoff || 20000.0,
-                gain: config.gain || 0.2
-            });
-        },
-        playNote: (config) => {
-            ops.op_audio_play_note({
-                freq: config.freq || 440.0,
-                waveform: config.waveform || "sine",
-                duration: config.duration || 0.5,
-                cutoff: config.cutoff || 20000.0,
-                resonance: config.resonance || 1.0,
-                gain: config.gain || 0.2,
-                attack: config.attack ?? 0.005,
-                decay: config.decay ?? 0.05,
-                sustain: config.sustain ?? 0.85,
-                release: config.release ?? 0.05
-            });
-        },
-        playTestTone: () => {
-            ops.op_audio_play_test();
-        }
-    },
+    Landscape3D: globalContextualAPI.Landscape3D,
+    Particles: globalContextualAPI.Particles,
+    Noise: noiseAPI,
+    Texture: textureAPI,
+    Lighting: globalContextualAPI.Lighting,
+    Audio: audioAPI,
     println: (msg) => {
         ops.op_println(String(msg));
     },
@@ -1173,7 +994,7 @@ globalThis.Entropy = {
         },
         getState: (id) => {
             // Need op_gizmo_get_state if we want to poll it
-            return null; 
+            return null;
         }
     },
     Input: {
@@ -1290,113 +1111,128 @@ globalThis.Entropy.Composite = {
   }
 };
 
+// ---------------------------------------------------------------------------
+// Generic registries backing the Composer namespace below.
+//
+// registerEditor/getEditor, registerRenderer/getRenderer,
+// registerTextureGenerator/getTextureGenerator and registerGame/getGame used
+// to be four hand-copied "store a value under a key, look it up later"
+// pairs. registerComponent/getComponents and registerAction/getAction are
+// the same pattern one level deeper (addonName -> key -> value). Both
+// shapes are now implemented once.
+// ---------------------------------------------------------------------------
+function makeFlatRegistry(store) {
+    return {
+        register: (key, value) => { store[key] = value; },
+        get: (key) => store[key],
+        all: () => store
+    };
+}
+
+function makeNamespacedRegistry(store) {
+    return {
+        register: (namespace, key, value) => {
+            if (!store[namespace]) store[namespace] = {};
+            store[namespace][key] = value;
+        },
+        get: (namespace, key) => (store[namespace] || {})[key],
+        allIn: (namespace) => store[namespace] || {}
+    };
+}
+
 // Composer Registry (Global)
-globalThis.Entropy.Composer = {
-    editors: {},
-    renderers: {}, // addonName -> renderFn(id, params)
-    games: {}, // addonName -> renderFn(id, params)
-    textureGenerators: {}, // addonName -> (id, params, resolution) => { diffId, norId, armId }
-    components: {}, // addonName -> { componentId -> { name, params } }
-    instances: {}, // instanceId -> { addonName, componentId, defaults }
-    actions: {}, // addonName -> { actionName -> fn(...args) }
-    initCallbacks: {}, // addonName -> initCallback()
-    globalSettings: {
-        landscapeSettings: {
-            size: 1024,
-            height: 150,
-            yOffset: -200
+{
+    const editors = {};
+    const renderers = {};
+    const games = {};
+    const textureGenerators = {};
+    const components = {};
+    const instances = {};
+    const actions = {};
+
+    const editorsRegistry = makeFlatRegistry(editors);
+    const renderersRegistry = makeFlatRegistry(renderers);
+    const gamesRegistry = makeFlatRegistry(games);
+    const textureGeneratorsRegistry = makeFlatRegistry(textureGenerators);
+    const instancesRegistry = makeFlatRegistry(instances);
+    const componentsRegistry = makeNamespacedRegistry(components);
+    const actionsRegistry = makeNamespacedRegistry(actions);
+
+    globalThis.Entropy.Composer = {
+        editors,
+        renderers,
+        games,
+        textureGenerators,
+        components,
+        instances,
+        actions,
+        initCallbacks: {}, // addonName -> initCallback()
+        globalSettings: {
+            landscapeSettings: {
+                size: 1024,
+                height: 150,
+                yOffset: -200
+            }
+        },
+        clearMesh: (meshId) => {
+            ops.op_mesh_clear("Game Composer", meshId);
+        },
+        registerEditor: editorsRegistry.register,
+        getEditor: editorsRegistry.get,
+        registerRenderer: renderersRegistry.register,
+        getRenderer: renderersRegistry.get,
+        registerTextureGenerator: textureGeneratorsRegistry.register,
+        getTextureGenerator: textureGeneratorsRegistry.get,
+        registerGame: gamesRegistry.register,
+        getGame: gamesRegistry.get,
+        registerComponent: (addonName, componentId, name, params) => {
+            componentsRegistry.register(addonName, componentId, { id: componentId, name, params });
+        },
+        getComponents: (addonName) => componentsRegistry.allIn(addonName),
+        // Idempotent upsert so any addon can announce "this instance exists" without
+        // clobbering whatever a consumer (e.g. Game Composer) already knows about it.
+        // Only addonName/componentId/defaults are (re)written here - position, scale,
+        // visibility and per-field overrides live downstream and must survive repeat calls,
+        // since producers like Model Viewer's refreshModels() re-announce on every edit.
+        registerInstance: (addonName, componentId, instanceId, defaults) => {
+            instancesRegistry.register(instanceId, { addonName, componentId, defaults });
+        },
+        getInstances: () => instancesRegistry.all(),
+        // General-purpose escape hatch for cross-addon integration: any addon can expose
+        // a plain callable function under its own name/action-name pair, and any other
+        // addon can look it up and call it directly (same shared JS realm, no engine
+        // round-trip).
+        registerAction: (addonName, actionName, fn) => actionsRegistry.register(addonName, actionName, fn),
+        getAction: (addonName, actionName) => actionsRegistry.get(addonName, actionName),
+        setRolePipeline: (role, pipelineId) => {
+            ops.op_composer_set_role_pipeline(role, pipelineId);
+        },
+        enableGameComposerOverride: () => {
+            globalThis.__entropy_current_addon_context_override = "Game Composer";
+        },
+        disableGameComposerOverride: () => {
+            globalThis.__entropy_current_addon_context_override = null;
+        },
+        enableOverride: (name) => {
+            globalThis.__entropy_current_addon_context_override = name;
+        },
+        disableOverride: () => {
+            globalThis.__entropy_current_addon_context_override = null;
+        },
+        setGlobalSettings: (settings) => {
+            globalThis.Entropy.Composer.globalSettings = settings;
+        },
+        getGlobalSettings: () => {
+            return globalThis.Entropy.Composer.globalSettings;
+        },
+        getNPCs: () => {
+            return globalThis.registered_npcs;
+        },
+        updateNPCPosition: (entityId, position) => {
+            globalThis.registered_npcs.find((npc) => npc.id === entityId).position = position;
         }
-    },
-    clearMesh: (meshId) => {
-        ops.op_mesh_clear("Game Composer", meshId);
-    },
-    registerEditor: (addonName, renderFn) => {
-        globalThis.Entropy.Composer.editors[addonName] = renderFn;
-    },
-    getEditor: (addonName) => {
-        return globalThis.Entropy.Composer.editors[addonName];
-    },
-    registerRenderer: (addonName, renderFn) => {
-        globalThis.Entropy.Composer.renderers[addonName] = renderFn;
-    },
-    getRenderer: (addonName) => {
-        return globalThis.Entropy.Composer.renderers[addonName];
-    },
-    registerTextureGenerator: (addonName, generatorFn) => {
-        globalThis.Entropy.Composer.textureGenerators[addonName] = generatorFn;
-    },
-    getTextureGenerator: (addonName) => {
-        return globalThis.Entropy.Composer.textureGenerators[addonName];
-    },
-    getGame: (gameName) => {
-        return globalThis.Entropy.Composer.games[gameName];
-    },
-    registerGame: (gameName, renderFn) => {
-        globalThis.Entropy.Composer.games[gameName] = renderFn;
-    },
-    registerComponent: (addonName, componentId, name, params) => {
-        if (!globalThis.Entropy.Composer.components[addonName]) {
-            globalThis.Entropy.Composer.components[addonName] = {};
-        }
-        globalThis.Entropy.Composer.components[addonName][componentId] = { id: componentId, name, params };
-    },
-    getComponents: (addonName) => {
-        return globalThis.Entropy.Composer.components[addonName] || {};
-    },
-    // Idempotent upsert so any addon can announce "this instance exists" without
-    // clobbering whatever a consumer (e.g. Game Composer) already knows about it.
-    // Only addonName/componentId/defaults are (re)written here - position, scale,
-    // visibility and per-field overrides live downstream and must survive repeat calls,
-    // since producers like Model Viewer's refreshModels() re-announce on every edit.
-    registerInstance: (addonName, componentId, instanceId, defaults) => {
-        globalThis.Entropy.Composer.instances[instanceId] = { addonName, componentId, defaults };
-    },
-    getInstances: () => {
-        return globalThis.Entropy.Composer.instances;
-    },
-    // General-purpose escape hatch for cross-addon integration: any addon can expose
-    // a plain callable function under its own name/action-name pair, and any other
-    // addon can look it up and call it directly (same shared JS realm, no engine
-    // round-trip). This is the same shape as registerRenderer/registerEditor/
-    // registerTextureGenerator above, generalized so future integrations don't each
-    // need their own bespoke register*/get* pair.
-    registerAction: (addonName, actionName, fn) => {
-        if (!globalThis.Entropy.Composer.actions[addonName]) {
-            globalThis.Entropy.Composer.actions[addonName] = {};
-        }
-        globalThis.Entropy.Composer.actions[addonName][actionName] = fn;
-    },
-    getAction: (addonName, actionName) => {
-        return (globalThis.Entropy.Composer.actions[addonName] || {})[actionName];
-    },
-    setRolePipeline: (role, pipelineId) => {
-        ops.op_composer_set_role_pipeline(role, pipelineId);
-    },
-    enableGameComposerOverride: () => {
-        globalThis.__entropy_current_addon_context_override = "Game Composer";
-    },
-    disableGameComposerOverride: () => {
-        globalThis.__entropy_current_addon_context_override = null;
-    },
-    enableOverride: (name) => {
-        globalThis.__entropy_current_addon_context_override = name;
-    },
-    disableOverride: () => {
-        globalThis.__entropy_current_addon_context_override = null;
-    },
-    setGlobalSettings: (settings) => {
-        globalThis.Entropy.Composer.globalSettings = settings;
-    },
-    getGlobalSettings: () => {
-        return globalThis.Entropy.Composer.globalSettings;
-    },
-    getNPCs: () => {
-        return globalThis.registered_npcs;
-    },
-    updateNPCPosition: (entityId, position) => {
-        globalThis.registered_npcs.find((npc) => npc.id === entityId).position = position;
-    }
-};
+    };
+}
 
 globalThis._createSystem = () => {
     return {
@@ -1407,7 +1243,7 @@ globalThis._createSystem = () => {
             ops.op_system_spawn_particles(pos, color, grav);
         },
         vec3: (x, y, z) => ({ x, y, z }),
-        log_particles: (pos, color, grav) => { 
+        log_particles: (pos, color, grav) => {
              // no-op
         },
         debug_name: (val) => "System"
