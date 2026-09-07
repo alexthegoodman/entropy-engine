@@ -292,12 +292,13 @@ const SCALE_NAMES = Object.keys(SCALES);
 addon.onInit(async () => {
     Entropy.println("DAW Addon Initializing...");
 
-    addon.onProjectChanged((_newProjectId: string) => {
-        const saved = addon.IO.load();
-        if (saved && saved.tracks) {
-            project = saved as DAWProject;
-        }
-    });
+    // need new hook
+    // addon.onProjectChanged((_newProjectId: string) => {
+    //     const saved = addon.IO.load();
+    //     if (saved && saved.tracks) {
+    //         project = saved as DAWProject;
+    //     }
+    // });
 
     const renderDAWUI = (tabId: string) => {
         Entropy.UI.Widget.label(tabId, { text: "🎛 Transport", bold: true });
@@ -536,6 +537,8 @@ addon.onInit(async () => {
     });
 
     // --- Chat / AI tool integration ---
+
+    Entropy.println("DAW Addon Register Tools...");
 
     addon.registerTool({
         name: "daw_get_state",
