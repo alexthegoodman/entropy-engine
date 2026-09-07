@@ -2928,8 +2928,20 @@ impl AddonEngine {
     }
 
     pub async fn load_addon(&mut self, addon_path: &Path) -> Result<ModuleId, AnyError> {
-        let addon_url = format!("file:///{}", addon_path.to_string_lossy().replace("\"", "/"));
-        let module_specifier = ModuleSpecifier::parse(&addon_url)?;
+        // `ModuleSpecifier::from_file_path` (i.e. `Url::from_file_path`) is the only correct way
+        // to turn a filesystem path into a `file://` URL: it requires an absolute path (so a
+        // relative `addon_path` must be resolved against the current directory first) and takes
+        // care of platform-specific quirks itself (e.g. a Windows drive letter and backslashes).
+        // Hand-formatting `file:///{path}` broke on both counts.
+        let absolute_path = if addon_path.is_absolute() {
+            addon_path.to_path_buf()
+        } else {
+            std::env::current_dir()?.join(addon_path)
+        };
+        let absolute_path = absolute_path.canonicalize().unwrap_or(absolute_path);
+
+        let module_specifier = ModuleSpecifier::from_file_path(&absolute_path)
+            .map_err(|_| anyhow::anyhow!("Could not build a file:// URL for addon path {:?}", absolute_path))?;
         let module_id = self.runtime.load_main_es_module(&module_specifier).await?;
         let _ = self.runtime.mod_evaluate(module_id).await?;
 

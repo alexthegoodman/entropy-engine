@@ -8,7 +8,7 @@ use std::env;
 async fn main() {
     #[cfg(target_os = "windows")]
     entropy_engine::EntropyApp::new()
-           .with_bundle("../../examples/studio-bundle/dist/daw.js")
+           .with_bundle("examples/studio-bundle/dist/daw.js")
            .run()
            .expect("Couldn't run app");
 }

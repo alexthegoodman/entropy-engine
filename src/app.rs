@@ -16,6 +16,7 @@ pub struct EntropyApp {
     start_addon: Option<String>,
     bundle_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+    capture_cursor: bool,
 }
 
 impl EntropyApp {
@@ -24,6 +25,7 @@ impl EntropyApp {
             start_addon: None,
             bundle_path: None,
             data_dir: None,
+            capture_cursor: false,
         }
     }
 
@@ -50,6 +52,13 @@ impl EntropyApp {
         self
     }
 
+    /// Go borderless-fullscreen and hide/lock the cursor on startup, like a typical game.
+    /// Off by default — most apps (tools, DAWs, editors) want a normal windowed cursor.
+    pub fn capture_cursor(mut self, enabled: bool) -> Self {
+        self.capture_cursor = enabled;
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
 
@@ -59,6 +68,7 @@ impl EntropyApp {
             start_addon: self.start_addon,
             bundle_path: self.bundle_path,
             data_dir: Some(data_dir),
+            capture_cursor: self.capture_cursor,
         })
     }
 }

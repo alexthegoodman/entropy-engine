@@ -65,6 +65,11 @@ pub struct RunConfig {
     pub start_addon: Option<String>,
     pub bundle_path: Option<PathBuf>,
     pub data_dir: Option<PathBuf>,
+    /// Whether to go borderless-fullscreen and hide/lock the cursor on startup, like a typical
+    /// game. Independent of `game_mode` (which only controls whether Entropy Studio's editor UI
+    /// is built) — defaults to `false` so embedded apps get a normal windowed cursor unless they
+    /// opt in.
+    pub capture_cursor: bool,
 }
 
 pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
@@ -95,6 +100,7 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
         config.start_addon,
         config.bundle_path,
         config.data_dir,
+        config.capture_cursor,
     );
 
     event_loop.run_app(&mut state).map_err(Into::into)
@@ -105,6 +111,7 @@ pub fn run_game(project_id: Option<String>, start_addon: Option<String>) -> Resu
         game_mode: true,
         project_id,
         start_addon,
+        capture_cursor: true,
         ..Default::default()
     })
 }
@@ -151,6 +158,7 @@ struct Application {
     start_addon: Option<String>,
     bundle_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
+    capture_cursor: bool,
     project_loaded: bool,
     mouse_pressed: bool,
     gilrs: Option<Gilrs>,
@@ -164,6 +172,7 @@ impl Application {
         start_addon: Option<String>,
         bundle_path: Option<PathBuf>,
         data_dir: Option<PathBuf>,
+        capture_cursor: bool,
     ) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
@@ -214,6 +223,7 @@ impl Application {
             start_addon,
             bundle_path,
             data_dir,
+            capture_cursor,
             project_loaded: false,
             mouse_pressed: false,
             gilrs
@@ -1118,7 +1128,7 @@ impl WindowState {
             webview,
         };
 
-        if game_mode {
+        if app.capture_cursor {
             state.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
             state.window.set_cursor_visible(false);
             state.cursor_hidden = true;
