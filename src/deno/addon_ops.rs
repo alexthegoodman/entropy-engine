@@ -225,6 +225,8 @@ pub struct CubeConfig {
 
 
 
+fn default_resizable() -> bool { true }
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 
 #[serde(rename_all = "camelCase")]
@@ -233,8 +235,10 @@ pub struct UiWindowConfig {
 
     pub title: String,
 
+    #[serde(default = "default_resizable")]
     pub resizable: bool,
 
+    #[serde(default)]
     pub default_size: UiSize,
 
 }
@@ -261,6 +265,12 @@ pub struct UiSize {
 
     pub height: f32,
 
+}
+
+impl Default for UiSize {
+    fn default() -> Self {
+        UiSize { width: 400.0, height: 300.0 }
+    }
 }
 
 

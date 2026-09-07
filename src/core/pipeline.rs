@@ -1793,7 +1793,11 @@ impl EntropyPipeline {
         // local so the *drawing* of it can happen after the 3D scene - see below.
         let mut pending_egui_draw = None;
 
-        if !game_mode {
+        // The egui pass always runs: addon-authored UI (`Entropy.UI.createWindow`/`Widget.*`,
+        // rendered by `AddonEngine::render_ui`) needs it regardless of game_mode - it's a generic
+        // addon capability, not part of Entropy Studio's own docking/project-picker chrome. Only
+        // Studio's chrome itself (`self.ui`, i.e. `render_egui`) is skipped in game_mode.
+        {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("egui encoder"),
             });
@@ -1807,7 +1811,13 @@ impl EntropyPipeline {
             let raw_input = gui.state.take_egui_input(&window);
             let egui_ctx = gui.ctx.clone();
             let full_output = egui_ctx.run(raw_input, |ctx| {
-                self.ui(gui);
+                if game_mode {
+                    if let Some(editor) = &mut self.export_editor {
+                        editor.addon_engine.render_ui(ctx, &mut gui.renderer);
+                    }
+                } else {
+                    self.ui(gui);
+                }
             });
 
             gui.state.handle_platform_output(&window, full_output.platform_output);

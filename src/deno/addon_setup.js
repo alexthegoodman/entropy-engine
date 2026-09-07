@@ -617,7 +617,14 @@ globalThis.Entropy = {
     },
     UI: {
         createWindow: (config) => {
-            const windowId = ops.op_ui_create_window(config, config.onRender);
+            // addon.d.ts documents `title?`, `width?`, `height?` as flat, optional fields, but
+            // the op wants { title, resizable, defaultSize: { width, height } } - translate here
+            // so addons that only pass a title (like most examples) don't have to know that.
+            const windowId = ops.op_ui_create_window({
+                title: config.title || "",
+                resizable: config.resizable !== undefined ? config.resizable : true,
+                defaultSize: { width: config.width || 400, height: config.height || 300 }
+            }, config.onRender);
             return windowId;
         },
         createTab: (config) => {
