@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::Debug;
+use std::path::PathBuf;
 #[cfg(not(any(android_platform, ios_platform)))]
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -53,7 +54,20 @@ use wry;
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
 
-pub fn run_game(project_id: Option<String>, start_addon: Option<String>) -> Result<(), Box<dyn Error>> {
+/// Configuration for [`run_with_config`] — the general entrypoint underlying `run`/`run_game`
+/// and [`crate::app::EntropyApp`]. `bundle_path`/`data_dir` are the embedding-facing knobs:
+/// when set, a custom TS addon bundle and a dev-controlled save directory are used instead of
+/// Entropy Studio's compiled-in bundle and CommonOS project registry.
+#[derive(Default)]
+pub struct RunConfig {
+    pub game_mode: bool,
+    pub project_id: Option<String>,
+    pub start_addon: Option<String>,
+    pub bundle_path: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
+}
+
+pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
     #[cfg(web_platform)]
     console_error_panic_hook::set_once();
 
@@ -74,35 +88,33 @@ pub fn run_game(project_id: Option<String>, start_addon: Option<String>) -> Resu
         }
     });
 
-    let mut state = Application::new(&event_loop, true, project_id, start_addon);
+    let mut state = Application::new(
+        &event_loop,
+        config.game_mode,
+        config.project_id,
+        config.start_addon,
+        config.bundle_path,
+        config.data_dir,
+    );
 
     event_loop.run_app(&mut state).map_err(Into::into)
 }
 
+pub fn run_game(project_id: Option<String>, start_addon: Option<String>) -> Result<(), Box<dyn Error>> {
+    run_with_config(RunConfig {
+        game_mode: true,
+        project_id,
+        start_addon,
+        ..Default::default()
+    })
+}
+
 pub fn run(project_id: Option<String>) -> Result<(), Box<dyn Error>> {
-    #[cfg(web_platform)]
-    console_error_panic_hook::set_once();
-
-    // tracing::init();
-
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
-    let _event_loop_proxy = event_loop.create_proxy();
-
-    // Wire the user event from another thread.
-    #[cfg(not(web_platform))]
-    std::thread::spawn(move || {
-        // Wake up the `event_loop` once every second and dispatch a custom event
-        // from a different thread.
-        info!("Starting to send user event every second");
-        loop {
-            let _ = _event_loop_proxy.send_event(UserEvent::WakeUp);
-            std::thread::sleep(std::time::Duration::from_secs(1));
-        }
-    });
-
-    let mut state = Application::new(&event_loop, false, project_id, None);
-
-    event_loop.run_app(&mut state).map_err(Into::into)
+    run_with_config(RunConfig {
+        game_mode: false,
+        project_id,
+        ..Default::default()
+    })
 }
 
 #[allow(dead_code)]
@@ -137,13 +149,22 @@ struct Application {
     game_mode: bool,
     project_id: Option<String>,
     start_addon: Option<String>,
+    bundle_path: Option<PathBuf>,
+    data_dir: Option<PathBuf>,
     project_loaded: bool,
     mouse_pressed: bool,
     gilrs: Option<Gilrs>,
 }
 
 impl Application {
-    fn new<T>(event_loop: &EventLoop<T>, game_mode: bool, project_id: Option<String>, start_addon: Option<String>) -> Self {
+    fn new<T>(
+        event_loop: &EventLoop<T>,
+        game_mode: bool,
+        project_id: Option<String>,
+        start_addon: Option<String>,
+        bundle_path: Option<PathBuf>,
+        data_dir: Option<PathBuf>,
+    ) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
         // let context = Some(
@@ -191,6 +212,8 @@ impl Application {
             game_mode,
             project_id,
             start_addon,
+            bundle_path,
+            data_dir,
             project_loaded: false,
             mouse_pressed: false,
             gilrs
@@ -962,7 +985,9 @@ impl WindowState {
             window_size.height, // video_height
             project_id,
             game_mode,
-            false
+            false,
+            app.bundle_path.clone(),
+            app.data_dir.clone(),
         ));
         // End WGPU Initialization
 

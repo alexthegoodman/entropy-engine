@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crate::core::egui_sidebar::{PipelineTabViewer, Tab, UiContext};
 use crate::core::render_addon_frame::render_addon_frame;
 use crate::core::render_egui::render_egui;
@@ -295,6 +297,8 @@ impl EntropyPipeline {
         project_id: Option<String>,
         game_mode: bool,
         is_playing: bool,
+        bundle_path: Option<PathBuf>,
+        data_dir: Option<PathBuf>,
     ) {
         let mut camera = Camera::new(
             Point3::new(0.0, 0.5, -5.0),
@@ -324,7 +328,7 @@ impl EntropyPipeline {
         )));
 
         // create a dedicated editor so it can be used in the async thread
-        let mut export_editor = Editor::new(viewport, project_id.clone());
+        let mut export_editor = Editor::new(viewport, project_id.clone(), data_dir.clone());
 
         #[cfg(target_arch = "wasm32")]
         let window = if let Some(canvas) = canvas {
@@ -1429,7 +1433,13 @@ impl EntropyPipeline {
 
         export_editor.camera_binding = Some(camera_binding);
 
-        export_editor.addon_engine.load_default_bundle();
+        if let Some(path) = &bundle_path {
+            if let Err(e) = export_editor.addon_engine.load_addon(path).await {
+                println!("Failed to load custom bundle {:?}: {}", path, e);
+            }
+        } else {
+            export_editor.addon_engine.load_default_bundle();
+        }
 
         // self.device = Some(device);
         // self.queue = Some(queue);

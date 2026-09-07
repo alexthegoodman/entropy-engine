@@ -19,7 +19,7 @@ use rapier3d::prelude::{ColliderBuilder, LockedAxes, RigidBodyBuilder};
 use uuid::Uuid;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -47,6 +47,21 @@ use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
 use crate::helpers::utilities::get_project_dir;
+
+/// Resolves the directory addon-facing save/load ops (`op_addon_save_data`, `op_script_read`,
+/// etc.) should read and write under. An embedded app's dev-controlled `data_dir` takes
+/// priority; Studio's `project_id`-keyed CommonOS project folder is the fallback for the
+/// editor/game/game_addon binaries, which never set `data_dir`.
+fn resolve_addon_root(ctx: &AddonContext) -> Option<PathBuf> {
+    if let Some(dir) = &ctx.data_dir {
+        std::fs::create_dir_all(dir).ok();
+        Some(dir.clone())
+    } else if let Some(project_id) = &ctx.project_id {
+        get_project_dir(project_id)
+    } else {
+        None
+    }
+}
 use crate::yumon::legacy::{OrganismSim, MyBackend};
 use crate::egui;
 use wgpu::util::DeviceExt;
@@ -675,6 +690,10 @@ pub struct AddonContext {
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
+    /// Dev-controlled save directory for an embedded (non-Studio) app. When set, it takes
+    /// priority over `project_id`/Studio's CommonOS project registry for addon-facing
+    /// save/load ops (see `resolve_addon_root`) — an embedded app has no "project" concept.
+    pub data_dir: Option<PathBuf>,
     pub textures: HashMap<String, Arc<wgpu::TextureView>>,
     pub raw_textures: HashMap<String, Arc<wgpu::Texture>>,
     pub landscape_texture_view: Option<Arc<wgpu::TextureView>>,
@@ -931,10 +950,17 @@ pub fn op_script_list(state: &mut OpState) -> Result<Vec<String>, deno_error::Js
 #[string]
 pub fn op_script_read(state: &mut OpState, #[string] filename: String) -> Result<String, deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
-    if let Some(project_id) = ctx.project_id.clone() {
-    
-    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
-        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+    let scripts_dir = if let Some(dir) = &ctx.data_dir {
+        let scripts_dir = dir.join("scripts");
+        std::fs::create_dir_all(&scripts_dir).ok();
+        scripts_dir
+    } else if let Some(project_id) = ctx.project_id.clone() {
+        crate::helpers::utilities::get_scripts_dir(&project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?
+    } else {
+        return Err(deno_error::JsErrorBox::generic("Script file not found"));
+    };
 
     let file_path = scripts_dir.join(filename);
     if !file_path.exists() {
@@ -943,28 +969,27 @@ pub fn op_script_read(state: &mut OpState, #[string] filename: String) -> Result
 
     std::fs::read_to_string(file_path)
         .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to read script: {}", e)))
-
-    } else {
-        Err(deno_error::JsErrorBox::generic("Script file not found"))
-    }
 }
 
 #[op2(fast)]
 pub fn op_script_write(state: &mut OpState, #[string] filename: String, #[string] content: String) -> Result<(), deno_error::JsErrorBox> {
     let ctx = state.borrow::<AddonContext>();
-    if let Some(project_id) = ctx.project_id.clone() {
-    
-    let scripts_dir = crate::helpers::utilities::get_scripts_dir(&project_id)
-        .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?;
+
+    let scripts_dir = if let Some(dir) = &ctx.data_dir {
+        let scripts_dir = dir.join("scripts");
+        std::fs::create_dir_all(&scripts_dir).ok();
+        scripts_dir
+    } else if let Some(project_id) = ctx.project_id.clone() {
+        crate::helpers::utilities::get_scripts_dir(&project_id)
+            .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve scripts directory"))?
+    } else {
+        return Err(deno_error::JsErrorBox::generic("Script file not found"));
+    };
 
     let file_path = scripts_dir.join(filename);
-    
+
     std::fs::write(file_path, content)
         .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to write script: {}", e)))
-
-    } else {
-        Err(deno_error::JsErrorBox::generic("Script file not found"))
-    }
 }
 
 #[op2]
@@ -1005,19 +1030,35 @@ pub fn op_ui_widget_code_editor(
 #[op2(fast)]
 pub fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[string] data: String) -> Result<(), deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        // Dev-controlled save directory (embedded apps): write flat, e.g. `<data_dir>/<key>.json`,
+        // so a dev's own addon code can choose whatever filename it wants (`projects.json`,
+        // `project123.json`, `addon123.json`, ...) directly under the directory they configured.
+        if let Some(dir) = &ctx.data_dir {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to create data directory: {}", e)))?;
+
+            let file_path = dir.join(format!("{}.json", addon_name));
+
+            if let Err(e) = std::fs::write(&file_path, data) {
+                return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
+            }
+
+            return Ok(());
+        }
+
         if let Some(project_id) = ctx.project_id.clone() {
-        
+
         let project_dir = get_project_dir(&project_id)
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
-            
+
         let addons_dir = project_dir.join("addons");
-        
+
         if let Err(e) = std::fs::create_dir_all(&addons_dir) {
             return Err(deno_error::JsErrorBox::generic(format!("Failed to create addons directory: {}", e)));
         }
-        
+
         let file_path = addons_dir.join(format!("{}.json", addon_name));
-        
+
         if let Err(e) = std::fs::write(&file_path, data) {
             return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
         }
@@ -1353,14 +1394,26 @@ pub fn op_texture_update(
 #[string]
 pub fn op_addon_load_data(state: &mut OpState, #[string] addon_name: String) -> Result<String, deno_error::JsErrorBox> {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        // See op_addon_save_data: dev-controlled data_dir takes priority, flat file layout.
+        if let Some(dir) = &ctx.data_dir {
+            let file_path = dir.join(format!("{}.json", addon_name));
+
+            if !file_path.exists() {
+                return Ok("".to_string());
+            }
+
+            return std::fs::read_to_string(&file_path)
+                .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to read file: {}", e)));
+        }
+
             if let Some(project_id) = ctx.project_id.clone() {
 
-        
+
         let project_dir = get_project_dir(&project_id)
             .ok_or_else(|| deno_error::JsErrorBox::generic("Could not resolve project directory"))?;
-            
+
         let file_path = project_dir.join("addons").join(format!("{}.json", addon_name));
-        
+
         if !file_path.exists() {
             return Ok("".to_string()); // Return empty string if not found
         }

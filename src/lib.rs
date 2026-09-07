@@ -3,6 +3,11 @@
 #[cfg(target_os = "windows")]
 pub mod startup;
 
+#[cfg(target_os = "windows")]
+pub mod app;
+#[cfg(target_os = "windows")]
+pub use app::EntropyApp;
+
 pub mod entropy_gui;
 
 // COMPAT ALIASES — entropy_gui is our own in-house immediate-mode GUI kit that replaces

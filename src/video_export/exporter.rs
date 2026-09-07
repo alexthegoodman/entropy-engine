@@ -46,7 +46,9 @@ impl Exporter {
                 video_height,
                 Some(project_id),
                 false,
-                true
+                true,
+                None,
+                None
             )
             .await;
 

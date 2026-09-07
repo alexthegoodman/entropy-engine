@@ -6,7 +6,7 @@ Ultimately, this engine is similar to MCP but without the hassle of MCP setup pr
 
 Here's some info on the current architecture:
 
-All the code is in /src/ and /scripts/addons/studio-bundle/src/ and /public/wry-chat/src/.
+All the code is in /src/ and /examples/studio-bundle/src/ and /public/wry-chat/src/.
 
 Within the Wry Chat, we have our React-based AI SDK chat implementation. `entropy-site` repo is the API used by the Wry Chat. Tools provided to entropy-site are dynamically registed by addons.
 

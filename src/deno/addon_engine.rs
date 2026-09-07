@@ -23,7 +23,7 @@ use uuid::Uuid;
 // use wgpu::wgc::resource::ResourceType;
 use std::rc::Rc;
 use std::cell::RefCell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -224,7 +224,7 @@ pub struct AddonEngine {
     pub dummy_views: Vec<(u32, TextureView)>,  
 }
 
-const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../scripts/addons/studio-bundle/dist/bundle.js");
+const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../examples/studio-bundle/dist/bundle.js");
 
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -373,7 +373,7 @@ impl AddonEngine {
         dialogue_result
     }
 
-    pub fn new(project_id: Option<String>) -> Self {
+    pub fn new(project_id: Option<String>, data_dir: Option<PathBuf>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_addons::init_ops_and_esm();
         
@@ -437,6 +437,7 @@ impl AddonEngine {
             new_tabs: Vec::new(),
             render_roles: HashMap::new(),
             project_id: project_id.clone(),
+            data_dir: data_dir.clone(),
             textures: HashMap::new(),
             raw_textures: HashMap::new(),
             landscape_texture_view: None,
