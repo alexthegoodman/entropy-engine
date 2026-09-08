@@ -1813,6 +1813,8 @@ impl EntropyPipeline {
             let full_output = egui_ctx.run(raw_input, |ctx| {
                 if game_mode {
                     if let Some(editor) = &mut self.export_editor {
+                        // Tabs (fill the window) drawn first, floating windows layered on top.
+                        editor.addon_engine.render_tabs(ctx, &mut gui.renderer);
                         editor.addon_engine.render_ui(ctx, &mut gui.renderer);
                     }
                 } else {

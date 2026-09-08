@@ -698,6 +698,12 @@ pub struct AddonContext {
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
+    /// Stable creation-order list of tab ids, for the generic (non-Studio) full-window tab bar
+    /// rendered by `AddonEngine::render_tabs` for embedded apps - HashMap iteration order isn't
+    /// stable, and a tab bar's ordering should match the order the addon created them in.
+    pub tab_order: Vec<String>,
+    /// Currently selected tab in that same generic tab bar.
+    pub active_tab: Option<String>,
     pub render_roles: HashMap<String, String>, // role_name -> pipeline_id
     pub project_id: Option<String>,
     /// Dev-controlled save directory for an embedded (non-Studio) app. When set, it takes
@@ -2021,6 +2027,7 @@ pub fn op_ui_create_tab(state: &mut OpState, #[string] addon_name: String, #[ser
     let title = config.title.clone();
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_tabs.insert(id.clone(), (config, on_render, addon_name.clone()));
+        ctx.tab_order.push(id.clone());
         ctx.new_tabs.push((id.clone(), title, addon_name));
     }
     id

@@ -510,15 +510,17 @@ addon.onInit(async () => {
 
     if (Entropy.Composer) {
         // Lets Entropy Studio host this addon as a docked workspace tab, when running inside
-        // Studio. Embedded (non-Studio) apps rely on the createWindow call below instead, since
-        // Studio's docking system doesn't run outside the editor.
+        // Studio.
         Entropy.Composer.registerEditor("DAW", renderDAWUI);
     }
 
-    const windowId = Entropy.UI.createWindow({
+    // Same createTab call also drives the full-window tab bar embedded (non-Studio) apps get
+    // via AddonEngine::render_tabs - the widget calls inside renderDAWUI don't care which host
+    // is drawing them.
+    const tabId = addon.UI.createTab({
         title: "🎹 DAW",
         onRender: async () => {
-            renderDAWUI(windowId);
+            renderDAWUI(tabId);
         }
     });
 

@@ -432,6 +432,8 @@ impl AddonEngine {
             on_project_changed_callbacks: Vec::new(),
             ui_windows: HashMap::new(),
             ui_tabs: HashMap::new(),
+            tab_order: Vec::new(),
+            active_tab: None,
             ui_widgets: HashMap::new(),
             ui_events: Arc::new(Mutex::new(Vec::new())),
             new_tabs: Vec::new(),
@@ -3231,6 +3233,128 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         }
         
+        // Push events
+        if !events_to_push.is_empty() {
+            let op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<AddonContext>() {
+                if let Ok(mut events) = context.ui_events.lock() {
+                    events.extend(events_to_push);
+                }
+            }
+        }
+    }
+
+    /// Renders every `Entropy.UI.createTab`/`addon.UI.createTab` tab as a plain, generic
+    /// full-window layout: a tab-bar strip along the top (only shown once there's more than one
+    /// tab) plus the active tab's content filling the rest of the window. This is the
+    /// non-Studio counterpart to `render_ui`'s floating windows - Studio itself renders the same
+    /// `ui_tabs` data inside its own `DockArea` (see `render_egui.rs`) instead of calling this.
+    pub fn render_tabs(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
+        // 0. Reset widget counter in JS (same bookkeeping as render_ui).
+        {
+            let scope = &mut self.runtime.handle_scope();
+            let global = scope.get_current_context().global(scope);
+            let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+            if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                if entropy_val.is_object() {
+                    let entropy_obj = entropy_val.to_object(scope).unwrap();
+                    let reset_key = v8::String::new(scope, "_reset_widget_counter").unwrap();
+                    if let Some(reset_val) = entropy_obj.get(scope, reset_key.into()) {
+                        if reset_val.is_function() {
+                            let reset_func = v8::Local::<v8::Function>::try_from(reset_val).unwrap();
+                            let _ = reset_func.call(scope, entropy_obj.into(), &[]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 1. Snapshot the tab list (in creation order) and resolve/default the active tab.
+        let (tabs, active_tab): (Vec<(String, String)>, Option<String>) = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.tab_order.retain(|id| context.ui_tabs.contains_key(id));
+                let tabs: Vec<(String, String)> = context.tab_order.iter()
+                    .filter_map(|id| context.ui_tabs.get(id).map(|(cfg, _, _)| (id.clone(), cfg.title.clone())))
+                    .collect();
+                if context.active_tab.as_ref().map_or(true, |id| !context.ui_tabs.contains_key(id)) {
+                    context.active_tab = tabs.first().map(|(id, _)| id.clone());
+                }
+                (tabs, context.active_tab.clone())
+            } else {
+                (Vec::new(), None)
+            }
+        };
+
+        if tabs.is_empty() {
+            return;
+        }
+
+        // 2. Tab bar - only worth showing once there's something to switch between.
+        if tabs.len() > 1 {
+            egui::TopBottomPanel::top("entropy_embedded_tab_bar").show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    for (id, title) in &tabs {
+                        let selected = active_tab.as_deref() == Some(id.as_str());
+                        if ui.selectable_label(selected, title).clicked() {
+                            let mut op_state = self.runtime.op_state();
+                            let mut op_state = op_state.borrow_mut();
+                            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                                context.active_tab = Some(id.clone());
+                            }
+                        }
+                    }
+                });
+            });
+        }
+
+        let Some(active_id) = active_tab else { return };
+
+        // 3. Run the active tab's JS onRender callback to (re)populate its widgets.
+        let callback = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.ui_tabs.get(&active_id).map(|(_, cb, _)| cb.clone())
+            } else {
+                None
+            }
+        };
+
+        if let Some(cb) = callback {
+            let scope = &mut self.runtime.handle_scope();
+            let tc = &mut v8::TryCatch::new(scope);
+            let func = v8::Local::new(tc, cb);
+            let receiver = v8::undefined(tc);
+            let _ = func.call(tc, receiver.into(), &[]);
+            if tc.has_caught() {
+                if let Some(exception) = tc.exception() {
+                    let msg = exception.to_rust_string_lossy(tc);
+                    println!("[ADDON UI ERROR] {}", msg);
+                }
+                tc.reset();
+            }
+        }
+
+        // 4. Draw the populated widgets, filling the rest of the window.
+        let mut events_to_push = Vec::new();
+        {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                let widgets = context.ui_widgets.remove(&active_id);
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        if let Some(widgets) = widgets {
+                            Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                        }
+                    });
+                });
+            }
+        }
+
         // Push events
         if !events_to_push.is_empty() {
             let op_state = self.runtime.op_state();
