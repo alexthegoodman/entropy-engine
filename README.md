@@ -96,6 +96,12 @@ Namespaces on the global `Entropy` object (most are also available scoped to you
 
 ## Examples
 
+Check out the example DAW in isolation:
+
+```bash
+cargo run --bin example_daw --release
+```
+
 | Example | What it shows |
 |---|---|
 | [Entropy Studio](#entropy-studio) | The full reference editor — every namespace above, in one app |
