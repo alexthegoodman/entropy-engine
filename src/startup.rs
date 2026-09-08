@@ -458,9 +458,12 @@ impl ApplicationHandler<UserEvent> for Application {
             None => return,
         };
 
-        if !window.game_mode {
-            let _ = window.gui.state.on_window_event(&window.window, &event);
-        }
+        // Always feed raw input to egui: addon-authored UI (Entropy.UI.createWindow/Widget.*)
+        // needs it regardless of game_mode, same as render_ui in pipeline.rs. Downstream game
+        // input handling below doesn't depend on this call or its (discarded) consumed result,
+        // so this is safe for actual games too - it just means addon UI can now also react to
+        // input during gameplay.
+        let _ = window.gui.state.on_window_event(&window.window, &event);
 
         match event {
             WindowEvent::Resized(size) => {
