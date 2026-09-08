@@ -3,7 +3,7 @@
 This file is the standing brief for any Claude Code session generating content for
 **Indie Machine**, a Rust-centric coding blog covering complex applications:
 graphics programming (wgpu), immediate-mode UI, systems design, and novel
-crate/tool integrations. Read this file in full before starting any post.
+crate/tool integrations. Read this file in full before starting any post. You can find existing posts in `/posts/`.
 
 ---
 
