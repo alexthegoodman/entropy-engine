@@ -941,6 +941,39 @@ globalThis.Entropy = {
     Noise: noiseAPI,
     Texture: textureAPI,
     Lighting: globalContextualAPI.Lighting,
+    // Not exposed before. `addon.Model.*` (scoped, defined further down inside
+    // `Addon.register`) tags meshes with the registering addon's own name via `getAddonName()`,
+    // which render_addon_frame.rs's addon_models filter then drops unless it equals "Global" or
+    // the Studio-chrome-only `current_workspace`'s active addon (same pattern already fixed for
+    // Lighting above). Under EntropyApp/game_mode, current_workspace never becomes
+    // Workspace::Addon(...), so scoped-API meshes were being silently skipped at render time
+    // with no error. Unlike Landscape/Particles/Lighting, `Model` was never generalized into
+    // `createAddonContextualAPI` in the first place - so this is a standalone minimal
+    // implementation (just the two ops createWaterMesh actually needs) tagging "Global", not a
+    // reuse of that factory.
+    Model: {
+        createMesh: (config) => {
+            ops.op_mesh_create(globalThis.__entropy_current_addon_context_override || "Global", {
+                id: config.id || null,
+                position: config.position || [0, 0, 0],
+                rotation: config.rotation || [0, 0, 0],
+                scale: config.scale || [1, 1, 1],
+                vertexData: config.vertexData || [],
+                indexData: config.indexData || [],
+                pipelineId: config.pipelineId,
+                render_role: config.renderRole || null,
+                instanceCount: config.instanceCount || 1,
+                bindings: config.bindings || [],
+                behaviorId: config.behaviorId || null,
+                yumonId: config.yumonId || null,
+                isNpc: config.isNpc || null,
+                player: config.player || null
+            });
+        },
+        clearMesh: (meshId) => {
+            ops.op_mesh_clear(globalThis.__entropy_current_addon_context_override || "Global", meshId);
+        }
+    },
     Audio: audioAPI,
     println: (msg) => {
         ops.op_println(String(msg));

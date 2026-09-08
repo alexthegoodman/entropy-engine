@@ -1259,6 +1259,8 @@ addon.onInit(async () => {
         ]
     });
 
+    Entropy.println("🌊 FFT Ocean: Init resources");
+
     // for debugging the capillary noise on a cube mesh
     // let materialPipeline = createMaterialPipeline();
     
@@ -1289,68 +1291,179 @@ addon.onInit(async () => {
         }
     }
 
+    Entropy.println("🌊 FFT Ocean: gen spectrum");
+
     // // Generate initial spectrum
     generateInitialSpectrum();
 
+    Entropy.println("🌊 FFT Ocean: create tex placeholder foam");
+
+    // Eager preview so the ocean renders immediately without waiting on Studio's project
+    // system. `Entropy.Composer` is always defined (addon_setup.js registers it as a generic
+    // registry regardless of host), so it can't be used to detect "running under EntropyApp" -
+    // the actual gap is that nothing ever calls `onProjectChanged` outside Studio's own
+    // project-management addon, so the real foam PBR maps (loaded there via Texture.load,
+    // which reads a per-project textures/ dir and errors "Project id not set" without a
+    // project_id) never arrive. Texture.create doesn't touch the filesystem, so a 1x1 white
+    // placeholder works everywhere; Studio's later onProjectChanged call safely re-creates the
+    // same mesh id with the real maps once they're loaded.
+    // const placeholderFoam = Entropy.Texture.create(1, 1, new Uint8Array([255, 255, 255, 255]));
+
+    // Entropy.println("🌊 FFT Ocean: create mesh");
+
+    // textures.foamColor = placeholderFoam;
+    // textures.foamNormal = placeholderFoam;
+    // textures.foamRoughness = placeholderFoam;
+    // textures.foamOpacity = placeholderFoam;
+    // createWaterMesh("fft_ocean_preview", addonState.currentParams);
+
+    // The vertex shader adds `water_config.ocean_size.y` (= oceanHeight, -150 by default) as a
+    // world-space Y offset (see WATER_RENDER_SHADER's vs_main: `world_pos.y += water_config.ocean_size.y`),
+    // so the mesh actually sits 150 units below this app's default camera (y=0.5, looking
+    // horizontally along -Z per pipeline.rs's EntropyApp default) - entirely out of frame, with
+    // nothing else in the scene, hence a black window. Studio's default project scenes place a
+    // landscape and camera that already account for the offset; a bare EntropyApp embed doesn't,
+    // so point the camera at the water plane directly for this standalone preview.
+    Entropy.println("🌊 FFT Ocean: Set camera");
+
+    Entropy.Camera.setTransform(
+        [0, addonState.currentParams.oceanHeight + 45, 220],
+        [0, addonState.currentParams.oceanHeight, 0]
+    );
+
     // to test if water is active 2000 seconds in
     // updateOcean(2000);
-    
+
     // // Create water mesh (preview)
     // createWaterMesh("fft_ocean_preview", addonState.currentParams);
 
-    // Atmospheric lighting
-    addon.Lighting.createPointLight({
+    Entropy.println("🌊 FFT Ocean: Point lights");
+
+    // Atmospheric lighting. Deliberately `Entropy.Lighting` (top-level), not `addon.Lighting`:
+    // the deferred lighting pass (render_addon_frame.rs) only pulls a light into the frame when
+    // its owning addon name is "Global" or matches `pipeline.current_workspace`'s active addon -
+    // and `current_workspace` is only ever set by Studio's own side-launcher click handler
+    // (render_egui.rs), which never runs under EntropyApp/game_mode. `addon.Lighting.*` tags
+    // lights with this addon's own name ("FFT Ocean"), which then never matches either
+    // condition outside Studio, so those lights get silently dropped and the water renders
+    // pure black regardless of camera or gbuffer content. `Entropy.Lighting.*` tags as "Global"
+    // by default, which the filter always accepts.
+    Entropy.Lighting.createPointLight({
         position: [-3.0, 4.0, 65.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
         maxDistance: 350.0
     });
 
-    addon.Lighting.createPointLight({
+    Entropy.Lighting.createPointLight({
         position: [3.0, 4.0, 10.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
         maxDistance: 350.0
     });
 
-    addon.Lighting.createPointLight({
+    Entropy.Lighting.createPointLight({
         position: [0.0, 5.0, -60.0],
         color: [0.9, 0.9, 0.9],
         intensity: 8.0,
         maxDistance: 350.0
     });
+
+    addon.Model.createProcedural({
+        type: "cube",
+        pipelineId: "default",
+        parameters: {
+            position: [-2.0, 5.0, 0.0],
+            scale: [1.0, 1.0, 1.0]
+        }
+    });
+    
+
+    Entropy.println("🌊 FFT Ocean: Setup UI" + JSON.stringify(addonState));
     
     // Setup UI
     setupUI();
 
-    addon.onProjectChanged((newProjectId) => {
-        const data = addon.IO.load();
-        if (data) {
-            addonState = { ...addonState, ...data };
-            if (Entropy.Composer) {
-                addonState.savedComponents.forEach(comp => {
-                    Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
-                });
-            }
+    // addon.onProjectChanged((newProjectId) => {
+    //     Entropy.println("🚨 onProjectChanged FIRED: " + newProjectId); // TEMP DIAGNOSTIC
+    //     const data = addon.IO.load();
+    //     if (data) {
+    //         addonState = { ...addonState, ...data };
+    //         if (Entropy.Composer) {
+    //             addonState.savedComponents.forEach(comp => {
+    //                 Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+    //             });
+    //         }
 
-            // Load PBR foam textures (must load after selecting project)
-            textures.foamColor = addon.Texture.load("Foam002_2K-PNG_Color.png");
-            textures.foamNormal = addon.Texture.load("Foam002_2K-PNG_NormalGL.png");
-            textures.foamRoughness = addon.Texture.load("Foam002_2K-PNG_Roughness.png");
-            textures.foamOpacity = addon.Texture.load("Foam002_2K-PNG_Opacity.png");
+    //         // Load PBR foam textures (must load after selecting project)
+    //         textures.foamColor = addon.Texture.load("Foam002_2K-PNG_Color.png");
+    //         textures.foamNormal = addon.Texture.load("Foam002_2K-PNG_NormalGL.png");
+    //         textures.foamRoughness = addon.Texture.load("Foam002_2K-PNG_Roughness.png");
+    //         textures.foamOpacity = addon.Texture.load("Foam002_2K-PNG_Opacity.png");
 
-            Entropy.println("🌊 FFT Ocean: textures loaded");
+    //         Entropy.println("🌊 FFT Ocean: textures loaded");
 
-            createWaterMesh("fft_ocean_preview", addonState.currentParams);
-        }
-    });
+    //         createWaterMesh("fft_ocean_preview", addonState.currentParams);
+    //     }
+    // });
 
-    // Register update loop
+    // const data = addon.IO.load();
+    // if (data) {
+    //     addonState = { ...addonState, ...data };
+    // }
+
+    if (Entropy.Composer) {
+        addonState.savedComponents.forEach(comp => {
+            Entropy.Composer!.registerComponent(addonInfo.name, comp.id, comp.name, comp.params);
+        });
+    }
+
+    Entropy.println("🌊 FFT Ocean: load tex");
+
+    // Load PBR foam textures (must load after selecting project)
+    // textures.foamColor = addon.Texture.load("Foam002_2K-PNG_Color.png");
+    // textures.foamNormal = addon.Texture.load("Foam002_2K-PNG_NormalGL.png");
+    // textures.foamRoughness = addon.Texture.load("Foam002_2K-PNG_Roughness.png");
+    // textures.foamOpacity = addon.Texture.load("Foam002_2K-PNG_Opacity.png");
+
+    // fs_main does `foam_blend = foam_opacity` then mixes the water color toward
+    // `foam_albedo` by that blend - so an opaque (255) opacity placeholder would wash the whole
+    // ocean out solid white. Zero-alpha for opacity specifically keeps foam_blend at 0, so the
+    // real shallow/medium/deep water colors show through; color/normal/roughness placeholders
+    // are inert whenever blend is 0, so a flat white for those is fine.
+    const placeholderFoam = Entropy.Texture.create(1, 1, new Uint8Array([255, 255, 255, 255]));
+    const placeholderFoamOpacity = Entropy.Texture.create(1, 1, new Uint8Array([0, 0, 0, 0]));
+
+    textures.foamColor = placeholderFoam;
+    textures.foamNormal = placeholderFoam;
+    textures.foamRoughness = placeholderFoam;
+    textures.foamOpacity = placeholderFoamOpacity;
+
+    Entropy.println("🌊 FFT Ocean: textures loaded");
+
+    createWaterMesh("fft_ocean_preview", addonState.currentParams);
+
+    // Register update loop. `addon.onUpdate` keys its callback under this addon's own name
+    // ("FFT Ocean"), which only matches `current_addon_name` in Studio once its tab is the
+    // focused workspace (see render_addon_frame.rs's `Workspace::Addon` check). Outside that -
+    // including the whole EntropyApp/game_mode path, which never sets a workspace -
+    // `current_addon_name` defaults to "Global", so an extra `onUpdatePlus("Global", ...)`
+    // registration is needed for the ocean to actually animate there (same pattern as the
+    // `Entropy.Lighting.createPointLight` fix above, and the existing "Game Composer" hook
+    // below).
     addon.onUpdate((time) => {
+        // Entropy.println("🌊 FFT Ocean: update main");
         updateOcean(time);
     });
 
+    addon.onUpdatePlus("Global", (time) => {
+        // Entropy.println("🌊 FFT Ocean: update global");
+        updateOcean(time);
+    });
+
+    // for Studio example
     addon.onUpdatePlus("Game Composer", (time) => {
+        // Entropy.println("🌊 FFT Ocean: update composer");
         (globalThis as any).__entropy_current_addon_context_override = "Game Composer";
         updateOcean(time);
         (globalThis as any).__entropy_current_addon_context_override = null;
@@ -1660,8 +1773,13 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
         10.0, 1.6, 0.40, 0.55
     ]
     
-    addon.Model.clearMesh(id);
-    addon.Model.createMesh({
+    // Entropy.Model (not addon.Model): the render filter in render_addon_frame.rs only shows
+    // an addon's models when tagged "Global" or the addon is Studio's current active workspace
+    // tab - under EntropyApp that's never true, and even in Studio it's only true while this
+    // specific tab happens to be focused. "Global" is always allowed either way, so this is the
+    // one tag that actually makes sense for a mesh a Composer-driven scene instance owns.
+    Entropy.Model.clearMesh(id);
+    Entropy.Model.createMesh({
         id: id,
         position: pos,
         scale: scale,
@@ -1690,9 +1808,16 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
 }
 
 function setupUI() {
-    const tab = addon.UI.createTab({
+    // `addon.UI.createTab` (render_tabs in addon_engine.rs) fills the *entire* window with an
+    // opaque CentralPanel - fine in Studio where it docks into one pane of the chrome, but under
+    // EntropyApp/game_mode there's no docking host, so it was covering the whole 3D viewport.
+    // `Entropy.UI.createWindow` (render_ui) is a real floating window instead - same Widget.*
+    // API, but sized/positioned so the ocean renders behind it.
+    const win = Entropy.UI.createWindow({
         title: "FFT Ocean",
-        onRender: () => renderUI(tab)
+        width: 340,
+        height: 420,
+        onRender: () => renderUI(win)
     });
 }
 

@@ -60,6 +60,8 @@ use crate::game_ui::quest_ui;
 use crate::procedural_particles::particle_system::{ParticleSystem, ParticleUniforms};
 
 pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::TextureView>, current_time: f64, viewport_rect: Option<[f32; 4]>) {
+        // println!("render_addon_frame {:?}", viewport_rect);
+        
         let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get RendererState");
         let gpu_resources = pipeline
@@ -225,6 +227,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         };
 
         if !needs_viewport {
+            // println!("noo");
             return;
         }
 
@@ -540,7 +543,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             let gbuffer_albedo_view = pipeline.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = pipeline.g_buffer_pbr_material_view.as_ref().unwrap();
 
-            let clear_color = wgpu::Color::BLACK;
+            let clear_color = wgpu::Color::RED;
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Addon PBR Geometry Pass"),
@@ -1422,6 +1425,8 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
 
         // 1.5 Procedural Sky Pass
             {
+                // println!("go sky pass");
+
                 let mut sky_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Addon Procedural Sky Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {

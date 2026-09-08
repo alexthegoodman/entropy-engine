@@ -485,7 +485,7 @@ pub fn render_frame(pipeline: &mut EntropyPipeline, target_view: Option<&wgpu::T
             let gbuffer_albedo_view = pipeline.g_buffer_albedo_view.as_ref().unwrap();
             let gbuffer_pbr_material_view = pipeline.g_buffer_pbr_material_view.as_ref().unwrap();
 
-            let clear_color = wgpu::Color::BLACK;
+            let clear_color = wgpu::Color::BLUE;
 
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Geometry Pass"),

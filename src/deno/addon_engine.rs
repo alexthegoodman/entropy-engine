@@ -1418,21 +1418,22 @@ impl AddonEngine {
         //     context.on_update_callbacks.clone()
         // };
 
-        // make sure to only update the current addon
+        // make sure to only update the current addon. This used to also require
+        // `context.project_id.is_some()`, which meant onUpdate callbacks never ran at all under
+        // EntropyApp (project_id is always None there - see app.rs) - not a Studio-specific
+        // guard, just dead weight left over from when this engine only ever ran inside Studio's
+        // own project system. The name filter below is the actual "only the current addon"
+        // check; project_id has nothing to do with which addon is current.
         let callbacks = {
             let state = self.runtime.op_state();
             let state = state.borrow();
             let context = state.borrow::<AddonContext>();
-            if context.project_id.is_some() {
-                context
-                    .on_update_callbacks
-                    .iter()
-                    .filter(|(name, _)| name == &current_addon_name)
-                    .cloned()
-                    .collect::<Vec<_>>()
-            } else {
-                Vec::new()
-            }
+            context
+                .on_update_callbacks
+                .iter()
+                .filter(|(name, _)| name == &current_addon_name)
+                .cloned()
+                .collect::<Vec<_>>()
         };
 
         for (addon_name, callback) in callbacks {

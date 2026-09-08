@@ -838,6 +838,28 @@ export interface EntropyAPI {
     create: (config: { size: number; usage?: BufferUsage }) => string;
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
   };
+  Model: {
+    createMesh: (config: { 
+        id?: string | null;
+        position: number[];
+        rotation?: number[];
+        scale?: number[];
+        vertexData: number[]; 
+        indexData: number[]; 
+        pipelineId: string; 
+        renderRole?: string;
+        instanceCount?: number;
+        bindings?: BindingConfig[];
+        behaviorId?: string;
+        yumonId?: string;
+        isNpc?: boolean;
+        player?: {
+            modelId?: string;
+            defaultWeaponId?: string;
+        };
+    }) => void;
+    clearMesh: (meshId: string) => void;
+  };
   Landscape: {
     create: (config: LandscapeConfig) => string;
   };
