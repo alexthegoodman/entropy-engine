@@ -44,19 +44,193 @@ This only works because the real `egui` crate is gone from `Cargo.toml` - no nam
 
 ## What's actually different under the alias
 
-The alias makes the migration look invisible from the call sites, but the implementation underneath is not a clone of egui - it diverges in a few deliberate places:
+The alias makes the migration look invisible from the call sites, but the implementation underneath is not a clone of egui - it diverges in a few deliberate places. All of the following is copied verbatim from `src/entropy_gui/` at `885bb6a`, not reconstructed from memory.
 
-**Single-pass, not two-phase.** egui's own docs describe the real integration loop: `ctx.run(raw_input, |ctx| {...})` produces a `FullOutput`, and tessellation into triangles happens as a *separate* step - `ctx.tessellate(full_output.shapes, pixels_per_point)`. That two-phase split exists so egui can do things like defer layout by a frame (the `Grid` widget uses `Context::request_discard` to hide first-frame misplacement). `entropy_gui` doesn't need any of that - one frame per redraw, no cross-frame shape retention. Widgets tessellate straight into a per-frame draw list as they're called; `ctx.tessellate()` is kept only as a thin, signature-compatible adapter so `pipeline.rs`'s call site didn't need touching.
+**Single-pass, not two-phase.** egui's own docs describe the real integration loop: `ctx.run(raw_input, |ctx| {...})` produces a `FullOutput`, and tessellation into triangles happens as a *separate* step - `ctx.tessellate(full_output.shapes, pixels_per_point)`. That two-phase split exists so egui can do things like defer layout by a frame (the `Grid` widget uses `Context::request_discard` to hide first-frame misplacement). `entropy_gui` doesn't need any of that - one frame per redraw, no cross-frame shape retention. `context.rs` keeps the two calls signature-compatible but collapses them to bookends around an already-populated draw list:
 
-**`Id` is a hashed `u64`, not `Uuid`.** Deliberate divergence from the engine's dominant `Uuid` convention elsewhere. Widget ids need to be a deterministic function of a label/parent-path (via `.with()`-style salting) so the same logical widget resolves to the same id across frames - that's what `Memory` lookups (scroll offset, open/closed state, drag state, text-edit cursor) key off of. A random id would break all of that.
+```rust
+// src/entropy_gui/context.rs
+pub fn run(&self, raw_input: RawInput, add_contents: impl FnOnce(&Context)) -> FullOutput {
+    self.begin_frame(raw_input);
+    add_contents(self);
+    self.end_frame()
+}
 
-**`Memory` is a closed enum, not `Any`-boxed.** `WidgetState` is `ScrollOffset | Open | Drag | TextEdit | WindowRect` - the full stateful-widget set was known from the API catalog up front, so there's no speculative `Any`-boxed generic store to maintain.
+/// Signature-compatible adapter for the old `ctx.tessellate(shapes, ppp)` call site -
+/// geometry is already tessellated into the draw list by the time this is called, so
+/// this just drains it.
+pub fn tessellate(&self, _shapes: (), _pixels_per_point: f32) -> Vec<crate::entropy_gui::draw_list::DrawCommand> {
+    std::mem::take(&mut self.0.borrow_mut().draw_list).commands
+}
+```
 
-**Docking is a hand-rolled arena tree that copies egui_dock's actual shape.** I pulled egui_dock 0.18's own docs rather than going from memory: it represents docking as a binary tree where internal nodes are `Split` (storing a fraction) and terminal nodes are `Leaf` (holding tabs), addressed via `NodeIndex`. `entropy_gui`'s `dock/tree.rs` reimplements exactly that shape - `Node::{Leaf{tabs,...}, Split{fraction,...}}`, `NodeIndex(usize)` - and preserves an already-reverse-engineered semantic from the old `render_egui.rs`: the split `fraction` is always the *first* child's share (left for horizontal splits, top for vertical), regardless of whether the call was `split_left`, `split_right`, or `split_below`. Get that backwards and the app's already-tuned split ratios silently break. The source comment in `dock/tree.rs` calls this out explicitly so it doesn't read as an inconsistency later.
+Note `FullOutput.shapes` is typed `()` - a placeholder that exists purely so `ctx.tessellate(full_output.shapes, ...)` still compiles at the old call site. There's nothing to hand back; by the time `run()` returns, every widget called during `add_contents` has already pushed triangles straight into `ContextInner::draw_list` via `Painter::push` (below). `tessellate()` doesn't tessellate anything - it just takes the list.
 
-**Clipping is scissor-rect based**, matching the engine's existing convention elsewhere (`render_addon_frame.rs`'s `set_scissor_rect` calls) rather than shader-based per-vertex clipping - one less clipping model in the codebase, not two.
+**`Id` is a hashed `u64`, not `Uuid`.** Deliberate divergence from the engine's dominant `Uuid` convention elsewhere. Widget ids need to be a deterministic function of a label/parent-path so the same logical widget resolves to the same id across frames - that's what `Memory` lookups (scroll offset, open/closed state, drag state, text-edit cursor) key off of:
+
+```rust
+// src/entropy_gui/id.rs
+impl Id {
+    pub fn new(source: impl Hash) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        0xE7_u64.hash(&mut hasher); // fixed seed so Id::new("") != a bare zero hash
+        source.hash(&mut hasher);
+        Id(hasher.finish())
+    }
+
+    pub fn with(&self, child: impl Hash) -> Self {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.0.hash(&mut hasher);
+        child.hash(&mut hasher);
+        Id(hasher.finish())
+    }
+}
+```
+
+`Id::new("side_panel").with("save_button")` produces the same `u64` every frame that path is walked. A `Uuid::new_v4()` generated fresh per call would not - every frame's button would look like a brand-new widget to `Memory`, and scroll offsets/open-state/drag-state would reset constantly.
+
+**`Memory` is a closed enum, not `Any`-boxed.** The full stateful-widget set was known from the API catalog before any of this got written, so there's no speculative generic store:
+
+```rust
+// src/entropy_gui/memory.rs
+#[derive(Clone, Debug)]
+pub enum WidgetState {
+    ScrollOffset(Vec2),
+    Open(bool),
+    TextEdit(TextEditState),
+    WindowRect(Rect),
+    PanelWidth(f32),
+}
+
+pub struct Memory {
+    data: IdMap<WidgetState>,
+    pub focused: Option<Id>,
+    // ...
+}
+
+impl Memory {
+    pub fn get_open(&self, id: Id, default: bool) -> bool {
+        match self.data.get(&id) {
+            Some(WidgetState::Open(b)) => *b,
+            _ => default,
+        }
+    }
+    pub fn set_open(&mut self, id: Id, open: bool) {
+        self.data.insert(id, WidgetState::Open(open));
+    }
+}
+```
+
+Every stateful widget in the kit follows that same `get_x(id, default)` / `set_x(id, value)` shape against one `IdMap<WidgetState>` - a `CollapsingHeader` calling `get_open`/`set_open` is doing the exact same lookup a `ScrollArea` does for `get_scroll`/`set_scroll`, just against a different enum variant.
+
+**Docking is a hand-rolled arena tree that copies egui_dock's actual shape.** I pulled egui_dock 0.18's own docs rather than going from memory: it represents docking as a binary tree where internal nodes are `Split` (storing a fraction) and terminal nodes are `Leaf` (holding tabs), addressed via `NodeIndex`. `entropy_gui`'s `dock/tree.rs` reimplements exactly that shape:
+
+```rust
+// src/entropy_gui/dock/tree.rs
+pub enum Node<Tab> {
+    Leaf { tabs: Vec<Tab>, active: usize },
+    Split { fraction: f32, orientation: Orientation, children: [NodeIndex; 2] },
+}
+
+/// `fraction` is always the *first* child's share (spatially first: left for horizontal
+/// splits, top for vertical), regardless of which side receives the new tabs - this is a
+/// real egui_dock semantic the app already depends on (see the comment in
+/// `src/core/render_egui.rs` next to its `split_right` call), so it must be preserved
+/// exactly: get it backwards and the app's already-tuned split fractions silently break.
+fn split(&mut self, target: NodeIndex, orientation: Orientation, fraction: f32, new_tabs: Vec<Tab>, new_first: bool) -> [NodeIndex; 2] {
+    let old_node = std::mem::replace(&mut self.nodes[target.0], Node::Leaf { tabs: Vec::new(), active: 0 });
+    let old_idx = NodeIndex(self.nodes.len());
+    self.nodes.push(old_node);
+    let new_idx = NodeIndex(self.nodes.len());
+    self.nodes.push(Node::Leaf { tabs: new_tabs, active: 0 });
+
+    let children = if new_first { [new_idx, old_idx] } else { [old_idx, new_idx] };
+    self.nodes[target.0] = Node::Split { fraction, orientation, children };
+    children
+}
+```
+
+`split_left`/`split_right`/`split_above`/`split_below` are one-line wrappers around `split()` that differ only in `orientation` and `new_first` - `split_left` passes `new_first: true` (the new leaf becomes the spatially-first child, so `fraction` correctly reads as "the new leaf's share"), `split_right` passes `false` (the *old* leaf stays first, so the same `fraction` now means "the old content's share" - same field, opposite meaning, which is exactly the semantic the source comment is warning future editors about).
+
+**Clipping is scissor-rect based**, matching the engine's existing convention elsewhere (`render_addon_frame.rs`'s `set_scissor_rect` calls) rather than shader-based per-vertex clipping. In practice this means clip rects are just data riding along on `Painter`, intersected as you nest into child regions, and read back out by the renderer per draw call:
+
+```rust
+// src/entropy_gui/painter.rs
+pub fn with_clip_rect(&self, clip_rect: Rect) -> Painter {
+    Painter { ctx: self.ctx.clone(), clip_rect: self.clip_rect.intersect(clip_rect), target: self.target }
+}
+
+fn push(&self, texture: DrawTexture, vertices: Vec<Vertex>, indices: Vec<u32>) {
+    if vertices.is_empty() || indices.is_empty() {
+        return;
+    }
+    let mut inner = self.ctx.inner_mut();
+    let list = match self.target {
+        DrawTarget::Main => &mut inner.draw_list,
+        DrawTarget::Overlay => &mut inner.overlay_draw_list,
+    };
+    list.push(self.clip_rect, texture, vertices, indices);
+}
+```
+
+No shader branch ever asks "is this pixel inside the rect" - `self.clip_rect` just rides along with every vertex batch into `DrawList`, and the wgpu backend turns it into an actual `set_scissor_rect` call at draw time. One clipping model in the codebase, not two.
 
 **Glyph atlas is shared and evicting.** The old per-widget atlas in `text_due.rs` was a non-evicting shelf packer - fine for a handful of large text blocks, not fine for a GUI with dozens of small widgets sharing space. `entropy_gui` adds `etagere = "0.2"` and ports the fontdue rasterization logic from `text_due.rs` almost verbatim, re-keyed to one shared cache.
+
+**The Slate theme is just data, not a rendering path.** Every color a widget draws with comes from one function that builds a `Style`:
+
+```rust
+// src/entropy_gui/style.rs
+pub fn slate_style() -> Style {
+    let bg = Color32::from_rgb(0x14, 0x14, 0x14);
+    let surface = Color32::from_rgb(0x1B, 0x1B, 0x1B);
+    let surface_2 = Color32::from_rgb(0x22, 0x22, 0x22);
+    let border = Color32::from_rgb(0x2C, 0x2C, 0x2C);
+    let text = Color32::from_rgb(0xEC, 0xEC, 0xEC);
+    let accent = Color32::from_rgb(0x3F, 0xD1, 0xC4);
+
+    let mut style = Style::default();
+    style.visuals = Visuals {
+        dark_mode: true,
+        override_text_color: Some(text),
+        widgets: Widgets {
+            inactive: WidgetVisuals {
+                bg_fill: surface,
+                weak_bg_fill: surface,
+                bg_stroke: Stroke::new(1.0, border),
+                corner_radius: CornerRadius::same(6),
+                fg_stroke: Stroke::new(1.0, text),
+                expansion: 0.0,
+            },
+            hovered: WidgetVisuals {
+                bg_fill: surface_2,
+                weak_bg_fill: surface_2,
+                bg_stroke: Stroke::new(1.0, accent),
+                corner_radius: CornerRadius::same(6),
+                fg_stroke: Stroke::new(1.0, Color32::WHITE),
+                expansion: 0.5,
+            },
+            active: WidgetVisuals {
+                bg_fill: accent.linear_multiply(0.9),
+                weak_bg_fill: accent.linear_multiply(0.16),
+                bg_stroke: Stroke::new(1.0, accent),
+                corner_radius: CornerRadius::same(6),
+                fg_stroke: Stroke::new(1.0, Color32::WHITE),
+                expansion: 0.5,
+            },
+            /* noninteractive, open: same shape, omitted here for length */
+        },
+        window_corner_radius: CornerRadius::same(6),
+        panel_fill: bg,
+        hyperlink_color: accent,
+        /* remaining Visuals fields omitted for length */
+    };
+    /* style.spacing assignment omitted for length */
+    style
+}
+```
+
+Five `WidgetVisuals` states (`noninteractive`/`inactive`/`hovered`/`active`/`open`), each a plain struct of fill/stroke/corner-radius/expansion. Nothing in `painter.rs` or the widgets knows the word "Slate" - a widget just asks its `Ui` for the current `WidgetVisuals` for its interaction state and draws with those fields. Retheming the whole app is writing a different function with this same shape, not touching render code.
 
 ## Evidence
 
