@@ -707,6 +707,9 @@ var foam_roughness_texture: texture_2d<f32>;
 @group(3) @binding(8)
 var foam_opacity_texture: texture_2d<f32>;
 
+@group(3) @binding(9)
+var ripple_texture: texture_2d<f32>;   // x: height, y: dHdx, z: dHdz - added on top of the FFT field
+
 // ===== STRUCTS =====
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -741,16 +744,20 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     // Sample displacement
     let disp_data = textureSampleLevel(displacement_texture, ocean_sampler, uv, 0.0);
     let displacement = disp_data.xyz;
-    
+
+    // Interactive ripples - additive on top of the FFT field, sampled at the same uv
+    let ripple_data = textureSampleLevel(ripple_texture, ocean_sampler, uv, 0.0);
+
     // Apply displacement to vertex
     var world_pos = in.position + displacement;
     world_pos.y += water_config.ocean_size.y; // Ocean height offset
-    
+    world_pos.y += ripple_data.x;
+
     // Compute normal from derivatives
     let deriv_data = textureSampleLevel(derivatives_texture, ocean_sampler, uv, 0.0);
-    let dhdx = deriv_data.x;
-    let dhdz = deriv_data.y;
-    
+    let dhdx = deriv_data.x + ripple_data.y;
+    let dhdz = deriv_data.y + ripple_data.z;
+
     let normal = normalize(vec3<f32>(-dhdx, 1.0, -dhdz));
     
     out.world_position = world_pos;
@@ -1049,6 +1056,154 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 // }
 `;
 
+// ===== INTERACTIVE RIPPLE SHADERS =====
+// Separate from the FFT pipeline above on purpose. The FFT spectrum is a closed loop -
+// it evolves from its own initial spectrum and never reads world state. These four
+// passes are a small from-scratch height-field wave simulation (the classic "GPU water
+// ripples" technique, e.g. Jerry Tessendorf's papers or GPU Gems 1 ch.1) that lives
+// alongside it and gets added into the FFT displacement/normal at sample time.
+
+const RIPPLE_STEP_SHADER = `
+// Explicit leapfrog integration of the 2D wave equation:
+//   h(t+1) = (2*h(t) - h(t-1) + c2 * laplacian(h(t))) * damping
+// c2 must stay below ~0.25 for this 5-point-stencil scheme to stay stable (von Neumann
+// stability analysis for the discrete 2D wave equation) - 0.15 leaves headroom.
+struct RippleStepParams {
+    resolution: f32,
+    damping: f32,
+    c2: f32,
+    padding: f32,
+}
+
+@group(0) @binding(0)
+var curr_tex: texture_2d<f32>;   // h(t) - post-splat if a splat landed this frame
+@group(0) @binding(1)
+var prev_tex: texture_2d<f32>;   // h(t-1)
+@group(0) @binding(2)
+var next_tex: texture_storage_2d<rgba16float, write>;  // h(t+1)
+@group(0) @binding(3)
+var<uniform> params: RippleStepParams;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let N = u32(params.resolution);
+
+    let x_next = (id.x + 1u) % N;
+    let x_prev = select(id.x - 1u, N - 1u, id.x == 0u);
+    let y_next = (id.y + 1u) % N;
+    let y_prev = select(id.y - 1u, N - 1u, id.y == 0u);
+
+    let h_c = textureLoad(curr_tex, vec2<i32>(i32(id.x), i32(id.y)), 0).x;
+    let h_l = textureLoad(curr_tex, vec2<i32>(i32(x_prev), i32(id.y)), 0).x;
+    let h_r = textureLoad(curr_tex, vec2<i32>(i32(x_next), i32(id.y)), 0).x;
+    let h_u = textureLoad(curr_tex, vec2<i32>(i32(id.x), i32(y_prev)), 0).x;
+    let h_d = textureLoad(curr_tex, vec2<i32>(i32(id.x), i32(y_next)), 0).x;
+    let h_p = textureLoad(prev_tex, vec2<i32>(i32(id.x), i32(id.y)), 0).x;
+
+    let laplacian = h_l + h_r + h_u + h_d - 4.0 * h_c;
+    let h_next = (2.0 * h_c - h_p + params.c2 * laplacian) * params.damping;
+
+    textureStore(next_tex, vec2<i32>(id.xy), vec4<f32>(h_next, 0.0, 0.0, 0.0));
+}
+`;
+
+const RIPPLE_SPLAT_SHADER = `
+// Adds a single Gaussian height bump to the ripple field - a click/drag "impulse".
+// Reads from one texture and writes to a different one (never the same resource) so
+// this can run as a plain full-grid pass with no read/write aliasing on the same texel
+// grid other threads may be touching.
+struct SplatParams {
+    resolution: f32,
+    centerU: f32,
+    centerV: f32,
+    radiusUV: f32,
+    strength: f32,
+    padding0: f32,
+    padding1: f32,
+    padding2: f32,
+}
+
+@group(0) @binding(0)
+var src_tex: texture_2d<f32>;
+@group(0) @binding(1)
+var dst_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(2)
+var<uniform> params: SplatParams;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let N = params.resolution;
+    let uv = (vec2<f32>(id.xy) + 0.5) / N;
+
+    let d = distance(uv, vec2<f32>(params.centerU, params.centerV));
+    let falloff = exp(-(d * d) / (2.0 * params.radiusUV * params.radiusUV));
+    let bump = params.strength * falloff;
+
+    let existing = textureLoad(src_tex, vec2<i32>(id.xy), 0).x;
+    textureStore(dst_tex, vec2<i32>(id.xy), vec4<f32>(existing + bump, 0.0, 0.0, 0.0));
+}
+`;
+
+const RIPPLE_RENDERCOPY_SHADER = `
+// Copies the finalized ripple height into the fixed texture the water mesh samples,
+// and derives dHdx/dHdz from neighboring texels at the same time - same finite
+// difference approach DISPLACEMENT_SHADER uses for the FFT height field, so the two
+// can just be added together in the vertex shader.
+struct CopyParams {
+    resolution: f32,
+    texelWorldSize: f32,
+    padding0: f32,
+    padding1: f32,
+}
+
+@group(0) @binding(0)
+var src_tex: texture_2d<f32>;
+@group(0) @binding(1)
+var dst_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(2)
+var<uniform> params: CopyParams;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    let N = u32(params.resolution);
+
+    let x_next = (id.x + 1u) % N;
+    let x_prev = select(id.x - 1u, N - 1u, id.x == 0u);
+    let y_next = (id.y + 1u) % N;
+    let y_prev = select(id.y - 1u, N - 1u, id.y == 0u);
+
+    let h_c = textureLoad(src_tex, vec2<i32>(i32(id.x), i32(id.y)), 0).x;
+    let h_r = textureLoad(src_tex, vec2<i32>(i32(x_next), i32(id.y)), 0).x;
+    let h_l = textureLoad(src_tex, vec2<i32>(i32(x_prev), i32(id.y)), 0).x;
+    let h_d = textureLoad(src_tex, vec2<i32>(i32(id.x), i32(y_next)), 0).x;
+    let h_u = textureLoad(src_tex, vec2<i32>(i32(id.x), i32(y_prev)), 0).x;
+
+    let dhdx = (h_r - h_l) / (2.0 * params.texelWorldSize);
+    let dhdz = (h_d - h_u) / (2.0 * params.texelWorldSize);
+
+    textureStore(dst_tex, vec2<i32>(id.xy), vec4<f32>(h_c, dhdx, dhdz, 0.0));
+}
+`;
+
+const RIPPLE_CLEAR_SHADER = `
+struct ClearParams {
+    resolution: f32,
+    padding0: f32,
+    padding1: f32,
+    padding2: f32,
+}
+
+@group(0) @binding(0)
+var dst_tex: texture_storage_2d<rgba16float, write>;
+@group(0) @binding(1)
+var<uniform> params: ClearParams;
+
+@compute @workgroup_size(8, 8, 1)
+fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+    textureStore(dst_tex, vec2<i32>(id.xy), vec4<f32>(0.0, 0.0, 0.0, 0.0));
+}
+`;
+
 // ===== TYPESCRIPT ADDON =====
 
 interface OceanParams {
@@ -1131,6 +1286,10 @@ let pipelineIds = {
     displacement: null as string | null,
     waterRender: null as string | null,
     glint: null as string | null,
+    rippleStep: null as string | null,
+    rippleSplat: null as string | null,
+    rippleRenderCopy: null as string | null,
+    rippleClear: null as string | null,
 };
 
 let buffers = {
@@ -1152,7 +1311,25 @@ let textures = {
     foamNormal: null as string | null,
     foamRoughness: null as string | null,
     foamOpacity: null as string | null,
+    // Interactive ripples - see "INTERACTIVE RIPPLE SHADERS" above for why this is
+    // 3 ring buffers + 2 splat scratch buffers + 1 fixed render target rather than
+    // just one texture.
+    rippleRing: [null, null, null] as (string | null)[],
+    rippleScratch: [null, null] as (string | null)[],
+    rippleRender: null as string | null,
 };
+
+// Grid resolution for the ripple sim - independent of the FFT's `resolution` param and
+// of the water mesh's own 256 draw-grid; kept equal to the mesh resolution here mostly
+// by coincidence of both being "good enough, cheap enough" defaults.
+const RIPPLE_RESOLUTION = 256;
+const RIPPLE_DAMPING = 0.995;
+const RIPPLE_C2 = 0.15; // must stay below ~0.25 (stability bound for this stencil)
+
+let rippleState = { ringIdx: 0 };
+let pendingSplats: { u: number, v: number, radiusUV: number, strength: number }[] = [];
+let isMouseDown = false;
+let interactivityEnabled = true;
 
 addon.onInit(async () => {
     Entropy.println("🌊 FFT Ocean: onInit started");
@@ -1229,7 +1406,56 @@ addon.onInit(async () => {
             ] }
         ]
     });
-    
+
+    // Interactive ripple pipelines - independent of the FFT pipelines above.
+    pipelineIds.rippleStep = Entropy.Pipeline.createCompute({
+        name: "Ripple_Step",
+        shaderSource: RIPPLE_STEP_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 1, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 2, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 3, visibility: ["Compute"], resourceType: "Uniform" },
+            ]
+        }]
+    });
+
+    pipelineIds.rippleSplat = Entropy.Pipeline.createCompute({
+        name: "Ripple_Splat",
+        shaderSource: RIPPLE_SPLAT_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
+            ]
+        }]
+    });
+
+    pipelineIds.rippleRenderCopy = Entropy.Pipeline.createCompute({
+        name: "Ripple_RenderCopy",
+        shaderSource: RIPPLE_RENDERCOPY_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "TextureNonFilterable" },
+                { binding: 1, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 2, visibility: ["Compute"], resourceType: "Uniform" },
+            ]
+        }]
+    });
+
+    pipelineIds.rippleClear = Entropy.Pipeline.createCompute({
+        name: "Ripple_Clear",
+        shaderSource: RIPPLE_CLEAR_SHADER,
+        bindGroups: [{
+            entries: [
+                { binding: 0, visibility: ["Compute"], resourceType: "StorageTextureRgba16" },
+                { binding: 1, visibility: ["Compute"], resourceType: "Uniform" },
+            ]
+        }]
+    });
+
     // Create water render pipeline
     pipelineIds.waterRender = Entropy.Pipeline.create({
         name: "FFT_Water_Render",
@@ -1250,6 +1476,7 @@ addon.onInit(async () => {
                     { binding: 6, visibility: ["Fragment"], resourceType: "Texture" },
                     { binding: 7, visibility: ["Fragment"], resourceType: "Texture" },
                     { binding: 8, visibility: ["Fragment"], resourceType: "Texture" },
+                    { binding: 9, visibility: ["Vertex", "Fragment"], resourceType: "Texture" },
                 ]
             },
             { entries: [
@@ -1266,7 +1493,8 @@ addon.onInit(async () => {
     
     // Initialize textures and buffers
     initializeResources();
-    
+    clearRipples(); // storage textures aren't guaranteed zero-initialized on creation
+
     // Load saved data
     // const savedData = addon.IO.load();
     // if (savedData) {
@@ -1383,6 +1611,7 @@ addon.onInit(async () => {
     
     // Setup UI
     setupUI();
+    setupInteractivity();
 
     // addon.onProjectChanged((newProjectId) => {
     //     Entropy.println("🚨 onProjectChanged FIRED: " + newProjectId); // TEMP DIAGNOSTIC
@@ -1570,6 +1799,35 @@ function initializeResources() {
     buffers.fftParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
     buffers.glintParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
+
+    // Interactive ripple textures (see the ring-buffer note on `textures` above)
+    for (let i = 0; i < 3; i++) {
+        textures.rippleRing[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+    }
+    for (let i = 0; i < 2; i++) {
+        textures.rippleScratch[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+    }
+    textures.rippleRender = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+}
+
+function clearRipples() {
+    if (!pipelineIds.rippleClear) return;
+    const workgroups = Math.ceil(RIPPLE_RESOLUTION / 8);
+    const params = [RIPPLE_RESOLUTION, 0, 0, 0];
+    const allTargets = [...textures.rippleRing, ...textures.rippleScratch, textures.rippleRender];
+    for (const target of allTargets) {
+        if (!target) continue;
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.rippleClear,
+            groups: [workgroups, workgroups, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "StorageTextureRgba16", value: { id: target } } },
+                { group: 0, binding: 1, resource: { type: "Uniform", value: { data: params } } },
+            ]
+        });
+    }
+    rippleState.ringIdx = 0;
+    pendingSplats = [];
 }
 
 function generateInitialSpectrum() {
@@ -1702,6 +1960,72 @@ function updateOcean(time: number) {
             { group: 0, binding: 3, resource: { type: "Uniform", value: { data: Array.from(outputParams) } } },
         ]
     });
+
+    updateRipples();
+}
+
+function updateRipples() {
+    if (!pipelineIds.rippleStep || !pipelineIds.rippleSplat || !pipelineIds.rippleRenderCopy) return;
+
+    const N = RIPPLE_RESOLUTION;
+    const workgroups = Math.ceil(N / 8);
+
+    const ringIdx = rippleState.ringIdx;
+    const prevIdx = (ringIdx + 2) % 3;
+    const nextIdx = (ringIdx + 1) % 3;
+
+    // Apply at most 2 queued splats per frame via a small ping-pong scratch chain -
+    // more than that in a single frame (~1/120s) is not a realistic input rate for a
+    // mouse, so the rest are dropped rather than queued up.
+    const splats = pendingSplats.splice(0, 2);
+    let currSourceId = textures.rippleRing[ringIdx]!;
+    let scratchSlot = 0;
+    for (const splat of splats) {
+        const dstId = textures.rippleScratch[scratchSlot]!;
+        const splatParams = [
+            N, splat.u, splat.v, splat.radiusUV,
+            splat.strength, 0, 0, 0
+        ];
+        Entropy.Compute.dispatch({
+            pipelineId: pipelineIds.rippleSplat,
+            groups: [workgroups, workgroups, 1],
+            bindings: [
+                { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: currSourceId } } },
+                { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: dstId } } },
+                { group: 0, binding: 2, resource: { type: "Uniform", value: { data: splatParams } } },
+            ]
+        });
+        currSourceId = dstId;
+        scratchSlot = 1 - scratchSlot;
+    }
+
+    // Step: h(t+1) from h(t) [possibly post-splat] and h(t-1)
+    const stepParams = [N, RIPPLE_DAMPING, RIPPLE_C2, 0];
+    Entropy.Compute.dispatch({
+        pipelineId: pipelineIds.rippleStep,
+        groups: [workgroups, workgroups, 1],
+        bindings: [
+            { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: currSourceId } } },
+            { group: 0, binding: 1, resource: { type: "TextureNonFilterable", value: { id: textures.rippleRing[prevIdx]! } } },
+            { group: 0, binding: 2, resource: { type: "StorageTextureRgba16", value: { id: textures.rippleRing[nextIdx]! } } },
+            { group: 0, binding: 3, resource: { type: "Uniform", value: { data: stepParams } } },
+        ]
+    });
+
+    // Copy h(t+1) + derivatives into the fixed texture the water mesh samples
+    const texelWorldSize = addonState.currentParams.oceanSize / N;
+    const copyParams = [N, texelWorldSize, 0, 0];
+    Entropy.Compute.dispatch({
+        pipelineId: pipelineIds.rippleRenderCopy,
+        groups: [workgroups, workgroups, 1],
+        bindings: [
+            { group: 0, binding: 0, resource: { type: "TextureNonFilterable", value: { id: textures.rippleRing[nextIdx]! } } },
+            { group: 0, binding: 1, resource: { type: "StorageTextureRgba16", value: { id: textures.rippleRender! } } },
+            { group: 0, binding: 2, resource: { type: "Uniform", value: { data: copyParams } } },
+        ]
+    });
+
+    rippleState.ringIdx = nextIdx;
 }
 
 function createWaterMesh(id: string, params: OceanParams & { _transform?: { position: [number, number, number], scale: [number, number, number] } }) {
@@ -1799,12 +2123,74 @@ function createWaterMesh(id: string, params: OceanParams & { _transform?: { posi
             { group: 3, binding: 6, resource: { type: "Texture", value: { id: textures.foamNormal! } } },
             { group: 3, binding: 7, resource: { type: "Texture", value: { id: textures.foamRoughness! } } },
             { group: 3, binding: 8, resource: { type: "Texture", value: { id: textures.foamOpacity! } } },
+            { group: 3, binding: 9, resource: { type: "Texture", value: { id: textures.rippleRender! } } },
             { group: 4, binding: 0, resource: { type: "Uniform", value: { data: waterConfig } } },
             { group: 4, binding: 1, resource: { type: "Uniform", value: { data: glintConfig } } },
         ]
     });
     
     Entropy.println(`Created water mesh: ${id} at ${pos}`);
+}
+
+// Casts a screen-space ray (via the engine's real view/proj unprojection,
+// Entropy.Camera.screenToWorldRay) and intersects it with the ocean's horizontal
+// plane at y = oceanHeight. Returns null if the ray points away from the plane
+// (e.g. looking above the horizon).
+function raycastToOceanPlane(screenX: number, screenY: number): [number, number, number] | null {
+    const ray = Entropy.Camera.screenToWorldRay(screenX, screenY);
+    const origin = ray.origin;
+    const direction = ray.direction;
+
+    if (Math.abs(direction[1]) < 1e-6) return null;
+
+    const planeY = addonState.currentParams.oceanHeight;
+    const t = (planeY - origin[1]) / direction[1];
+    if (t < 0) return null;
+
+    return [
+        origin[0] + direction[0] * t,
+        planeY,
+        origin[2] + direction[2] * t
+    ];
+}
+
+function worldToOceanUV(worldX: number, worldZ: number): [number, number] | null {
+    const oceanSize = addonState.currentParams.oceanSize;
+    const u = (worldX + oceanSize / 2) / oceanSize;
+    const v = (worldZ + oceanSize / 2) / oceanSize;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+    return [u, v];
+}
+
+function queueSplatFromScreen(screenX: number, screenY: number, strength: number, radiusWorld: number) {
+    const hit = raycastToOceanPlane(screenX, screenY);
+    if (!hit) return;
+    const uv = worldToOceanUV(hit[0], hit[2]);
+    if (!uv) return;
+    pendingSplats.push({
+        u: uv[0], v: uv[1],
+        radiusUV: radiusWorld / addonState.currentParams.oceanSize,
+        strength
+    });
+}
+
+function setupInteractivity() {
+    Entropy.Input.onMouseDown((button: number, x: number, y: number) => {
+        if (!interactivityEnabled || button !== 0) return; // left click only
+        isMouseDown = true;
+        queueSplatFromScreen(x, y, 4.0, 60.0);
+    });
+
+    Entropy.Input.onMouseUp((_button: number) => {
+        isMouseDown = false;
+    });
+
+    Entropy.Input.onMouseMove((x: number, y: number) => {
+        // Only a "wake" while dragging - not on every hover, or the ocean never
+        // stays still while the mouse is anywhere over the window.
+        if (!interactivityEnabled || !isMouseDown) return;
+        queueSplatFromScreen(x, y, 1.2, 18.0);
+    });
 }
 
 function setupUI() {
@@ -1906,5 +2292,33 @@ function renderUI(tab: string) {
     Entropy.UI.Widget.button(tab, {
         text: "🔄 Regenerate Spectrum",
         onClick: () => generateInitialSpectrum()
+    });
+
+    Entropy.UI.Widget.label(tab, { text: "--------------------------------" });
+
+    Entropy.UI.Widget.label(tab, { text: "🖱️ Interactivity", bold: true });
+    Entropy.UI.Widget.checkbox(tab, {
+        label: "Enable Mouse Ripples",
+        value: interactivityEnabled,
+        onChange: (v: boolean) => { interactivityEnabled = v; }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "💧 Splash Center",
+        onClick: () => {
+            pendingSplats.push({ u: 0.5, v: 0.5, radiusUV: 40 / addonState.currentParams.oceanSize, strength: 5.0 });
+        }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "🎲 Random Ripple",
+        onClick: () => {
+            pendingSplats.push({ u: Math.random(), v: Math.random(), radiusUV: 25 / addonState.currentParams.oceanSize, strength: 3.5 });
+        }
+    });
+
+    Entropy.UI.Widget.button(tab, {
+        text: "🧹 Clear Ripples",
+        onClick: () => clearRipples()
     });
 }
