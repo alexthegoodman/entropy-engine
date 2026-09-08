@@ -1,4 +1,10 @@
-# CLAUDE.md — Indie Machine Blog Pipeline
+# Entropy Engine
+
+Welcome to Entropy Engine. With Entropy, you can create native Rust apps using TypeScript! Check out the README.md for more information.
+
+# Indie Machine Blog Pipeline
+
+In addition to Entropy Engine, we manage a markdown-based blog here in the repo.
 
 This file is the standing brief for any Claude Code session generating content for
 **Indie Machine**, a Rust-centric coding blog covering complex applications:
