@@ -96,10 +96,19 @@ Namespaces on the global `Entropy` object (most are also available scoped to you
 
 ## Examples
 
-Check out the example DAW in isolation:
+Check out some examples in isolation:
 
 ```bash
+cd examples/studio-bundle/
+
+npm run build-daw
 cargo run --bin example_daw --release
+
+npm run build-fft-water
+cargo run --bin example_fft_water --release
+
+npm run build-fft-river
+cargo run --bin example_fft_river --release
 ```
 
 | Example | What it shows |
@@ -121,6 +130,8 @@ cargo run --bin example_daw --release
 Entropy Studio is the reference app built on this framework: a full open-world game editor with a live viewport, docking panels, and every addon in [`examples/studio-bundle`](./examples/studio-bundle) loaded. It's the best way to see the API above in action, and the source of the example addon code linked throughout this README.
 
 ```bash
+cd examples/studio-bundle/
+npm run build
 cargo run --bin editor --release
 ```
 
