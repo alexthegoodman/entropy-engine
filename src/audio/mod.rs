@@ -119,6 +119,13 @@ impl AudioEngine {
         sink.detach();
     }
 
+    /// A `Sink` connected to this engine's mixer, kept undetached so the caller can drive
+    /// it directly (`play`/`pause`/`set_volume`/`stop`) - used by `media_player::MediaPlayer`
+    /// for decoded video audio, unlike the fire-and-forget synth sinks above.
+    pub fn new_sink(&self) -> Sink {
+        Sink::connect_new(self.stream_handle.mixer())
+    }
+
     /// Legacy entry point kept for existing callers; forwards into `play_note`
     /// with a short click-free envelope wrapped around the previous flat-gain behavior.
     pub fn play_synth(&self, freq: f64, waveform: &str, duration: f64, cutoff: f64, gain: f64) {

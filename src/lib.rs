@@ -29,6 +29,8 @@ pub mod helpers;
 pub mod renderer_images;
 pub mod renderer_text;
 pub mod renderer_videos;
+#[cfg(target_os = "windows")]
+pub mod media_player;
 pub mod screen_capture;
 pub mod shape_primitives;
 pub mod vector_animations;

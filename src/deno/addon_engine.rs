@@ -68,7 +68,9 @@ use crate::deno::addon_ops::{
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
     op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create, 
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected, 
-    op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update, op_ui_clear, 
+    op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
+    op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_close, op_video_poll,
+    op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
@@ -163,6 +165,14 @@ extension!(
         op_texture_create_ex,
         op_texture_load,
         op_texture_update,
+        op_video_open,
+        op_video_bind_texture,
+        op_video_play,
+        op_video_pause,
+        op_video_seek,
+        op_video_set_volume,
+        op_video_close,
+        op_video_poll,
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_note,
@@ -484,6 +494,8 @@ impl AddonEngine {
             yumon_instances: HashMap::new(),
             npc_motion_states: HashMap::new(),
             on_action_callbacks: Vec::new(),
+            #[cfg(target_os = "windows")]
+            video_players: HashMap::new(),
         };
         runtime.op_state().borrow_mut().put(context);
 

@@ -1252,14 +1252,55 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
-                        
-                        // Create a temporary bind group for the transform
+
+                        // `model_bind_group_layout` (shared with the PBR/textured-model path) has
+                        // 6 bindings - transform, albedo, sampler, render mode, normal, pbr params
+                        // (see pipeline.rs) - not just the transform. This only ever worked before
+                        // by accident: every prior non-PBR custom pipeline either skipped `layout:
+                        // "mesh"` entirely or had no addon-created mesh reach this loop, so a
+                        // 1-entry bind group against this 6-entry layout never actually got built
+                        // until a `pbr:false` + `layout:"mesh"` custom pipeline exercised it (the
+                        // media player's video quad) - wgpu's create_bind_group validation caught
+                        // the mismatch immediately. Filled the rest with the same fallback
+                        // resources non-textured NPCs/players already use for this same layout
+                        // (`RendererState::create_fallback_material_resources`) - reimplemented as
+                        // a free function here rather than called as a method because this loop
+                        // sits inside an outer `&mut renderer_state.addon_grasses` borrow that a
+                        // `&self` method call on `renderer_state` as a whole would conflict with.
+                        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) =
+                            fallback_material_resources(device, queue);
                         let transform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                             layout: &renderer_state.model_bind_group_layout,
-                            entries: &[wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: mesh.transform.uniform_buffer.as_entire_binding(),
-                            }],
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: mesh.transform.uniform_buffer.as_entire_binding(),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::TextureView(&dummy_albedo),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 2,
+                                    resource: wgpu::BindingResource::Sampler(&dummy_sampler),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 3,
+                                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                        buffer: &renderer_state.regular_texture_render_mode_buffer,
+                                        offset: 0,
+                                        size: None,
+                                    }),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 4,
+                                    resource: wgpu::BindingResource::TextureView(&dummy_normal),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 5,
+                                    resource: wgpu::BindingResource::TextureView(&dummy_pbr),
+                                },
+                            ],
                             label: Some("Mesh Transform Bind Group"),
                         });
                         render_pass.set_bind_group(1, &transform_bind_group, &[]);
@@ -1692,3 +1733,53 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
         let command_buffer = encoder.finish();
         queue.submit(std::iter::once(command_buffer));
     }
+
+/// Same 1x1 placeholder albedo/normal/pbr-params textures + sampler as
+/// `RendererState::create_fallback_material_resources` - duplicated as a free function (see the
+/// call site in the `non_pbr_meshes` loop above) because that loop holds an outer `&mut
+/// renderer_state.addon_grasses` borrow that a `&self` method call on `renderer_state` would
+/// conflict with.
+fn fallback_material_resources(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+) -> (wgpu::Sampler, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
+    let make_placeholder = |label: &str, pixel: [u8; 4]| {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo { texture: &texture, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+            &pixel,
+            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
+            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
+        );
+        texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        })
+    };
+
+    let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+
+    (
+        sampler,
+        make_placeholder("Addon Mesh Fallback Albedo", [255, 255, 255, 255]),
+        make_placeholder("Addon Mesh Fallback Normal", [128, 128, 255, 255]),
+        make_placeholder("Addon Mesh Fallback PBR", [0, 255, 255, 255]),
+    )
+}

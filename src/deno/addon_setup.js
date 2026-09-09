@@ -59,6 +59,21 @@ const textureAPI = {
     load: (filename) => ops.op_texture_load(filename)
 };
 
+// Windows/Media-Foundation only (see src/media_player/mod.rs). `poll` writes decoded frame
+// bytes straight into the texture bound via `bindTexture` on the Rust side - it does not hand
+// frame bytes back to JS, so call it once per `onUpdate` tick rather than trying to read pixels
+// here.
+const videoAPI = {
+    open: (path) => ops.op_video_open(path),
+    bindTexture: (handle, textureId) => ops.op_video_bind_texture(handle, textureId),
+    play: (handle) => ops.op_video_play(handle),
+    pause: (handle) => ops.op_video_pause(handle),
+    seek: (handle, ms) => ops.op_video_seek(handle, ms),
+    setVolume: (handle, volume) => ops.op_video_set_volume(handle, volume),
+    close: (handle) => ops.op_video_close(handle),
+    poll: (handle) => ops.op_video_poll(handle)
+};
+
 const noiseAPI = {
     create: (config) => ops.op_noise_create({
         noiseType: config.type || "fbm",
@@ -990,6 +1005,7 @@ globalThis.Entropy = {
         }
     },
     Audio: audioAPI,
+    Video: videoAPI,
     println: (msg) => {
         ops.op_println(String(msg));
     },

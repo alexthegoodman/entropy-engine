@@ -745,6 +745,8 @@ pub struct AddonContext {
     pub yumon_instances: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_runtime_actions: HashMap<String, YumonActionState>,
     pub yumon_trainers: HashMap<String, crate::yumon::system::BackgroundTrainer>,
+    #[cfg(target_os = "windows")]
+    pub video_players: HashMap<String, VideoPlayerEntry>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1404,6 +1406,160 @@ pub fn op_texture_update(
     } else {
         Err(deno_error::JsErrorBox::generic(format!("Texture not found: {}", texture_id)))
     }
+}
+
+// --- Media player (Windows/Media Foundation) ---
+// See `crate::media_player::MediaPlayer` for the decoder itself. These ops just own a handle
+// table and, on poll, push decoded frame bytes into an addon texture the same way
+// `op_texture_update` does (video-only op_texture_update calls aren't reused directly because
+// the addon would otherwise have to round-trip a full RGBA frame buffer through JS every tick).
+
+#[cfg(target_os = "windows")]
+pub struct VideoPlayerEntry {
+    pub player: crate::media_player::MediaPlayer,
+    pub texture_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoOpenResult {
+    pub handle: String,
+    pub duration_ms: i64,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoPollResult {
+    pub current_time_ms: i64,
+    pub playing: bool,
+}
+
+#[cfg(target_os = "windows")]
+#[op2]
+#[serde]
+pub fn op_video_open(state: &mut OpState, #[string] path: String) -> Result<VideoOpenResult, deno_error::JsErrorBox> {
+    let audio_engine = state.borrow::<AddonContext>().audio_engine.clone();
+
+    let player = crate::media_player::MediaPlayer::open(&path, audio_engine)
+        .map_err(|e| deno_error::JsErrorBox::generic(format!("Failed to open '{}': {:?}", path, e)))?;
+
+    let result = VideoOpenResult {
+        handle: format!("video_{}", Uuid::new_v4()),
+        duration_ms: player.duration_ms(),
+        width: player.width(),
+        height: player.height(),
+        frame_rate: player.frame_rate(),
+    };
+
+    state
+        .borrow_mut::<AddonContext>()
+        .video_players
+        .insert(result.handle.clone(), VideoPlayerEntry { player, texture_id: None });
+
+    Ok(result)
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_bind_texture(state: &mut OpState, #[string] handle: String, #[string] texture_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            entry.texture_id = Some(texture_id);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_play(state: &mut OpState, #[string] handle: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            entry.player.play();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_pause(state: &mut OpState, #[string] handle: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            entry.player.pause();
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_seek(state: &mut OpState, #[string] handle: String, seek_ms: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            if let Err(e) = entry.player.seek(seek_ms as i64) {
+                println!("[media_player] seek failed: {:?}", e);
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_set_volume(state: &mut OpState, #[string] handle: String, volume: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            entry.player.set_volume(volume as f32);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_close(state: &mut OpState, #[string] handle: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.video_players.remove(&handle);
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2]
+#[serde]
+pub fn op_video_poll(state: &mut OpState, #[string] handle: String) -> VideoPollResult {
+    let mut ctx_ref = state.borrow_mut::<AddonContext>();
+    let ctx: &mut AddonContext = &mut ctx_ref;
+
+    let Some(entry) = ctx.video_players.get_mut(&handle) else {
+        return VideoPollResult { current_time_ms: 0, playing: false };
+    };
+
+    let current_time_ms = entry.player.current_time_ms();
+    let playing = entry.player.is_playing();
+    let frame = entry.player.poll_video_frame();
+    let texture_id = entry.texture_id.clone();
+
+    if let (Some(frame), Some(texture_id)) = (frame, texture_id) {
+        if let (Some(gpu), Some(texture)) = (ctx.gpu_resources.as_ref(), ctx.raw_textures.get(&texture_id)) {
+            let size = texture.size();
+            gpu.queue.write_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                &frame,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(4 * size.width),
+                    rows_per_image: None,
+                },
+                size,
+            );
+        }
+    }
+
+    VideoPollResult { current_time_ms, playing }
 }
 
 #[op2]
