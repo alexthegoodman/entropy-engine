@@ -80,7 +80,15 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     let roughness = pbr_material.g;
     let metallic = pbr_material.b;
 
-    let directional_light_dir = normalize(directional_light.position - position);
+    // `directional_light.position` actually holds a direction (see DirectionalLightUniform's
+    // `position: sun_direction` in render_addon_frame.rs) - a real directional light's rays are
+    // parallel everywhere, so this must NOT be treated as a point-light position to subtract the
+    // fragment's world position from. The previous `normalize(directional_light.position -
+    // position)` only looked right for fragments within a few units of world origin (where
+    // `position` is small enough that it doesn't swamp the light vector); anything farther out
+    // - e.g. a landscape spanning hundreds of world units - got an effectively random direction
+    // dominated by `-position`, which reads as "unlit".
+    let directional_light_dir = normalize(directional_light.position);
     // let view_dir = normalize(-position); // Assuming camera is at origin for now or just view direction to surface point
     let view_dir = normalize(camera.view_pos.xyz - position); // proper
     let halfway_dir = normalize(directional_light_dir + view_dir);
