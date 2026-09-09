@@ -64,6 +64,10 @@ pub struct RunConfig {
     pub project_id: Option<String>,
     pub start_addon: Option<String>,
     pub bundle_path: Option<PathBuf>,
+    /// Watch `bundle_path` for changes and reload it into the running addon engine in place,
+    /// preserving engine-side addon state. No effect without a `bundle_path`. See
+    /// `EntropyApp::with_hot_reload`.
+    pub hot_reload: bool,
     pub data_dir: Option<PathBuf>,
     /// Whether to go borderless-fullscreen and hide/lock the cursor on startup, like a typical
     /// game. Independent of `game_mode` (which only controls whether Entropy Studio's editor UI
@@ -114,6 +118,7 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
         config.project_id,
         config.start_addon,
         config.bundle_path,
+        config.hot_reload,
         config.data_dir,
         config.capture_cursor,
         config.window,
@@ -173,6 +178,7 @@ struct Application {
     project_id: Option<String>,
     start_addon: Option<String>,
     bundle_path: Option<PathBuf>,
+    hot_reload: bool,
     data_dir: Option<PathBuf>,
     capture_cursor: bool,
     window_config: WindowConfig,
@@ -188,6 +194,7 @@ impl Application {
         project_id: Option<String>,
         start_addon: Option<String>,
         bundle_path: Option<PathBuf>,
+        hot_reload: bool,
         data_dir: Option<PathBuf>,
         capture_cursor: bool,
         window_config: WindowConfig,
@@ -240,6 +247,7 @@ impl Application {
             project_id,
             start_addon,
             bundle_path,
+            hot_reload,
             data_dir,
             capture_cursor,
             window_config,
@@ -1030,6 +1038,7 @@ impl WindowState {
             game_mode,
             false,
             app.bundle_path.clone(),
+            app.hot_reload,
             app.data_dir.clone(),
         ));
         // End WGPU Initialization

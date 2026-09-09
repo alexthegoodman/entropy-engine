@@ -27,6 +27,8 @@ No project picker, no forced data model. Your addons persist their own data unde
 
 Currently, Entropy has only been tested on Windows machines.
 
+Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://github.com/alexthegoodman/indie-machine), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-08-fft-ocean-water.mdx), [replacing egui with an in-house immediate-mode GUI kit](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-08-replacing-egui-with-entropy-gui.mdx), and [building a Media Foundation-backed media player addon](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-09-entropy-media-player.mdx).
+
 ---
 
 ## Writing Addons

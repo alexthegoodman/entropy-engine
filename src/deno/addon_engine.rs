@@ -231,7 +231,23 @@ extension!(
 pub struct AddonEngine {
     pub runtime: JsRuntime,
     pub project_id: Option<String>,
-    pub dummy_views: Vec<(u32, TextureView)>,  
+    pub dummy_views: Vec<(u32, TextureView)>,
+    /// Bundle file watched for hot reload (set via `enable_hot_reload`), and the mtime it
+    /// had the last time we checked - `None` means hot reload is off (the default: Studio's
+    /// compiled-in `DEFAULT_ADDON_BUNDLE` has no file on disk to watch, and embedders opt in
+    /// explicitly via `EntropyApp::with_hot_reload`).
+    hot_reload_path: Option<PathBuf>,
+    hot_reload_last_mtime: Option<std::time::SystemTime>,
+    /// The most recently observed not-yet-loaded mtime, and when we first saw it - reloaded
+    /// only once that mtime has held for `HOT_RELOAD_DEBOUNCE`. See the comment in
+    /// `check_hot_reload` for why a debounce is needed at all: `deno bundle src.ts > out.js`
+    /// truncates `out.js` before `deno` has written anything, and (confirmed empirically) the
+    /// resulting empty file's mtime can hold steady for well over a frame before the real
+    /// content lands, so a poll-count debounce isn't long enough - this needs wall-clock time.
+    hot_reload_pending: Option<(std::time::SystemTime, std::time::Instant)>,
+    /// Bumped on every reload so each re-execution gets a distinct script name, purely for
+    /// readable stack traces/error messages - `execute_script` doesn't dedupe by name.
+    hot_reload_gen: u32,
 }
 
 const DEFAULT_ADDON_BUNDLE: &str = include_str!("../../examples/studio-bundle/dist/bundle.js");
@@ -502,7 +518,11 @@ impl AddonEngine {
         AddonEngine {
             runtime,
             project_id,
-            dummy_views: Vec::new()
+            dummy_views: Vec::new(),
+            hot_reload_path: None,
+            hot_reload_last_mtime: None,
+            hot_reload_pending: None,
+            hot_reload_gen: 0,
         }
     }
 
@@ -834,6 +854,8 @@ impl AddonEngine {
         current_addon_name: String,
         mut alpha_renderer: Option<&mut crate::alpha::AlphaRenderer>,
     ) {
+        self.check_hot_reload();
+
         // Poll Yumon background trainers
         {
             let mut state = self.runtime.op_state();
@@ -2987,6 +3009,106 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         self.runtime.execute_script(name, source.to_string())?;
         self.run_on_init();
         println!("ALL ADDONS INITIALIZED - RUN CALLBACKS");
+        self.run_on_all_addons_initialized();
+        Ok(())
+    }
+
+    /// Start watching `path` for hot reload - call once, right after the bundle at that path
+    /// has been loaded (e.g. from `load_addon`). Polled from `update()` every frame via
+    /// `check_hot_reload`, comparing mtimes rather than a filesystem watcher: this engine's
+    /// `JsRuntime` isn't `Send`, so it must be driven from the same thread as the render loop
+    /// already polling it every frame anyway - a background `notify` watcher would just be
+    /// another thing to hand a reload signal back across, for no benefit over an mtime check
+    /// that already runs on the right thread.
+    pub fn enable_hot_reload(&mut self, path: PathBuf) {
+        let mtime = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        println!("[AddonEngine] Hot reload watching {:?}", path);
+        self.hot_reload_path = Some(path);
+        self.hot_reload_last_mtime = mtime;
+    }
+
+    /// How long a newly observed mtime must hold steady before we treat the file as done
+    /// being written and actually reload it. See `hot_reload_pending`'s doc comment for why
+    /// this needs to be wall-clock time rather than a fixed number of polls.
+    const HOT_RELOAD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(300);
+
+    /// Poll the watched bundle file (if any) for a newer, since-settled mtime and reload it.
+    fn check_hot_reload(&mut self) {
+        let Some(path) = self.hot_reload_path.clone() else { return };
+        let Ok(meta) = std::fs::metadata(&path) else { return };
+        let Ok(mtime) = meta.modified() else { return };
+
+        if self.hot_reload_last_mtime == Some(mtime) {
+            self.hot_reload_pending = None;
+            return;
+        }
+
+        match self.hot_reload_pending {
+            Some((pending_mtime, since)) if pending_mtime == mtime => {
+                if since.elapsed() < Self::HOT_RELOAD_DEBOUNCE {
+                    return;
+                }
+            }
+            _ => {
+                // First sight of this mtime, or it changed again mid-debounce (another write
+                // still in flight) - (re)start the settle timer and wait for the next poll.
+                self.hot_reload_pending = Some((mtime, std::time::Instant::now()));
+                return;
+            }
+        }
+        self.hot_reload_pending = None;
+
+        // Record the new mtime up front - if the reload below fails (e.g. a syntax error in
+        // the saved file), we don't want to retry every frame against the same broken file.
+        // The next successful save produces a newer mtime and tries again.
+        self.hot_reload_last_mtime = Some(mtime);
+
+        if let Err(e) = self.reload_bundle_from_disk(&path) {
+            eprintln!("[AddonEngine] Hot reload failed: {}", e);
+        }
+    }
+
+    /// Re-execute the bundle at `path` in the *same* running `JsRuntime`, so engine-side
+    /// addon state (GPU buffers, pipelines, meshes - anything reachable from Rust by an
+    /// addon-supplied stable id) survives the reload instead of being torn down and rebuilt.
+    /// Only per-load JS bookkeeping (callback registrations) is cleared first; see the
+    /// `AddonContext` field comments this touches for what's deliberately left alone.
+    fn reload_bundle_from_disk(&mut self, path: &Path) -> Result<(), AnyError> {
+        let source = std::fs::read_to_string(path)?;
+        self.hot_reload_gen += 1;
+
+        {
+            let op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                // Vec-typed callback registries: never drained on their own (unlike
+                // on_init_callbacks/on_all_addons_initialized_callbacks below, which
+                // `run_on_init`/`run_on_all_addons_initialized` already `mem::take` every
+                // call), so leaving these alone would mean the OLD script's onUpdate/
+                // onCleanup/etc. closures keep firing alongside the new ones - most visibly
+                // as onUpdate running the game-logic twice per frame.
+                ctx.registered_addons.clear();
+                ctx.on_cleanup_callbacks.clear();
+                ctx.on_update_callbacks.clear();
+                ctx.on_action_callbacks.clear();
+                ctx.on_project_changed_callbacks.clear();
+                ctx.op_addon_on_all_projects_loaded_callbacks.clear();
+                ctx.tab_order.clear();
+                // Deliberately NOT cleared: resource maps (buffers, pipelines,
+                // compute_pipelines, textures, addon_meshes on RendererState, etc.) and
+                // HashMap-keyed registries (behaviors, ui_windows, ui_tabs, registered_tools)
+                // - the latter self-heal on the new script's re-registration (HashMap insert
+                // overwrites the same key), and the former are exactly the state this reload
+                // is meant to preserve.
+            }
+        }
+
+        let script_name: &'static str =
+            Box::leak(format!("hot_reload_{}", self.hot_reload_gen).into_boxed_str());
+        self.runtime.execute_script(script_name, source)?;
+
+        println!("[AddonEngine] \u{1f525} Hot reloaded bundle from {:?}", path);
+        self.run_on_init();
         self.run_on_all_addons_initialized();
         Ok(())
     }

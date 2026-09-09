@@ -298,6 +298,7 @@ impl EntropyPipeline {
         game_mode: bool,
         is_playing: bool,
         bundle_path: Option<PathBuf>,
+        hot_reload: bool,
         data_dir: Option<PathBuf>,
     ) {
         let mut camera = Camera::new(
@@ -1436,6 +1437,8 @@ impl EntropyPipeline {
         if let Some(path) = &bundle_path {
             if let Err(e) = export_editor.addon_engine.load_addon(path).await {
                 println!("Failed to load custom bundle {:?}: {}", path, e);
+            } else if hot_reload {
+                export_editor.addon_engine.enable_hot_reload(path.clone());
             }
         } else {
             export_editor.addon_engine.load_default_bundle();

@@ -1800,14 +1800,18 @@ function initializeResources() {
     buffers.outputParams = Entropy.Buffer.create({ size: 16, usage: "Uniform" });
     buffers.glintParams = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
 
-    // Interactive ripple textures (see the ring-buffer note on `textures` above)
+    // Interactive ripple textures (see the ring-buffer note on `textures` above). Stable ids
+    // here are what let this accumulated wave state survive a hot reload: onInit runs again
+    // on every reload, and without an id each call would allocate a fresh, zeroed texture -
+    // wiping out whatever ripples were mid-simulation - instead of handing back the same GPU
+    // texture the previous version of this code was already writing into.
     for (let i = 0; i < 3; i++) {
-        textures.rippleRing[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+        textures.rippleRing[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float", `ripple_ring_${i}`);
     }
     for (let i = 0; i < 2; i++) {
-        textures.rippleScratch[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+        textures.rippleScratch[i] = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float", `ripple_scratch_${i}`);
     }
-    textures.rippleRender = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float");
+    textures.rippleRender = Entropy.Texture.createStorage(RIPPLE_RESOLUTION, RIPPLE_RESOLUTION, "Rgba16Float", "ripple_render");
 }
 
 function clearRipples() {

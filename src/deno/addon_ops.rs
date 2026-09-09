@@ -809,6 +809,13 @@ pub struct GizmoState {
 pub struct BufferConfig {
     pub size: u64,
     pub usage: String, // "Uniform", "Storage", "Vertex", "Index"
+    /// Optional stable id. Omit for a fresh, always-new buffer (the historical behavior).
+    /// Pass the same id again - e.g. from `onInit` re-run by a hot reload - and, as long as
+    /// `size` hasn't changed, the *existing* GPU buffer is returned untouched instead of a
+    /// new one being allocated: this is what lets simulation state living in a buffer (e.g.
+    /// an accumulated ripple height field) survive a hot reload rather than resetting to
+    /// zero every time the addon's onInit runs again.
+    pub id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1134,6 +1141,12 @@ pub struct TextureConfig {
     pub height: u32,
     pub format: String, // "Rgba8Unorm", "Rgba32Float", etc.
     pub usage: Vec<String>, // ["Texture", "Storage", "CopyDst", "CopySrc"]
+    /// Optional stable id, same idea as `BufferConfig::id`: re-creating a storage texture
+    /// with the same id (and matching width/height/format) across a hot reload returns the
+    /// existing GPU texture untouched rather than a fresh, zeroed one. This is what a compute
+    /// simulation's ping-pong/ring storage textures (e.g. an accumulated height field) need
+    /// to survive a reload instead of resetting.
+    pub id: Option<String>,
 }
 
 #[op2]
@@ -1144,9 +1157,23 @@ pub fn op_texture_create_ex(
     #[buffer] rgba_data: Option<&[u8]>
 ) -> Result<String, deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
+
+    // Same reuse-by-id rule as op_buffer_create: a hot reload re-running onInit re-creates
+    // this texture with the same id, so hand back the existing GPU texture (and whatever
+    // simulation state a compute pass has accumulated in it) instead of a fresh one. Unlike
+    // buffers we don't re-check width/height/format here - `wgpu::Texture` doesn't expose
+    // them cheaply post-creation - so an addon that changes a texture's dimensions/format
+    // across edits needs a new id (or a full restart) to pick that up; same id + same shape
+    // is the supported case.
+    if let Some(id) = &config.id {
+        if ctx.textures.contains_key(id) {
+            return Ok(id.clone());
+        }
+    }
+
     if let Some(gpu) = &ctx.gpu_resources {
-        let texture_id = format!("tex_{}", Uuid::new_v4());
-        
+        let texture_id = config.id.clone().unwrap_or_else(|| format!("tex_{}", Uuid::new_v4()));
+
         let texture_size = wgpu::Extent3d {
             width: config.width,
             height: config.height,
@@ -2420,7 +2447,9 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
         return Ok("default".to_string());
     }
 
-    let id = format!("pipeline_{}", uuid::Uuid::new_v4());
+    // Deterministic from `name` (see the matching comment in op_compute_pipeline_create) so a
+    // hot-reload rebuild replaces this pipeline in place instead of leaking a new map entry.
+    let id = format!("pipeline_{}", config.name);
     let mut ctx = state.borrow_mut::<AddonContext>();
     
     if let Some(gpu) = &ctx.gpu_resources {
@@ -2858,9 +2887,23 @@ pub fn op_pipeline_create(state: &mut OpState, #[serde] config: PipelineConfig) 
 #[string]
 pub fn op_buffer_create(state: &mut OpState, #[serde] config: BufferConfig) -> Result<String, deno_error::JsErrorBox> {
     let mut ctx = state.borrow_mut::<AddonContext>();
+
+    // A stable id whose buffer already exists at the same size is a hot-reload re-creation
+    // of an existing buffer, not a genuinely new one - keep the existing GPU buffer (and
+    // whatever simulation state is sitting in it) instead of allocating a fresh, zeroed one.
+    // A size mismatch means the addon's own code changed what it wants here, so fall through
+    // and rebuild it - the old contents wouldn't have been meaningful at the new size anyway.
+    if let Some(id) = &config.id {
+        if let Some(existing) = ctx.buffers.get(id) {
+            if existing.size() == config.size {
+                return Ok(id.clone());
+            }
+        }
+    }
+
     if let Some(gpu) = &ctx.gpu_resources {
-        let id = format!("buf_{}", Uuid::new_v4());
-        
+        let id = config.id.clone().unwrap_or_else(|| format!("buf_{}", Uuid::new_v4()));
+
         let mut usage = wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC;
         match config.usage.as_str() {
             "Uniform" => usage |= wgpu::BufferUsages::UNIFORM,
@@ -2910,7 +2953,14 @@ pub fn op_compute_pipeline_create(state: &mut OpState, #[serde] config: ComputeP
     let mut ctx = state.borrow_mut::<AddonContext>();
     if let Some(gpu) = &ctx.gpu_resources {
         let device = &gpu.device;
-        let id = format!("cpipeline_{}", Uuid::new_v4());
+        // Deterministic from `name` rather than a fresh uuid: a hot reload re-running onInit
+        // recreates this pipeline (correctly picking up shader edits, since a pipeline is
+        // just compiled GPU code with no meaningful "contents" to preserve) but at the *same*
+        // key, so `ctx.compute_pipelines.insert` below replaces the old entry instead of
+        // leaking a new one into the map on every reload. Two addons sharing a pipeline name
+        // would collide under this scheme - a pre-existing risk of this being a single global
+        // (not addon-namespaced) map, not something hot reload introduces.
+        let id = format!("cpipeline_{}", config.name);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some(&format!("{} Compute Shader", config.name)),

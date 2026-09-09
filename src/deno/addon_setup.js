@@ -48,13 +48,18 @@ const audioAPI = {
 
 const textureAPI = {
     create: (width, height, data) => ops.op_texture_create(width, height, data),
-    createStorage: (width, height, format = "Rgba32Float") => ops.op_texture_create_ex({
+    // `id`: give a storage texture a stable id and, across a hot reload, re-creating it with
+    // the same id returns the existing GPU texture instead of a fresh zeroed one - this is
+    // what lets a compute simulation's storage-texture state (e.g. a ripple height field)
+    // survive a reload instead of resetting.
+    createStorage: (width, height, format = "Rgba32Float", id = null) => ops.op_texture_create_ex({
         width,
         height,
         format,
-        usage: ["Texture", "Storage", "CopyDst", "CopySrc"]
+        usage: ["Texture", "Storage", "CopyDst", "CopySrc"],
+        id
     }, null),
-    createEx: (config, data = null) => ops.op_texture_create_ex(config, data),
+    createEx: (config, data = null) => ops.op_texture_create_ex({ ...config, id: config.id || null }, data),
     update: (textureId, data) => ops.op_texture_update(textureId, data),
     load: (filename) => ops.op_texture_load(filename)
 };
@@ -87,9 +92,13 @@ const noiseAPI = {
 };
 
 const bufferAPI = {
+    // `id`: give a buffer a stable id and, across a hot reload, re-creating it with the same
+    // id (and the same size) returns the existing GPU buffer instead of a fresh zeroed one -
+    // so simulation state living in it (e.g. a ripple height field) survives the reload.
     create: (config) => ops.op_buffer_create({
         size: BigInt(config.size),
-        usage: config.usage || "Storage"
+        usage: config.usage || "Storage",
+        id: config.id || null
     }),
     write: (bufferId, data, offset = 0) => {
         const bufferData = data instanceof Uint8Array ? data : new Uint8Array(data.buffer || data);

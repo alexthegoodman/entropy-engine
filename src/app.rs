@@ -21,6 +21,7 @@ pub struct EntropyApp {
     window_size: Option<(f64, f64)>,
     window_icon: Option<PathBuf>,
     resizable: Option<bool>,
+    hot_reload: bool,
 }
 
 impl EntropyApp {
@@ -34,6 +35,7 @@ impl EntropyApp {
             window_size: None,
             window_icon: None,
             resizable: None,
+            hot_reload: false,
         }
     }
 
@@ -94,6 +96,17 @@ impl EntropyApp {
         self
     }
 
+    /// Watch `with_bundle`'s file for changes and reload it into the running addon engine in
+    /// place - engine-side state (GPU buffers/pipelines/meshes reachable by a stable id) is
+    /// preserved rather than reset, so e.g. a running simulation keeps its accumulated state
+    /// across a reload. Off by default, and only takes effect when a bundle path is set (there
+    /// is nothing to watch for Studio's compiled-in bundle). Reload itself is triggered by
+    /// re-running `deno bundle` to overwrite that file - this does not bundle for you.
+    pub fn with_hot_reload(mut self, enabled: bool) -> Self {
+        self.hot_reload = enabled;
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
 
@@ -102,6 +115,7 @@ impl EntropyApp {
             project_id: None,
             start_addon: self.start_addon,
             bundle_path: self.bundle_path,
+            hot_reload: self.hot_reload,
             data_dir: Some(data_dir),
             capture_cursor: self.capture_cursor,
             window: crate::startup::WindowConfig {
