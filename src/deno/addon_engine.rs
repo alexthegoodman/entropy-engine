@@ -74,7 +74,7 @@ use crate::deno::addon_ops::{
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
-    op_ui_widget_start_horizontal, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state, 
+    op_ui_widget_start_horizontal, op_ui_set_theme, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
 };
 use crate::game_behaviors::stateful::BehaviorConfig;
@@ -154,6 +154,7 @@ extension!(
         op_ui_widget_start_horizontal,
         op_ui_widget_end_horizontal,
         op_ui_widget_separator,
+        op_ui_set_theme,
         op_addon_save_data,
         op_addon_save_image,
         op_io_list_models,
@@ -461,6 +462,7 @@ impl AddonEngine {
             tab_order: Vec::new(),
             active_tab: None,
             ui_widgets: HashMap::new(),
+            pending_theme: None,
             ui_events: Arc::new(Mutex::new(Vec::new())),
             new_tabs: Vec::new(),
             render_roles: HashMap::new(),
@@ -3264,7 +3266,26 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         }
     }
 
+    /// Applies the theme last set via `Entropy.UI.setTheme(...)`, if any. Re-applied every
+    /// frame (cheap - just builds a `Style` from a handful of `Option<[f32;4]>`s) rather than
+    /// drained, since `Entropy.UI.setTheme` is normally called once from a widget's `onChange`
+    /// and the style needs to stick on every subsequent frame, not just the next one. Called
+    /// from both `render_ui` (Studio's per-viewport path) and `render_tabs` (the generic
+    /// full-window tab bar embedded apps use), since a standalone `EntropyApp` calls only the
+    /// latter.
+    fn apply_pending_theme(&mut self, ctx: &egui::Context) {
+        let theme = {
+            let mut op_state = self.runtime.op_state();
+            let op_state = op_state.borrow();
+            op_state.try_borrow::<AddonContext>().and_then(|c| c.pending_theme.clone())
+        };
+        if let Some(theme) = theme {
+            ctx.set_style(egui::style_from_theme(&theme));
+        }
+    }
+
     pub fn render_ui(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
+        self.apply_pending_theme(ctx);
         // 0. Reset widget counter in JS
         {
             let scope = &mut self.runtime.handle_scope();
@@ -3386,6 +3407,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
     /// non-Studio counterpart to `render_ui`'s floating windows - Studio itself renders the same
     /// `ui_tabs` data inside its own `DockArea` (see `render_egui.rs`) instead of calling this.
     pub fn render_tabs(&mut self, ctx: &egui::Context, egui_renderer: &mut egui_wgpu::Renderer) {
+        self.apply_pending_theme(ctx);
         // 0. Reset widget counter in JS (same bookkeeping as render_ui).
         {
             let scope = &mut self.runtime.handle_scope();

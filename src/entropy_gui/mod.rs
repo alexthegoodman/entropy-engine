@@ -41,7 +41,7 @@ pub use id::{Id, IdMap};
 pub use painter::Painter;
 pub use response::{Response, Sense};
 pub use shape::Shape;
-pub use style::{Selection, Style, Visuals, WidgetVisuals, Widgets};
+pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widgets, slate_style, style_from_theme};
 pub use ui::{InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, ScrollArea, Slider};

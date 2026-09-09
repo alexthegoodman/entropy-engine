@@ -696,6 +696,9 @@ pub struct AddonContext {
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+    /// Set by `op_ui_set_theme`, applied (and left in place, not drained) by `AddonEngine::
+    /// render_ui`/`render_tabs` each frame - see those functions for why it isn't cleared here.
+    pub pending_theme: Option<crate::entropy_gui::style::ThemeDescriptor>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
     /// Stable creation-order list of tab ids, for the generic (non-Studio) full-window tab bar
@@ -2429,6 +2432,17 @@ pub fn op_ui_widget_end_horizontal(state: &mut OpState, #[string] window_id: Str
 pub fn op_ui_widget_separator(state: &mut OpState, #[string] window_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Separator);
+    }
+}
+
+/// `Entropy.UI.setTheme(...)` — stashes the requested theme for `AddonEngine::render_ui`/
+/// `render_tabs` to apply via `ctx.set_style(...)` at the top of the next frame (see those
+/// functions in `addon_engine.rs`). Last call wins; the theme persists across frames until
+/// changed again, so a one-shot dropdown `onChange` is enough to switch it live.
+#[op2]
+pub fn op_ui_set_theme(state: &mut OpState, #[serde] theme: crate::entropy_gui::style::ThemeDescriptor) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_theme = Some(theme);
     }
 }
 

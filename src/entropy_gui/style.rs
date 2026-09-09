@@ -3,6 +3,7 @@
 
 use crate::entropy_gui::color::{Color32, Shadow, Stroke};
 use crate::entropy_gui::geometry::{vec2, CornerRadius, Margin, Vec2};
+use serde::Deserialize;
 
 pub const DEFAULT_FONT_SIZE: f32 = 14.0;
 pub const HEADING_FONT_SIZE: f32 = 18.0;
@@ -166,15 +167,40 @@ impl AsRef<Style> for Style {
     }
 }
 
-/// Bakes in the "Slate" default theme: neutral warm-black surfaces, crisp hairline
-/// borders, one restrained teal accent, compact spacing.
-pub fn slate_style() -> Style {
-    let bg = Color32::from_rgb(0x14, 0x14, 0x14);
-    let surface = Color32::from_rgb(0x1B, 0x1B, 0x1B);
-    let surface_2 = Color32::from_rgb(0x22, 0x22, 0x22);
-    let border = Color32::from_rgb(0x2C, 0x2C, 0x2C);
-    let text = Color32::from_rgb(0xEC, 0xEC, 0xEC);
-    let accent = Color32::from_rgb(0x3F, 0xD1, 0xC4);
+/// Addon-facing theme description (`Entropy.UI.setTheme` in the TS API, see
+/// `src/deno/addon_ops.rs`'s `op_ui_set_theme`) — every field is an override on top of the
+/// "Slate" default, so an addon only has to name the colors/knobs it actually wants to change.
+/// Colors are `[r, g, b, a]` in 0..1, matching the convention `Entropy.UI.Widget.colorInput`
+/// already uses on the JS side.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThemeDescriptor {
+    pub background: Option<[f32; 4]>,
+    pub surface: Option<[f32; 4]>,
+    pub surface_hover: Option<[f32; 4]>,
+    pub border: Option<[f32; 4]>,
+    pub text: Option<[f32; 4]>,
+    pub accent: Option<[f32; 4]>,
+    pub corner_radius: Option<u8>,
+    pub window_corner_radius: Option<u8>,
+    pub item_spacing: Option<f32>,
+    pub button_padding: Option<[f32; 2]>,
+}
+
+/// Builds a full `Style` from a `ThemeDescriptor`, filling in any field the addon didn't
+/// specify with "Slate"'s own default value. This is what both `slate_style()` (an all-defaults
+/// `ThemeDescriptor`) and a live `Entropy.UI.setTheme(...)` call go through.
+pub fn style_from_theme(theme: &ThemeDescriptor) -> Style {
+    let bg = theme.background.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0x14, 0x14, 0x14));
+    let surface = theme.surface.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0x1B, 0x1B, 0x1B));
+    let surface_2 = theme.surface_hover.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0x22, 0x22, 0x22));
+    let border = theme.border.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0x2C, 0x2C, 0x2C));
+    let text = theme.text.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0xEC, 0xEC, 0xEC));
+    let accent = theme.accent.map(Color32::from_rgba_f32).unwrap_or(Color32::from_rgb(0x3F, 0xD1, 0xC4));
+    let corner_radius = CornerRadius::same(theme.corner_radius.unwrap_or(6));
+    let window_corner_radius = CornerRadius::same(theme.window_corner_radius.unwrap_or(theme.corner_radius.unwrap_or(6)));
+    let item_spacing = theme.item_spacing.unwrap_or(8.0);
+    let button_padding = theme.button_padding.map(|p| vec2(p[0], p[1])).unwrap_or(vec2(9.0, 5.0));
 
     let mut style = Style::default();
     style.visuals = Visuals {
@@ -185,7 +211,7 @@ pub fn slate_style() -> Style {
                 bg_fill: bg,
                 weak_bg_fill: bg,
                 bg_stroke: Stroke::new(1.0, border),
-                corner_radius: CornerRadius::same(6),
+                corner_radius,
                 fg_stroke: Stroke::new(1.0, text),
                 expansion: 0.0,
             },
@@ -193,7 +219,7 @@ pub fn slate_style() -> Style {
                 bg_fill: surface,
                 weak_bg_fill: surface,
                 bg_stroke: Stroke::new(1.0, border),
-                corner_radius: CornerRadius::same(6),
+                corner_radius,
                 fg_stroke: Stroke::new(1.0, text),
                 expansion: 0.0,
             },
@@ -201,7 +227,7 @@ pub fn slate_style() -> Style {
                 bg_fill: surface_2,
                 weak_bg_fill: surface_2,
                 bg_stroke: Stroke::new(1.0, accent),
-                corner_radius: CornerRadius::same(6),
+                corner_radius,
                 fg_stroke: Stroke::new(1.0, Color32::WHITE),
                 expansion: 0.5,
             },
@@ -209,7 +235,7 @@ pub fn slate_style() -> Style {
                 bg_fill: accent.linear_multiply(0.9),
                 weak_bg_fill: accent.linear_multiply(0.16),
                 bg_stroke: Stroke::new(1.0, accent),
-                corner_radius: CornerRadius::same(6),
+                corner_radius,
                 fg_stroke: Stroke::new(1.0, Color32::WHITE),
                 expansion: 0.5,
             },
@@ -217,7 +243,7 @@ pub fn slate_style() -> Style {
                 bg_fill: surface_2,
                 weak_bg_fill: surface_2,
                 bg_stroke: Stroke::new(1.0, border),
-                corner_radius: CornerRadius::same(6),
+                corner_radius,
                 fg_stroke: Stroke::new(1.0, text),
                 expansion: 0.0,
             },
@@ -226,7 +252,7 @@ pub fn slate_style() -> Style {
             bg_fill: accent.linear_multiply(0.35),
             stroke: Stroke::new(1.0, accent),
         },
-        window_corner_radius: CornerRadius::same(6),
+        window_corner_radius,
         window_shadow: Shadow { color: Color32::from_black_alpha(100), offset: [0, 4], blur: 18, spread: 0 },
         window_fill: surface,
         window_stroke: Stroke::new(1.0, border),
@@ -237,12 +263,18 @@ pub fn slate_style() -> Style {
         error_fg_color: Color32::from_rgb(230, 90, 90),
     };
     style.spacing = Spacing {
-        item_spacing: vec2(8.0, 8.0),
+        item_spacing: vec2(item_spacing, item_spacing),
         window_margin: Margin::same(12),
-        button_padding: vec2(9.0, 5.0),
+        button_padding,
         indent: 18.0,
         interact_size: vec2(24.0, 22.0),
         scroll_bar_width: 10.0,
     };
     style
+}
+
+/// Bakes in the "Slate" default theme: neutral warm-black surfaces, crisp hairline
+/// borders, one restrained teal accent, compact spacing.
+pub fn slate_style() -> Style {
+    style_from_theme(&ThemeDescriptor::default())
 }

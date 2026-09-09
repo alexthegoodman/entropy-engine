@@ -373,6 +373,7 @@ export interface ScopedAPI {
     drawText: (config: UITextConfig) => void;
     clear: () => void;
     selectDialogueOption: (index: number) => void;
+    setTheme: (theme: ThemeConfig) => void;
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;
@@ -523,6 +524,22 @@ export interface ColorInputConfig {
     label: string;
     color: number[];
     onChange?: (color: number[]) => void;
+}
+
+// Every field is optional - only name the colors/knobs you want to change, the rest fall back
+// to the "Slate" default theme (see `style_from_theme` in src/entropy_gui/style.rs). Colors are
+// [r, g, b, a] in 0..1, same convention as ColorInputConfig.
+export interface ThemeConfig {
+    background?: [number, number, number, number];
+    surface?: [number, number, number, number];
+    surfaceHover?: [number, number, number, number];
+    border?: [number, number, number, number];
+    text?: [number, number, number, number];
+    accent?: [number, number, number, number];
+    cornerRadius?: number;
+    windowCornerRadius?: number;
+    itemSpacing?: number;
+    buttonPadding?: [number, number];
 }
 
 export interface SliderConfig {
@@ -795,6 +812,7 @@ export interface EntropyAPI {
     drawRect: (config: UIRectConfig) => void;
     drawText: (config: UITextConfig) => void;
     clear: () => void;
+    setTheme: (theme: ThemeConfig) => void;
     Widget: {
       label: (windowId: string, config: LabelConfig) => void;
       button: (windowId: string, config: ButtonConfig) => void;

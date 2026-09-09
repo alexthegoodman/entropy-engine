@@ -658,6 +658,13 @@ globalThis.Entropy = {
         miniMap: (windowId, config) => {
             globalThis.Entropy.UI.Widget.miniMap(windowId, config);
         },
+        // Every field is optional - an addon only names the colors/knobs it wants to change,
+        // and anything omitted falls back to the "Slate" default (see `style_from_theme` in
+        // src/entropy_gui/style.rs). Colors are [r, g, b, a] in 0..1, same convention as
+        // Widget.colorInput. Applies live and persists until the next setTheme call.
+        setTheme: (theme) => {
+            ops.op_ui_set_theme(theme || {});
+        },
         Widget: {
             label: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
