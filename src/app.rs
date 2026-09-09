@@ -17,6 +17,10 @@ pub struct EntropyApp {
     bundle_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     capture_cursor: bool,
+    window_title: Option<String>,
+    window_size: Option<(f64, f64)>,
+    window_icon: Option<PathBuf>,
+    resizable: Option<bool>,
 }
 
 impl EntropyApp {
@@ -26,6 +30,10 @@ impl EntropyApp {
             bundle_path: None,
             data_dir: None,
             capture_cursor: false,
+            window_title: None,
+            window_size: None,
+            window_icon: None,
+            resizable: None,
         }
     }
 
@@ -59,6 +67,33 @@ impl EntropyApp {
         self
     }
 
+    /// Set the OS window title. Defaults to "Entropy Engine" if not set - every embedder will
+    /// want their own app name here.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.window_title = Some(title.into());
+        self
+    }
+
+    /// Set the initial window size in logical pixels. Defaults to 1200x768.
+    pub fn with_window_size(mut self, width: f64, height: f64) -> Self {
+        self.window_size = Some((width, height));
+        self
+    }
+
+    /// Set the OS window/taskbar icon from an image file (PNG, ICO, etc - anything the `image`
+    /// crate can decode). A bad path is logged at startup and the app continues without a
+    /// custom icon rather than aborting over a cosmetic asset.
+    pub fn with_window_icon(mut self, path: impl Into<PathBuf>) -> Self {
+        self.window_icon = Some(path.into());
+        self
+    }
+
+    /// Whether the user can resize the window. Defaults to `true`.
+    pub fn with_resizable(mut self, resizable: bool) -> Self {
+        self.resizable = Some(resizable);
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
 
@@ -69,6 +104,12 @@ impl EntropyApp {
             bundle_path: self.bundle_path,
             data_dir: Some(data_dir),
             capture_cursor: self.capture_cursor,
+            window: crate::startup::WindowConfig {
+                title: self.window_title,
+                size: self.window_size,
+                icon_path: self.window_icon,
+                resizable: self.resizable,
+            },
         })
     }
 }

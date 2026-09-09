@@ -70,6 +70,21 @@ pub struct RunConfig {
     /// is built) — defaults to `false` so embedded apps get a normal windowed cursor unless they
     /// opt in.
     pub capture_cursor: bool,
+    /// OS window chrome (title/size/icon/resizable). Defaults to Entropy Studio's own
+    /// placeholder values when left unset - see [`WindowConfig`].
+    pub window: WindowConfig,
+}
+
+/// OS window chrome, configurable by embedders via `EntropyApp::with_title`/`with_window_size`/
+/// `with_window_icon`/`with_resizable`. Every field is optional and falls back to Entropy
+/// Studio's own defaults (title "Entropy Engine", 1200x768, resizable, no custom icon) so
+/// existing callers of `run`/`run_game` are unaffected.
+#[derive(Default, Clone)]
+pub struct WindowConfig {
+    pub title: Option<String>,
+    pub size: Option<(f64, f64)>,
+    pub icon_path: Option<PathBuf>,
+    pub resizable: Option<bool>,
 }
 
 pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
@@ -101,6 +116,7 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
         config.bundle_path,
         config.data_dir,
         config.capture_cursor,
+        config.window,
     );
 
     event_loop.run_app(&mut state).map_err(Into::into)
@@ -159,6 +175,7 @@ struct Application {
     bundle_path: Option<PathBuf>,
     data_dir: Option<PathBuf>,
     capture_cursor: bool,
+    window_config: WindowConfig,
     project_loaded: bool,
     mouse_pressed: bool,
     gilrs: Option<Gilrs>,
@@ -173,6 +190,7 @@ impl Application {
         bundle_path: Option<PathBuf>,
         data_dir: Option<PathBuf>,
         capture_cursor: bool,
+        window_config: WindowConfig,
     ) -> Self {
         // SAFETY: we drop the context right before the event loop is stopped, thus making it safe.
         // #[cfg(not(any(android_platform, ios_platform)))]
@@ -224,6 +242,7 @@ impl Application {
             bundle_path,
             data_dir,
             capture_cursor,
+            window_config,
             project_loaded: false,
             mouse_pressed: false,
             gilrs
@@ -237,12 +256,23 @@ impl Application {
     ) -> Result<WindowId, Box<dyn Error>> {
         // TODO read-out activation token.
 
+        let title = self.window_config.title.as_deref().unwrap_or("Entropy Engine");
+        let (width, height) = self.window_config.size.unwrap_or((1200.0, 768.0));
+        let resizable = self.window_config.resizable.unwrap_or(true);
+
         #[allow(unused_mut)]
         let mut window_attributes = Window::default_attributes()
-            .with_title("Entropy Engine")
+            .with_title(title)
             .with_transparent(false)
-            .with_inner_size(PhysicalSize::new(1200.0, 768.0));
-            // .with_window_icon(Some(self.icon.clone()));
+            .with_inner_size(PhysicalSize::new(width, height))
+            .with_resizable(resizable);
+
+        if let Some(icon_path) = &self.window_config.icon_path {
+            match load_icon_from_path(icon_path) {
+                Ok(icon) => window_attributes = window_attributes.with_window_icon(Some(icon)),
+                Err(err) => error!("Failed to load window icon from {icon_path:?}: {err}"),
+            }
+        }
 
         #[cfg(any(x11_platform, wayland_platform))]
         if let Some(token) = event_loop.read_token_from_env() {
@@ -1587,6 +1617,21 @@ fn load_icon(bytes: &[u8]) -> Icon {
         (rgba, width, height)
     };
     Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to open icon")
+}
+
+/// Load a window icon from an embedder-supplied path (any format the `image` crate decodes -
+/// PNG, ICO, etc). Fallible, unlike [`load_icon`]: a bad icon path is a cosmetic problem, not a
+/// reason to abort startup, so callers log and continue without a custom icon on error.
+fn load_icon_from_path(path: &std::path::Path) -> Result<Icon, Box<dyn Error>> {
+    // Taskbar/titlebar icons don't need to be large, and an embedder's source image (a logo,
+    // a marketing asset) is rarely already a small square - downscale rather than require them
+    // to pre-process it themselves.
+    const ICON_SIZE: u32 = 64;
+    let image = image::open(path)?
+        .resize_exact(ICON_SIZE, ICON_SIZE, image::imageops::FilterType::Lanczos3)
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    Ok(Icon::from_rgba(image.into_raw(), width, height)?)
 }
 
 fn modifiers_to_string(mods: ModifiersState) -> String {
