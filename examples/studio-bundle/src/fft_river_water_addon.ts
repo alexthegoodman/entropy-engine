@@ -840,6 +840,11 @@ function createRiverMesh(id: string) {
     if (!pipelineIds.waterRender) return;
 
     const segments = 160;
+    // Cross-channel subdivision. With only 2 (xLeft/xRight), displacement/normals are
+    // sampled at the banks and lerped across each of the 160 length-wise quads, which
+    // bakes a faceted band into every quad row - always oriented across-channel, so it
+    // visually fights the actual downstream wave motion.
+    const widthSegments = 8;
     const waterHalfWidth = CHANNEL_HALF_WIDTH * 0.85; // stay inside the carved flat zone so banks show at the edges
 
     const vertices: number[] = [];
@@ -848,18 +853,25 @@ function createRiverMesh(id: string) {
     for (let i = 0; i <= segments; i++) {
         const worldZ = -FIELD_SIZE / 2 + (i / segments) * FIELD_SIZE;
         const cx = channelCenterX(worldZ);
-        const xLeft = cx - waterHalfWidth;
-        const xRight = cx + waterHalfWidth;
         const v = i / segments;
 
-        vertices.push(xLeft, 0, worldZ,   0, 1, 0,   0, v,   1, 1, 1, 1);
-        vertices.push(xRight, 0, worldZ,  0, 1, 0,   1, v,   1, 1, 1, 1);
+        for (let j = 0; j <= widthSegments; j++) {
+            const u = j / widthSegments;
+            const worldX = cx - waterHalfWidth + u * (2 * waterHalfWidth);
+            vertices.push(worldX, 0, worldZ,   0, 1, 0,   u, v,   1, 1, 1, 1);
+        }
     }
 
+    const rowStride = widthSegments + 1;
     for (let i = 0; i < segments; i++) {
-        const a = i * 2, b = a + 1, c = a + 2, d = a + 3;
-        indices.push(a, c, b);
-        indices.push(b, c, d);
+        for (let j = 0; j < widthSegments; j++) {
+            const a = i * rowStride + j;
+            const b = a + 1;
+            const c = a + rowStride;
+            const d = c + 1;
+            indices.push(a, c, b);
+            indices.push(b, c, d);
+        }
     }
 
     const waterConfig = [
