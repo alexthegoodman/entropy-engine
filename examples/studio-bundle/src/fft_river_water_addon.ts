@@ -9,7 +9,17 @@
 // This is a fresh, standalone file - NOT a modification of fft_water_addon.ts,
 // fft_river_addon.ts, or gpgpu_river_addon.ts. Those two river files are
 // separate, unverified experiments and are left untouched.
+//
+// Landscape heightfield: uses createNoise2D (simplex-noise) seeded through
+// Alea, the same combination flexnoise_v2.ts's FlexNoise terrain addon uses,
+// instead of the flat single-slope bank ramp this file started with. The
+// channel carve (flat floor out to CHANNEL_HALF_WIDTH, then a ramp across
+// BANK_WIDTH) is kept exactly as before so the water channel is unaffected -
+// only what the ramp blends *into* changed, from a flat plateau to fbm noise.
 // ============================================================================
+
+import { createNoise2D } from 'simplex-noise';
+import Alea from 'alea';
 
 // ===== COMPUTE SHADERS (spectrum init/update, FFT, displacement - adapted from fft_water_addon.ts) =====
 
@@ -521,17 +531,43 @@ const LANDSCAPE_RES = 256;       // heightmap grid resolution
 const LANDSCAPE_SCALE = 40.0;    // vertical scale (world units) applied to normalized heights
 const LANDSCAPE_BASE_Y = -20.0;  // world Y of the landscape's lowest point (the channel floor)
 const CHANNEL_HALF_WIDTH = 18.0; // half-width of the flat channel floor, world units
-const BANK_WIDTH = 30.0;         // distance over which the bank ramps up from floor to full height
+const BANK_WIDTH = 30.0;         // distance over which the bank ramps up from floor into the noise terrain
 const MEANDER_AMPLITUDE = 45.0;  // how far the channel wanders left/right, world units
 const MEANDER_WAVELENGTH = 260.0; // world-Z distance per full meander cycle
 const WATER_DEPTH = 4.0;         // water surface sits this far above the channel floor
 const WATER_Y = LANDSCAPE_BASE_Y + WATER_DEPTH;
 
+// ----- Terrain noise (fbm via simplex-noise's createNoise2D, seeded through Alea) -----
+const TERRAIN_SEED = 1337;
+const TERRAIN_FREQUENCY = 0.006;
+const TERRAIN_OCTAVES = 5;
+const TERRAIN_PERSISTENCE = 0.5;
+const TERRAIN_LACUNARITY = 2.0;
+
 function channelCenterX(worldZ: number): number {
     return MEANDER_AMPLITUDE * Math.sin((2 * Math.PI * (worldZ + FIELD_SIZE / 2)) / MEANDER_WAVELENGTH);
 }
 
+function fbm2D(noise2D: (x: number, y: number) => number, x: number, y: number, octaves: number, frequency: number, persistence: number, lacunarity: number): number {
+    let total = 0;
+    let amplitude = 1;
+    let maxValue = 0;
+    let freq = frequency;
+
+    for (let i = 0; i < octaves; i++) {
+        total += noise2D(x * freq, y * freq) * amplitude;
+        maxValue += amplitude;
+        amplitude *= persistence;
+        freq *= lacunarity;
+    }
+
+    return total / maxValue; // [-1, 1]
+}
+
 function buildChannelHeights(): number[] {
+    const prng = Alea(TERRAIN_SEED);
+    const noise2D = createNoise2D(prng);
+
     const heights = new Array(LANDSCAPE_RES * LANDSCAPE_RES);
     for (let row = 0; row < LANDSCAPE_RES; row++) {
         const worldZ = (row / LANDSCAPE_RES) * FIELD_SIZE - FIELD_SIZE / 2;
@@ -539,16 +575,99 @@ function buildChannelHeights(): number[] {
         for (let col = 0; col < LANDSCAPE_RES; col++) {
             const worldX = (col / LANDSCAPE_RES) * FIELD_SIZE - FIELD_SIZE / 2;
             const d = Math.abs(worldX - cx);
+
             let h: number;
             if (d <= CHANNEL_HALF_WIDTH) {
+                // Flat channel floor - unchanged from the original carve, this is what
+                // keeps the water channel a clean, flat bed for the FFT ribbon to sit in.
                 h = 0.0;
             } else {
-                h = Math.min(1.0, (d - CHANNEL_HALF_WIDTH) / BANK_WIDTH);
+                const terrainHeight = (fbm2D(noise2D, worldX, worldZ, TERRAIN_OCTAVES, TERRAIN_FREQUENCY, TERRAIN_PERSISTENCE, TERRAIN_LACUNARITY) + 1) / 2;
+                const bankT = Math.min(1.0, (d - CHANNEL_HALF_WIDTH) / BANK_WIDTH);
+                // Ramp from the flat bank edge (0) into the noise-driven terrain (bankT=1
+                // at BANK_WIDTH and beyond), so the banks blend smoothly into rolling
+                // terrain instead of a flat plateau at height 1.
+                h = bankT * terrainHeight;
             }
             heights[row * LANDSCAPE_RES + col] = h;
         }
     }
     return heights;
+}
+
+// ----- Landscape PBR texture -----
+// A simple procedural ground texture (grass/dirt diffuse + bump normal + flat
+// AO/roughness/metallic), generated and applied the same way
+// pbr_texture_designer_addon.ts's generateTextures()/generatePBRTextures() do
+// (Texture.create per map, then Landscape.updateTexture/updatePbrTexture) but
+// without that addon's pattern-library/Composer machinery - this river addon
+// just needs one static ground look, not an editable material.
+const PBR_TEXTURE_RES = 256;
+
+function applyLandscapePBR(): void {
+    const prng = Alea(TERRAIN_SEED + 1); // distinct stream from the heightfield noise
+    const noise2D = createNoise2D(prng);
+
+    const res = PBR_TEXTURE_RES;
+    const diffData = new Uint8Array(res * res * 4);
+    const norData = new Uint8Array(res * res * 4);
+    const armData = new Uint8Array(res * res * 4);
+
+    const dirtColor = [0.34, 0.26, 0.17];
+    const grassColor = [0.22, 0.38, 0.14];
+
+    // Height field sampled at texel resolution, reused both for the diffuse
+    // grass/dirt blend and (via finite differences) the normal map's bump.
+    const heightAt = (x: number, y: number) => fbm2D(noise2D, x, y, 4, 0.06, 0.5, 2.0);
+    const heightMap = new Float32Array(res * res);
+    for (let y = 0; y < res; y++) {
+        for (let x = 0; x < res; x++) {
+            heightMap[y * res + x] = heightAt(x, y);
+        }
+    }
+
+    for (let y = 0; y < res; y++) {
+        for (let x = 0; x < res; x++) {
+            const idx = (y * res + x) * 4;
+            const h = heightMap[y * res + x]; // [-1, 1]
+
+            // Blend dirt -> grass with the same noise field driving the bump,
+            // so patchier/rockier ground reads visually lower and duller.
+            const grassT = Math.max(0, Math.min(1, h * 0.5 + 0.55));
+            diffData[idx]     = Math.round((dirtColor[0] + (grassColor[0] - dirtColor[0]) * grassT) * 255);
+            diffData[idx + 1] = Math.round((dirtColor[1] + (grassColor[1] - dirtColor[1]) * grassT) * 255);
+            diffData[idx + 2] = Math.round((dirtColor[2] + (grassColor[2] - dirtColor[2]) * grassT) * 255);
+            diffData[idx + 3] = 255;
+
+            const hL = heightMap[y * res + Math.max(0, x - 1)];
+            const hR = heightMap[y * res + Math.min(res - 1, x + 1)];
+            const hU = heightMap[Math.max(0, y - 1) * res + x];
+            const hD = heightMap[Math.min(res - 1, y + 1) * res + x];
+            const normalStrength = 1.5;
+            const nx = (hL - hR) * normalStrength;
+            const ny = (hU - hD) * normalStrength;
+            const nz = 1.0;
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            norData[idx]     = Math.round((nx / len * 0.5 + 0.5) * 255);
+            norData[idx + 1] = Math.round((ny / len * 0.5 + 0.5) * 255);
+            norData[idx + 2] = Math.round((nz / len * 0.5 + 0.5) * 255);
+            norData[idx + 3] = 255;
+
+            // AO/Roughness/Metallic: mild AO in low spots, uniformly rough, non-metal.
+            armData[idx]     = Math.round(200 + grassT * 55); // AO
+            armData[idx + 1] = Math.round(230);                // roughness
+            armData[idx + 2] = 0;                               // metallic
+            armData[idx + 3] = 255;
+        }
+    }
+
+    const diffId = Entropy.Texture.create(res, res, diffData);
+    const norId = Entropy.Texture.create(res, res, norData);
+    const armId = Entropy.Texture.create(res, res, armData);
+
+    Entropy.Landscape.updateTexture(diffId, "Primary");
+    Entropy.Landscape.updatePbrTexture(norId, "Normal", "Primary");
+    Entropy.Landscape.updatePbrTexture(armId, "AORoughnessMetallic", "Primary");
 }
 
 interface RiverParams {
@@ -858,6 +977,7 @@ addon.onInit(async () => {
         size: FIELD_SIZE,
         scale: LANDSCAPE_SCALE,
     });
+    applyLandscapePBR();
 
     Entropy.println("River: spectrum + camera + lights");
     generateInitialSpectrum();
@@ -866,6 +986,12 @@ addon.onInit(async () => {
         [110, WATER_Y + 90, -260],
         [0, WATER_Y, -60]
     );
+
+    // Shift + left-drag orbits the camera around the river; shift + right-drag
+    // dollies in/out. One call - see Entropy.Controls in addon_setup.js for the
+    // shared implementation every addon can opt into instead of hand-wiring
+    // Input.onMouseDown/Move/Up + isShiftPressed() itself.
+    Entropy.Controls.enable("orbit", { target: [0, WATER_Y, -60] });
 
     // The terrain uses the default PBR geometry pipeline, which (unlike the self-lit
     // WATER_RENDER_SHADER above) depends on the deferred lighting pass's ambient/sun term -

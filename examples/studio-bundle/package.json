@@ -20,6 +20,7 @@
     "build": "deno bundle src/index.ts > dist/bundle.js",
     "build-daw": "deno bundle src/daw_synth_addon.ts > dist/daw.js",
     "build-fft-water": "deno bundle src/fft_water_addon.ts > dist/fft_water.js",
+    "build-fft-river": "deno bundle src/fft_river_water_addon.ts > dist/fft_river.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },

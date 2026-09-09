@@ -701,6 +701,24 @@ export interface Ray {
   direction: [number, number, number];
 }
 
+export interface ControlsOptions {
+  /** Modifier that must be held for a drag to move the camera. Default "shift". */
+  trigger?: "shift" | "ctrl" | "alt" | "always";
+  /** Mouse button (0 left/1 right/2 middle) that starts the drag. Default 0. */
+  button?: number;
+  /** "orbit" only: second button that dollies distance on vertical drag. Default 2. */
+  zoomButton?: number;
+  rotateSpeed?: number;
+  panSpeed?: number;
+  zoomSpeed?: number;
+  /** Radians. Defaults to roughly +-85 degrees. */
+  minPitch?: number;
+  maxPitch?: number;
+  invertY?: boolean;
+  /** World-space point to orbit/pan around. Defaults to the camera's current look-at target. */
+  target?: [number, number, number];
+}
+
 export interface MeshData {
   vertices: Float32Array;
   indices: Uint32Array;
@@ -862,6 +880,9 @@ export interface EntropyAPI {
   };
   Landscape: {
     create: (config: LandscapeConfig) => string;
+    updateTexture: (textureId: string, kind: LandscapeTextureKind) => void;
+    updatePbrTexture: (textureId: string, kind: PBRTextureKind, materialType: PBRMaterialType) => void;
+    getHeightAt: (x: number, z: number) => number;
   };
   Landscape3D: {
     create: (config: {
@@ -932,20 +953,38 @@ export interface EntropyAPI {
     setTransform: (position?: [number, number, number], target?: [number, number, number]) => void;
     screenToWorldRay: (screenX: number, screenY: number) => Ray;
   };
+  /**
+   * Ready-made camera control schemes built on top of Camera + Input, so a
+   * scene can opt into e.g. shift-drag-to-orbit with one call instead of
+   * hand-wiring Input.onMouseDown/onMouseMove/onMouseUp + isShiftPressed()
+   * and spherical-coordinate math itself in every addon.
+   */
+  Controls: {
+    enable: (format: "orbit" | "pan" | "none", options?: ControlsOptions) => void;
+    disable: () => void;
+    isEnabled: () => boolean;
+    getFormat: () => "orbit" | "pan" | null;
+  };
   Gizmo: {
     show: (config: GizmoConfig) => string;
     hide: (gizmoId: string) => void;
     updatePosition: (gizmoId: string, position: [number, number, number]) => void;
     getState: (gizmoId: string) => { isActive: boolean; mode: string; position: [number, number, number] } | null;
   };
+  /**
+   * Each on* registers an additional listener rather than replacing a prior
+   * one - Entropy.Controls and an addon's own input handling can both
+   * register onMouseMove, for example, without either clobbering the other.
+   * Every on* returns an unsubscribe function.
+   */
   Input: {
-    onMouseDown: (callback: (button: number, x: number, y: number) => void) => void;
-    onMouseMove: (callback: (x: number, y: number) => void) => void;
-    onMouseUp: (callback: (button: number) => void) => void;
-    onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => void;
-    onKeyUp: (callback: (key: string) => void) => void;
-    onGamepadButton: (callback: (button: string, pressed: boolean) => void) => void;
-    onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number]) => void) => void;
+    onMouseDown: (callback: (button: number, x: number, y: number) => void) => () => void;
+    onMouseMove: (callback: (x: number, y: number) => void) => () => void;
+    onMouseUp: (callback: (button: number) => void) => () => void;
+    onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => () => void;
+    onKeyUp: (callback: (key: string) => void) => () => void;
+    onGamepadButton: (callback: (button: string, pressed: boolean) => void) => () => void;
+    onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number]) => void) => () => void;
     isKeyPressed: (key: string) => boolean;
     isCtrlPressed: () => boolean;
     isShiftPressed: () => boolean;

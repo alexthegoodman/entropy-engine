@@ -886,33 +886,45 @@ globalThis.Entropy = {
         if (!globalThis._entropy_input_listeners) return;
         const listeners = globalThis._entropy_input_listeners;
 
+        // Each slot is an array of callbacks (see Input.* below) - fire all of
+        // them, isolated by try/catch, so one addon's controls setup (e.g.
+        // Entropy.Controls) can coexist with another addon's own onMouseMove
+        // handler instead of the second registration silently replacing the
+        // first.
+        const fireAll = (name, ...args) => {
+            const fns = listeners[name];
+            if (!fns || fns.length === 0) return;
+            for (const fn of fns.slice()) {
+                try { fn(...args); } catch (e) { globalThis.Entropy.println(`Error in ${name} callback: ` + e); }
+            }
+        };
+
         for (const event of events) {
             switch (event.type) {
                 case "MouseDown":
-                    if (listeners.onMouseDown) listeners.onMouseDown(event.button, event.x, event.y);
+                    fireAll("onMouseDown", event.button, event.x, event.y);
                     break;
                 case "MouseMove":
-                    if (listeners.onMouseMove) listeners.onMouseMove(event.x, event.y);
+                    fireAll("onMouseMove", event.x, event.y);
                     break;
                 case "MouseUp":
-                    if (listeners.onMouseUp) listeners.onMouseUp(event.button);
+                    fireAll("onMouseUp", event.button);
                     break;
-                case "KeyDown":
+                case "KeyDown": {
                     // We need modifiers here too if requested by API
                     // For now keeping it simple as per NEEDED_APIS.md
-                    if (listeners.onKeyDown) {
-                        const state = ops.op_input_get_state();
-                        listeners.onKeyDown(event.key, state.modifiers.ctrl, state.modifiers.shift, state.modifiers.alt);
-                    }
+                    const state = ops.op_input_get_state();
+                    fireAll("onKeyDown", event.key, state.modifiers.ctrl, state.modifiers.shift, state.modifiers.alt);
                     break;
+                }
                 case "KeyUp":
-                    if (listeners.onKeyUp) listeners.onKeyUp(event.key);
+                    fireAll("onKeyUp", event.key);
                     break;
                 case "GamepadButton":
-                    if (listeners.onGamepadButton) listeners.onGamepadButton(event.button, event.pressed);
+                    fireAll("onGamepadButton", event.button, event.pressed);
                     break;
                 case "GamepadAxis":
-                    if (listeners.onGamepadAxis) listeners.onGamepadAxis(event.leftStick, event.rightStick);
+                    fireAll("onGamepadAxis", event.leftStick, event.rightStick);
                     break;
             }
         }
@@ -933,9 +945,13 @@ globalThis.Entropy = {
         dispatch: computeAPI.dispatch
     },
     Buffer: bufferAPI,
-    Landscape: {
-        create: globalContextualAPI.Landscape.create
-    },
+    // Was create-only, even though createAddonContextualAPI's Landscape already had
+    // updateTexture/updatePbrTexture/getHeightAt (used via addon.Landscape.* by
+    // ComponentAddon-based addons like flexnoise_v2.ts) - a standalone addon using the
+    // top-level Entropy.Landscape (AddonAtom.register(), no this.api) had no way to texture
+    // a landscape it created with Entropy.Landscape.create. Same "Global" tagging as the
+    // rest of globalContextualAPI's exports.
+    Landscape: globalContextualAPI.Landscape,
     Landscape3D: globalContextualAPI.Landscape3D,
     Particles: globalContextualAPI.Particles,
     Noise: noiseAPI,
@@ -1006,6 +1022,190 @@ globalThis.Entropy = {
             }
         }
     },
+    // Ready-made camera control schemes ("formats"), built once here on top of
+    // Entropy.Input + Entropy.Camera so a scene can opt in with one call
+    // (Entropy.Controls.enable("orbit")) instead of every addon hand-rolling
+    // its own mouse-drag-to-orbit math. Previously the only way to get e.g.
+    // shift-drag-to-rotate was to wire Entropy.Input.onMouseDown/Move/Up and
+    // Entropy.Input.isShiftPressed() together from scratch in each addon -
+    // this is that logic, written once, reusable from any addon's TS without
+    // rebuilding it and without needing an engine/Rust change (it's built
+    // entirely from ops already exposed above).
+    Controls: {
+        _state: null,
+        _unsubs: [],
+
+        // format: "orbit" (drag to rotate the camera around a target, optional
+        //   drag-to-dolly zoom) | "pan" (drag to slide the target sideways) |
+        //   "none" (alias for disable()).
+        // options:
+        //   trigger: "shift" (default) | "ctrl" | "alt" | "always" - modifier
+        //     that must be held for the drag to move the camera at all, so a
+        //     scene's own click handling isn't hijacked by a bare drag.
+        //   button: mouse button that starts the drag (0 left/1 right/2
+        //     middle, default 0).
+        //   zoomButton: for "orbit", a second button (default 2) that dollies
+        //     the camera in/out on vertical drag instead of rotating.
+        //   rotateSpeed / panSpeed / zoomSpeed: sensitivity multipliers.
+        //   minPitch / maxPitch: radians, clamps orbit pitch (default
+        //     +-~85 degrees to avoid flipping over the pole).
+        //   invertY: flip vertical drag direction.
+        //   target: world-space point to orbit/pan around (defaults to the
+        //     camera's current look-at target from Camera.getTransform()).
+        enable(format, options = {}) {
+            globalThis.Entropy.Controls.disable();
+
+            if (!format || format === "none") return;
+            if (format !== "orbit" && format !== "pan") {
+                globalThis.Entropy.println(`Entropy.Controls: unknown format "${format}", ignoring.`);
+                return;
+            }
+
+            const [pos, camTarget] = ops.op_camera_get_transform();
+            const target = options.target || camTarget || [0, 0, 0];
+
+            const state = {
+                format,
+                dragging: false,
+                zooming: false,
+                lastX: 0,
+                lastY: 0,
+                target: [target[0], target[1], target[2]],
+                options: {
+                    trigger: options.trigger || "shift",
+                    button: options.button ?? 0,
+                    zoomButton: options.zoomButton ?? 2,
+                    rotateSpeed: options.rotateSpeed ?? 0.005,
+                    panSpeed: options.panSpeed ?? 0.05,
+                    zoomSpeed: options.zoomSpeed ?? 0.05,
+                    minPitch: options.minPitch ?? -1.48,
+                    maxPitch: options.maxPitch ?? 1.48,
+                    invertY: options.invertY ?? false,
+                }
+            };
+
+            const dx0 = pos[0] - state.target[0], dy0 = pos[1] - state.target[1], dz0 = pos[2] - state.target[2];
+            state.distance = Math.max(0.001, Math.sqrt(dx0 * dx0 + dy0 * dy0 + dz0 * dz0));
+            state.yaw = Math.atan2(dz0, dx0);
+            state.pitch = Math.asin(Math.max(-1, Math.min(1, dy0 / state.distance)));
+
+            globalThis.Entropy.Controls._state = state;
+
+            const isTriggerActive = () => {
+                switch (state.options.trigger) {
+                    case "always": return true;
+                    case "ctrl": return globalThis.Entropy.Input.isCtrlPressed();
+                    case "alt": return globalThis.Entropy.Input.isAltPressed();
+                    case "shift": default: return globalThis.Entropy.Input.isShiftPressed();
+                }
+            };
+
+            const applyOrbit = () => {
+                const cosPitch = Math.cos(state.pitch);
+                const dir = [
+                    cosPitch * Math.cos(state.yaw),
+                    Math.sin(state.pitch),
+                    cosPitch * Math.sin(state.yaw),
+                ];
+                const newPos = [
+                    state.target[0] + dir[0] * state.distance,
+                    state.target[1] + dir[1] * state.distance,
+                    state.target[2] + dir[2] * state.distance,
+                ];
+                ops.op_camera_set_transform(newPos, state.target);
+            };
+
+            const applyPan = (dxp, dyp) => {
+                const [curPos] = ops.op_camera_get_transform();
+                const fwd = [
+                    state.target[0] - curPos[0],
+                    state.target[1] - curPos[1],
+                    state.target[2] - curPos[2],
+                ];
+                const fwdLen = Math.max(0.0001, Math.sqrt(fwd[0] * fwd[0] + fwd[1] * fwd[1] + fwd[2] * fwd[2]));
+                const fn = [fwd[0] / fwdLen, fwd[1] / fwdLen, fwd[2] / fwdLen];
+                // world up is (0,1,0); right = forward x worldUp, up = right x forward
+                const right = [fn[2], 0, -fn[0]];
+                const rightLen = Math.max(0.0001, Math.sqrt(right[0] * right[0] + right[2] * right[2]));
+                const rn = [right[0] / rightLen, 0, right[2] / rightLen];
+                const up = [
+                    rn[1] * fn[2] - rn[2] * fn[1],
+                    rn[2] * fn[0] - rn[0] * fn[2],
+                    rn[0] * fn[1] - rn[1] * fn[0],
+                ];
+
+                const move = state.options.panSpeed;
+                const offset = [
+                    -rn[0] * dxp * move + up[0] * dyp * move,
+                    -rn[1] * dxp * move + up[1] * dyp * move,
+                    -rn[2] * dxp * move + up[2] * dyp * move,
+                ];
+                state.target = [state.target[0] + offset[0], state.target[1] + offset[1], state.target[2] + offset[2]];
+                const newPos = [curPos[0] + offset[0], curPos[1] + offset[1], curPos[2] + offset[2]];
+                ops.op_camera_set_transform(newPos, state.target);
+            };
+
+            const onDown = (button, x, y) => {
+                if (!isTriggerActive()) return;
+                if (button === state.options.button) {
+                    state.dragging = true;
+                    state.lastX = x;
+                    state.lastY = y;
+                } else if (format === "orbit" && button === state.options.zoomButton) {
+                    state.zooming = true;
+                    state.lastX = x;
+                    state.lastY = y;
+                }
+            };
+            const onMove = (x, y) => {
+                if (!state.dragging && !state.zooming) return;
+                if (!isTriggerActive()) { state.dragging = false; state.zooming = false; return; }
+
+                const dxp = x - state.lastX;
+                const dyp = y - state.lastY;
+                state.lastX = x;
+                state.lastY = y;
+                const yDir = state.options.invertY ? -1 : 1;
+
+                if (state.zooming) {
+                    state.distance = Math.max(0.5, state.distance - dyp * yDir * state.options.zoomSpeed * state.distance * 0.1);
+                    applyOrbit();
+                } else if (format === "orbit") {
+                    state.yaw -= dxp * state.options.rotateSpeed;
+                    state.pitch = Math.max(state.options.minPitch, Math.min(state.options.maxPitch, state.pitch - yDir * dyp * state.options.rotateSpeed));
+                    applyOrbit();
+                } else if (format === "pan") {
+                    applyPan(dxp, dyp);
+                }
+            };
+            const onUp = (button) => {
+                if (button === state.options.button) state.dragging = false;
+                if (button === state.options.zoomButton) state.zooming = false;
+            };
+
+            globalThis.Entropy.Controls._unsubs = [
+                globalThis.Entropy.Input.onMouseDown(onDown),
+                globalThis.Entropy.Input.onMouseMove(onMove),
+                globalThis.Entropy.Input.onMouseUp(onUp),
+            ];
+        },
+
+        disable() {
+            for (const unsub of globalThis.Entropy.Controls._unsubs) {
+                try { unsub(); } catch (e) {}
+            }
+            globalThis.Entropy.Controls._unsubs = [];
+            globalThis.Entropy.Controls._state = null;
+        },
+
+        isEnabled() {
+            return globalThis.Entropy.Controls._state !== null;
+        },
+
+        getFormat() {
+            return globalThis.Entropy.Controls._state?.format || null;
+        }
+    },
     Gizmo: {
         show: (config) => {
             const id = globalThis.Entropy.generateUUID();
@@ -1038,34 +1238,31 @@ globalThis.Entropy = {
         }
     },
     Input: {
-        onMouseDown: (callback) => {
+        // Registering a callback used to overwrite whatever the previous
+        // caller had registered for the same event - fine when only one
+        // addon cared about mouse/key events, but it meant a second
+        // registration (e.g. Entropy.Controls wiring up camera drag)
+        // silently broke the first one. Each on* below now appends to a
+        // list instead (see _process_input_events / fireAll above) and
+        // returns an unsubscribe function so long-lived subsystems like
+        // Controls can clean up after themselves on disable().
+        _on: (name, callback) => {
             globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onMouseDown = callback;
+            const listeners = globalThis._entropy_input_listeners;
+            listeners[name] = listeners[name] || [];
+            listeners[name].push(callback);
+            return () => {
+                const idx = listeners[name].indexOf(callback);
+                if (idx !== -1) listeners[name].splice(idx, 1);
+            };
         },
-        onMouseMove: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onMouseMove = callback;
-        },
-        onMouseUp: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onMouseUp = callback;
-        },
-        onKeyDown: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onKeyDown = callback;
-        },
-        onKeyUp: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onKeyUp = callback;
-        },
-        onGamepadButton: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onGamepadButton = callback;
-        },
-        onGamepadAxis: (callback) => {
-            globalThis._entropy_input_listeners = globalThis._entropy_input_listeners || {};
-            globalThis._entropy_input_listeners.onGamepadAxis = callback;
-        },
+        onMouseDown: (callback) => globalThis.Entropy.Input._on("onMouseDown", callback),
+        onMouseMove: (callback) => globalThis.Entropy.Input._on("onMouseMove", callback),
+        onMouseUp: (callback) => globalThis.Entropy.Input._on("onMouseUp", callback),
+        onKeyDown: (callback) => globalThis.Entropy.Input._on("onKeyDown", callback),
+        onKeyUp: (callback) => globalThis.Entropy.Input._on("onKeyUp", callback),
+        onGamepadButton: (callback) => globalThis.Entropy.Input._on("onGamepadButton", callback),
+        onGamepadAxis: (callback) => globalThis.Entropy.Input._on("onGamepadAxis", callback),
         isKeyPressed: (key) => {
             const state = ops.op_input_get_state();
             // if (state.pressedKeys?.length) {
