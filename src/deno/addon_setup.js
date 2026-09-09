@@ -881,7 +881,6 @@ globalThis.Entropy = {
         });
     },
     _process_input_events: (events) => {
-        // globalThis.Entropy.println("process input events " + JSON.stringify(events));
         globalThis.Entropy._process_game_logic?.();
         if (!globalThis._entropy_input_listeners) return;
         const listeners = globalThis._entropy_input_listeners;
@@ -1031,9 +1030,21 @@ globalThis.Entropy = {
     // this is that logic, written once, reusable from any addon's TS without
     // rebuilding it and without needing an engine/Rust change (it's built
     // entirely from ops already exposed above).
+    //
+    // Deltas are POLLED from op_input_get_state()'s mouse_position every frame
+    // (via a lazily-registered op_addon_on_update tick), not driven by
+    // Input.onMouseMove. startup.rs only dispatches the addon-visible
+    // MouseMove event when `!game_mode` (WindowEvent::CursorMoved's call to
+    // handle_mouse_move is skipped entirely under game_mode, and the game_mode
+    // DeviceEvent::MouseMotion path that could stand in for it only runs once
+    // the cursor is grab-locked, which nothing here does) - and EntropyApp
+    // (so every standalone addon, this one included) defaults game_mode to
+    // true. Button state still comes from onMouseDown/onMouseUp, which push
+    // unconditionally regardless of game_mode.
     Controls: {
         _state: null,
         _unsubs: [],
+        _tickRegistered: false,
 
         // format: "orbit" (drag to rotate the camera around a target, optional
         //   drag-to-dolly zoom) | "pan" (drag to slide the target sideways) |
@@ -1145,7 +1156,12 @@ globalThis.Entropy = {
                 ops.op_camera_set_transform(newPos, state.target);
             };
 
+            const [mx0, my0] = ops.op_input_get_state().mousePosition;
+            state.lastX = mx0;
+            state.lastY = my0;
+
             const onDown = (button, x, y) => {
+                globalThis.Entropy.println(`[Controls DEBUG] onDown button=${button} trigger=${isTriggerActive()} x=${x} y=${y}`);
                 if (!isTriggerActive()) return;
                 if (button === state.options.button) {
                     state.dragging = true;
@@ -1157,27 +1173,6 @@ globalThis.Entropy = {
                     state.lastY = y;
                 }
             };
-            const onMove = (x, y) => {
-                if (!state.dragging && !state.zooming) return;
-                if (!isTriggerActive()) { state.dragging = false; state.zooming = false; return; }
-
-                const dxp = x - state.lastX;
-                const dyp = y - state.lastY;
-                state.lastX = x;
-                state.lastY = y;
-                const yDir = state.options.invertY ? -1 : 1;
-
-                if (state.zooming) {
-                    state.distance = Math.max(0.5, state.distance - dyp * yDir * state.options.zoomSpeed * state.distance * 0.1);
-                    applyOrbit();
-                } else if (format === "orbit") {
-                    state.yaw -= dxp * state.options.rotateSpeed;
-                    state.pitch = Math.max(state.options.minPitch, Math.min(state.options.maxPitch, state.pitch - yDir * dyp * state.options.rotateSpeed));
-                    applyOrbit();
-                } else if (format === "pan") {
-                    applyPan(dxp, dyp);
-                }
-            };
             const onUp = (button) => {
                 if (button === state.options.button) state.dragging = false;
                 if (button === state.options.zoomButton) state.zooming = false;
@@ -1185,9 +1180,50 @@ globalThis.Entropy = {
 
             globalThis.Entropy.Controls._unsubs = [
                 globalThis.Entropy.Input.onMouseDown(onDown),
-                globalThis.Entropy.Input.onMouseMove(onMove),
                 globalThis.Entropy.Input.onMouseUp(onUp),
             ];
+
+            // The tick reads Controls._state fresh every call, so it's safe to
+            // register once ever (op_addon_on_update has no unregister) and let
+            // later enable()/disable() calls just swap what _state points to.
+            if (!globalThis.Entropy.Controls._tickRegistered) {
+                globalThis.Entropy.Controls._tickRegistered = true;
+                const target = globalThis.__entropy_current_addon_context_override || "Global";
+                ops.op_addon_on_update(target, () => {
+                    const s = globalThis.Entropy.Controls._state;
+                    if (!s) return;
+
+                    const [mx, my] = ops.op_input_get_state().mousePosition;
+                    const dxp = mx - s.lastX;
+                    const dyp = my - s.lastY;
+                    s.lastX = mx;
+                    s.lastY = my;
+
+                    if (!s.dragging && !s.zooming) return;
+                    globalThis.Entropy.println(`[Controls DEBUG] tick dragging=${s.dragging} trigger=${s._isTriggerActive()} mx=${mx} my=${my} dxp=${dxp} dyp=${dyp}`);
+                    if (!s._isTriggerActive()) { s.dragging = false; s.zooming = false; return; }
+                    if (dxp === 0 && dyp === 0) return;
+
+                    const yDir = s.options.invertY ? -1 : 1;
+                    if (s.zooming) {
+                        s.distance = Math.max(0.5, s.distance - dyp * yDir * s.options.zoomSpeed * s.distance * 0.1);
+                        s._applyOrbit();
+                    } else if (s.format === "orbit") {
+                        s.yaw -= dxp * s.options.rotateSpeed;
+                        s.pitch = Math.max(s.options.minPitch, Math.min(s.options.maxPitch, s.pitch - yDir * dyp * s.options.rotateSpeed));
+                        s._applyOrbit();
+                    } else if (s.format === "pan") {
+                        s._applyPan(dxp, dyp);
+                    }
+                });
+            }
+
+            // Stashed on state itself so the shared tick above (registered once,
+            // outside this closure) can reach the current enable() call's
+            // trigger check / orbit / pan implementations.
+            state._isTriggerActive = isTriggerActive;
+            state._applyOrbit = applyOrbit;
+            state._applyPan = applyPan;
         },
 
         disable() {

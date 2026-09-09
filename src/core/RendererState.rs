@@ -203,6 +203,14 @@ pub struct RendererState {
 
     pub current_mouse_position: Option<EntropyPosition>,
     pub last_mouse_position: Option<EntropyPosition>,
+    // current/last_mouse_position both get force-cleared to None by
+    // step_physics_pipeline's 100ms staleness timeout below, which drops
+    // handlers.rs's MouseDown push (it's gated on current_mouse_position
+    // being Some) for any click preceded by so much as a brief pause to aim -
+    // an extremely common real interaction, not just a synthetic-input edge
+    // case. This mirrors set_mouse_position's writes but is never cleared, so
+    // MouseDown always has a position to report.
+    pub last_known_mouse_position: Option<EntropyPosition>,
     pub last_mouse_delta: (f32, f32),
 
     pub shift_active: bool,
@@ -414,6 +422,7 @@ impl RendererState {
             last_frame_time: None,
             current_mouse_position: None,
             last_mouse_position: None,
+            last_known_mouse_position: None,
             npcs: Vec::new(),
             // gizmo_drag_axis: None,
             navigation_speed: 5.0,
@@ -484,6 +493,7 @@ impl RendererState {
     pub fn set_mouse_position(&mut self, new_position: EntropyPosition) {
         self.last_mouse_position = self.current_mouse_position;
         self.current_mouse_position = Some(new_position);
+        self.last_known_mouse_position = Some(new_position);
         self.last_mouse_position_time = Instant::now();
     }
 

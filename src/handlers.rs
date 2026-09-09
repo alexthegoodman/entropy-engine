@@ -397,11 +397,15 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
                 _ => 0,
             };
             if element_state == EntropyElementState::Pressed {
-                if let Some(mouse_pos) = renderer_state.current_mouse_position {
-                    ctx.input_events.push(InputEvent::MouseDown { 
-                        button: btn_idx, 
-                        x: mouse_pos.x, 
-                        y: mouse_pos.y 
+                // current_mouse_position is unreliable here - RendererState::step_physics_pipeline
+                // force-clears it to None every frame once 100ms pass without a fresh mouse-move
+                // (see last_known_mouse_position's doc comment), which silently dropped this whole
+                // MouseDown push for any click preceded by even a brief pause to aim.
+                if let Some(mouse_pos) = renderer_state.current_mouse_position.or(renderer_state.last_known_mouse_position) {
+                    ctx.input_events.push(InputEvent::MouseDown {
+                        button: btn_idx,
+                        x: mouse_pos.x,
+                        y: mouse_pos.y
                     });
                 }
             } else {

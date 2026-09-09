@@ -668,6 +668,19 @@ function applyLandscapePBR(): void {
     Entropy.Landscape.updateTexture(diffId, "Primary");
     Entropy.Landscape.updatePbrTexture(norId, "Normal", "Primary");
     Entropy.Landscape.updatePbrTexture(armId, "AORoughnessMetallic", "Primary");
+
+    // gbuffer_fragment.wgsl blends Primary/Rockmap/Soil by normalized mask
+    // weights (primary_weight = primary_mask / (primary_mask + rockmap_mask +
+    // soil_mask)) - Rockmap/Soil are never touched here so their masks stay at
+    // the texture array's zero-initialized default, but Primary's own mask
+    // defaults to that same zero unless explicitly written, which zeroes
+    // total_mask and the whole blend to black regardless of a valid diffuse
+    // texture. flexnoise_v2.ts's applyPBRToSlot hits the same requirement for
+    // its "Primary" slot - a full-white mask so this one texture gets 100% of
+    // the blend weight.
+    const maskData = new Uint8Array(res * res * 4).fill(255);
+    const maskId = Entropy.Texture.create(res, res, maskData);
+    Entropy.Landscape.updateTexture(maskId, "PrimaryMask");
 }
 
 interface RiverParams {
@@ -968,12 +981,22 @@ addon.onInit(async () => {
     // ComponentAddon's this.api.Landscape) tags this "Global" by default - see
     // globalContextualAPI in addon_setup.js - which is what makes it pass the
     // addon-name filter in render_addon_frame.rs/render_frame.rs outside Studio.
+    //
+    // pipelineId must be "default", not omitted. render_addon_frame.rs buckets
+    // every landscape into pbr_landscapes (has a pipeline_id) or
+    // non_pbr_landscapes (None) before drawing, and only the pbr bucket goes
+    // through the geometry pipeline that samples Landscape.updateTexture/
+    // updatePbrTexture's bind group and receives deferred lighting - the
+    // non-pbr path is untextured and unlit, which is why this terrain rendered
+    // solid black even before any texture was applied. flexnoise_v2.ts's
+    // generateTerrain() sets the same "default" for exactly this reason.
     Entropy.Landscape.create({
         id: Entropy.generateUUID(),
         width: LANDSCAPE_RES,
         height: LANDSCAPE_RES,
         heights: buildChannelHeights(),
         position: [0, LANDSCAPE_BASE_Y, 0],
+        pipelineId: "default",
         size: FIELD_SIZE,
         scale: LANDSCAPE_SCALE,
     });
