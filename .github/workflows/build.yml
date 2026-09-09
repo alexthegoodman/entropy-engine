@@ -1,0 +1,61 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows-build:
+    # The only supported platform today - this job blocks merges.
+    name: Windows (build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      # addon_engine.rs embeds this bundle via include_str! at compile time,
+      # so cargo build fails immediately without it - dist/ is gitignored.
+      - name: Bundle default addon TS
+        working-directory: examples/studio-bundle
+        run: |
+          deno install
+          deno bundle src/index.ts > dist/bundle.js
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build --release (all bins)
+        run: cargo build --release
+
+  macos-build:
+    # Not a supported platform yet - 40+ files gate on cfg(target_os = "windows")
+    # with no macOS branches (screen capture, media playback, window setup all
+    # Windows-only). This job is informational only until that work happens.
+    name: macOS (check, not yet supported)
+    runs-on: macos-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Bundle default addon TS
+        working-directory: examples/studio-bundle
+        run: |
+          deno install
+          deno bundle src/index.ts > dist/bundle.js
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo check
+        run: cargo check
