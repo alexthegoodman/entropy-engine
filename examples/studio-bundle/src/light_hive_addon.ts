@@ -143,7 +143,7 @@ function spawnDemoScene() {
 
     // A real, detailed model reads the shading differences (toon banding, rim falloff) far
     // better across its curved surfaces than flat-faced primitives do - loading one requires
-    // EntropyApp::with_art_assets_project(id) on the Rust side (see example_light_hive.rs);
+    // EntropyApp::with_art_assets_dir(dir) on the Rust side (see example_light_hive.rs);
     // without it this silently never appears (see the post's failure notes).
     // Model ids get parsed as a UUID internally (rigid-body user_data, art_assets/Model.rs) even
     // when no physics config is requested - a human-readable id panics ("Couldn't extract uuid").

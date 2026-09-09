@@ -450,14 +450,14 @@ pub struct Editor {
 pub fn init_editor_with_model(viewport: Arc<Mutex<Viewport>>, project_id: Option<String>) -> Editor {
     // let inference = load_common_motion_2d();
 
-    let editor = Editor::new(viewport, project_id.clone(), None);
+    let editor = Editor::new(viewport, project_id.clone(), None, None);
 
     editor
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn init_editor_with_model(viewport: Arc<Mutex<Viewport>>, project_id: String) -> Editor {
-    let editor = Editor::new(viewport, project_id.clone(), None);
+    let editor = Editor::new(viewport, project_id.clone(), None, None);
 
     editor
 }
@@ -671,6 +671,7 @@ impl Editor {
         viewport: Arc<Mutex<Viewport>>,
         project_id: Option<String>,
         data_dir: Option<PathBuf>,
+        art_assets_dir: Option<PathBuf>,
     ) -> Self {
         let viewport_unwrapped = viewport.lock().unwrap();
         let window_size = WindowSize {
@@ -691,7 +692,7 @@ impl Editor {
             sophia_state: None,
             sophia_app_state: crate::core::sophia::SophiaState::new(),
             // deno_engine: DenoEngine::new(project_id.clone()),
-            addon_engine: AddonEngine::new(project_id.clone(), data_dir.clone()),
+            addon_engine: AddonEngine::new(project_id.clone(), data_dir.clone(), art_assets_dir.clone()),
             script_editors: HashMap::new(),
             pending_script_tabs: Vec::new(),
             // st_capture,

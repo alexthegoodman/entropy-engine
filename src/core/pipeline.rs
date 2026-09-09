@@ -478,6 +478,7 @@ impl EntropyPipeline {
         bundle_path: Option<PathBuf>,
         hot_reload: bool,
         data_dir: Option<PathBuf>,
+        art_assets_dir: Option<PathBuf>,
     ) {
         let mut camera = Camera::new(
             Point3::new(0.0, 0.5, -5.0),
@@ -507,7 +508,7 @@ impl EntropyPipeline {
         )));
 
         // create a dedicated editor so it can be used in the async thread
-        let mut export_editor = Editor::new(viewport, project_id.clone(), data_dir.clone());
+        let mut export_editor = Editor::new(viewport, project_id.clone(), data_dir.clone(), art_assets_dir.clone());
 
         #[cfg(target_arch = "wasm32")]
         let window = if let Some(canvas) = canvas {

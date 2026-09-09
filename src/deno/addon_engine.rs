@@ -270,6 +270,13 @@ extension!(
 pub struct AddonEngine {
     pub runtime: JsRuntime,
     pub project_id: Option<String>,
+    /// Overrides art-asset path resolution (`Entropy.Model.load`/`Entropy.Texture.load`) to read
+    /// straight from this directory instead of Studio's `project_id`-keyed MidPoint convention -
+    /// set via `EntropyApp::with_art_assets_dir`. Deliberately independent of `project_id`:
+    /// reusing that field for a bare `EntropyApp` meant piggybacking on `load_game_project`'s
+    /// full Studio project-load machinery (state.json et al.) just to get a path resolved, which
+    /// only worked by coincidence and doesn't scale now that `EntropyApp` has no project concept.
+    pub art_assets_dir: Option<PathBuf>,
     pub dummy_views: Vec<(u32, TextureView)>,
     /// Bundle file watched for hot reload (set via `enable_hot_reload`), and the mtime it
     /// had the last time we checked - `None` means hot reload is off (the default: Studio's
@@ -438,7 +445,7 @@ impl AddonEngine {
         dialogue_result
     }
 
-    pub fn new(project_id: Option<String>, data_dir: Option<PathBuf>) -> Self {
+    pub fn new(project_id: Option<String>, data_dir: Option<PathBuf>, art_assets_dir: Option<PathBuf>) -> Self {
         let loader = Rc::new(FsModuleLoader);
         let ext = entropy_addons::init_ops_and_esm();
         
@@ -561,6 +568,7 @@ impl AddonEngine {
         AddonEngine {
             runtime,
             project_id,
+            art_assets_dir,
             dummy_views: Vec::new(),
             hot_reload_path: None,
             hot_reload_last_mtime: None,
@@ -2251,7 +2259,7 @@ impl AddonEngine {
         if !pending_models.is_empty() {
             if let gpu= &gpu_resources {
                 for (addon_name, config) in pending_models {
-                    if let Some(project_id) = self.project_id.clone() {
+                    if self.project_id.is_some() || self.art_assets_dir.is_some() {
                     let id = config.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
                     
                     let pos = Vector3::new(config.position[0], config.position[1], config.position[2]);
@@ -2274,7 +2282,15 @@ impl AddonEngine {
                             cached_bytes.clone()
                         } else {
                             println!("Reading in model: {:?}", path);
-                            let bytes = crate::art_assets::Model::read_model(project_id.clone(), path.clone()).expect("Couldn't get model bytes");
+                            // `art_assets_dir` (EntropyApp::with_art_assets_dir) takes priority over the
+                            // Studio project_id convention - a plain directory an embedder points at, no
+                            // MidPoint `midpoint/projects/<id>/models/` convention involved.
+                            let bytes = if let Some(dir) = &self.art_assets_dir {
+                                std::fs::read(dir.join(path))
+                                    .unwrap_or_else(|e| panic!("Couldn't read model {:?} from {:?}: {}", path, dir, e))
+                            } else {
+                                crate::art_assets::Model::read_model(self.project_id.clone().unwrap(), path.clone()).expect("Couldn't get model bytes")
+                            };
                             ctx.model_cache.insert(path.clone(), bytes.clone());
                             bytes
                         }

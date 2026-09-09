@@ -22,7 +22,7 @@ pub struct EntropyApp {
     window_icon: Option<PathBuf>,
     resizable: Option<bool>,
     hot_reload: bool,
-    art_assets_project_id: Option<String>,
+    art_assets_dir: Option<PathBuf>,
 }
 
 impl EntropyApp {
@@ -37,7 +37,7 @@ impl EntropyApp {
             window_icon: None,
             resizable: None,
             hot_reload: false,
-            art_assets_project_id: None,
+            art_assets_dir: None,
         }
     }
 
@@ -110,15 +110,15 @@ impl EntropyApp {
     }
 
     /// Lets `Entropy.Model.load`/`Entropy.Texture.load` resolve art assets for a bare
-    /// `EntropyApp` (they're otherwise Studio-project-only - both hard-require a project id
-    /// internally, since they read from `<CommonOS sync dir>/midpoint/projects/<id>/models|textures/<file>`,
-    /// the MidPoint asset-project convention). This is *not* Entropy Studio's project system -
-    /// nothing else about "no project concept" (see this struct's docs) changes - it only unlocks
-    /// asset path resolution for addons that want to load real `.glb`/texture files instead of
-    /// hand-authored geometry. `id` is a MidPoint project id (the folder name under
-    /// `midpoint/projects/`), not anything Entropy-specific.
-    pub fn with_art_assets_project(mut self, id: impl Into<String>) -> Self {
-        self.art_assets_project_id = Some(id.into());
+    /// `EntropyApp` (they're otherwise Studio-project-only - both hard-require a Studio
+    /// `project_id` internally, with no way to set one on `EntropyApp`, so a loaded model or
+    /// texture would otherwise sit queued and never actually load, with no error). Points them
+    /// directly at a directory instead - `path` in `Entropy.Model.load({path: "foo.glb"})`
+    /// resolves as `<dir>/foo.glb`, nothing more. Doesn't touch Studio's project system or
+    /// `RunConfig.project_id` at all - `EntropyApp` still has no "project" concept (see this
+    /// struct's docs), this only unlocks asset path resolution.
+    pub fn with_art_assets_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.art_assets_dir = Some(path.into());
         self
     }
 
@@ -127,11 +127,12 @@ impl EntropyApp {
 
         crate::startup::run_with_config(crate::startup::RunConfig {
             game_mode: true,
-            project_id: self.art_assets_project_id,
+            project_id: None,
             start_addon: self.start_addon,
             bundle_path: self.bundle_path,
             hot_reload: self.hot_reload,
             data_dir: Some(data_dir),
+            art_assets_dir: self.art_assets_dir,
             capture_cursor: self.capture_cursor,
             window: crate::startup::WindowConfig {
                 title: self.window_title,

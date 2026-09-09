@@ -881,10 +881,10 @@ export interface EntropyAPI {
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
   };
   Model: {
-    // Loads a .glb from a MidPoint asset project - requires
-    // EntropyApp::with_art_assets_project(id) to be set on the Rust side, otherwise the
-    // pending load is silently dropped (AddonEngine.project_id stays None). `id`, if given,
-    // must be UUID-parseable (e.g. Entropy.generateUUID()) - a human-readable id panics.
+    // Loads a .glb - `path` resolves as `<dir>/path`, where `<dir>` is whatever directory
+    // EntropyApp::with_art_assets_dir(dir) set on the Rust side (required; otherwise the pending
+    // load is silently dropped, no error). `id`, if given, must be UUID-parseable (e.g.
+    // Entropy.generateUUID()) - a human-readable id panics.
     load: (config: {
         id?: string | null;
         path: string;

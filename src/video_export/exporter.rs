@@ -49,6 +49,7 @@ impl Exporter {
                 true,
                 None,
                 false,
+                None,
                 None
             )
             .await;

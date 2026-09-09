@@ -69,6 +69,9 @@ pub struct RunConfig {
     /// `EntropyApp::with_hot_reload`.
     pub hot_reload: bool,
     pub data_dir: Option<PathBuf>,
+    /// Directory `Entropy.Model.load`/`Entropy.Texture.load` resolve paths against directly -
+    /// independent of `project_id` (see `EntropyApp::with_art_assets_dir`).
+    pub art_assets_dir: Option<PathBuf>,
     /// Whether to go borderless-fullscreen and hide/lock the cursor on startup, like a typical
     /// game. Independent of `game_mode` (which only controls whether Entropy Studio's editor UI
     /// is built) — defaults to `false` so embedded apps get a normal windowed cursor unless they
@@ -120,6 +123,7 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
         config.bundle_path,
         config.hot_reload,
         config.data_dir,
+        config.art_assets_dir,
         config.capture_cursor,
         config.window,
     );
@@ -180,6 +184,7 @@ struct Application {
     bundle_path: Option<PathBuf>,
     hot_reload: bool,
     data_dir: Option<PathBuf>,
+    art_assets_dir: Option<PathBuf>,
     capture_cursor: bool,
     window_config: WindowConfig,
     project_loaded: bool,
@@ -196,6 +201,7 @@ impl Application {
         bundle_path: Option<PathBuf>,
         hot_reload: bool,
         data_dir: Option<PathBuf>,
+        art_assets_dir: Option<PathBuf>,
         capture_cursor: bool,
         window_config: WindowConfig,
     ) -> Self {
@@ -249,6 +255,7 @@ impl Application {
             bundle_path,
             hot_reload,
             data_dir,
+            art_assets_dir,
             capture_cursor,
             window_config,
             project_loaded: false,
@@ -1040,6 +1047,7 @@ impl WindowState {
             app.bundle_path.clone(),
             app.hot_reload,
             app.data_dir.clone(),
+            app.art_assets_dir.clone(),
         ));
         // End WGPU Initialization
 
