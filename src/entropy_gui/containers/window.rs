@@ -4,7 +4,7 @@
 
 use crate::entropy_gui::color::Color32;
 use crate::entropy_gui::context::Context;
-use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, CursorIcon, FontId, Layout, Rect, StrokeKind, Vec2};
+use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, CursorIcon, FontId, Layout, Pos2, Rect, StrokeKind, Vec2};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::{DrawTarget, Painter};
 use crate::entropy_gui::response::Sense;
@@ -17,12 +17,13 @@ pub struct Window<'open> {
     id: Option<Id>,
     resizable: bool,
     default_size: Vec2,
+    default_pos: Option<Pos2>,
     open: Option<&'open mut bool>,
 }
 
 impl<'open> Window<'open> {
     pub fn new(title: impl Into<String>) -> Self {
-        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), open: None }
+        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), default_pos: None, open: None }
     }
     pub fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
@@ -35,6 +36,14 @@ impl<'open> Window<'open> {
     pub fn default_size(mut self, size: impl Into<[f32; 2]>) -> Self {
         let s: [f32; 2] = size.into();
         self.default_size = vec2(s[0], s[1]);
+        self
+    }
+    /// Top-left corner the window first appears at, in screen pixels. Only affects the very
+    /// first frame - after that its position is whatever the user last dragged it to (cached by
+    /// `id` in `ctx.memory`), same as `default_size`. Unset centers the window on screen instead.
+    pub fn default_pos(mut self, pos: impl Into<[f32; 2]>) -> Self {
+        let p: [f32; 2] = pos.into();
+        self.default_pos = Some(pos2(p[0], p[1]));
         self
     }
     pub fn open(mut self, open: &'open mut bool) -> Self {
@@ -51,7 +60,9 @@ impl<'open> Window<'open> {
 
         let id = self.id.unwrap_or_else(|| Id::new(&self.title));
         let screen = ctx.screen_rect();
-        let default_min = pos2((screen.width() - self.default_size.x).max(0.0) / 2.0, (screen.height() - self.default_size.y).max(0.0) / 2.0);
+        let default_min = self.default_pos.unwrap_or_else(|| {
+            pos2((screen.width() - self.default_size.x).max(0.0) / 2.0, (screen.height() - self.default_size.y).max(0.0) / 2.0)
+        });
         let default_rect = Rect::from_min_size(default_min, self.default_size);
         let rect = ctx.memory(|m| m.get_window_rect(id, default_rect));
 

@@ -66,8 +66,9 @@ use crate::deno::addon_ops::{
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
     op_gizmo_update, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
-    op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create, 
-    op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected, 
+    op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
+    op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
+    op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_close, op_video_poll,
     op_ui_clear,
@@ -101,6 +102,40 @@ use crate::egui;
 use wgpu::util::DeviceExt;
 use crate::egui_wgpu;
 
+/// A `pipelineId: "default"` mesh (Entropy.Model.createMesh) is actually drawn with the
+/// engine's own geometry_pipeline at render time (render_addon_frame.rs) - this pipeline is
+/// never bound or executed. It exists only because CustomMesh::new requires *some*
+/// `Arc<RenderPipeline>` to construct. Before this, the "default" branch below looked for any
+/// already-registered custom pipeline (`ctx.pipelines.values().next()`) and silently dropped
+/// the mesh - with no error - if the addon had never created one of its own (e.g. an addon
+/// that only ever spawns "default" meshes, like Light Hive's demo scene). Building one
+/// unconditionally here removes that dependency on incidental addon state.
+fn create_placeholder_render_pipeline(device: &wgpu::Device) -> RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Default-Mesh Placeholder Shader (never executed)"),
+        source: wgpu::ShaderSource::Wgsl(
+            "@vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4<f32> { return vec4<f32>(0.0, 0.0, 0.0, 1.0); }\n\
+             @fragment fn fs_main() -> @location(0) vec4<f32> { return vec4<f32>(0.0); }".into(),
+        ),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Default-Mesh Placeholder Pipeline (never executed)"),
+        layout: None, // auto-inferred - this pipeline has no bind groups
+        vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: wgpu::PipelineCompilationOptions::default() },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState { format: wgpu::TextureFormat::Rgba8Unorm, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+
 extension!(
     entropy_addons,
     ops = [
@@ -133,6 +168,9 @@ extension!(
         op_grass_create,
         op_noise_create,
         op_point_light_create,
+        op_point_light_remove,
+        op_lighting_set_point_light_shader,
+        op_shadow_configure,
         op_composer_set_role_pipeline,
         op_lighting_update_sun,
         op_println,
@@ -441,9 +479,12 @@ impl AddonEngine {
             pending_landscape3ds: Vec::new(),
             pending_grasses: Vec::new(),
             pending_point_lights: Vec::new(),
+            pending_point_light_removals: Vec::new(),
             pending_composites: Vec::new(),
             pending_mesh_updates: Vec::new(),
-            pending_sun_config: None,                                                    
+            pending_sun_config: None,
+            pending_lighting_shader: None,
+            pending_shadow_config: None,
             pending_game_mode: None,
             pending_entity_impulses: Vec::new(),
             pending_animation_plays: Vec::new(),
@@ -1572,9 +1613,10 @@ impl AddonEngine {
             pending_clears, 
             pending_mesh_clears, 
             pending_landscapes, 
-            pending_grasses, 
-            pending_point_lights, 
-            pending_composites, 
+            pending_grasses,
+            pending_point_lights,
+            pending_point_light_removals,
+            pending_composites,
             pending_landscape_texture_updates, 
             pending_game_mode, 
             pending_impulses, 
@@ -1603,6 +1645,7 @@ impl AddonEngine {
                     std::mem::take(&mut ctx.pending_landscapes),
                     std::mem::take(&mut ctx.pending_grasses),
                     std::mem::take(&mut ctx.pending_point_lights),
+                    std::mem::take(&mut ctx.pending_point_light_removals),
                     std::mem::take(&mut ctx.pending_composites),
                     std::mem::take(&mut ctx.pending_landscape_texture_updates),
                     ctx.pending_game_mode.take(),
@@ -1629,10 +1672,11 @@ impl AddonEngine {
                     Vec::new(), 
                     Vec::new(), 
                     Vec::new(), 
-                    Vec::new(), 
-                    Vec::new(), 
-                    Vec::new(), 
-                    None, 
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(), // pending_point_light_removals
+                    None,
                     Vec::new(), 
                     Vec::new(), 
                     Vec::new(),
@@ -2112,12 +2156,28 @@ impl AddonEngine {
                     _padding2: 0,
                     intensity: config.intensity,
                     max_distance: config.max_distance,
-                    _padding3: [0; 2],
+                    falloff_exponent: config.falloff_exponent,
+                    specular_strength: config.specular_strength,
                 };
-                renderer_state.addon_point_lights
+                let lights = renderer_state.addon_point_lights
                     .entry(addon_name)
-                    .or_insert_with(Vec::new)
-                    .push(pl);
+                    .or_insert_with(Vec::new);
+                // Upsert by id - without this, a live-editing UI (drag a slider, tweak a
+                // preview light every frame) leaked a brand new light on every call instead
+                // of updating the one it already spawned.
+                if let Some(existing) = lights.iter_mut().find(|(id, _)| *id == config.id) {
+                    existing.1 = pl;
+                } else {
+                    lights.push((config.id, pl));
+                }
+            }
+        }
+
+        if !pending_point_light_removals.is_empty() {
+            for (addon_name, id) in pending_point_light_removals {
+                if let Some(lights) = renderer_state.addon_point_lights.get_mut(&addon_name) {
+                    lights.retain(|(light_id, _)| light_id != &id);
+                }
             }
         }
 
@@ -2279,9 +2339,9 @@ impl AddonEngine {
             if let gpu = &gpu_resources {
                                 for (addon_name, config) in pending_meshes {
                                      let (pipeline, pipeline_id) = {
-                                         let op_state = self.runtime.op_state();
-                                         let op_state = op_state.borrow();
-                                         
+                                         let op_state_rc = self.runtime.op_state();
+                                         let mut op_state = op_state_rc.borrow_mut();
+
                                          let custom_pipeline = if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
                                                  ctx.pipelines.get(&config.pipeline_id).cloned()
                                          } else {
@@ -2289,19 +2349,26 @@ impl AddonEngine {
                                          };
 
                                          println!("Create mesh {:?} {:?} {:?}", addon_name, config.pipeline_id, custom_pipeline.is_some());
-                
+
                                          if let Some(p) = custom_pipeline {
                                              (Some(p), config.pipeline_id.clone())
                                          } else if config.pipeline_id == "default" {
-                                             // "default" is handled in render_addon_frame.rs using the engine's geometry_pipeline
-                                             // We just need a placeholder pipeline here to satisfy CustomMesh::new, 
-                                             // but it won't be used for rendering if the ID is "default"
-                                             let any_pipeline = if let Some(ctx) = op_state.try_borrow::<AddonContext>() {
-                                                 ctx.pipelines.values().next().cloned()
-                                             } else {
-                                                 None
+                                             // "default" is handled in render_addon_frame.rs using the engine's geometry_pipeline -
+                                             // this placeholder is never bound or drawn, it only satisfies CustomMesh::new's
+                                             // Arc<RenderPipeline> parameter. See create_placeholder_render_pipeline's doc comment.
+                                             const PLACEHOLDER_ID: &str = "__default_mesh_placeholder__";
+                                             let existing = op_state.try_borrow::<AddonContext>().and_then(|ctx| ctx.pipelines.get(PLACEHOLDER_ID).cloned());
+                                             let placeholder = match existing {
+                                                 Some(p) => Some(p),
+                                                 None => {
+                                                     let created = std::sync::Arc::new(create_placeholder_render_pipeline(&gpu.device));
+                                                     if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                                                         ctx.pipelines.insert(PLACEHOLDER_ID.to_string(), created.clone());
+                                                     }
+                                                     Some(created)
+                                                 }
                                              };
-                                             (any_pipeline, "default".to_string())
+                                             (placeholder, "default".to_string())
                                          } else {
                                              (None, config.pipeline_id.clone())
                                          }
@@ -3374,10 +3441,14 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
 
                 for (id, config) in sorted_windows {
                     let mut open = true;
-                    egui::Window::new(&config.title)
+                    let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
                         .resizable(config.resizable)
-                        .default_size([config.default_size.width, config.default_size.height])
+                        .default_size([config.default_size.width, config.default_size.height]);
+                    if let Some(pos) = config.default_pos {
+                        window = window.default_pos(pos);
+                    }
+                    window
                         .open(&mut open)
                         .show(ctx, |ui| {
                              let widgets = context.ui_widgets.remove(&id);

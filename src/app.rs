@@ -22,6 +22,7 @@ pub struct EntropyApp {
     window_icon: Option<PathBuf>,
     resizable: Option<bool>,
     hot_reload: bool,
+    art_assets_project_id: Option<String>,
 }
 
 impl EntropyApp {
@@ -36,6 +37,7 @@ impl EntropyApp {
             window_icon: None,
             resizable: None,
             hot_reload: false,
+            art_assets_project_id: None,
         }
     }
 
@@ -107,12 +109,25 @@ impl EntropyApp {
         self
     }
 
+    /// Lets `Entropy.Model.load`/`Entropy.Texture.load` resolve art assets for a bare
+    /// `EntropyApp` (they're otherwise Studio-project-only - both hard-require a project id
+    /// internally, since they read from `<CommonOS sync dir>/midpoint/projects/<id>/models|textures/<file>`,
+    /// the MidPoint asset-project convention). This is *not* Entropy Studio's project system -
+    /// nothing else about "no project concept" (see this struct's docs) changes - it only unlocks
+    /// asset path resolution for addons that want to load real `.glb`/texture files instead of
+    /// hand-authored geometry. `id` is a MidPoint project id (the folder name under
+    /// `midpoint/projects/`), not anything Entropy-specific.
+    pub fn with_art_assets_project(mut self, id: impl Into<String>) -> Self {
+        self.art_assets_project_id = Some(id.into());
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
 
         crate::startup::run_with_config(crate::startup::RunConfig {
             game_mode: true,
-            project_id: None,
+            project_id: self.art_assets_project_id,
             start_addon: self.start_addon,
             bundle_path: self.bundle_path,
             hot_reload: self.hot_reload,

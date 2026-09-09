@@ -55,6 +55,143 @@ use std::time::{Duration, Instant};
 #[cfg(target_arch = "wasm32")]
 use wasm_timer::Instant;
 
+const LIGHTING_SHADER_SOURCE: &str = include_str!("shaders/lighting.wgsl");
+const CUSTOM_POINT_LIGHT_BEGIN_MARKER: &str = "// ENTROPY_CUSTOM_POINT_LIGHT_BEGIN";
+const CUSTOM_POINT_LIGHT_END_MARKER: &str = "// ENTROPY_CUSTOM_POINT_LIGHT_END";
+
+/// Splices an addon-supplied `point_light_contribution` WGSL function into the
+/// deferred lighting shader, replacing the built-in one between the marker
+/// comments. Falls back to the unmodified shader if `custom_point_light_fn` is
+/// `None` or the markers are somehow missing (should only happen if lighting.wgsl
+/// itself was edited without keeping the markers in sync).
+fn build_lighting_shader_source(custom_point_light_fn: Option<&str>) -> String {
+    let Some(custom_fn) = custom_point_light_fn else {
+        return LIGHTING_SHADER_SOURCE.to_string();
+    };
+    let (Some(begin), Some(end_marker_pos)) = (
+        LIGHTING_SHADER_SOURCE.find(CUSTOM_POINT_LIGHT_BEGIN_MARKER),
+        LIGHTING_SHADER_SOURCE.find(CUSTOM_POINT_LIGHT_END_MARKER),
+    ) else {
+        return LIGHTING_SHADER_SOURCE.to_string();
+    };
+    let end = end_marker_pos + CUSTOM_POINT_LIGHT_END_MARKER.len();
+    format!("{}{}\n{}", &LIGHTING_SHADER_SOURCE[..begin], custom_fn, &LIGHTING_SHADER_SOURCE[end..])
+}
+
+/// Builds a fresh lighting bind group + deferred-lighting render pipeline from
+/// the given GPU resources, optionally with an addon-supplied WGSL function
+/// standing in for the built-in point-light shading. A free function (not a
+/// method on EntropyPipeline) so it can be called from render_addon_frame.rs,
+/// which already holds a long-lived `&mut Editor` borrowed out of
+/// `pipeline.export_editor` and can't also hand out `&mut pipeline`.
+///
+/// Wraps the compile in a wgpu validation error scope so a broken addon shader
+/// can't take the app down: on failure the caller's existing pipeline/bind group
+/// are left untouched and the driver's error string is returned.
+pub(crate) fn build_lighting_pipeline(
+    device: &wgpu::Device,
+    g_buffer_bind_group_layout: &wgpu::BindGroupLayout,
+    camera_bind_group_layout: &wgpu::BindGroupLayout,
+    shadow_bind_group_layout: &wgpu::BindGroupLayout,
+    shadow_view: &wgpu::TextureView,
+    shadow_sampler: &wgpu::Sampler,
+    directional_light_buffer: &wgpu::Buffer,
+    point_lights_buffer: &wgpu::Buffer,
+    custom_point_light_wgsl: Option<&str>,
+) -> Result<(wgpu::BindGroup, RenderPipeline), String> {
+    let lighting_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer { ty: wgpu::BufferBindingType::Uniform, has_dynamic_offset: false, min_binding_size: None },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Depth, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                count: None,
+            },
+        ],
+        label: Some("Lighting Bind Group Layout (rebuilt)"),
+    });
+
+    let lighting_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &lighting_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry { binding: 0, resource: directional_light_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 1, resource: point_lights_buffer.as_entire_binding() },
+            wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(shadow_view) },
+            wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::Sampler(shadow_sampler) },
+        ],
+        label: Some("Lighting Bind Group (rebuilt)"),
+    });
+
+    let lighting_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Lighting Pipeline Layout (rebuilt)"),
+        bind_group_layouts: &[
+            &lighting_bind_group_layout,
+            g_buffer_bind_group_layout,
+            camera_bind_group_layout,
+            shadow_bind_group_layout,
+        ],
+        push_constant_ranges: &[],
+    });
+
+    let wgsl_source = build_lighting_shader_source(custom_point_light_wgsl);
+
+    device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Lighting Shader (rebuilt)"),
+        source: wgpu::ShaderSource::Wgsl(wgsl_source.into()),
+    });
+    let new_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Lighting Pipeline (rebuilt)"),
+        layout: Some(&lighting_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &shader_module,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader_module,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    });
+
+    device.poll(wgpu::PollType::Wait { submission_index: None, timeout: None });
+    if let Some(err) = pollster::block_on(device.pop_error_scope()) {
+        return Err(err.to_string());
+    }
+
+    Ok((lighting_bind_group, new_pipeline))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Workspace {
     GameEngine,
@@ -184,6 +321,11 @@ pub struct EntropyPipeline {
 
     pub vector_motion: Motion,
     pub alpha_renderer: Option<crate::alpha::AlphaRenderer>,
+
+    // Addon-supplied WGSL replacing `point_light_contribution` in the deferred lighting
+    // pass (see rebuild_lighting_pipeline). Kept around so a shadow-only reconfigure
+    // (which also has to rebuild the lighting bind group) doesn't reset it to default.
+    pub active_custom_point_light_shader: Option<String>,
 }
 
 impl EntropyPipeline {
@@ -277,8 +419,44 @@ impl EntropyPipeline {
             directional_light_position: [2.0, 2.0, 2.0],
             selected_component_id: None,
 
-            vector_motion: Motion::new()
+            vector_motion: Motion::new(),
+            active_custom_point_light_shader: None,
         }
+    }
+
+    /// Recompiles the deferred lighting pass, either with the built-in point-light
+    /// shading or an addon-supplied WGSL replacement for it (see
+    /// Entropy.Lighting.setPointLightShader), and always rebuilds the lighting bind
+    /// group - required even for a shadow-only change, since reconfiguring the
+    /// shadow map replaces `shadow_pipeline_data`'s texture view underneath it.
+    ///
+    /// Thin wrapper around the free function `build_lighting_pipeline` - kept as a
+    /// method taking `&mut self` for call sites (like window resize) with no other
+    /// live borrow of `self`. render_addon_frame.rs calls the free function directly
+    /// instead, since it already holds a long-lived `&mut Editor` borrowed out of
+    /// `self.export_editor`, and a `&mut self` method here would conflict with that.
+    pub fn rebuild_lighting_pipeline(&mut self, device: &wgpu::Device, custom_point_light_wgsl: Option<&str>) -> Result<(), String> {
+        let g_buffer_bind_group_layout = self.g_buffer_bind_group_layout.as_ref().ok_or_else(|| "g-buffer bind group layout not initialized".to_string())?;
+        let camera_bind_group_layout = &self.camera_binding.as_ref().ok_or_else(|| "camera binding not initialized".to_string())?.bind_group_layout;
+        let shadow_data = self.shadow_pipeline_data.as_ref().ok_or_else(|| "shadow pipeline not initialized".to_string())?;
+        let directional_light_buffer = self.directional_light_buffer.as_ref().ok_or_else(|| "directional light buffer not initialized".to_string())?;
+        let point_lights_buffer = self.point_lights_buffer.as_ref().ok_or_else(|| "point lights buffer not initialized".to_string())?;
+
+        let (bind_group, render_pipeline) = build_lighting_pipeline(
+            device,
+            g_buffer_bind_group_layout,
+            camera_bind_group_layout,
+            &shadow_data.shadow_bind_group_layout,
+            &shadow_data.shadow_view,
+            &shadow_data.shadow_sampler,
+            directional_light_buffer,
+            point_lights_buffer,
+            custom_point_light_wgsl,
+        )?;
+
+        self.lighting_bind_group = Some(bind_group);
+        self.lighting_pipeline = Some(render_pipeline);
+        Ok(())
     }
 
     pub async fn initialize(
@@ -1574,14 +1752,18 @@ impl EntropyPipeline {
             });
             let gbuffer_pbr_material_view = gbuffer_pbr_material_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            // Recreate shadow pipeline data
-            let shadow_pipeline_data = ShadowPipelineData::new(
+            // Recreate shadow pipeline data - reuse whatever shadow settings were already
+            // active (e.g. via Entropy.Lighting.configureShadows) instead of silently
+            // resetting them to defaults on every window resize.
+            let previous_shadow_settings = self.shadow_pipeline_data.as_ref().map(|d| d.settings).unwrap_or_default();
+            let shadow_pipeline_data = ShadowPipelineData::new_with_settings(
                 device,
                 &gpu_resources.queue, // Use gpu_resources.queue
                 self.export_editor.as_ref().unwrap().model_bind_group_layout.as_ref().unwrap(), // Pass model_bind_group_layout
                 new_size.width,
                 new_size.height,
-                self.directional_light_position
+                self.directional_light_position,
+                previous_shadow_settings
             );
 
             // Recreate window size buffer and bind group
@@ -1655,6 +1837,36 @@ impl EntropyPipeline {
             self.g_buffer_pbr_material_view = Some(gbuffer_pbr_material_view);
             self.g_buffer_bind_group = Some(new_g_buffer_bind_group);
             self.shadow_pipeline_data = Some(shadow_pipeline_data); // Add this line
+            // The lighting bind group holds the *old* shadow_view/shadow_sampler that just got
+            // replaced above - without rebuilding it here, shadows silently freeze on the first
+            // frame after any window resize (the new shadow map renders, but nothing reads it).
+            // Calls the free function (not the self.rebuild_lighting_pipeline method) since
+            // `device`/`g_buffer_bind_group_layout` above are still-live immutable borrows of
+            // `self` used later in this function - a `&mut self` method here would conflict.
+            {
+                let custom_shader = self.active_custom_point_light_shader.clone();
+                // `self.camera_binding` (as opposed to `self.export_editor`'s) is a separate,
+                // Studio-multi-viewport field that's never populated for a bare EntropyApp -
+                // using it here made every resize silently fail this rebuild (see the matching
+                // comment in render_addon_frame.rs, where the same mistake blocked
+                // Entropy.Lighting.setPointLightShader/configureShadows from ever taking effect).
+                let camera_bind_group_layout = self.export_editor.as_ref().and_then(|e| e.camera_binding.as_ref()).map(|cam| &cam.bind_group_layout);
+                let rebuild_result = match (camera_bind_group_layout, self.shadow_pipeline_data.as_ref(), self.directional_light_buffer.as_ref(), self.point_lights_buffer.as_ref()) {
+                    (Some(cam), Some(shadow), Some(dlb), Some(plb)) => build_lighting_pipeline(
+                        device, g_buffer_bind_group_layout, cam,
+                        &shadow.shadow_bind_group_layout, &shadow.shadow_view, &shadow.shadow_sampler,
+                        dlb, plb, custom_shader.as_deref(),
+                    ),
+                    _ => Err("lighting pipeline resources not initialized".to_string()),
+                };
+                match rebuild_result {
+                    Ok((bind_group, render_pipeline)) => {
+                        self.lighting_bind_group = Some(bind_group);
+                        self.lighting_pipeline = Some(render_pipeline);
+                    }
+                    Err(e) => println!("[Lighting] Failed to rebuild lighting pipeline after resize: {}", e),
+                }
+            }
             self.window_size_bind_group = Some(window_size_bind_group);
     
             if let Some(editor) = self.export_editor.as_mut() {

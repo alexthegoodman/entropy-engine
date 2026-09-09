@@ -241,6 +241,10 @@ pub struct UiWindowConfig {
     #[serde(default)]
     pub default_size: UiSize,
 
+    // Unset centers the window on screen (previous, and still default, behavior).
+    #[serde(default)]
+    pub default_pos: Option<[f32; 2]>,
+
 }
 
 
@@ -474,10 +478,22 @@ pub struct AddonGrassConfig {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct PointLightConfig {
+    pub id: String,
     pub position: [f32; 3],
     pub color: [f32; 3],
     pub intensity: f32,
     pub max_distance: f32,
+    pub falloff_exponent: f32,
+    pub specular_strength: f32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ShadowConfig {
+    pub map_size: Option<u32>,
+    pub bias: Option<i32>,
+    pub slope_scale: Option<f32>,
+    pub half_extent: Option<f32>,
 }
 
 
@@ -671,9 +687,14 @@ pub struct AddonContext {
     pub pending_landscape3ds: Vec<(String, Landscape3DConfig)>, // (addon_name, config)
     pub pending_grasses: Vec<(String, AddonGrassConfig)>, // (addon_name, config)
     pub pending_point_lights: Vec<(String, PointLightConfig)>,
+    pub pending_point_light_removals: Vec<(String, String)>, // (addon_name, light_id)
     pub pending_composites: Vec<(String, CompositeConfig)>,
     pub pending_mesh_updates: Vec<(String, Vec<u32>, Vec<f32>)>, // (mesh_id, indices, positions)
     pub pending_sun_config: Option<ProceduralSkyConfigCC>,
+    // Some(None) = reset the lighting pipeline to its built-in point-light shading;
+    // Some(Some(src)) = recompile it with this addon-supplied WGSL function instead.
+    pub pending_lighting_shader: Option<Option<String>>,
+    pub pending_shadow_config: Option<ShadowConfig>,
     pub pending_game_mode: Option<bool>,
     pub pending_entity_impulses: Vec<(String, [f32; 3])>,
     pub pending_entity_velocities: Vec<(String, [f32; 3])>,
@@ -1774,8 +1795,14 @@ pub fn op_noise_create(state: &mut OpState, #[serde] config: NoiseConfig) -> Str
 pub fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, #[serde] config: PointLightConfig) {
     if !AddonEngine::is_render_allowed(&addon_name) { return; }
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        println!("new point light: {:?} {:?}", addon_name, config);
         ctx.pending_point_lights.push((addon_name, config));
+    }
+}
+
+#[op2(fast)]
+pub fn op_point_light_remove(state: &mut OpState, #[string] addon_name: String, #[string] id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_point_light_removals.push((addon_name, id));
     }
 }
 
@@ -1783,6 +1810,21 @@ pub fn op_point_light_create(state: &mut OpState, #[string] addon_name: String, 
 pub fn op_lighting_update_sun(state: &mut OpState, #[serde] config: ProceduralSkyConfigCC) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_sun_config = Some(config);
+    }
+}
+
+#[op2(fast)]
+pub fn op_lighting_set_point_light_shader(state: &mut OpState, #[string] wgsl_source: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        // Empty string from JS means "reset to the built-in shading function".
+        ctx.pending_lighting_shader = Some(if wgsl_source.trim().is_empty() { None } else { Some(wgsl_source) });
+    }
+}
+
+#[op2]
+pub fn op_shadow_configure(state: &mut OpState, #[serde] config: ShadowConfig) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_shadow_config = Some(config);
     }
 }
 

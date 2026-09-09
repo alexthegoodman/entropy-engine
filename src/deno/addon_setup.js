@@ -177,17 +177,38 @@ function createAddonContextualAPI(resolveTarget) {
         },
         Lighting: {
             createPointLight: (config) => ops.op_point_light_create(resolveTarget(), {
+                id: config.id || Entropy.generateUUID(),
                 position: config.position || [0, 0, 0],
                 color: config.color || [1, 1, 1],
                 intensity: config.intensity || 1.0,
-                maxDistance: config.maxDistance || 20.0
+                maxDistance: config.maxDistance || 20.0,
+                falloffExponent: config.falloffExponent || 2.0,
+                specularStrength: config.specularStrength === undefined ? 1.0 : config.specularStrength
             }),
+            // Ids are the addon's own - createPointLight upserts by id, so re-supplying
+            // the same id (e.g. on every slider onChange in a live editor) updates that
+            // light in place instead of leaking a new one.
+            removePointLight: (id) => ops.op_point_light_remove(resolveTarget(), id),
             updateSun: (config) => ops.op_lighting_update_sun({
                 horizonColor: config.horizonColor || [0.7, 0.8, 1.0],
                 zenithColor: config.zenithColor || [0.2, 0.3, 0.6],
                 sunDirection: config.sunDirection || [0.0, 1.0, 0.0],
                 sunColor: config.sunColor || [1.0, 0.9, 0.7],
                 sunIntensity: config.sunIntensity || 5.0
+            }),
+            // Replaces the deferred lighting pass's point-light shading function with
+            // this WGSL source (must define `fn point_light_contribution(...)` with the
+            // same signature as the built-in one - see shaders/lighting.wgsl). The engine
+            // recompiles the lighting pipeline behind a validation error scope, so a
+            // broken shader is rejected and the previous pipeline keeps running.
+            // Call with no argument (or an empty/falsy source) to reset to the default.
+            setPointLightShader: (wgslSource) => ops.op_lighting_set_point_light_shader(wgslSource || ""),
+            // Any field left out keeps its current value - only pass what you're changing.
+            configureShadows: (config) => ops.op_shadow_configure({
+                mapSize: config.mapSize,
+                bias: config.bias,
+                slopeScale: config.slopeScale,
+                halfExtent: config.halfExtent
             })
         }
     };
@@ -644,10 +665,13 @@ globalThis.Entropy = {
             // addon.d.ts documents `title?`, `width?`, `height?` as flat, optional fields, but
             // the op wants { title, resizable, defaultSize: { width, height } } - translate here
             // so addons that only pass a title (like most examples) don't have to know that.
+            // `x`/`y` are optional too - unset centers the window on screen, same as before this
+            // existed.
             const windowId = ops.op_ui_create_window({
                 title: config.title || "",
                 resizable: config.resizable !== undefined ? config.resizable : true,
-                defaultSize: { width: config.width || 400, height: config.height || 300 }
+                defaultSize: { width: config.width || 400, height: config.height || 300 },
+                defaultPos: (config.x !== undefined && config.y !== undefined) ? [config.x, config.y] : null
             }, config.onRender);
             return windowId;
         },
@@ -998,6 +1022,30 @@ globalThis.Entropy = {
     // implementation (just the two ops createWaterMesh actually needs) tagging "Global", not a
     // reuse of that factory.
     Model: {
+        // Mirrors the addon-scoped Model.load (further down, inside Addon.register) but tags
+        // "Global" like the rest of this object - loading a .glb from a bare EntropyApp requires
+        // EntropyApp::with_art_assets_project(id) to be set (see its doc comment); without it,
+        // op_model_load's pending entry is silently dropped every frame (AddonEngine.project_id
+        // stays None, and the model-loading block in addon_engine.rs is gated behind `if let
+        // Some(project_id) = self.project_id`).
+        load: (config) => {
+            ops.op_model_load(globalThis.__entropy_current_addon_context_override || "Global", {
+                id: config.id || null,
+                path: config.path,
+                visualType: config.visualType || null,
+                position: config.position || [0, 0, 0],
+                rotation: config.rotation || [0, 0, 0],
+                scale: config.scale || [1, 1, 1],
+                pipelineId: config.pipelineId || null,
+                renderRole: config.renderRole || null,
+                physics: config.physics || null,
+                player: config.player || null,
+                npc: config.npc || null,
+                behaviorId: config.behaviorId || null,
+                yumonId: config.yumonId || null,
+                isNpc: config.isNpc || null
+            });
+        },
         createMesh: (config) => {
             ops.op_mesh_create(globalThis.__entropy_current_addon_context_override || "Global", {
                 id: config.id || null,

@@ -142,7 +142,7 @@ pub struct RendererState {
     pub addon_quadscapes: HashMap<String, Vec<QuadScape>>,
     pub grasses: Vec<Grass>,
     pub addon_grasses: HashMap<String, Vec<Grass>>,
-    pub addon_point_lights: HashMap<String, Vec<PointLight>>,
+    pub addon_point_lights: HashMap<String, Vec<(String, PointLight)>>, // (light_id, light) - keyed by id so re-rendering a light (e.g. a live UI preview) updates it in place instead of leaking a new entry every call
     pub particle_systems: Vec<ParticleSystem>,
     pub procedural_trees: Vec<ProceduralTrees>,
     pub water_planes: Vec<WaterPlane>,

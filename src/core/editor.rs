@@ -78,7 +78,11 @@ pub struct PointLight {
     pub _padding2: u32,
     pub intensity: f32,
     pub max_distance: f32,
-    pub _padding3: [u32; 2], // Pad to 16-byte alignment
+    // Was `_padding3: [u32; 2]` (always zero) - reused for real per-light shading
+    // controls instead of growing the uniform stride, so PointLightsUniform's
+    // `[[f32; 12]; MAX_POINT_LIGHTS]` layout and every packing site stay unchanged.
+    pub falloff_exponent: f32, // exponent in `pow(distance / max_distance, x)`; 2.0 matches the old hardcoded quadratic falloff
+    pub specular_strength: f32, // multiplies this light's specular contribution; 1.0 matches the old unweighted behavior
 }
 
 #[repr(C)]

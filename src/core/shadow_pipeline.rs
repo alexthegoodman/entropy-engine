@@ -2,6 +2,25 @@ use crate::core::camera::CameraBinding;
 use nalgebra::{Point3, Vector3, Matrix4};
 use wgpu::{util::DeviceExt, RenderPipeline};
 
+#[derive(Debug, Clone, Copy)]
+pub struct ShadowSettings {
+    pub map_size: u32,
+    pub bias: i32,
+    pub slope_scale: f32,
+    pub half_extent: f32,
+}
+
+impl Default for ShadowSettings {
+    fn default() -> Self {
+        Self {
+            map_size: 1024,
+            bias: 2,
+            slope_scale: 2.0,
+            half_extent: 2048.0, // 4096-wide orthographic frustum, matches the original hardcoded bounds
+        }
+    }
+}
+
 pub struct ShadowPipelineData {
     pub light_camera_binding: CameraBinding,
     pub shadow_pipeline: RenderPipeline,
@@ -11,6 +30,7 @@ pub struct ShadowPipelineData {
     pub shadow_bind_group_layout: wgpu::BindGroupLayout,
     pub shadow_bind_group: wgpu::BindGroup,
     pub light_view_proj_matrix: Matrix4<f32>,
+    pub settings: ShadowSettings,
 }
 
 impl ShadowPipelineData {
@@ -22,8 +42,19 @@ impl ShadowPipelineData {
         window_height: u32,
         light_position: [f32; 3]
     ) -> Self {
-        // Define constants for shadow map
-        const SHADOW_MAP_SIZE: u32 = 1024;
+        Self::new_with_settings(device, queue, model_bind_group_layout, window_width, window_height, light_position, ShadowSettings::default())
+    }
+
+    pub fn new_with_settings(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model_bind_group_layout: &wgpu::BindGroupLayout,
+        window_width: u32,
+        window_height: u32,
+        light_position: [f32; 3],
+        settings: ShadowSettings,
+    ) -> Self {
+        let shadow_map_size = settings.map_size;
         let shadow_map_format = wgpu::TextureFormat::Depth32Float; // Or Depth16Unorm, Depth24Plus
 
         // 1. Light Camera Setup
@@ -33,10 +64,10 @@ impl ShadowPipelineData {
 
         let light_view = Matrix4::look_at_rh(&light_position, &light_target, &light_up);
         // Orthographic projection for directional light, adjust as needed for scene size
-        // let light_proj = nalgebra::Matrix4::new_orthographic(-20.0, 20.0, -20.0, 20.0, -50.0, 50.0);
+        let half_extent = settings.half_extent;
         let light_proj = nalgebra::Matrix4::new_orthographic(
-            -2048.0, 2048.0,  // left, right (4096 wide)
-            -2048.0, 2048.0,  // bottom, top (4096 tall)
+            -half_extent, half_extent,  // left, right
+            -half_extent, half_extent,  // bottom, top
             -500.0, 500.0     // near, far (adjust based on your scene height)
         );
         let light_view_proj_matrix = light_proj * light_view;
@@ -48,8 +79,8 @@ impl ShadowPipelineData {
             45.0f32.to_radians(), // Fov not used for orthographic, but kept for Camera struct
             0.1,
             100.0,
-            SHADOW_MAP_SIZE as f32,
-            SHADOW_MAP_SIZE as f32
+            shadow_map_size as f32,
+            shadow_map_size as f32
         );
 
         light_camera.view_projection_matrix = light_view_proj_matrix; // so the binding gets the orthographic matrix
@@ -62,8 +93,8 @@ impl ShadowPipelineData {
         let shadow_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Shadow Map Texture"),
             size: wgpu::Extent3d {
-                width: SHADOW_MAP_SIZE,
-                height: SHADOW_MAP_SIZE,
+                width: shadow_map_size,
+                height: shadow_map_size,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
@@ -136,8 +167,8 @@ impl ShadowPipelineData {
                 depth_compare: wgpu::CompareFunction::LessEqual, // Important for shadow mapping
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState {
-                    constant: 2, // Corresponds to depthBias in GLSL
-                    slope_scale: 2.0, // Corresponds to depthBiasSlopeFactor
+                    constant: settings.bias, // Corresponds to depthBias in GLSL
+                    slope_scale: settings.slope_scale, // Corresponds to depthBiasSlopeFactor
                     clamp: 0.0,
                 },
             }),
@@ -213,6 +244,7 @@ impl ShadowPipelineData {
             shadow_bind_group_layout,
             shadow_bind_group,
             light_view_proj_matrix,
+            settings,
         }
     }
 
@@ -264,6 +296,30 @@ impl ShadowPipelineData {
                 wgpu::IndexFormat::Uint32,
             );
             render_pass.draw_indexed(0..landscape.index_count as u32, 0, 0..1);
+        }
+
+        // Draw addon-spawned cubes and meshes (Entropy.Model.createProcedural/createMesh) -
+        // without this, nothing an addon spawns can ever cast a shadow, only the built-in
+        // editor cubes/models/landscapes above can. Both types were already created against
+        // renderer_state.model_bind_group_layout (same as the built-in cubes/models), so
+        // their existing group-1 bind group is directly compatible with this pipeline.
+        for cubes in renderer_state.addon_cubes.values() {
+            for cube in cubes {
+                cube.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &cube.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, cube.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(cube.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..cube.index_count as u32, 0, 0..1);
+            }
+        }
+        for meshes in renderer_state.addon_meshes.values() {
+            for mesh in meshes {
+                mesh.transform.update_uniform_buffer(queue);
+                render_pass.set_bind_group(1, &mesh.model_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                render_pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                render_pass.draw_indexed(0..mesh.num_indices, 0, 0..mesh.instance_count);
+            }
         }
 
         // TODO: Handle grass and water if they need to cast shadows. This might require specific shadow rendering paths for them.

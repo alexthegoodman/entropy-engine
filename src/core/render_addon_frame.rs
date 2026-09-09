@@ -289,6 +289,97 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             }
         }
 
+        // Addon-driven lighting pipeline changes: a custom point-light shader and/or
+        // shadow settings (Entropy.Lighting.setPointLightShader / configureShadows).
+        // Applied via direct `pipeline.<field>` assignments and the free function
+        // build_lighting_pipeline rather than pipeline.rebuild_lighting_pipeline(),
+        // since that method takes &mut EntropyPipeline and would conflict with
+        // `editor`'s live borrow of pipeline.export_editor for the rest of this function.
+        let pending_lighting_shader = editor.addon_engine.runtime.op_state().borrow_mut().try_borrow_mut::<AddonContext>().and_then(|ctx| ctx.pending_lighting_shader.take());
+        let pending_shadow_config = editor.addon_engine.runtime.op_state().borrow_mut().try_borrow_mut::<AddonContext>().and_then(|ctx| ctx.pending_shadow_config.take());
+
+        // An addon can call setPointLightShader/configureShadows from onInit(), which runs
+        // before EntropyPipeline finishes standing up g_buffer_bind_group_layout/shadow_pipeline_data
+        // on the very first frames. Re-queue rather than silently dropping the request in that
+        // case, so it takes effect on the first frame the pipeline is actually ready - taking
+        // it out of AddonContext up top and never writing it back would otherwise lose it for good.
+        //
+        // Deliberately checks `camera_binding` (this function's local, from
+        // editor.camera_binding.as_mut() above - already `.expect()`'d, so always Some here)
+        // rather than `pipeline.camera_binding`: that field is a separate, Studio-multi-viewport
+        // thing that's never populated for a bare EntropyApp, and checking it here made this
+        // block think the pipeline was never ready and re-queue forever, every frame, without
+        // ever actually applying a custom shader or shadow setting - found by adding temporary
+        // per-condition debug logging when Toon/Rim never visibly changed anything.
+        let lighting_pipeline_ready = editor.model_bind_group_layout.is_some()
+            && pipeline.g_buffer_bind_group_layout.is_some()
+            && pipeline.shadow_pipeline_data.is_some()
+            && pipeline.directional_light_buffer.is_some()
+            && pipeline.point_lights_buffer.is_some();
+
+        if !lighting_pipeline_ready && (pending_lighting_shader.is_some() || pending_shadow_config.is_some()) {
+            if let Some(ctx) = editor.addon_engine.runtime.op_state().borrow_mut().try_borrow_mut::<AddonContext>() {
+                if pending_lighting_shader.is_some() { ctx.pending_lighting_shader = pending_lighting_shader.clone(); }
+                if pending_shadow_config.is_some() { ctx.pending_shadow_config = pending_shadow_config.clone(); }
+            }
+        } else {
+
+        if let Some(shadow_config) = &pending_shadow_config {
+            let previous = pipeline.shadow_pipeline_data.as_ref().map(|d| d.settings).unwrap_or_default();
+            let settings = crate::core::shadow_pipeline::ShadowSettings {
+                map_size: shadow_config.map_size.unwrap_or(previous.map_size),
+                bias: shadow_config.bias.unwrap_or(previous.bias),
+                slope_scale: shadow_config.slope_scale.unwrap_or(previous.slope_scale),
+                half_extent: shadow_config.half_extent.unwrap_or(previous.half_extent),
+            };
+            // lighting_pipeline_ready already guarantees this is Some.
+            let model_bind_group_layout = editor.model_bind_group_layout.as_ref().unwrap();
+            // window_width/window_height are accepted but unused by ShadowPipelineData -
+            // the shadow map's size is settings.map_size, independent of the swapchain.
+            let new_shadow_data = crate::core::shadow_pipeline::ShadowPipelineData::new_with_settings(
+                device, queue, model_bind_group_layout, 0, 0, pipeline.directional_light_position, settings,
+            );
+            pipeline.shadow_pipeline_data = Some(new_shadow_data);
+        }
+
+        if pending_lighting_shader.is_some() || pending_shadow_config.is_some() {
+            let requested_shader = match pending_lighting_shader {
+                Some(explicit) => explicit,
+                None => pipeline.active_custom_point_light_shader.clone(),
+            };
+            let rebuild_result = (|| -> Result<(wgpu::BindGroup, wgpu::RenderPipeline), String> {
+                let g_buffer_bind_group_layout = pipeline.g_buffer_bind_group_layout.as_ref().ok_or("g-buffer bind group layout not initialized")?;
+                let camera_bind_group_layout = &camera_binding.bind_group_layout;
+                let shadow_data = pipeline.shadow_pipeline_data.as_ref().ok_or("shadow pipeline not initialized")?;
+                let directional_light_buffer = pipeline.directional_light_buffer.as_ref().ok_or("directional light buffer not initialized")?;
+                let point_lights_buffer = pipeline.point_lights_buffer.as_ref().ok_or("point lights buffer not initialized")?;
+                crate::core::pipeline::build_lighting_pipeline(
+                    device,
+                    g_buffer_bind_group_layout,
+                    camera_bind_group_layout,
+                    &shadow_data.shadow_bind_group_layout,
+                    &shadow_data.shadow_view,
+                    &shadow_data.shadow_sampler,
+                    directional_light_buffer,
+                    point_lights_buffer,
+                    requested_shader.as_deref(),
+                )
+            })();
+
+            match rebuild_result {
+                Ok((bind_group, render_pipeline)) => {
+                    pipeline.lighting_bind_group = Some(bind_group);
+                    pipeline.lighting_pipeline = Some(render_pipeline);
+                    pipeline.active_custom_point_light_shader = requested_shader;
+                }
+                Err(e) => {
+                    println!("[Lighting] Failed to rebuild lighting pipeline, keeping previous one: {}", e);
+                }
+            }
+        }
+
+        } // end lighting_pipeline_ready
+
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
         // --- Alpha Renderer Pass ---
@@ -969,10 +1060,10 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             for (addon_name, lights) in &renderer_state.addon_point_lights {
                 if let Workspace::Addon(active_name) = &pipeline.current_workspace {
                     if addon_name == active_name || addon_name == "Global" {
-                        collected_lights.extend(lights.clone());
+                        collected_lights.extend(lights.iter().map(|(_, l)| l.clone()));
                     }
                 } else if addon_name == "Global" {
-                    collected_lights.extend(lights.clone());
+                    collected_lights.extend(lights.iter().map(|(_, l)| l.clone()));
                 }
             }
 
@@ -986,7 +1077,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                  point_lights_uniform_data.point_lights[i] = [
                     pl.position[0], pl.position[1], pl.position[2], 0.0,
                     pl.color[0], pl.color[1], pl.color[2], 0.0,
-                    pl.intensity, pl.max_distance, 0.0, 0.0
+                    pl.intensity, pl.max_distance, pl.falloff_exponent, pl.specular_strength
                 ];
             }
             

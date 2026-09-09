@@ -485,6 +485,12 @@ export interface WindowConfig {
   title?: string;
   width?: number;
   height?: number;
+  // Starting top-left position in screen pixels. Both must be set together or neither is used
+  // (unset centers the window on screen, the previous and still-default behavior). Only affects
+  // the first frame - after that the window remembers wherever the user last dragged it to.
+  x?: number;
+  y?: number;
+  resizable?: boolean;
   onRender?: () => void;
   [key: string]: unknown;
 }
@@ -875,14 +881,34 @@ export interface EntropyAPI {
     write: (bufferId: string, data: Uint8Array | Float32Array | Int32Array | number[], offset?: number) => void;
   };
   Model: {
-    createMesh: (config: { 
+    // Loads a .glb from a MidPoint asset project - requires
+    // EntropyApp::with_art_assets_project(id) to be set on the Rust side, otherwise the
+    // pending load is silently dropped (AddonEngine.project_id stays None). `id`, if given,
+    // must be UUID-parseable (e.g. Entropy.generateUUID()) - a human-readable id panics.
+    load: (config: {
+        id?: string | null;
+        path: string;
+        visualType?: string | null;
+        position?: number[];
+        rotation?: number[];
+        scale?: number[];
+        pipelineId?: string | null;
+        renderRole?: string | null;
+        physics?: PhysicsConfig | null;
+        player?: { modelId?: string; defaultWeaponId?: string } | null;
+        npc?: object | null;
+        behaviorId?: string | null;
+        yumonId?: string | null;
+        isNpc?: boolean | null;
+    }) => void;
+    createMesh: (config: {
         id?: string | null;
         position: number[];
         rotation?: number[];
         scale?: number[];
-        vertexData: number[]; 
-        indexData: number[]; 
-        pipelineId: string; 
+        vertexData: number[];
+        indexData: number[];
+        pipelineId: string;
         renderRole?: string;
         instanceCount?: number;
         bindings?: BindingConfig[];
@@ -944,8 +970,35 @@ export interface EntropyAPI {
     }) => string;
   };
   Lighting: {
-    createPointLight: (config: any) => void;
+    // `id` is required - createPointLight upserts by id, so re-supplying the same one (e.g. on
+    // every slider onChange in a live editor) updates that light in place instead of leaking a
+    // new one every call. See removePointLight to despawn one.
+    createPointLight: (config: {
+      id: string;
+      position?: [number, number, number];
+      color?: [number, number, number];
+      intensity?: number;
+      maxDistance?: number;
+      falloffExponent?: number; // exponent in pow(distance / maxDistance, x); default 2.0 (quadratic)
+      specularStrength?: number; // multiplies this light's specular contribution; default 1.0
+    }) => void;
+    removePointLight: (id: string) => void;
     updateSun: (config: ProceduralSkyConfig) => void;
+    // Replaces the deferred lighting pass's point-light shading function with this WGSL source -
+    // it must define `fn point_light_contribution(...)` with the exact signature documented
+    // between ENTROPY_CUSTOM_POINT_LIGHT_BEGIN/END in src/core/shaders/lighting.wgsl. Recompiled
+    // behind a wgpu validation error scope, so an invalid shader is rejected (logged, previous
+    // pipeline keeps running) instead of crashing the app. Call with "" (or omit) to reset to
+    // the built-in shading.
+    setPointLightShader: (wgslSource?: string) => void;
+    // Any field left unset keeps its current value - only pass what you're changing. Directional
+    // light only; point lights don't cast shadows.
+    configureShadows: (config: {
+      mapSize?: number; // shadow map resolution (square), e.g. 256/512/1024/2048
+      bias?: number; // depth bias constant
+      slopeScale?: number; // depth bias slope scale
+      halfExtent?: number; // orthographic frustum half-width/height covered by the shadow map
+    }) => void;
   };
   Audio: {
     playSynth: (config: SynthConfig) => void;

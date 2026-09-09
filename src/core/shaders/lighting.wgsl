@@ -16,7 +16,8 @@ struct PointLight {
     _padding1: f32,
     intensity: f32,
     max_distance: f32,
-    _padding: vec2<f32>,
+    falloff_exponent: f32,
+    specular_strength: f32,
 };
 
 struct PointLights {
@@ -52,6 +53,61 @@ struct Camera {
 @group(3) @binding(0) var<uniform> light_view_proj: mat4x4<f32>; // The light's view-projection matrix
 @group(3) @binding(1) var shadow_map: texture_depth_2d; // Shadow map texture
 @group(3) @binding(2) var shadow_sampler: sampler_comparison; // Shadow map sampler
+
+// ENTROPY_CUSTOM_POINT_LIGHT_BEGIN
+// Addon-pluggable point light shading. An addon can replace everything between
+// the BEGIN/END markers with its own WGSL as long as the function keeps this
+// exact name and signature - the engine splices the replacement into this file
+// and recompiles just the lighting pipeline (see Entropy.Lighting.setPointLightShader).
+fn point_light_contribution(
+    p_light: PointLight,
+    frag_pos: vec3<f32>,
+    N: vec3<f32>,
+    view_dir: vec3<f32>,
+    albedo: vec3<f32>,
+    metallic: f32,
+    ao: f32,
+    F0: vec3<f32>,
+    a2: f32,
+    k: f32,
+    NdotV: f32
+) -> vec3<f32> {
+    let light_vec = p_light.position - frag_pos;
+    let distance = length(light_vec);
+    let light_dir = light_vec / distance;
+
+    let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, p_light.falloff_exponent), 0.0, 1.0);
+    let intensity_factor = p_light.intensity;
+
+    let NdotL_point = max(dot(N, light_dir), 0.0);
+    let halfway_dir_point = normalize(light_dir + view_dir);
+
+    let H_point = halfway_dir_point;
+
+    let NdotH_point = max(dot(N, H_point), 0.0);
+    let NdotH2_point = NdotH_point * NdotH_point;
+    let nom_point = a2;
+    let denom_point = (NdotH2_point * (a2 - 1.0) + 1.0);
+    let D_point = nom_point / (PI * denom_point * denom_point);
+
+    let F_point = F0 + (vec3<f32>(1.0) - F0) * pow(clamp(1.0 - dot(H_point, view_dir), 0.0, 1.0), 5.0);
+
+    let G_V_point = NdotV / (NdotV * (1.0 - k) + k);
+    let G_L_point = NdotL_point / (NdotL_point * (1.0 - k) + k);
+    let G_point = G_V_point * G_L_point;
+
+    let Ks_point = F_point;
+    let Kd_point = (vec3<f32>(1.0) - Ks_point) * (1.0 - metallic);
+
+    let numerator_point = D_point * G_point * F_point;
+    let denominator_point = 4.0 * NdotV * NdotL_point + 0.0001;
+    let specular_point = (numerator_point / denominator_point) * p_light.specular_strength;
+
+    let point_radiance = p_light.color * NdotL_point * attenuation * intensity_factor;
+
+    return (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
+}
+// ENTROPY_CUSTOM_POINT_LIGHT_END
 
 @vertex
 fn vs_main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
@@ -153,44 +209,7 @@ fn fs_main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
     // Point Lights
     for (var i: u32 = 0; i < point_lights.num_point_lights; i = i + 1) {
         let p_light = point_lights.point_lights[i];
-
-        let light_vec = p_light.position - position;
-        let distance = length(light_vec);
-        let light_dir = light_vec / distance; 
-
-        let attenuation = clamp(1.0 - pow(distance / p_light.max_distance, 2.0), 0.0, 1.0);
-        // let intensity_factor = p_light.intensity / (distance * distance + 1.0); // +1.0 to avoid division by zero and smooth attenuation
-        let intensity_factor = p_light.intensity; // Just use intensity as-is
-
-        let NdotL_point = max(dot(N, light_dir), 0.0);
-        let halfway_dir_point = normalize(light_dir + view_dir);
-
-        let H_point = halfway_dir_point;
-
-        let NdotH_point = max(dot(N, H_point), 0.0);
-        let NdotH2_point = NdotH_point * NdotH_point;
-        let nom_point = a2;
-        let denom_point = (NdotH2_point * (a2 - 1.0) + 1.0);
-        let D_point = nom_point / (PI * denom_point * denom_point);
-
-        let F_point = F0 + (vec3<f32>(1.0) - F0) * pow(clamp(1.0 - dot(H_point, view_dir), 0.0, 1.0), 5.0);
-        
-        let G_V_point = NdotV / (NdotV * (1.0 - k) + k);
-        let G_L_point = NdotL_point / (NdotL_point * (1.0 - k) + k);
-        let G_point = G_V_point * G_L_point;
-        
-        let Ks_point = F_point;
-        let Kd_point = (vec3<f32>(1.0) - Ks_point) * (1.0 - metallic);
-
-        let numerator_point = D_point * G_point * F_point;
-        let denominator_point = 4.0 * NdotV * NdotL_point + 0.0001;
-        let specular_point = numerator_point / denominator_point;
-
-        let point_radiance = p_light.color * NdotL_point * attenuation * intensity_factor;
-
-        let point_Lo = (Kd_point * albedo / PI + specular_point) * point_radiance * ao;
-
-        total_Lo = total_Lo + point_Lo;
+        total_Lo = total_Lo + point_light_contribution(p_light, position, N, view_dir, albedo, metallic, ao, F0, a2, k, NdotV);
     }
     
     let final_color = ambient_light + total_Lo;
