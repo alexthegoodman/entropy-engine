@@ -1,38 +1,17 @@
-use gltf::json::camera;
-use mint::ColumnMatrix4;
-use nalgebra::{Isometry3, Matrix4, Point3, UnitQuaternion, Vector3};
-use rapier3d::math::Point as RapierPoint;
+use nalgebra::{Isometry3, Point3, UnitQuaternion, Vector3};
 use rapier3d::prelude::*;
-use rapier3d::prelude::{ColliderSet, QueryPipeline, RigidBodySet};
-use transform_gizmo::config::TransformPivotPoint;
 use uuid::Uuid;
-use wgpu::{BindGroupLayout, TextureView};
 
-use crate::art_assets::ScatteredModel::ScatteredModel;
-use crate::core::AnimationState::AnimationState;
-use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
-use crate::core::animation_system;
-use crate::core::SimpleCamera::to_row_major_f64;
+use crate::core::Transform_2::matrix4_to_raw_array;
 use crate::core::camera::CameraBinding;
-use crate::core::editor::{PointLight, PointLightsUniform, Viewport, WindowSize};
-use crate::deno::addon_ops::VisualConfig;
 use crate::game_behaviors::stateful::BehaviorState;
-use crate::handlers::EntropyPosition;
-use crate::heightfield_landscapes::QuadScape::QuadScape;
-use crate::helpers::saved_data::{GameSettings, PhysicsConfig, ScatterSettings, VisualType};
-use crate::model_components::Collectable::Collectable;
+use crate::helpers::saved_data::VisualType;
 use crate::shape_primitives::Sphere::Sphere;
-use crate::core::skinned_pipeline::SkinnedPipeline;
 use crate::{
     core::Texture::Texture,
     helpers::saved_data::{ComponentData, ComponentKind},
 };
 use std::collections::HashMap;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
-use wgpu::util::DeviceExt;
 use std::str::FromStr;
 
 #[cfg(target_os = "windows")]
@@ -44,420 +23,25 @@ use wasm_timer::Instant;
 #[cfg(target_arch = "wasm32")]
 use std::time::Duration;
 
-use transform_gizmo::{enum_set, Gizmo, GizmoConfig, GizmoMode, GizmoOrientation, GizmoVisuals, Rect};
-use transform_gizmo::mint::RowMatrix4;
+use crate::model_components::PlayerCharacter::MovementState;
+use crate::shape_primitives::Cube::Cube;
 
+use super::RendererState;
+use super::DebugRay;
+use super::super::SimpleCamera::SimpleCamera;
 
-use crate::procedural_models::House::{House, HouseConfig};
-use crate::{
-    helpers::{landscapes::LandscapePixelData, saved_data::LandscapeTextureKinds},
-    heightfield_landscapes::Landscape::Landscape,
-    heightfield_landscapes::Landscape3D::Landscape3D,
-    art_assets::Model::Model,
-    shape_primitives::{Cube::Cube, Pyramid::Pyramid},
-    procedural_grass::grass::Grass,
-    procedural_particles::particle_system::ParticleSystem,
-    procedural_trees::trees::ProceduralTrees,
-    water_plane::water::WaterPlane,
-    core::custom_mesh::CustomMesh,
-};
-
-use super::Grid::GridConfig;
-use crate::model_components::{PlayerCharacter::{PlayerCharacter, MovementState}, NPC::NPC};
-use crate::game_ui::quest_state::QuestState;
-use super::{
-    Grid::Grid,
-    Rays::{cast_ray_at_components, create_ray_from_mouse},
-    SimpleCamera::SimpleCamera,
-};
-
-#[derive(Debug, Clone)]
-pub struct MouseState {
-    pub is_first_mouse: bool,
-    pub last_mouse_x: f64,
-    pub last_mouse_y: f64,
-    pub right_mouse_pressed: bool,
-    pub drag_started: bool,
-    pub is_dragging: bool,
-    pub hovered_gizmo: bool,
-}
-
-// #[derive(Debug, Clone, Copy)]
-// pub struct WindowSize {
-//     pub width: u32,
-//     pub height: u32,
-// }
-
-#[derive(Clone, Copy, Debug)]
-pub struct Point {
-    pub x: f32,
-    pub y: f32,
-}
-
-// Define all possible edit operations
-#[derive(Debug)]
-pub enum ObjectProperty {
-    Width(f32),
-}
-
-#[derive(Debug)]
-pub struct ObjectEditConfig {
-    pub object_id: Uuid,
-    pub field_name: String,
-    pub old_value: ObjectProperty,
-    pub new_value: ObjectProperty,
-    // pub signal: RwSignal<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct ObjectConfig {
-    pub id: Uuid,
-    pub name: String,
-    pub position: (f32, f32, f32),
-}
-
-pub struct DebugRay {
-    pub cube: Cube,
-    pub expires_at: Instant,
-}
-
-// #[derive(std::ops::DerefMut)]
-pub struct RendererState {
-    pub cubes: Vec<Cube>,
-    pub addon_cubes: HashMap<String, Vec<Cube>>,
-    pub addon_meshes: HashMap<String, Vec<CustomMesh>>,
-    pub spheres: Vec<Sphere>,
-    pub debug_rays: Vec<DebugRay>,
-    pub pyramids: Vec<Pyramid>,
-    pub grids: Vec<Grid>,
-    pub models: Vec<Model>, // must add a Model in order to add an NPC
-    pub addon_models: HashMap<String, Vec<Model>>,
-    pub procedural_houses: Vec<House>,
-    pub scattered_models: Vec<crate::art_assets::ScatteredModel::ScatteredModel>,
-    // pub skeleton_parts: Vec<SkeletonRenderPart>, // will contain buffers and the like
-    // pub terrain_managers: Vec<TerrainManager>,
-    pub landscapes: Vec<Landscape>,
-    pub addon_landscapes: HashMap<String, Vec<Landscape>>,
-    pub addon_landscape3ds: HashMap<String, Vec<Landscape3D>>,
-    pub addon_quadscapes: HashMap<String, Vec<QuadScape>>,
-    pub grasses: Vec<Grass>,
-    pub addon_grasses: HashMap<String, Vec<Grass>>,
-    pub addon_point_lights: HashMap<String, Vec<(String, PointLight)>>, // (light_id, light) - keyed by id so re-rendering a light (e.g. a live UI preview) updates it in place instead of leaking a new entry every call
-    pub particle_systems: Vec<ParticleSystem>,
-    pub procedural_trees: Vec<ProceduralTrees>,
-    pub water_planes: Vec<WaterPlane>,
-    pub point_lights: Vec<PointLight>,
-    // pub dummy_views: Vec<(u32, TextureView)>,  
-
-    // animations
-    // pub active_animations: Vec<AnimationPlayback>,
-
-    // wgpu
-    pub model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    pub group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    pub ui_model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-    pub texture_render_mode_buffer: Arc<wgpu::Buffer>,
-    pub regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
-    pub color_render_mode_buffer: Arc<wgpu::Buffer>,
-    pub gpu_resources: Option<Arc<crate::core::gpu_resources::GpuResources>>,
-    pub skinned_pipeline: Option<SkinnedPipeline>,
-    pub scattered_model_pipeline: Option<crate::core::scattered_model_pipeline::ScatteredModelPipeline>,
-
-    // state
-    pub project_selected: Option<Uuid>,
-    pub current_view: String,
-    pub object_selected: Option<Uuid>,
-    pub object_selected_kind: Option<ComponentKind>,
-    pub object_selected_data: Option<ComponentData>,
-    pub selected_entity_id: Option<String>,  // The model/house/entity ID (for rendering)
-    pub selected_component_id: Option<String>,  // The component ID (for saving)
-
-    // physics
-    pub gravity: Vector<f32>,
-    pub integration_parameters: IntegrationParameters,
-    pub physics_pipeline: PhysicsPipeline,
-    pub island_manager: IslandManager,
-    pub broad_phase: BroadPhaseMultiSap,
-    pub narrow_phase: NarrowPhase,
-    pub impulse_joint_set: ImpulseJointSet,
-    pub multibody_joint_set: MultibodyJointSet,
-    pub ccd_solver: CCDSolver,
-    pub query_pipeline: QueryPipeline,
-    pub rigid_body_set: RigidBodySet,
-    pub collider_set: ColliderSet,
-
-    // model components
-    pub player_character: Option<PlayerCharacter>,
-    pub npcs: Vec<NPC>,
-    pub collectables: Vec<Collectable>,
-
-    // pub current_modifiers: ModifiersState,
-    pub mouse_state: MouseState,
-    pub last_ray: Option<Ray>,
-    pub ray_intersecting: bool,
-    pub ray_intersection: Option<RapierPoint<f32>>,
-    pub ray_component_id: Option<Uuid>,
-
-    pub last_movement_time: Option<Instant>,
-    pub last_frame_time: Option<Instant>,
-
-    pub current_mouse_position: Option<EntropyPosition>,
-    pub last_mouse_position: Option<EntropyPosition>,
-    // current/last_mouse_position both get force-cleared to None by
-    // step_physics_pipeline's 100ms staleness timeout below, which drops
-    // handlers.rs's MouseDown push (it's gated on current_mouse_position
-    // being Some) for any click preceded by so much as a brief pause to aim -
-    // an extremely common real interaction, not just a synthetic-input edge
-    // case. This mirrors set_mouse_position's writes but is never cleared, so
-    // MouseDown always has a position to report.
-    pub last_known_mouse_position: Option<EntropyPosition>,
-    pub last_mouse_delta: (f32, f32),
-
-    pub shift_active: bool,
-    pub ctrl_active: bool,
-    pub alt_active: bool,
-
-    pub navigation_speed: f32,
-    pub game_mode: bool,
-    pub game_settings: GameSettings,
-
-    // Angles stored in radians (in theory, better controlled here in state)
-    pub camera_pitch: f32, // Up/Down rotation
-    pub camera_yaw: f32,   // Left/Right rotation
-    pub last_mouse_position_time: Instant,
-    pub gizmo: Gizmo,
-
-    pub display_debug_spheres: bool,
-
-    pub quest_state: QuestState,
-    pub pending_loot_drops: Vec<(Vector3<f32>, ComponentData)>,
-}
-
-// impl<'a> RendererState<'a> {
 impl RendererState {
-    pub fn new(
-        // device: Arc<wgpu::Device>,
-        // queue: Arc<wgpu::Queue>,
-        // viewport: Arc<Mutex<Viewport>>,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        group_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        ui_model_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        camera: &SimpleCamera,
-        // texture_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        // reg_texture_render_mode_buffer: Arc<wgpu::Buffer>,
-        texture_render_mode_buffer: Arc<wgpu::Buffer>,
-        color_render_mode_buffer: Arc<wgpu::Buffer>,
-        regular_texture_render_mode_buffer: Arc<wgpu::Buffer>,
-        // camera_uniform_buffer: Arc<wgpu::Buffer>,
-        // camera_bind_group: Arc<wgpu::BindGroup>,
-        // camera: &SimpleCamera,
-        // window_width: u32,
-        // window_height: u32,
-        // camera_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        // light_bind_group_layout: Arc<wgpu::BindGroupLayout>,
-        game_mode: bool,
-        skinned_pipeline: SkinnedPipeline,
-        // scattered_model_pipeline: crate::core::scattered_model_pipeline::ScatteredModelPipeline,
-    ) -> Self {
-        // create the utility grid(s)
-        let mut grids = Vec::new();
-
-        let mut cubes = Vec::new();
-        let mut spheres = Vec::new();
-        // cubes.push(Cube::new(&device, &queue, &model_bind_group_layout, &group_bind_group_layout, &texture_render_mode_buffer, camera));
-
-        let mut pyramids = Vec::new();
-
-        let mut models = Vec::new();
-        let mut procedural_houses = Vec::new();
-
-        let mut landscapes = Vec::new();
-        let mut grasses = Vec::new();
-        let mut particle_systems = Vec::new();
-        let mut water_planes = Vec::new();
-        let mut procedural_trees = Vec::new();
-
-        // let mut terrain_managers = Vec::new();
-
-        let integration_parameters = IntegrationParameters::default();
-        let physics_pipeline = PhysicsPipeline::new();
-        let island_manager = IslandManager::new();
-        let broad_phase = DefaultBroadPhase::new();
-        let narrow_phase = NarrowPhase::new();
-        let impulse_joint_set = ImpulseJointSet::new();
-        let multibody_joint_set = MultibodyJointSet::new();
-        let ccd_solver = CCDSolver::new();
-        let query_pipeline = QueryPipeline::new();
-        let mut rigid_body_set = RigidBodySet::new();
-        let mut collider_set = ColliderSet::new();
-
-        let window_size = camera.viewport.window_size;
-        let viewport = Rect {
-            min: (0.0, 0.0).into(),
-            max: (window_size.width as f32, window_size.height as f32).into(),
-        };
-
-        let view_matrix = to_row_major_f64(&camera.get_view());
-        let proj_matrix = to_row_major_f64(&camera.get_projection());
-
-        let gizmo = Gizmo::new(GizmoConfig {
-            view_matrix,
-            projection_matrix: proj_matrix,
-            viewport,
-            // orientation: GizmoOrientation::Local,
-            // pivot_point: TransformPivotPoint::MedianPoint,
-            // snapping: false,
-            // snap_angle: 15.0,
-            // snap_distance: 1.0,
-            // snap_scale: 0.1,
-            // visuals: GizmoVisuals::default(),
-            // pixels_per_point: 1.0,
-            ..Default::default()
-        });
-
-        // let rigid_body_handle = rigid_body_set.insert(player_character.movement_rigid_body);
-        // player_character.movement_rigid_body_handle = Some(rigid_body_handle);
-
-        // // now associate rigidbody with collider
-        // let collider_handle = collider_set.insert_with_parent(
-        //     player_character.movement_collider,
-        //     rigid_body_handle,
-        //     &mut rigid_body_set,
-        // );
-        // player_character.collider_handle = Some(collider_handle);
-
-        Self {
-            cubes,
-            addon_cubes: HashMap::new(),
-            addon_meshes: HashMap::new(),
-            spheres,
-            debug_rays: Vec::new(),
-            pyramids,
-            grids,
-            models,
-            addon_models: HashMap::new(),
-            scattered_models: Vec::new(),
-            procedural_houses,
-            landscapes,
-            addon_landscapes: HashMap::new(),
-            addon_landscape3ds: HashMap::new(),
-            addon_quadscapes: HashMap::new(),
-            grasses,
-            addon_grasses: HashMap::new(),
-            addon_point_lights: HashMap::new(),
-            particle_systems,
-            water_planes,
-            procedural_trees,
-            // skeleton_parts,
-            // terrain_managers,
-            // active_animations: Vec::new(),
-            point_lights: Vec::new(),
-            // light_state,
-            collectables: Vec::new(),
-            // dummy_views: Vec::new(),
-
-            // device,
-            // queue,
-            // viewport,
-            model_bind_group_layout,
-            group_bind_group_layout,
-            // texture_bind_group_layout,
-            // reg_texture_render_mode_buffer,
-            regular_texture_render_mode_buffer,
-            texture_render_mode_buffer,
-            color_render_mode_buffer,
-            gpu_resources: None,
-            skinned_pipeline: Some(skinned_pipeline),
-            // scattered_model_pipeline: Some(scattered_model_pipeline),
-            scattered_model_pipeline: None,
-            // camera_uniform_buffer,
-            // camera_bind_group,
-            // light_bind_group_layout,
-
-            project_selected: None,
-            current_view: "welcome".to_string(),
-            object_selected: None,
-            object_selected_kind: None,
-            object_selected_data: None,
-            selected_entity_id: None,
-            selected_component_id: None,
-
-            // translation_gizmo,
-            // rotation_gizmo,
-            // scale_gizmo,
-            // active_gizmo: "translate".to_string(),
-
-            gravity: vector![0.0, -9.81, 0.0],
-            integration_parameters,
-            physics_pipeline,
-            island_manager,
-            broad_phase,
-            narrow_phase,
-            impulse_joint_set,
-            multibody_joint_set,
-            ccd_solver,
-            query_pipeline,
-            rigid_body_set,
-            collider_set,
-            player_character: None,
-
-            // current_modifiers: ModifiersState::empty(),
-            mouse_state: MouseState {
-                last_mouse_x: 0.0,
-                last_mouse_y: 0.0,
-                is_first_mouse: true,
-                right_mouse_pressed: false,
-                drag_started: false,
-                is_dragging: false,
-                hovered_gizmo: false,
-            },
-            last_ray: None,
-            ray_intersecting: false,
-            ray_component_id: None,
-            ray_intersection: None,
-            // dragging_translation_gizmo: false,
-            last_movement_time: None,
-            last_frame_time: None,
-            current_mouse_position: None,
-            last_mouse_position: None,
-            last_known_mouse_position: None,
-            npcs: Vec::new(),
-            // gizmo_drag_axis: None,
-            navigation_speed: 5.0,
-            game_mode,
-            game_settings: GameSettings {
-                third_person: false,
-                show_hitscan_line: true,
-                ui_theme: None,
-            },
-            camera_pitch: 0.0,
-            camera_yaw: 0.0,
-            last_mouse_position_time: Instant::now(),
-            gizmo,
-            display_debug_spheres: true,
-            quest_state: QuestState::new(),
-            last_mouse_delta: (0.0, 0.0),
-            shift_active: false,
-            ctrl_active: false,
-            alt_active: false,
-            ui_model_bind_group_layout,
-            pending_loot_drops: Vec::new(),
-        }
-    }
-
     pub fn alert_nearby_npcs(&mut self, position: Vector3<f32>, radius: f32) {
         let mut alerted_count = 0;
         for npc in &mut self.npcs {
             if npc.is_dead { continue; }
-            
+
             if let Some(rb) = self.rigid_body_set.get(*npc.rigid_body_handle.as_ref().expect("Couldnt get handle")) {
                 let npc_pos = rb.translation();
                 let npc_pos = Vector3::new(npc_pos.x, npc_pos.y, npc_pos.z);
 
                 let dist = (npc_pos - position).magnitude();
-                
+
                 if dist <= radius {
                     // Alert the NPC
                     if let crate::model_components::NPC::NPCBehavior::Stateful(behavior) = &mut npc.test_behavior {
@@ -490,20 +74,7 @@ impl RendererState {
         }
     }
 
-    pub fn set_mouse_position(&mut self, new_position: EntropyPosition) {
-        self.last_mouse_position = self.current_mouse_position;
-        self.current_mouse_position = Some(new_position);
-        self.last_known_mouse_position = Some(new_position);
-        self.last_mouse_position_time = Instant::now();
-    }
-
-    pub fn set_mouse_delta(&mut self, delta: (f64, f64)) {
-        self.last_mouse_delta = (delta.0 as f32, delta.1 as f32);
-        // self.last_mouse_position_time = Instant::now();
-    }
-
     pub fn is_player_grounded(
-        // renderer_state: &MutexGuard<RendererState>,
         &self,
         player_handle: RigidBodyHandle,
     ) -> bool {
@@ -524,8 +95,6 @@ impl RendererState {
         // Create the ray
         let ray = Ray::new(ray_origin, ray_direction);
 
-        // Set up query pipeline if it's not already part of your system
-        // This is a simplified version; you might need to adapt to your architecture
         let rigidbody_set = &self.rigid_body_set;
         let collider_set = &self.collider_set;
         let query_pipeline = &self.query_pipeline;
@@ -578,7 +147,7 @@ impl RendererState {
             self.last_mouse_position = None;
             self.current_mouse_position =  None;
         }
-        
+
         self.last_frame_time = Some(now);
 
         self.update_terrain_managers(device, dt, camera);
@@ -609,7 +178,6 @@ impl RendererState {
         );
 
         let step_duration = step_time.elapsed();
-        // println!("  step_duration: {:?}", step_duration);
 
         let physics_update_time = Instant::now();
 
@@ -648,13 +216,11 @@ impl RendererState {
 
         // Update camera position if needed
         if self.game_mode {
-            // println!("Game mode step {:?}", self.player_character.is_some());
             if let Some(player_character) = &self.player_character {
                 if let Some(rb_handle) = player_character.movement_rigid_body_handle {
                     if let Some(rb) = self.rigid_body_set.get(rb_handle) {
                         if self.game_settings.third_person {
-                            // // third-person / 3rd person camera
-                            // Retrieve player position
+                            // third-person / 3rd person camera
                             let pos = rb.translation(); // nalgebra::Vector3<f32>
 
                             // --- Mouse Input and Angle Update ---
@@ -662,8 +228,8 @@ impl RendererState {
                                 self.current_mouse_position,
                                 self.last_mouse_position
                             ) {
-                                let mouse_sensitivity: f32 = 0.005; 
-                                
+                                let mouse_sensitivity: f32 = 0.005;
+
                                 // Calculate difference (delta) in screen coordinates
                                 let delta_x = current.x - last.x;
                                 let delta_y = current.y - last.y;
@@ -675,62 +241,41 @@ impl RendererState {
                                 (0.0, 0.0)
                             };
 
-                            let mouse_sensitivity: f32 = 0.005; 
-                            
-                            // Calculate difference (delta) in screen coordinates
+                            let mouse_sensitivity: f32 = 0.005;
+
                             let delta_x = delta.0;
                             let delta_y = delta.1;
-                            
-                            // 1. Update Yaw (Left/Right rotation)
-                            // Positive delta_x (mouse moved right) should typically decrease yaw 
-                            // to swing the camera left (assuming a right-hand coordinate system)
-                            // self.camera_yaw -= (delta_x as f32) * mouse_sensitivity; // inverted
+
                             self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                            // 2. Update Pitch (Up/Down rotation)
-                            // Positive delta_y (mouse moved down) should increase pitch
-                            self.camera_pitch += (delta_y as f32) * mouse_sensitivity; 
-                            // self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; // inverted
-                            
-                            // 3. Clamp Pitch to prevent the camera from flipping over
-                            // 1.55 radians is approximately 89 degrees
+                            self.camera_pitch += (delta_y as f32) * mouse_sensitivity;
+
                             self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
 
                             // --- Apply Recoil ---
                             let applied_pitch = self.camera_pitch + player_character.recoil_offset.y.to_radians();
                             let applied_yaw = self.camera_yaw + player_character.recoil_offset.x.to_radians();
-                            
-                            // You should update self.last_mouse_position *after* calculating delta, 
-                            // typically in your event loop, but often set here for simplicity if needed.
-                            // self.last_mouse_position = self.current_mouse_position; // Or handle this in the input handler
 
                             // --- Camera Variables ---
                             let radius: f32 = 25.0; // The fixed distance from the player
 
                             // --- Calculate New Camera Position using Spherical Coordinates ---
-
-                            // Calculate horizontal component of the offset (projection onto XZ plane)
                             let horizontal_distance = radius * applied_pitch.cos();
 
-                            // Calculate the offsets
-                            // Note: Assuming your Y-axis is UP (standard for many game engines)
                             let x_offset = horizontal_distance * applied_yaw.sin();
                             let y_offset = radius * applied_pitch.sin();
-                            let z_offset = horizontal_distance * applied_yaw.cos(); 
+                            let z_offset = horizontal_distance * applied_yaw.cos();
 
-                            // Create the new camera position (Point3 from nalgebra)
-                            // The offsets are added to the player's position
                             let comfort_elevation = 2.0;
                             let camera_pos = Point3::new(
                                 pos.x + x_offset,
-                                pos.y + y_offset + comfort_elevation, 
+                                pos.y + y_offset + comfort_elevation,
                                 pos.z - z_offset // Subtract for Z-axis typically pointing forward/into the screen
                             );
                             camera.position = camera_pos;
 
                             // Set direction to look back at the player's center
-                            // The .coords property converts Point3 to Vector3 for the subtraction
-                            let direction = (pos - camera_pos.coords).normalize(); 
+                            let direction = (pos - camera_pos.coords).normalize();
                             camera.direction = direction;
 
                             camera.update();
@@ -738,18 +283,15 @@ impl RendererState {
 
                         } else {
                             // first / 1st person camera with lookaround
-                            // Retrieve player position
                             let pos = rb.translation();
-                            // println!("Game mode first person step {:?}", pos);
 
                             // --- Mouse Input and Angle Update ---
                             let delta = if let (Some(current), Some(last)) = (
                                 self.current_mouse_position,
                                 self.last_mouse_position
                             ) {
-                                let mouse_sensitivity: f32 = 0.005; 
-                                
-                                // Calculate difference (delta) in screen coordinates
+                                let mouse_sensitivity: f32 = 0.005;
+
                                 let delta_x = current.x - last.x;
                                 let delta_y = current.y - last.y;
 
@@ -760,19 +302,15 @@ impl RendererState {
                                 (0.0, 0.0)
                             };
 
-                            let mouse_sensitivity: f32 = 0.005; 
-                            
-                            // Calculate difference (delta) in screen coordinates
+                            let mouse_sensitivity: f32 = 0.005;
+
                             let delta_x = delta.0;
                             let delta_y = delta.1;
 
-                            // Update Yaw (Left/Right rotation)
                             self.camera_yaw += (delta_x as f32) * mouse_sensitivity;
 
-                            // Update Pitch (Up/Down rotation)
-                            self.camera_pitch -= (delta_y as f32) * mouse_sensitivity; 
-                            
-                            // Clamp Pitch to prevent camera flipping
+                            self.camera_pitch -= (delta_y as f32) * mouse_sensitivity;
+
                             self.camera_pitch = self.camera_pitch.clamp(-1.55, 1.55);
 
                             // --- Apply Recoil ---
@@ -780,17 +318,13 @@ impl RendererState {
                             let applied_yaw = self.camera_yaw + player_character.recoil_offset.x.to_radians();
 
                             // --- Calculate look direction from yaw and pitch ---
-                            // Convert spherical angles to a direction vector
                             let direction = Vector3::new(
                                 applied_yaw.cos() * applied_pitch.cos(),
                                 applied_pitch.sin(),
                                 applied_yaw.sin() * applied_pitch.cos()
                             ).normalize();
 
-                            // let in_front = direction * 0.25;
-
                             // --- Position camera at player's eye level ---
-                            // Use calculated eye height and camera bob from PlayerCharacter state
                             let eye_height = player_character.current_eye_height;
                             let bob_offset = player_character.camera_bob_amount;
 
@@ -808,7 +342,7 @@ impl RendererState {
                         }
                     }
                 }
-            } 
+            }
         }
 
         // Now process all updates without borrowing rigid_body_set
@@ -824,7 +358,6 @@ impl RendererState {
                             .iter_mut()
                             .find(|m| m.id == model_id.to_string())
                         {
-                                    // if model_id == component_id.to_string() {
                                         // Update is_moving based on velocity
                                         if let Some(rb_handle) = character.movement_rigid_body_handle {
                                             if let Some(rb) = self.rigid_body_set.get(rb_handle) {
@@ -834,23 +367,20 @@ impl RendererState {
                                             }
                                         }
 
-                                        // instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                             instance_model_data.transform
                                                 .update_position([position.x, position.y, position.z]);
-                                            
+
                                             if self.game_mode && !self.game_settings.third_person {
                                                 // In first-person mode, the player model should face the camera direction.
-                                                // We use -self.camera_yaw to align the model with the camera's horizontal rotation.
                                                 instance_model_data.transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
                                             } else {
-                                                // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // update rotation based on direction of travel instead
+                                                // update rotation based on direction of travel instead
                                             }
-                                        // });
                                     }
 
 
-                                    
-                                   
+
+
                                 }
                             }
 
@@ -863,27 +393,22 @@ impl RendererState {
                                             .iter_mut()
                                             .find(|m| m.model_id == component_id.to_string())
                                         {
-                                            // instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                             if (instance_model_data.transform.initial_position.is_none()) {
-                                                // println!("Set initial position {:?}", position);
                                                 instance_model_data.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
                                             }
 
-                                            // println!("Update NPC position {:?}", position);
-
                                             instance_model_data.transform
                                                 .update_position([position.x, position.y, position.z]);
-                                            // });
                                         }
                                     }
 
                 }
-            
+
 
             if let Some(models) = self
                 .addon_models.get_mut("Game Composer") {
 
-                
+
 
             // Update models
             if let Some(instance_model_data) = models
@@ -905,13 +430,12 @@ impl RendererState {
                             instance_model_data.meshes.iter_mut().for_each(|mesh| {
                                 mesh.transform
                                     .update_position([position.x, position.y, position.z]);
-                                
+
                                 if self.game_mode && !self.game_settings.third_person {
                                     // In first-person mode, the player model should face the camera direction.
-                                    // We use -self.camera_yaw to align the model with the camera's horizontal rotation.
                                     mesh.transform.update_rotation([0.0, -self.camera_yaw, 0.0]);
                                 } else {
-                                    // mesh.transform.update_rotation([euler.0, euler.1, euler.2]); // update rotation based on direction of travel instead
+                                    // update rotation based on direction of travel instead
                                 }
                             });
                         }
@@ -926,11 +450,8 @@ impl RendererState {
                 {
                     instance_model_data.meshes.iter_mut().for_each(|mesh| {
                         if (mesh.transform.initial_position.is_none()) {
-                            // println!("Set initial position {:?}", position);
                             mesh.transform.initial_position = Some(Vector3::from([position.x, position.y, position.z]));
                         }
-
-                        // println!("Update NPC position {:?}", position);
 
                         mesh.transform
                             .update_position([position.x, position.y, position.z]);
@@ -989,11 +510,6 @@ impl RendererState {
                                         } else {
                                             match r.current_state {
                                                 BehaviorState::Wander => {
-                                                    // if distance_to_player <= radius {
-                                                    //     color = [1.0, 0.0, 0.0]; // Red (Should be engaging)
-                                                    // } else {
-                                                    //     color = [1.0, 1.0, 0.0]; // Yellow (Dangerous but far)
-                                                    // }
                                                     color = [0.0, 1.0, 0.0]; // Green
                                                 },
                                                 BehaviorState::Melee | BehaviorState::Ranged => {
@@ -1010,7 +526,7 @@ impl RendererState {
                                         }
                                     },
                                 }
-        
+
                                 if radius > 0.0 {
                                     if instance_npc_data.debug_sphere.is_none() {
 
@@ -1038,7 +554,7 @@ impl RendererState {
                                             }
                                         }
                                     }
-        
+
                                     if let Some(sphere) = &mut instance_npc_data.debug_sphere {
                                         sphere.transform.update_scale([radius, radius, radius]);
 
@@ -1061,7 +577,7 @@ impl RendererState {
                             if instance_npc_data.is_dead && !instance_npc_data.on_death_dropped {
                                 // Drop inventory items
                                 let npc_pos = Vector3::new(position.x, position.y, position.z);
-                                
+
                                 // Transfer all items from NPC inventory to pending drops
                                 let items_to_drop: Vec<_> = instance_npc_data.inventory.items.drain(..).collect();
                                 for item in items_to_drop {
@@ -1095,9 +611,9 @@ impl RendererState {
                                             // Check Line of Sight
                                             let ray_dir = (player_translation - npc_pos).normalize();
                                             let ray = Ray::new(Point3::from(npc_pos + ray_dir * 1.0), ray_dir);
-                                            
+
                                             let mut filter = QueryFilter::default().exclude_rigid_body(first_mesh.rigid_body_handle.unwrap());
-                                            
+
                                             let mut has_los = false;
                                             if let Some((handle, toi)) = self.query_pipeline.cast_ray(
                                                 &self.rigid_body_set,
@@ -1118,7 +634,7 @@ impl RendererState {
                                                 // Increase suspicion based on distance (closer = faster)
                                                 let suspicion_gain = (1.0 - (dist / behavior.config.detection_radius)) * dt * 2.0;
                                                 instance_npc_data.suspicion = (instance_npc_data.suspicion + suspicion_gain).min(1.0);
-                                                
+
                                                 if instance_npc_data.suspicion >= 1.0 {
                                                     // Spotted!
                                                     match behavior.config.combat_type {
@@ -1215,10 +731,10 @@ impl RendererState {
 
                                             let dir = (end - start).normalize();
                                             let length = nalgebra::distance(&start, &end);
-                                            
+
                                             debug_cube.transform.update_position([start.x, start.y, start.z]);
                                             debug_cube.transform.update_scale([0.02, 0.02, length]);
-                                            
+
                                             let rotation = UnitQuaternion::rotation_between(&Vector3::z(), &dir).unwrap_or_default();
                                             debug_cube.transform.update_rotation_quat([
                                                 rotation.coords.x,
@@ -1226,9 +742,9 @@ impl RendererState {
                                                 rotation.coords.z,
                                                 rotation.coords.w,
                                             ]);
-                                            
+
                                             debug_cube.transform.update_uniform_buffer(&queue);
-                                            
+
                                             self.debug_rays.push(DebugRay {
                                                 cube: debug_cube,
                                                 expires_at: Instant::now() + Duration::from_millis(500),
@@ -1282,11 +798,6 @@ impl RendererState {
             }
         }
 
-        //  // Now process all updates without borrowing rigid_body_set
-        //      let mut alert_positions = Vec::new();
-        //      for (component_id, position, euler) in physics_updates {
-        //          }
-
         // Process deferred alerts
         for (alert_pos, radius) in alert_positions {
             self.alert_nearby_npcs(alert_pos, radius);
@@ -1314,53 +825,6 @@ impl RendererState {
             );
         }
     }
-
-    // Usage in your main update/render loop:
-    pub fn update_rays(
-        &mut self,
-        mouse_pos: (f32, f32),
-        camera: &SimpleCamera,
-        screen_width: u32,
-        screen_height: u32,
-    ) -> Ray {
-        // Create ray from mouse position
-        let ray = create_ray_from_mouse(mouse_pos, camera, screen_width, screen_height);
-
-        // println!("collider set {:?}", self.collider_set.len());
-
-        // Cast ray and check for intersection
-        if let Some((collider_handle, toi)) = cast_ray_at_components(
-            &ray,
-            &self.query_pipeline,
-            &self.rigid_body_set,
-            &self.collider_set,
-        ) {
-            // println!("Colliding!");
-            // Get the collider
-            let collider = &self.collider_set[collider_handle];
-
-            // Get intersection point in world space
-            let intersection_point = ray.point_at(toi);
-
-            let component_id = Uuid::from_u128(collider.user_data);
-
-            self.ray_intersecting = true;
-            self.ray_intersection = Some(intersection_point);
-            self.ray_component_id = Some(component_id);
-        } else {
-            self.ray_intersecting = false;
-            // keep stale data for sticky translation
-            // self.ray_intersection = None;
-            // self.ray_component_id = None;
-        }
-
-        ray
-    }
-
-    // pub fn update_gizmo_state(&mut self, dragging: bool, axis: u8) {
-    //     self.dragging_gizmo = true;
-    //     self.gizmo_drag_axis = Some(axis);
-    // }
 
     pub fn update_rapier(&mut self) {
         self.query_pipeline.update(&self.collider_set);
@@ -1405,7 +869,6 @@ impl RendererState {
 
     pub fn update_player_character_position(&mut self, translation: Vector3<f32>, delta_time: f32, camera: &mut SimpleCamera) {
         if let Some(player_character) = &mut self.player_character {
-            // let mut camera = get_camera();
             // Collision filter (typically you want to collide with everything except other characters)
             let filter = QueryFilter::default()
                 .exclude_rigid_body(
@@ -1436,14 +899,9 @@ impl RendererState {
                 &character_pos,
                 translation,
                 filter,
-                |collision| { 
-                    // println!("Collision detected (a) {:?}", collision.character_pos)
+                |collision| {
                 },
             );
-
-            // effective_character_movement.grounded
-            // effective_character_movement.is_sliding_down_slope
-            // effective_character_movement.translation
 
             camera.position = Point3::new(
                 camera.position.x + translation.x,
@@ -1455,7 +913,6 @@ impl RendererState {
 
     pub fn update_player_collider_position(
         &mut self,
-        //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
         if let Some(player_character) = &mut self.player_character {
@@ -1478,7 +935,6 @@ impl RendererState {
 
     pub fn update_model_collider_position(
         &mut self,
-        //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
         self.models.iter().for_each(|model| {
@@ -1499,32 +955,6 @@ impl RendererState {
         });
     }
 
-    // pub fn apply_player_movement(&mut self, direction: Vector3<f32>) {
-    //     if let Some(player_character) = &mut self.player_character {
-
-    //         if let Some(rigidbody) = self.rigid_body_set.get_mut(
-    //             player_character
-    //                 .movement_rigid_body_handle
-    //                 .expect("Couldn't get mesh rigidbody handle"),
-    //         ) {
-    //             // Get current velocity to preserve Y component (gravity)
-    //             let current_velocity = rigidbody.linvel();
-                
-    //             // Set horizontal velocity while keeping vertical velocity
-    //             // let movement_speed = 5.0; // Adjust this to your desired speed
-    //             let movement_speed = 3.7;
-    //             // let movement_speed = 2.5;
-    //             let new_velocity = vector![
-    //                 direction.x * movement_speed,
-    //                 current_velocity.y, // Preserve gravity/jumping
-    //                 direction.z * movement_speed
-    //             ];
-                
-    //             rigidbody.set_linvel(new_velocity, true);
-    //         }
-    //     }
-    // }
-
     pub fn update_player_state(&mut self, delta_time: f32) {
         if let Some(player_character) = &mut self.player_character {
             // Regenerate stamina if not sprinting
@@ -1534,14 +964,6 @@ impl RendererState {
                 }
             }
 
-            // Decay bob when stopped (or not called by movement)
-            // We can't easily know if we "stopped" here without input flag, 
-            // but apply_player_movement handles the "moving" case. 
-            // Here we just decay if it wasn't updated recently? 
-            // Simpler: Just decay. If moving, apply_player_movement will override/add.
-            // Actually, apply_player_movement sets it. If we decay here, we might fight.
-            // Let's leave bob logic in apply_player_movement for now, as it depends on velocity.
-            
             // Interpolate Eye Height (Smooth Crouch)
             let lerp_speed = 10.0;
             player_character.current_eye_height = player_character.current_eye_height + (player_character.target_eye_height - player_character.current_eye_height) * lerp_speed * delta_time;
@@ -1552,7 +974,7 @@ impl RendererState {
         if let Some(player_character) = &mut self.player_character {
             let mut current_position = None;
             let mut current_velocity = None;
-            
+
             if let Some(rigidbody) = self.rigid_body_set.get_mut(
                 player_character
                     .movement_rigid_body_handle
@@ -1581,7 +1003,7 @@ impl RendererState {
 
             // --- Movement Logic ---
             let mut movement_speed = player_character.movement_config.walk_speed;
-            
+
             // Handle Stamina for Sprinting
             if player_character.movement_state == MovementState::Sprinting {
                  if player_character.stats.stamina > 0.0 {
@@ -1592,15 +1014,14 @@ impl RendererState {
                      player_character.movement_state = MovementState::Walking;
                      movement_speed = player_character.movement_config.walk_speed;
                  }
-            } 
-            // Note: Regeneration moved to update_player_state
+            }
 
             match player_character.movement_state {
                 MovementState::Crouching => movement_speed = player_character.movement_config.crouch_speed,
                 MovementState::Prone => movement_speed = player_character.movement_config.prone_speed,
                 _ => {}
             }
-            
+
             player_character.movement_speed = movement_speed; // Update stored speed
 
             // --- Camera Bob ---
@@ -1623,8 +1044,6 @@ impl RendererState {
                 MovementState::Prone => player_character.target_eye_height = standing_height * 0.2,
                 _ => player_character.target_eye_height = standing_height,
             }
-            
-            // Interpolation moved to update_player_state
 
             // IMPORTANT: This should be a movement DELTA, not absolute position
             let desired_translation = vector![
@@ -1678,11 +1097,10 @@ impl RendererState {
                 ) {
                     println!("Jump!");
                     let jump_force = 8.0;
-                    // rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
 
                     // for kinematic character
                     let mut current_velocity = rigidbody.linvel().clone();
-                    
+
                     // Set the upward velocity
                     current_velocity.y = jump_force;
                     rigidbody.set_linvel(current_velocity, true)
@@ -1691,28 +1109,8 @@ impl RendererState {
         }
     }
 
-    // pub fn apply_jump_impulse(&mut self) {
-    //     if let Some(player_character) = &mut self.player_character {
-
-    //         if let Some(rigidbody) = self.rigid_body_set.get_mut(
-    //             player_character
-    //                 .movement_rigid_body_handle
-    //                 .expect("Couldn't get mesh rigidbody handle"),
-    //         ) {
-    //             // Only jump if on ground (check if vertical velocity is near zero)
-    //             let velocity = rigidbody.linvel();
-    //             if velocity.y.abs() < 0.1 {
-    //                 println!("Jump!");
-    //                 let jump_force = 8.0; // Adjust for desired jump height
-    //                 rigidbody.apply_impulse(vector![0.0, jump_force, 0.0], true);
-    //             }
-    //         }
-    //     }
-    // }
-
     pub fn update_player_rigidbody_position(
         &mut self,
-        //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
         if let Some(player_character) = &mut self.player_character {
@@ -1735,7 +1133,6 @@ impl RendererState {
 
     pub fn update_model_rigidbody_position(
         &mut self,
-        //arrows: &[AxisArrow; 3],
         position: [f32; 3],
     ) {
         self.models.iter().for_each(|model| {
@@ -1893,7 +1290,6 @@ impl RendererState {
                 }
             },
             ComponentKind::NPC => {
-                // let mut found = false;
                 if visual_type == Some(VisualType::Model) {
                     if let Some(models) = self.addon_models.get_mut("Game Composer") {
                         if let Some(renderer_model) = models.iter_mut().find(|m| m.id == component_id) {
@@ -1931,15 +1327,12 @@ impl RendererState {
                                     mesh.collider_handle = Some(collider_handle);
                                 }
                             });
-                            // found = true;
                         }
                     }
                 }
 
                 if visual_type == Some(VisualType::CustomMesh) {
-                    // println!("adding customesh collider");
                     // Try CustomMesh
-                    // for meshes in self.addon_meshes.values_mut() {
                         if let Some(mesh) = self.npcs.iter_mut().find(|m| m.id == component_id) {
                             let transform = mesh.transform.as_ref().expect("Couldn't get transform");
                             let existion_pos = transform.position;
@@ -1951,8 +1344,6 @@ impl RendererState {
                             );
 
                             if let Ok(uuid) = Uuid::from_str(&component_id) {
-                                // println!("ADDING CustomMesh NPC collider and rigid_body_handle");
-
                                 let rapier_collider = ColliderBuilder::capsule_y(1.0, 0.5)
                                     .friction(0.7)
                                     .restitution(0.0)
@@ -1982,10 +1373,7 @@ impl RendererState {
                                 );
                                 mesh.collider_handle = Some(collider_handle);
                             }
-                            // found = true;
-                            // break;
                         }
-                    // }
                 }
             }
 ,
@@ -1997,764 +1385,4 @@ impl RendererState {
             _ => return,
         }
     }
-
-    pub fn add_model(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        model_component_id: &String,
-        bytes: &Vec<u8>,
-        isometry: Isometry3<f32>,
-        scale: Vector3<f32>,
-        camera: &SimpleCamera,
-        hide_in_world: bool,
-        script_state: Option<HashMap<String, String>>,
-        physics_config: Option<PhysicsConfig>,
-        behavior_id: Option<String>
-    ) {
-        let mut model = Model::from_glb(
-            model_component_id,
-            bytes,
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            &self.group_bind_group_layout,
-            &self.regular_texture_render_mode_buffer,
-            &self.color_render_mode_buffer,
-            isometry,
-            scale,
-            camera,
-            physics_config
-        );
-
-        model.hide_from_world = hide_in_world;
-
-        model.script_state = script_state;
-        model.behavior_id = behavior_id;
-
-        // Check if the model has skins and create the necessary GPU resources
-        if !model.skins.is_empty() {
-            // MAX_JOINTS should be defined in animation_system.rs and imported or defined globally.
-            // For now, defining it locally for self-containment.
-            const MAX_JOINTS: usize = 256; 
-
-            if let Some(skinned_pipeline) = &self.skinned_pipeline {
-                // let identity_array: [f32; 16] = *nalgebra::Matrix4::<f32>::identity().transpose().as_slice();
-                let joint_matrices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Joint Matrices Buffer"),
-                    contents: bytemuck::cast_slice(&[[0.0f32; 16]; MAX_JOINTS]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-                let skin_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Skin Bind Group"),
-                    layout: &skinned_pipeline.skin_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: joint_matrices_buffer.as_entire_binding(),
-                    }],
-                });
-                
-                model.joint_matrices_buffer = Some(joint_matrices_buffer);
-                model.skin_bind_group = Some(skin_bind_group);
-            } else {
-                eprintln!("Warning: Model has skins but skinned_pipeline is not initialized in RendererState.");
-            }
-        }
-        self.models.push(model);
-    }
-
-    pub fn add_addon_model(
-        &mut self,
-        addon_name: &String,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        model_component_id: &String,
-        bytes: &Vec<u8>,
-        isometry: Isometry3<f32>,
-        scale: Vector3<f32>,
-        camera: &SimpleCamera,
-        hide_in_world: bool,
-        script_state: Option<HashMap<String, String>>,
-        physics_config: Option<PhysicsConfig>,
-        behavior_id: Option<String>
-    ) {
-        let mut model = Model::from_glb(
-            model_component_id,
-            bytes,
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            &self.group_bind_group_layout,
-            &self.regular_texture_render_mode_buffer,
-            &self.color_render_mode_buffer,
-            isometry,
-            scale,
-            camera,
-            physics_config
-        );
-
-        model.hide_from_world = hide_in_world;
-        model.script_state = script_state;
-        model.behavior_id = behavior_id;
-
-        if !model.skins.is_empty() {
-            const MAX_JOINTS: usize = 256; 
-            if let Some(skinned_pipeline) = &self.skinned_pipeline {
-                let joint_matrices_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Joint Matrices Buffer"),
-                    contents: bytemuck::cast_slice(&[[0.0f32; 16]; MAX_JOINTS]),
-                    usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                });
-
-                let skin_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Skin Bind Group"),
-                    layout: &skinned_pipeline.skin_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: joint_matrices_buffer.as_entire_binding(),
-                    }],
-                });
-                
-                model.joint_matrices_buffer = Some(joint_matrices_buffer);
-                model.skin_bind_group = Some(skin_bind_group);
-            }
-        }
-
-        let addon_list = self.addon_models.entry(addon_name.clone()).or_insert_with(Vec::new);
-        
-        // If it already exists, replace it, otherwise push
-        if let Some(pos) = addon_list.iter().position(|m| m.id == *model_component_id) {
-            addon_list[pos] = model;
-        } else {
-            addon_list.push(model);
-        }
-    }
-
-    pub fn add_player_character(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        model_component_id: String,
-        isometry: Isometry3<f32>,
-        scale: Vector3<f32>,
-        camera: &SimpleCamera,
-        player_properties: crate::helpers::saved_data::PlayerProperties
-    ) {
-        use crate::model_components::PlayerCharacter::PlayerCharacter;
-        use crate::helpers::saved_data::ComponentKind;
-
-        let visual_type = player_properties.visual_type.unwrap_or_default();
-
-        // PlayerCharacter::new will handle adding to rigid_body_set and collider_set
-        let mut player_character = PlayerCharacter::new(
-            model_component_id.clone(),
-            &mut self.rigid_body_set,
-            &mut self.collider_set,
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            &self.group_bind_group_layout,
-            &self.regular_texture_render_mode_buffer,
-            camera,
-            isometry,
-            scale,
-            None, // default_weapon - we'll handle this via player_properties later if needed
-            visual_type.clone()
-        );
-
-        player_character.model_id = Some(model_component_id.clone());
-        self.player_character = Some(player_character);
-        self.add_collider(model_component_id, ComponentKind::PlayerCharacter, Some(visual_type.clone()));
-    }
-
-    pub fn add_npc(
-        &mut self,
-        model_component_id: String,
-        npc_properties: crate::helpers::saved_data::NPCProperties,
-        behavior_id: Option<String>,
-        visual_config: Option<VisualConfig>,
-    ) {
-        
-        use crate::model_components::NPC::NPC;
-        use crate::helpers::saved_data::ComponentKind;
-
-        let visual_type = npc_properties.visual_type.unwrap_or_default();
-
-        // Retrieve the rigid_body_handle after the collider has been added
-        let npc_rigid_body_handle = if visual_type == crate::helpers::saved_data::VisualType::Model {
-            self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
-
-            self
-                .models
-                .iter()
-                .chain(self.addon_models.values().flatten())
-                .find(|m| m.id == model_component_id)
-                .and_then(|m| m.meshes.get(0))
-                .and_then(|mesh| Some(mesh.rigid_body_handle))
-                .expect("Couldn't retrieve rigid body handle for NPC Model after adding collider")
-        } else {
-            None
-        };
-
-        let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get resources");
-
-        let squad_id = npc_properties.squad_id.clone();
-
-        let mesh_id = if let Some(config) = visual_config.clone() {
-            config.template_id
-        } else {
-            model_component_id.clone()
-        };
-
-        let mut npc = NPC::new(
-            &gpu_resources.device,
-            &gpu_resources.queue,
-            model_component_id.clone(),
-            mesh_id.clone(),
-            visual_type.clone(),
-            npc_rigid_body_handle,
-            npc_properties.behavior.clone(),
-            squad_id,
-            visual_config
-        );
-        npc.behavior_id = behavior_id;
-        self.npcs.push(npc);
-
-        if visual_type == VisualType::CustomMesh {
-            // add collider for custom mesh afterward
-            self.add_collider(model_component_id.clone(), ComponentKind::NPC, Some(visual_type.clone()));
-        }
-
-    }
-
-    pub fn add_house(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        house_component_id: &String,
-        config: &HouseConfig,
-        isometry: Isometry3<f32>,
-    ) {
-        let mut house = House::new(
-            house_component_id,
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            config,
-            isometry,
-        );
-
-        for mesh in &mut house.meshes {
-            let rigid_body_handle = self.rigid_body_set.insert(mesh.rigid_body.clone());
-            mesh.rigid_body_handle = Some(rigid_body_handle);
-
-            let collider_handle = self.collider_set.insert_with_parent(
-                mesh.collider.clone(),
-                rigid_body_handle,
-                &mut self.rigid_body_set,
-            );
-            mesh.collider_handle = Some(collider_handle);
-        }
-
-        self.procedural_houses.push(house);
-    }
-
-    pub fn add_scattered_model(
-        &mut self,
-        device: &wgpu::Device,
-        model: Model,
-        scatter_options: ScatterSettings
-    ) {
-        if let Some(landscape) = self.landscapes.get_mut(0) {
-            if let Some(pipeline) = &self.scattered_model_pipeline {
-                let scattered = ScatteredModel::new(
-                    device,
-                    model,
-                    scatter_options,
-                    landscape,
-                    &pipeline.uniform_bind_group_layout
-                );
-                self.scattered_models.push(scattered);
-            } else {
-                println!("Scattered model pipeline not initialized");
-            }
-        } else {
-            println!("Cannot add scattered model: No landscape found!");
-        }
-    }
-
-    pub fn add_landscape(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        landscapeComponentId: &String,
-        data: &LandscapePixelData,
-        position: [f32; 3],
-        camera: &SimpleCamera
-    ) {
-        let landscape = Landscape::new(
-            landscapeComponentId,
-            data,
-            device,
-            queue,
-            &self.model_bind_group_layout,
-            &self.group_bind_group_layout,
-            // &self.texture_bind_group_layout,
-            // &self.texture_render_mode_buffer,
-            &self.texture_render_mode_buffer,
-            &self.color_render_mode_buffer,
-            position,
-            camera,
-            None
-        );
-
-        self.landscapes.push(landscape);
-    }
-
-    pub fn update_terrain_managers(&mut self, device: &wgpu::Device, dt: f32, camera: &mut SimpleCamera) {
-        // if self.terrain_managers.len() > 0 {
-        //     // let camera = get_camera();
-        //     let terrain_manager = self
-        //         .terrain_managers
-        //         .get_mut(0)
-        //         .expect("Couldn't get first terrain manager");
-
-        //     // keep for debugging:
-        //     // if let Some(rb_handle) = self.player_character.movement_rigid_body_handle {
-        //     //     if let Some(rb) = self.rigid_body_set.get(rb_handle) {
-        //     //         let character_pos = rb.position();
-
-        //     //         // let camera = get_camera();
-        //     //         // let character_pos = camera.position;
-
-        //     //         // Cast slightly above character's feet
-        //     //         let ray_start = character_pos * Point3::new(0.0, 0.1, 0.0);
-        //     //         let ray_dir = Vector3::new(0.0, -1.0, 0.0);
-
-        //     //         let collider_handle = find_first_collider_handle(&terrain_manager.root);
-
-        //     //         println!(
-        //     //             "Check collider handle {:?} {:?}",
-        //     //             character_pos,
-        //     //             collider_handle.is_some()
-        //     //         );
-
-        //     //         if let Some(handle) = collider_handle {
-        //     //             // Use QueryPipeline for ray casting
-        //     //             let hit = self.query_pipeline.cast_ray(
-        //     //                 &self.rigid_body_set,
-        //     //                 &self.collider_set,
-        //     //                 &Ray::new(ray_start, ray_dir),
-        //     //                 f32::MAX,
-        //     //                 true,
-        //     //                 QueryFilter::default().exclude_rigid_body(rb_handle), // Exclude the character's own collider
-        //     //             );
-
-        //     //             if let Some((_, intersection)) = hit {
-        //     //                 let hit_point: nalgebra::OPoint<f32, nalgebra::Const<3>> =
-        //     //                     ray_start + ray_dir * intersection;
-        //     //                 println!("Ground intersection at: {:?}", hit_point);
-        //     //                 println!("Character position: {:?}", character_pos);
-        //     //                 println!("Distance to ground: {:?}", intersection);
-        //     //             } else {
-        //     //                 println!("no intersect!");
-        //     //             }
-        //     //         }
-        //     //     }
-        //     // }
-
-        //     terrain_manager.update(
-        //         [camera.position.x, camera.position.y, camera.position.z],
-        //         device,
-        //         &mut self.rigid_body_set,
-        //         &mut self.collider_set,
-        //         &mut self.island_manager,
-        //         &mut self.impulse_joint_set,
-        //         &mut self.multibody_joint_set, // terrain_manager.terrain_position,
-        //         // terrain_manager.id.clone(),
-        //         dt,
-        //         // &mut self.query_pipeline,
-        //         camera,
-        //         self.game_mode
-        //     );
-        // }
-    }
-
-    pub fn add_terrain_manager(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        projectId: String,
-        landscapeAssetId: String,
-        landscapeComponentId: String,
-        landscapeFilename: String,
-        position: [f32; 3],
-        camera: &mut SimpleCamera
-    ) {
-        // let terrain_manager = TerrainManager::new(
-        //     projectId,
-        //     landscapeComponentId,
-        //     landscapeAssetId,
-        //     landscapeFilename,
-        //     device,
-        //     queue,
-        //     &self.model_bind_group_layout,
-        //     &self.group_bind_group_layout,
-        //     &self.texture_render_mode_buffer,
-        //     position,
-        //     camera
-        // );
-
-        // self.terrain_managers.push(terrain_manager);
-    }
-
-    pub fn update_landscape_texture(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        landscape_id: String,
-        kind: LandscapeTextureKinds,
-        texture: Texture,
-        maskKind: LandscapeTextureKinds,
-        mask: Texture,
-    ) {
-        // w/o quadtree
-        if let Some(landscape) = self
-            .landscapes
-            .iter_mut()
-            .find(|l| l.id == landscape_id)
-        {
-            println!("Updating landscape texture...");
-            landscape.update_texture(
-                device,
-                queue,
-                &self.model_bind_group_layout,
-                &self.texture_render_mode_buffer,
-                &self.color_render_mode_buffer,
-                kind,
-                &texture,
-            );
-            landscape.update_texture(
-                device,
-                queue,
-                &self.model_bind_group_layout,
-                &self.texture_render_mode_buffer,
-                &self.color_render_mode_buffer,
-                maskKind,
-                &mask,
-            );
-        }
-
-        // for quadtree
-        // if let Some(terrain_manager) = self
-        //     .terrain_managers
-        //     .iter_mut()
-        //     .find(|l| l.id == landscape_id)
-        // {
-        //     println!("Updating landscape texture...");
-        //     terrain_manager.update_texture(
-        //         device,
-        //         queue,
-        //         &self.model_bind_group_layout,
-        //         &self.texture_render_mode_buffer,
-        //         &self.color_render_mode_buffer,
-        //         kind,
-        //         &texture,
-        //     );
-        //     terrain_manager.update_texture(
-        //         device,
-        //         queue,
-        //         &self.model_bind_group_layout,
-        //         &self.texture_render_mode_buffer,
-        //         &self.color_render_mode_buffer,
-        //         maskKind,
-        //         &mask,
-        //     );
-        // }
-    }
-
-    pub fn initialize_npc_visual(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, npc_id: &str, template_id: &str, visual_type: VisualType) {
-        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) = self.create_fallback_material_resources(device, queue);
-
-        if let Some(npc) = self.npcs.iter_mut().find(|n| n.id == npc_id) {
-            // Create unique joint buffer
-            let joint_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("NPC {} Joint Buffer", npc_id)),
-                contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; 256]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-            npc.joint_matrices_buffer = Some(joint_buffer);
-
-            // Borrow material resources from template
-            let mut template_resources = None;
-            if visual_type == VisualType::CustomMesh {
-                // For CustomMesh, fall back to dummies for now
-            } else {
-                if let Some(model) = self.models.iter().chain(self.addon_models.values().flatten()).find(|m| m.id == template_id) {
-                    if let Some(mesh) = model.meshes.get(0) {
-                        template_resources = Some((
-                            &mesh.normal_texture_view,
-                            &mesh.pbr_params_texture_view,
-                        ));
-                    }
-                }
-            }
-            // Create model bind group with all 6 bindings
-            npc.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.model_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: npc.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&dummy_albedo),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&dummy_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &self.regular_texture_render_mode_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.0.as_ref()).unwrap_or(&dummy_normal)),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.1.as_ref()).unwrap_or(&dummy_pbr)),
-                    },
-                ],
-                label: Some(&format!("NPC {} Model Bind Group", npc_id)),
-            }));
-
-            // Create skin bind group
-            if let Some(skinned_layout) = &self.skinned_pipeline.as_ref().map(|p| p.render_pipeline.get_bind_group_layout(2)) {
-                npc.skin_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: skinned_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: npc.joint_matrices_buffer.as_ref().unwrap().as_entire_binding(),
-                    }],
-                    label: Some(&format!("NPC {} Skin Bind Group", npc_id)),
-                }));
-            }
-        }
-    }
-
-    pub fn initialize_player_visual(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, template_id: &str, visual_type: VisualType) {
-        let (dummy_sampler, dummy_albedo, dummy_normal, dummy_pbr) = self.create_fallback_material_resources(device, queue);
-        
-        if let Some(player) = &mut self.player_character {
-            // Create unique transform buffer
-            let empty_buffer = Matrix4::<f32>::identity();
-            let raw_matrix = matrix4_to_raw_array(&empty_buffer);
-            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("Player {} Transform Buffer", player.id)),
-                contents: bytemuck::cast_slice(&raw_matrix),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            player.transform = Some(Transform::new(
-                Vector3::zeros(),
-                Vector3::zeros(),
-                Vector3::new(1.0, 1.0, 1.0),
-                uniform_buffer,
-            ));
-
-            let joint_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("Player {} Joint Buffer", player.id)),
-                contents: bytemuck::cast_slice(&[[[0.0f32; 4]; 4]; 256]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-            player.joint_matrices_buffer = Some(joint_buffer);
-
-            // Borrow material resources from template
-            let mut template_resources = None;
-            if let Some(model) = self.models.iter().chain(self.addon_models.values().flatten()).find(|m| m.id == template_id) {
-                if let Some(mesh) = model.meshes.get(0) {
-                    template_resources = Some((
-                        &mesh.normal_texture_view,
-                        &mesh.pbr_params_texture_view,
-                    ));
-                }
-            }
-
-            
-
-            player.model_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.model_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: player.transform.as_ref().unwrap().uniform_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&dummy_albedo),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(&dummy_sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &self.regular_texture_render_mode_buffer,
-                            offset: 0,
-                            size: None,
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.0.as_ref()).unwrap_or(&dummy_normal)),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 5,
-                        resource: wgpu::BindingResource::TextureView(template_resources.and_then(|r| r.1.as_ref()).unwrap_or(&dummy_pbr)),
-                    },
-                ],
-                label: Some(&format!("Player {} Model Bind Group", player.id)),
-            }));
-
-            if let Some(skinned_layout) = &self.skinned_pipeline.as_ref().map(|p| p.render_pipeline.get_bind_group_layout(2)) {
-                player.skin_bind_group = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    layout: skinned_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: player.joint_matrices_buffer.as_ref().unwrap().as_entire_binding(),
-                    }],
-                    label: Some(&format!("Player {} Skin Bind Group", player.id)),
-                }));
-            }
-        }
-    }
-
-    pub fn create_fallback_material_resources(&self, device: &wgpu::Device, queue: &wgpu::Queue) -> (wgpu::Sampler, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
-        // Albedo (White)
-        let albedo = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Instanced Visual Fallback Albedo"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &albedo, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            &[255, 255, 255, 255],
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-        );
-
-        // Normal (Flat)
-        let normal = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Instanced Visual Fallback Normal"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &normal, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            &[128, 128, 255, 255],
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-        );
-
-        // PBR Params
-        let pbr = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("Instanced Visual Fallback PBR"),
-            size: wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo { texture: &pbr, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-            &[0, 255, 255, 255],
-            wgpu::TexelCopyBufferLayout { offset: 0, bytes_per_row: Some(4), rows_per_image: None },
-            wgpu::Extent3d { width: 1, height: 1, depth_or_array_layers: 1 },
-        );
-
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
-
-        let view_desc = wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
-            ..Default::default()
-        };
-
-        (sampler, albedo.create_view(&view_desc), normal.create_view(&view_desc), pbr.create_view(&view_desc))
-    }
-}
-
-// fn find_first_collider_handle(node: &QuadNode) -> Option<ColliderHandle> {
-//     // Check if current node has a collider
-//     if let Some(handle) = node.collider_handle {
-//         return Some(handle);
-//     }
-
-//     // If not, recursively check children
-//     if let Some(ref children) = node.children {
-//         for child in children.iter() {
-//             if let Some(handle) = find_first_collider_handle(child) {
-//                 return Some(handle);
-//             }
-//         }
-//     }
-
-//     None
-// }
-
-static RENDERING_PAUSED: AtomicBool = AtomicBool::new(false);
-
-// Pause rendering
-pub fn pause_rendering() {
-    RENDERING_PAUSED.store(true, Ordering::SeqCst);
-}
-
-// Resume rendering
-pub fn resume_rendering() {
-    RENDERING_PAUSED.store(false, Ordering::SeqCst);
-}
-
-// Check if rendering is paused
-pub fn is_rendering_paused() -> bool {
-    RENDERING_PAUSED.load(Ordering::SeqCst)
-}
-
-pub fn find_model_mut<'a>(models: &'a mut Vec<Model>, addon_models: &'a mut HashMap<String, Vec<Model>>, id: &str) -> Option<&'a mut Model> {
-    if let Some(model) = models.iter_mut().find(|m| m.id == id) {
-        return Some(model);
-    }
-    for models in addon_models.values_mut() {
-        if let Some(model) = models.iter_mut().find(|m| m.id == id) {
-            return Some(model);
-        }
-    }
-    None
 }
