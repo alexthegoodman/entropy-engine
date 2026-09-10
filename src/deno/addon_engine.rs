@@ -4007,28 +4007,74 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::Snarl { id: _snarl_id, graph } => {
-                    let nodes: Vec<crate::entropy_gui::widgets_node_graph::GraphNodeInfo> = graph
+                UiWidget::Snarl { id: snarl_id, graph } => {
+                    // Real, interactive editor (pan/zoom/drag/connect) as of this session - see
+                    // `entropy_gui::widgets_node_graph`. `SnarlConfig.onConnect`/`onDisconnect`/
+                    // `onNodeMoved` (`examples/studio-bundle/src/addon.d.ts`) and their
+                    // `SNARL_CONNECT`/`SNARL_DISCONNECT`/`SNARL_NODE_MOVED` event parsing
+                    // (`src/deno/addon_setup.js`'s `snarl()`/`_process_events`) already existed
+                    // from whenever the Snarl widget was first stubbed out - this is the first
+                    // session that actually fires those events, since the old fallback was
+                    // read-only. `nodes`/`links` are rebuilt from the addon's `BehaviorGraph`
+                    // every frame (this call site has no persistent `&mut` into it), so a
+                    // caller's own state only stays in sync if its `onNodeMoved`/`onConnect`
+                    // handler updates it - the editor's own drag-preview state (see the module
+                    // docs) keeps the drag itself visually smooth either way.
+                    let nodes: Vec<crate::entropy_gui::GraphNode> = graph
                         .nodes
                         .iter()
-                        .map(|n| crate::entropy_gui::widgets_node_graph::GraphNodeInfo {
-                            name: n.name.clone(),
-                            node_type: n.node_type.clone(),
-                            inputs: n.inputs.iter().map(|p| p.name.clone()).collect(),
-                            outputs: n.outputs.iter().map(|p| p.name.clone()).collect(),
+                        .map(|n| {
+                            // `n.name` is shown as-is (no appended `(node_type)`) so an addon
+                            // can put a live-computed value straight in the title, e.g. a
+                            // nocode calculator graph naming a node "Add = 7.00" each frame.
+                            let mut gn = crate::entropy_gui::GraphNode::new(
+                                n.id.clone(),
+                                n.name.clone(),
+                                crate::entropy_gui::pos2(n.position[0], n.position[1]),
+                            );
+                            gn.inputs = n.inputs.iter().map(|p| crate::entropy_gui::GraphPin::new(p.id.clone(), p.name.clone())).collect();
+                            gn.outputs = n.outputs.iter().map(|p| crate::entropy_gui::GraphPin::new(p.id.clone(), p.name.clone())).collect();
+                            gn
                         })
                         .collect();
-                    let connections: Vec<crate::entropy_gui::widgets_node_graph::GraphConnectionInfo> = graph
+                    let links: Vec<crate::entropy_gui::GraphLink> = graph
                         .connections
                         .iter()
-                        .map(|c| crate::entropy_gui::widgets_node_graph::GraphConnectionInfo {
+                        .map(|c| crate::entropy_gui::GraphLink {
                             from_node: c.from_node.clone(),
                             from_pin: c.from_pin.clone(),
                             to_node: c.to_node.clone(),
                             to_pin: c.to_pin.clone(),
                         })
                         .collect();
-                    crate::entropy_gui::widgets_node_graph::node_graph_view(ui, &nodes, &connections);
+
+                    let resp = crate::entropy_gui::NodeGraphEditor::new(snarl_id.as_str()).show(ui, &nodes, &links, None, |_, _| {});
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::NodeGraphEvent::NodeMoved { node, pos } => {
+                                events_to_push.push(format!("SNARL_NODE_MOVED|{}|{}|{},{}", snarl_id, node, pos.x, pos.y));
+                            }
+                            crate::entropy_gui::NodeGraphEvent::LinkCreated(link) => {
+                                events_to_push.push(format!(
+                                    "SNARL_CONNECT|{}|{}|{}|{}|{}",
+                                    snarl_id, link.from_node, link.from_pin, link.to_node, link.to_pin
+                                ));
+                            }
+                            crate::entropy_gui::NodeGraphEvent::LinkRemoved(idx) => {
+                                if let Some(link) = links.get(idx) {
+                                    events_to_push.push(format!(
+                                        "SNARL_DISCONNECT|{}|{}|{}|{}|{}",
+                                        snarl_id, link.from_node, link.from_pin, link.to_node, link.to_pin
+                                    ));
+                                }
+                            }
+                            // No declared `SnarlConfig` callback for these yet (selection/delete
+                            // aren't part of the pre-existing API surface) - not pushed.
+                            crate::entropy_gui::NodeGraphEvent::NodeClicked(_)
+                            | crate::entropy_gui::NodeGraphEvent::BackgroundClicked
+                            | crate::entropy_gui::NodeGraphEvent::DeleteRequested(_) => {}
+                        }
+                    }
                 }
                 UiWidget::CollapsingHeader { title, id } => {
                     // Find matching EndCollapsingHeader

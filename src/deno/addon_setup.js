@@ -844,7 +844,13 @@ globalThis.Entropy = {
                 const parts = event.split("|");
                 id = parts[1];
                 payload = parts[2];
-            } else if (event.startsWith("SNARL_CONNECT|") || event.startsWith("SNARL_DISCONNECT|")) {
+            } else if (event.startsWith("SNARL_CONNECT|") || event.startsWith("SNARL_DISCONNECT|") || event.startsWith("SNARL_NODE_MOVED|")) {
+                // SNARL_NODE_MOVED| was missing from this list until the node graph editor
+                // actually became interactive (see NodeGraphEditor) - the snarl() listener
+                // above already parsed this event shape, but it never reached the listener:
+                // it fell through to the generic `id|payload` branch below, which reads
+                // `id = parts[0]` ("SNARL_NODE_MOVED" itself, not the widget's id), so
+                // `onNodeMoved` was silently unreachable dead code.
                 const parts = event.split("|");
                 id = parts[1]; // snarl_id
                 payload = event; // pass the whole event to the listener

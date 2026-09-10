@@ -25,6 +25,18 @@ pub enum WidgetState {
     TextEdit(TextEditState),
     WindowRect(Rect),
     PanelWidth(f32),
+    /// Pan/zoom for one `NodeGraphEditor` instance, keyed by its editor id.
+    NodeGraphView { pan: Vec2, zoom: f32 },
+}
+
+/// Live state for a node-graph link currently being dragged out of a pin — see
+/// `entropy_gui::widgets_node_graph`. Only one link can be dragged application-wide at a
+/// time, same rationale as `active_drag` below.
+#[derive(Clone, Debug)]
+pub struct LinkDrag {
+    pub from_node: String,
+    pub from_pin: String,
+    pub from_output: bool,
 }
 
 #[derive(Default)]
@@ -38,6 +50,14 @@ pub struct Memory {
     /// splitters, window chrome), so no per-widget drag state is needed.
     pub active_drag: Option<Id>,
     pub drag_origin: Pos2,
+    /// While a `NodeGraphEditor` node title is being dragged, its live graph-space position —
+    /// keyed by the title bar's own interact id so rendering can show a lag-free drag even
+    /// though `nodes` is caller-owned data the widget can't mutate directly (see the node
+    /// graph editor's module docs for why this can't just piggyback on `active_drag`).
+    pub node_drag: Option<(Id, Pos2)>,
+    /// Set while dragging a new link out of a pin in a `NodeGraphEditor`; cleared on release
+    /// (whether or not the release landed on a valid opposite-kind pin).
+    pub link_drag: Option<LinkDrag>,
 }
 
 impl Memory {
@@ -93,5 +113,15 @@ impl Memory {
     }
     pub fn set_panel_width(&mut self, id: Id, w: f32) {
         self.data.insert(id, WidgetState::PanelWidth(w));
+    }
+
+    pub fn get_node_graph_view(&self, id: Id) -> (Vec2, f32) {
+        match self.data.get(&id) {
+            Some(WidgetState::NodeGraphView { pan, zoom }) => (*pan, *zoom),
+            _ => (Vec2::ZERO, 1.0),
+        }
+    }
+    pub fn set_node_graph_view(&mut self, id: Id, pan: Vec2, zoom: f32) {
+        self.data.insert(id, WidgetState::NodeGraphView { pan, zoom });
     }
 }

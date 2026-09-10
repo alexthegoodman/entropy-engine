@@ -45,6 +45,7 @@ pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widge
 pub use ui::{InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, ScrollArea, Slider};
+pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's
