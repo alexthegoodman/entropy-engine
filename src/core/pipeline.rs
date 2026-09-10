@@ -1994,11 +1994,49 @@ impl EntropyPipeline {
         }
 
         let gpu_resources = self.gpu_resources.as_ref().expect("Couldn't get GPU Resources").clone();
-    
-        let output = gpu_resources.surface.as_ref().unwrap()
-            .get_current_texture()
-            .expect("Failed to get current swap chain texture");
-    
+        let surface = gpu_resources.surface.as_ref().unwrap();
+
+        let output = match surface.get_current_texture() {
+            Ok(output) => output,
+            // Lost/Outdated happen on real, recoverable events - window resize/move,
+            // display mode change, DXGI device reset - not programmer error. Reconfigure
+            // against the window's current size (the same source of truth
+            // WindowState::resize() writes into surface_config) and pick the surface back
+            // up on the next redraw instead of taking the whole app down.
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                let size = window.inner_size();
+                if size.width > 0 && size.height > 0 {
+                    let surface_config = wgpu::SurfaceConfiguration {
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        width: size.width,
+                        height: size.height,
+                        present_mode: wgpu::PresentMode::Fifo,
+                        alpha_mode: wgpu::CompositeAlphaMode::Inherit,
+                        view_formats: vec![],
+                        desired_maximum_frame_latency: 2,
+                    };
+                    surface.configure(&gpu_resources.device, &surface_config);
+                }
+                println!("Swap chain lost/outdated, reconfigured surface - retrying next frame");
+                window.request_redraw();
+                return;
+            }
+            // Timeout is transient (driver/compositor hiccup) - skip this frame and retry.
+            Err(wgpu::SurfaceError::Timeout) => {
+                println!("Swap chain acquisition timed out, skipping frame");
+                window.request_redraw();
+                return;
+            }
+            // OutOfMemory/Other are not recoverable by reconfiguring, but crashing the
+            // whole app on a single bad frame is worse than logging and trying again.
+            Err(err) => {
+                println!("Failed to acquire swap chain texture: {err} - skipping frame");
+                window.request_redraw();
+                return;
+            }
+        };
+
         let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         let current_time = self.start_time.elapsed().as_secs_f64();
