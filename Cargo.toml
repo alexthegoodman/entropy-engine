@@ -21,7 +21,7 @@ bytemuck = { version = "1.19.0", features = ["derive"] }
 # wgpu = "0.19"
 wgpu = "27.0.1"
 futures = "0.3.30"
-uuid = { version = "1.8.0", features = ["v4", "js"] }
+uuid = { version = "1.8.0", features = ["v4", "v5", "js"] }
 lyon_tessellation = "1.0.15"
 strum = "0.26.3"
 strum_macros = "0.26"

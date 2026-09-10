@@ -2271,47 +2271,73 @@ impl AddonEngine {
 
                     let visual_type = config.visual_type.unwrap_or_default();
 
+                    // Addon-supplied paths/ids are untrusted-ish: a missing file, a typo'd
+                    // path, or a permissions error here used to `panic!`/`.expect()` and
+                    // take the whole native process down over one bad `Entropy.Model.load`
+                    // call. Now it's logged and this one queued model is skipped instead.
+                    let mut model_ok = true;
                     if visual_type == crate::helpers::saved_data::VisualType::Model {
-                        let path = config.path.as_ref().expect("Path is required for Model visual type");
-                        let bytes = {
+                        let path = match config.path.as_ref() {
+                            Some(p) => p,
+                            None => {
+                                println!("[Model] Skipping addon model load for {:?}: no path supplied", addon_name);
+                                continue;
+                            }
+                        };
+                        let bytes_result = {
                         let mut op_state = self.runtime.op_state();
                         let mut op_state = op_state.borrow_mut();
                         let ctx = op_state.try_borrow_mut::<AddonContext>().expect("Failed to borrow AddonContext");
-                        
+
                         if let Some(cached_bytes) = ctx.model_cache.get(path) {
-                            cached_bytes.clone()
+                            Ok(cached_bytes.clone())
                         } else {
                             println!("Reading in model: {:?}", path);
                             // `art_assets_dir` (EntropyApp::with_art_assets_dir) takes priority over the
                             // Studio project_id convention - a plain directory an embedder points at, no
                             // MidPoint `midpoint/projects/<id>/models/` convention involved.
-                            let bytes = if let Some(dir) = &self.art_assets_dir {
-                                std::fs::read(dir.join(path))
-                                    .unwrap_or_else(|e| panic!("Couldn't read model {:?} from {:?}: {}", path, dir, e))
+                            let read_result = if let Some(dir) = &self.art_assets_dir {
+                                std::fs::read(dir.join(path)).map_err(|e| format!("Couldn't read model {:?} from {:?}: {}", path, dir, e))
                             } else {
-                                crate::art_assets::Model::read_model(self.project_id.clone().unwrap(), path.clone()).expect("Couldn't get model bytes")
+                                // Only reachable when project_id.is_some() (the outer `if` above),
+                                // since art_assets_dir is None in this branch.
+                                crate::art_assets::Model::read_model(self.project_id.clone().unwrap(), path.clone())
                             };
-                            ctx.model_cache.insert(path.clone(), bytes.clone());
-                            bytes
+                            if let Ok(bytes) = &read_result {
+                                ctx.model_cache.insert(path.clone(), bytes.clone());
+                            }
+                            read_result
                         }
                     };
 
-                    renderer_state.add_addon_model(
-                        &addon_name,
-                        &gpu.device,
-                        &gpu.queue,
-                        &id,
-                        &bytes,
-                        isometry,
-                        scale,
-                        camera,
-                        false,
-                        None,
-                        config.physics,
-                        config.behavior_id.clone()
-                    );
+                    match bytes_result {
+                        Ok(bytes) => {
+                            if let Err(e) = renderer_state.add_addon_model(
+                                &addon_name,
+                                &gpu.device,
+                                &gpu.queue,
+                                &id,
+                                &bytes,
+                                isometry,
+                                scale,
+                                camera,
+                                false,
+                                None,
+                                config.physics,
+                                config.behavior_id.clone()
+                            ) {
+                                println!("[Model] Failed to load addon model {:?} for addon {:?}: {}", path, addon_name, e);
+                                model_ok = false;
+                            }
+                        }
+                        Err(e) => {
+                            println!("[Model] Failed to read addon model {:?} for addon {:?}: {}", path, addon_name, e);
+                            model_ok = false;
+                        }
+                    }
                     }
 
+                    if model_ok {
                     if let Some(mut player_props) = config.player {
                         player_props.visual_type = Some(visual_type);
                         renderer_state.add_player_character(
@@ -2345,6 +2371,7 @@ impl AddonEngine {
                                 mesh.render_role = config.render_role.clone();
                             }
                         }
+                    }
                     }
                 }
                 }

@@ -28,7 +28,7 @@ impl RendererState {
         script_state: Option<HashMap<String, String>>,
         physics_config: Option<PhysicsConfig>,
         behavior_id: Option<String>
-    ) {
+    ) -> Result<(), String> {
         let mut model = Model::from_glb(
             model_component_id,
             bytes,
@@ -42,7 +42,7 @@ impl RendererState {
             scale,
             camera,
             physics_config
-        );
+        )?;
 
         model.hide_from_world = hide_in_world;
 
@@ -76,6 +76,7 @@ impl RendererState {
             }
         }
         self.models.push(model);
+        Ok(())
     }
 
     pub fn add_addon_model(
@@ -92,7 +93,7 @@ impl RendererState {
         script_state: Option<HashMap<String, String>>,
         physics_config: Option<PhysicsConfig>,
         behavior_id: Option<String>
-    ) {
+    ) -> Result<(), String> {
         let mut model = Model::from_glb(
             model_component_id,
             bytes,
@@ -106,7 +107,7 @@ impl RendererState {
             scale,
             camera,
             physics_config
-        );
+        )?;
 
         model.hide_from_world = hide_in_world;
         model.script_state = script_state;
@@ -143,6 +144,7 @@ impl RendererState {
         } else {
             addon_list.push(model);
         }
+        Ok(())
     }
 
     pub fn add_player_character(

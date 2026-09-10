@@ -216,22 +216,33 @@ impl Model {
         scale: Vector3<f32>,
         camera: &SimpleCamera,
         physics_config: Option<PhysicsConfig>
-    ) -> Self {
-        let glb = Glb::from_slice(&bytes).expect("Couldn't create glb from slice");
+    ) -> Result<Self, String> {
+        let glb = Glb::from_slice(&bytes).map_err(|e| format!("Couldn't parse GLB container: {}", e))?;
 
         let mut meshes = Vec::new();
 
-        let gltf = Gltf::from_slice(&glb.json).expect("Failed to parse GLTF JSON");
+        let gltf = Gltf::from_slice(&glb.json).map_err(|e| format!("Failed to parse GLTF JSON: {}", e))?;
 
         let buffer_data = match glb.bin {
             Some(bin) => bin,
-            None => panic!("No binary data found in GLB file"),
+            None => return Err("No binary data found in GLB file".to_string()),
         };
+
+        // A friendly, non-UUID model_component_id (an addon-supplied string id, for
+        // example) is deterministically mapped to a UUID here rather than rejected -
+        // physics colliders/rigid bodies need a u128 user_data value, but there's no
+        // reason the caller-facing id has to be a real UUID to get one.
+        let physics_uuid = Uuid::from_str(model_component_id)
+            .unwrap_or_else(|_| Uuid::new_v5(&Uuid::NAMESPACE_OID, model_component_id.as_bytes()));
 
         let mut skins = Vec::new();
         for skin in gltf.skins() {
             let reader = skin.reader(|buffer| Some(&buffer_data));
-            let inverse_bind_matrices = reader.read_inverse_bind_matrices().unwrap().map(|m| Matrix4::from(m)).collect();
+            let inverse_bind_matrices = reader
+                .read_inverse_bind_matrices()
+                .ok_or_else(|| format!("Skin {} is missing inverse bind matrices", skin.index()))?
+                .map(|m| Matrix4::from(m))
+                .collect();
             let joints = skin.joints().map(|j| j.index()).collect();
             skins.push(Skin {
                 joints,
@@ -253,10 +264,12 @@ impl Model {
             let gltf_image = match texture.source().source() {
                 gltf::image::Source::View { view, mime_type: _ } => {
                     let image_data = &buffer_data[view.offset()..view.offset() + view.length()];
-                    image::load_from_memory(image_data).unwrap().to_rgba8()
+                    image::load_from_memory(image_data)
+                        .map_err(|e| format!("Failed to decode embedded texture {}: {}", texture.index(), e))?
+                        .to_rgba8()
                 }
                 gltf::image::Source::Uri { uri, mime_type: _ } => {
-                    panic!("External URI image sources are not yet supported in glb files: {}", uri);
+                    return Err(format!("External URI image sources are not yet supported in glb files: {}", uri));
                 }
             };
             let size = wgpu::Extent3d {
@@ -386,7 +399,7 @@ impl Model {
 
                 let positions = reader
                     .read_positions()
-                    .expect("Positions not existing in glb");
+                    .ok_or_else(|| format!("Primitive in mesh {:?} has no POSITION attribute", mesh.name()))?;
                 let colors = reader
                     .read_colors(0)
                     .map(|v| v.into_rgb_f32().collect())
@@ -403,8 +416,14 @@ impl Model {
                 let skin_index = mesh_to_skin.get(&mesh.index());
 
                 let (joints, weights): (Vec<[u16; 4]>, Vec<[f32; 4]>) = if skin_index.is_some() {
-                    let joints_iter = reader.read_joints(0).unwrap().into_u16();
-                    let weights_iter = reader.read_weights(0).unwrap().into_f32();
+                    let joints_iter = reader
+                        .read_joints(0)
+                        .ok_or_else(|| format!("Mesh {:?} is skinned but a primitive is missing JOINTS_0", mesh.name()))?
+                        .into_u16();
+                    let weights_iter = reader
+                        .read_weights(0)
+                        .ok_or_else(|| format!("Mesh {:?} is skinned but a primitive is missing WEIGHTS_0", mesh.name()))?
+                        .into_f32();
                     (joints_iter.collect(), weights_iter.collect())
                 } else {
                     (vec![[0, 0, 0, 0]; positions.len()], vec![[1.0, 0.0, 0.0, 0.0]; positions.len()])
@@ -705,11 +724,7 @@ impl Model {
                     .friction(friction)
                     .restitution(restitution)
                     .density(1.0)
-                    .user_data(
-                        Uuid::from_str(&model_component_id)
-                            .expect("Couldn't extract uuid")
-                            .as_u128(),
-                    )
+                    .user_data(physics_uuid.as_u128())
                     .build();
 
                 let mut rb_builder = match body_type {
@@ -723,11 +738,7 @@ impl Model {
                     .linear_damping(0.1)
                     .position(model_final_iso)
                     .locked_axes(LockedAxes::ROTATION_LOCKED_X | LockedAxes::ROTATION_LOCKED_Z)
-                    .user_data(
-                        Uuid::from_str(&model_component_id)
-                            .expect("Couldn't extract uuid")
-                            .as_u128(),
-                    )
+                    .user_data(physics_uuid.as_u128())
                     .build();
 
                 let euler = isometry.rotation.euler_angles();
@@ -822,8 +833,13 @@ impl Model {
                 }
 
                 let sampler = channel.sampler();
-                let input = reader.read_inputs().unwrap().collect::<Vec<_>>();
-                let output = reader.read_outputs().unwrap();
+                let input = reader
+                    .read_inputs()
+                    .ok_or_else(|| format!("Animation {:?} channel is missing input keyframes", name))?
+                    .collect::<Vec<_>>();
+                let output = reader
+                    .read_outputs()
+                    .ok_or_else(|| format!("Animation {:?} channel is missing output values", name))?;
 
                 let values = match output {
                     gltf::animation::util::ReadOutputs::Translations(translations) => {
@@ -858,7 +874,7 @@ impl Model {
 
         let root_nodes: Vec<usize> = gltf.scenes().flat_map(|scene| scene.nodes().map(|node| node.index())).collect();
 
-        Model {
+        Ok(Model {
             id: model_component_id.to_string(),
             meshes,
             animations,
@@ -871,7 +887,7 @@ impl Model {
             script_state: None,
             behavior_id: None,
             yumon_id: None,
-        }
+        })
     }
 }
 
@@ -879,7 +895,7 @@ pub fn read_model(
     projectId: String,
     modelFilename: String,
 ) -> Result<Vec<u8>, String> {
-    let sync_dir = get_common_os_dir().expect("Couldn't get CommonOS directory");
+    let sync_dir = get_common_os_dir().ok_or_else(|| "Couldn't resolve CommonOS directory (no Documents folder, or it's not creatable)".to_string())?;
     let model_path = sync_dir.join(format!(
         "midpoint/projects/{}/models/{}",
         projectId, modelFilename

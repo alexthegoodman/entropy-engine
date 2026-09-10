@@ -152,12 +152,21 @@ pub async fn handle_add_player(
     behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
-    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+    let bytes = match read_model(projectId, modelFilename) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[Model] Failed to load player model {:?}: {}", modelComponentId, e);
+            return;
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
+    if let Err(e) = state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id) {
+        println!("[Model] Failed to add player model {:?}: {}", modelComponentId, e);
+        return;
+    }
 
     state.add_collider(modelComponentId.clone(), ComponentKind::PlayerCharacter, None);
 
@@ -905,12 +914,21 @@ pub async fn handle_add_model(
     behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
-    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+    let bytes = match read_model(projectId, modelFilename) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[Model] Failed to load model {:?}: {}", modelComponentId, e);
+            return;
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id);
+    if let Err(e) = state.add_model(device, queue, &modelComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id) {
+        println!("[Model] Failed to add model {:?}: {}", modelComponentId, e);
+        return;
+    }
     state.add_collider(modelComponentId, ComponentKind::Model, None);
 }
 
@@ -929,12 +947,18 @@ pub async fn handle_add_scattered_model(
     scatter_options: ScatterSettings
 ) {
     #[cfg(target_os = "windows")]
-    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+    let bytes = match read_model(projectId, modelFilename) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[Model] Failed to load scattered model {:?}: {}", modelComponentId, e);
+            return;
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    let mut model = Model::from_glb(
+    let mut model = match Model::from_glb(
         &modelComponentId,
         &bytes,
         device,
@@ -947,7 +971,13 @@ pub async fn handle_add_scattered_model(
         scale,
         camera,
         None
-    );
+    ) {
+        Ok(m) => m,
+        Err(e) => {
+            println!("[Model] Failed to parse scattered model {:?}: {}", modelComponentId, e);
+            return;
+        }
+    };
 
     state.add_scattered_model(device, model, scatter_options);
     // state.add_collider(modelComponentId, ComponentKind::Model);
@@ -969,23 +999,38 @@ pub async fn handle_add_npc(
     behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
-    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+    let bytes = match read_model(projectId, modelFilename) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[Model] Failed to load NPC model {:?}: {}", npcComponentId, e);
+            return;
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id.clone());
+    if let Err(e) = state.add_model(device, queue, &npcComponentId, &bytes, isometry, scale, camera, false, script_state, None, behavior_id.clone()) {
+        println!("[Model] Failed to add NPC model {:?}: {}", npcComponentId, e);
+        return;
+    }
 
     state.add_collider(npcComponentId.clone(), ComponentKind::NPC, None);
 
     // Retrieve the rigid_body_handle after the collider has been added
-    let npc_rigid_body_handle = state
+    let npc_rigid_body_handle = match state
         .models
         .iter()
         .find(|m| m.id == npcComponentId)
         .and_then(|m| m.meshes.get(0))
         .and_then(|mesh| mesh.rigid_body_handle)
-        .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
+    {
+        Some(handle) => handle,
+        None => {
+            println!("[Model] NPC {:?} has no rigid body handle after adding collider - skipping NPC spawn", npcComponentId);
+            return;
+        }
+    };
 
     let squad_id = npc_properties.squad_id.clone();
 
@@ -1022,23 +1067,38 @@ pub async fn handle_add_collectable(
     behavior_id: Option<String>
 ) {
     #[cfg(target_os = "windows")]
-    let bytes = read_model(projectId, modelFilename).expect("Couldn't get model bytes");
+    let bytes = match read_model(projectId, modelFilename) {
+        Ok(b) => b,
+        Err(e) => {
+            println!("[Model] Failed to load collectable model {:?}: {}", modelAssetId, e);
+            return;
+        }
+    };
 
     #[cfg(target_arch = "wasm32")]
     let bytes = read_model_wasm(projectId, modelFilename).await.expect("Couldn't get model bytes");
 
-    state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None, behavior_id.clone());
+    if let Err(e) = state.add_model(device, queue, &modelAssetId, &bytes, isometry, scale, camera, hide_in_world, script_state, None, behavior_id.clone()) {
+        println!("[Model] Failed to add collectable model {:?}: {}", modelAssetId, e);
+        return;
+    }
 
     state.add_collider(modelAssetId.clone(), ComponentKind::Collectable, None);
 
     // Retrieve the rigid_body_handle after the collider has been added
-    let npc_rigid_body_handle = state
+    let npc_rigid_body_handle = match state
         .models
         .iter()
         .find(|m| m.id == modelAssetId)
         .and_then(|m| m.meshes.get(0))
         .and_then(|mesh| mesh.rigid_body_handle)
-        .expect("Couldn't retrieve rigid body handle for NPC after adding collider");
+    {
+        Some(handle) => handle,
+        None => {
+            println!("[Model] Collectable {:?} has no rigid body handle after adding collider - skipping spawn", modelAssetId);
+            return;
+        }
+    };
 
     let collectable_type = collectable_properties.collectable_type.as_ref().expect("Couldn't get collectable type");
 
