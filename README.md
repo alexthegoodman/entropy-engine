@@ -11,8 +11,10 @@
 1. `cargo new my_app` and add `entropy-engine` as a dependency.
 2. Write your app's logic as one or more addons (see [Writing Addons](#writing-addons)), and bundle it with Deno:
    ```bash
+   mkdir -p dist
    deno bundle src/index.ts > dist/bundle.js
    ```
+   (`>` won't create a missing `dist/` directory for you - make sure it exists first.)
 3. Point your Rust `main.rs` at the bundle:
    ```rust
    fn main() {

@@ -19,11 +19,14 @@ jobs:
           deno-version: v2.x
 
       # addon_engine.rs embeds this bundle via include_str! at compile time,
-      # so cargo build fails immediately without it - dist/ is gitignored.
+      # so cargo build fails immediately without it - dist/ is gitignored, so a
+      # fresh checkout has no dist/ directory for `>` to redirect into (pwsh's
+      # redirect operator, unlike a shell running mkdir -p, won't create it).
       - name: Bundle default addon TS
         working-directory: examples/studio-bundle
         run: |
           deno install
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
           deno bundle src/index.ts > dist/bundle.js
 
       - uses: dtolnay/rust-toolchain@stable
@@ -51,6 +54,7 @@ jobs:
         working-directory: examples/studio-bundle
         run: |
           deno install
+          mkdir -p dist
           deno bundle src/index.ts > dist/bundle.js
 
       - uses: dtolnay/rust-toolchain@stable
