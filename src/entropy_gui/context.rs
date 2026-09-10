@@ -154,6 +154,13 @@ pub(crate) struct ContextInner {
     /// this frame, in draw order — lets `Memory::popup_open` control z-order without a
     /// separate deferred-closure queue (see module docs).
     pub(crate) frame_count: u64,
+    /// True once any widget's `interact()` this frame reported the pointer as hovering its
+    /// rect - the generic "is the pointer currently over some GUI element" signal real egui
+    /// exposes as `ctx.wants_pointer_input()`. Addon-facing game/world code (e.g. a level
+    /// editor's click-to-select) needs this to avoid also reacting to clicks meant for a UI
+    /// button/window - see `Context::pointer_over_ui` and its addon-facing
+    /// `Entropy.Input.isPointerOverUI()`.
+    pub(crate) pointer_over_ui: bool,
 }
 
 #[derive(Clone)]
@@ -174,6 +181,7 @@ impl Default for Context {
             time: 0.0,
             cursor_icon: CursorIcon::Default,
             frame_count: 0,
+            pointer_over_ui: false,
         })))
     }
 }
@@ -255,7 +263,22 @@ impl Context {
         inner.time += raw_input.dt.max(0.0);
         inner.cursor_icon = CursorIcon::Default;
         inner.frame_count += 1;
+        inner.pointer_over_ui = false;
         inner.input = raw_input;
+    }
+
+    /// Marks the pointer as currently over some GUI element - called from `interact()`
+    /// whenever it computes `hovered = true`, so this ends up true for the frame if the pointer
+    /// is over *any* widget/window, not just ones that specifically check for it.
+    pub(crate) fn mark_pointer_over_ui(&self) {
+        self.0.borrow_mut().pointer_over_ui = true;
+    }
+
+    /// True if the pointer was over any GUI widget/window at any point so far this frame.
+    /// Addon-facing as `Entropy.Input.isPointerOverUI()` - see the field doc comment on
+    /// `ContextInner::pointer_over_ui`.
+    pub fn pointer_over_ui(&self) -> bool {
+        self.0.borrow().pointer_over_ui
     }
 
     fn end_frame(&self) -> FullOutput {

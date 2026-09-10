@@ -60,13 +60,13 @@ use crate::deno::addon_ops::{
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
     op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_behavior_register, op_buffer_create,
-    op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_transform, op_composer_set_role_pipeline, 
+    op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
     op_gizmo_update, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
-    op_mesh_get_data, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
+    op_mesh_get_data, op_mesh_update_vertices, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
     op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
@@ -220,6 +220,7 @@ extension!(
         op_addon_set_visibility,
         op_camera_get_transform,
         op_camera_set_transform,
+        op_camera_set_orthographic,
         op_generate_uuid,
         op_register_composite_texture,
         op_addon_register_tool,
@@ -236,6 +237,7 @@ extension!(
         op_ui_text_create,
         op_ui_clear,
         op_mesh_get_data,
+        op_mesh_update_vertices,
         op_behavior_register,
         op_system_spawn_particles,
         op_dialogue_show,
@@ -541,11 +543,13 @@ impl AddonEngine {
             input_events: Vec::new(),
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
+            pointer_over_ui: false,
             modifiers: Modifiers::default(),
             window_size: [1920, 1080],
             selected_entity_id: None,
             pending_camera_position: None,
             pending_camera_target: None,
+            pending_camera_ortho: None,
             pending_bone_transforms: Vec::new(),
             pending_entity_rotations: Vec::new(),
             pending_ui_rects: Vec::new(),
@@ -965,7 +969,7 @@ impl AddonEngine {
             context.camera_position = [camera.position.x, camera.position.y, camera.position.z];
             context.camera_direction = [camera.direction.x, camera.direction.y, camera.direction.z];
             context.camera_view = camera.get_view().into();
-            context.camera_proj = camera.get_projection().into();
+            context.camera_proj = camera.get_active_projection().into();
             context.landscape_texture_view = landscape_view.clone();
             
             // if context.landscape_heights.is_none() { // ideally would not be setting heights in update()...
@@ -995,6 +999,12 @@ impl AddonEngine {
             }
             if let Some(target) = context.pending_camera_target.take() {
                 camera.direction = (nalgebra::Point3::new(target[0], target[1], target[2]) - camera.position).normalize();
+            }
+            if let Some((enabled, view_height)) = context.pending_camera_ortho.take() {
+                camera.is_orthographic = enabled;
+                if let Some(view_height) = view_height {
+                    camera.ortho_view_height = view_height;
+                }
             }
             camera.update();
             camera_binding.update_3d(&gpu_resources.queue, camera);
@@ -1702,6 +1712,18 @@ impl AddonEngine {
             }
         };
 
+        // Entropy.Mesh.updateVertices's queue - pulled separately from the tuple above (which
+        // is already a 25-element destructure) rather than adding a 26th position to it.
+        let pending_mesh_updates: Vec<(String, Vec<u32>, Vec<f32>)> = {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() {
+                std::mem::take(&mut ctx.pending_mesh_updates)
+            } else {
+                Vec::new()
+            }
+        };
+
         if let Some(enabled) = pending_game_mode {
             renderer_state.game_mode = enabled;
         }
@@ -1894,6 +1916,28 @@ impl AddonEngine {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // `Entropy.Mesh.updateVertices` was declared in addon.d.ts and wired in addon_setup.js,
+        // but op_mesh_update_vertices was never added to this file's op registration list - it
+        // threw `ops.op_mesh_update_vertices is not a function` on every call (caught this live
+        // the first time an addon actually called it: game2d's sprites never moved). Registering
+        // the op (see the `use` list and `extension!` ops list above) fixed the throw, but the
+        // op itself only ever pushed onto `AddonContext.pending_mesh_updates` - nothing drained
+        // that queue either. Fixed here: write the new positions straight into the mesh's
+        // existing vertex buffer, same `queue.write_buffer` technique the bone-transform update
+        // above already uses.
+        for (mesh_id, indices, positions) in pending_mesh_updates {
+            if let Some(mesh) = renderer_state.addon_meshes.values().flatten().find(|m| m.id == mesh_id) {
+                let stride = std::mem::size_of::<Vertex>() as wgpu::BufferAddress;
+                for (i, vertex_index) in indices.iter().enumerate() {
+                    let base = i * 3;
+                    if base + 2 >= positions.len() { continue; }
+                    let new_pos = [positions[base], positions[base + 1], positions[base + 2]];
+                    let offset = (*vertex_index as wgpu::BufferAddress) * stride;
+                    gpu_resources.queue.write_buffer(&mesh.vertex_buffer, offset, bytemuck::cast_slice(&new_pos));
                 }
             }
         }
@@ -3502,7 +3546,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 }
             }
         }
-        
+
+        // Snapshot this frame's UI-hover state for addon-facing Entropy.Input.isPointerOverUI()
+        // - must happen after every window above has been drawn (each Window::show() call sets
+        // ctx's pointer_over_ui flag if the pointer was within it), not before.
+        {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.pointer_over_ui = ctx.pointer_over_ui();
+            }
+        }
+
         // Push events
         if !events_to_push.is_empty() {
             let op_state = self.runtime.op_state();
@@ -3623,6 +3678,16 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     });
                 });
+            }
+        }
+
+        // See the matching comment in render_ui - same snapshot, for the tabs (non-Studio)
+        // rendering path.
+        {
+            let mut op_state = self.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
+                context.pointer_over_ui = ctx.pointer_over_ui();
             }
         }
 

@@ -759,11 +759,13 @@ pub struct AddonContext {
     pub input_events: Vec<InputEvent>,
     pub pressed_keys: HashSet<String>,
     pub mouse_position: [f32; 2],
+    pub pointer_over_ui: bool,
     pub modifiers: Modifiers,
     pub window_size: [u32; 2],
     pub selected_entity_id: Option<String>,
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
+    pub pending_camera_ortho: Option<(bool, Option<f32>)>,
     pub yumon_sims: HashMap<String, OrganismSim<MyBackend>>,
     pub yumon_brains: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_instances: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
@@ -1866,6 +1868,7 @@ pub fn op_input_get_state(state: &mut OpState) -> Result<AddonInputState, deno_e
         Ok(AddonInputState {
             pressed_keys: ctx.pressed_keys.iter().cloned().collect(),
             mouse_position: ctx.mouse_position,
+            pointer_over_ui: ctx.pointer_over_ui,
             modifiers: ctx.modifiers.clone(),
         })
     } else {
@@ -1878,6 +1881,7 @@ pub fn op_input_get_state(state: &mut OpState) -> Result<AddonInputState, deno_e
 pub struct AddonInputState {
     pub pressed_keys: Vec<String>,
     pub mouse_position: [f32; 2],
+    pub pointer_over_ui: bool,
     pub modifiers: Modifiers,
 }
 
@@ -3358,6 +3362,13 @@ pub fn op_camera_set_transform(state: &mut OpState, #[serde] position: Option<[f
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.pending_camera_position = position;
         ctx.pending_camera_target = target;
+    }
+}
+
+#[op2]
+pub fn op_camera_set_orthographic(state: &mut OpState, enabled: bool, view_height: Option<f32>) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_camera_ortho = Some((enabled, view_height));
     }
 }
 

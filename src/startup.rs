@@ -731,10 +731,18 @@ impl ApplicationHandler<UserEvent> for Application {
                     });
                 }
 
-                if (!self.game_mode) {
-                    // NOTE: game_mode is handle in DeviceEvent due to Locked cursor
-                    // NOTE: it is still done here for editor to provide exact pos to gizmo
-
+                // Originally gated on `!self.game_mode` alone, on the theory that game_mode's
+                // mouse-look is handled via DeviceEvent::MouseMotion deltas instead (see below).
+                // That's only true once the cursor is actually grabbed/locked - for any
+                // EntropyApp that never calls set_cursor_grab (e.g. a 2D top-down game aiming
+                // with a free cursor, not an FPS look), the old gate meant CursorMoved's position
+                // was dropped entirely: Entropy.Input.onMouseMove never fired and
+                // op_input_get_state().mousePosition never updated, with no error anywhere -
+                // found by a fresh addon (game2d) whose mouse-aim silently never moved. Checking
+                // `window.cursor_grab` instead of `game_mode` keeps the original locked-cursor
+                // behavior (still skipped, since a locked cursor's reported position is
+                // meaningless/re-centering noise) while fixing the common non-FPS game case.
+                if (!self.game_mode || window.cursor_grab == CursorGrabMode::None) {
                     handle_mouse_move(
                         self.mouse_pressed,
                         Some(EntropyPosition {

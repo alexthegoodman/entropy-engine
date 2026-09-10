@@ -298,6 +298,9 @@ impl Ui {
 pub(crate) fn interact(ctx: &Context, rect: Rect, id: Id, sense: Sense) -> Response {
     let input = ctx.input(|i| i.clone());
     let hovered = input.pointer.pos.map_or(false, |p| rect.contains(p));
+    if hovered {
+        ctx.mark_pointer_over_ui();
+    }
 
     let clicked = sense.click && hovered && input.pointer.primary_pressed;
     let secondary_clicked = hovered && input.pointer.secondary_pressed;

@@ -1022,6 +1022,13 @@ export interface EntropyAPI {
   Camera: {
     getTransform: () => [[number, number, number], [number, number, number]];
     setTransform: (position?: [number, number, number], target?: [number, number, number]) => void;
+    // Switches the render camera between perspective (default) and a true orthographic
+    // projection centered on the camera's position - constant apparent sprite size
+    // regardless of screen position, unlike perspective. `viewHeight` is the world-space
+    // height of the visible area (width derives from window aspect ratio); omit to keep
+    // the current value (10 world units by default). screenToWorldRay already accounts
+    // for whichever projection is active.
+    setOrthographic: (enabled: boolean, viewHeight?: number) => void;
     screenToWorldRay: (screenX: number, screenY: number) => Ray;
   };
   /**
@@ -1060,6 +1067,11 @@ export interface EntropyAPI {
     isCtrlPressed: () => boolean;
     isShiftPressed: () => boolean;
     isAltPressed: () => boolean;
+    // True if the pointer is currently over any Entropy.UI window/widget. Check this before
+    // treating a click as a world/game interaction (e.g. click-to-select in a level editor) -
+    // without it, a click on a UI button also fires as a click on whatever's in the game world
+    // underneath that same screen position, since UI and game input aren't otherwise exclusive.
+    isPointerOverUI: () => boolean;
   };
   Selection: {
     setMode: (mode: "vertex" | "edge" | "face" | "object") => void;

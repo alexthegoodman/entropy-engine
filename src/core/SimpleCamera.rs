@@ -15,7 +15,13 @@ pub struct SimpleCamera {
     pub view_projection_matrix: Matrix4<f32>,
     pub inverse_view_matrix: Matrix4<f32>,
     pub inverse_projection_matrix: Matrix4<f32>,
-    pub viewport: Viewport
+    pub viewport: Viewport,
+    /// When true, `get_active_projection` (and thus every frame's view-projection matrix)
+    /// uses `get_orthographic_projection` instead of the default perspective projection.
+    pub is_orthographic: bool,
+    /// World-space height of the orthographic view volume, centered on `position` - the
+    /// width is derived from this and `aspect_ratio`. Unused in perspective mode.
+    pub ortho_view_height: f32,
 }
 
 impl SimpleCamera {
@@ -42,7 +48,9 @@ impl SimpleCamera {
             view_projection_matrix: Matrix4::identity(),
             inverse_view_matrix: Matrix4::identity(),
             inverse_projection_matrix: Matrix4::identity(),
-            viewport: Viewport::new(windowWidth, windowHeight)
+            viewport: Viewport::new(windowWidth, windowHeight),
+            is_orthographic: false,
+            ortho_view_height: 10.0,
         }
     }
 
@@ -62,20 +70,39 @@ impl SimpleCamera {
         projection_matrix
     }
 
+    /// World-space orthographic projection centered on `position.x/y`, sized by
+    /// `ortho_view_height` (world units, full height) and `aspect_ratio`. Unlike the
+    /// perspective projection, apparent sprite size is constant regardless of distance
+    /// from screen center - the point of using this for a 2D game.
     pub fn get_orthographic_projection(&self) -> Matrix4<f32> {
-        let left = 0.0;
-        let right = self.viewport.window_size.width as f32;
-        let bottom = self.viewport.window_size.height as f32;
-        let top = 0.0;
+        let half_height = self.ortho_view_height / 2.0;
+        let half_width = half_height * self.aspect_ratio;
+
+        let left = self.position.x - half_width;
+        let right = self.position.x + half_width;
+        let bottom = self.position.y - half_height;
+        let top = self.position.y + half_height;
         let near = -100.0;
         let far = 100.0;
 
         Matrix4::new_orthographic(left, right, bottom, top, near, far)
     }
 
+    /// The projection matrix actually used for rendering this frame - perspective unless
+    /// `is_orthographic` is set. Call sites that previously called `get_projection()`
+    /// directly (view-projection matrix, addon `camera_proj` snapshot) should use this
+    /// instead so orthographic mode applies everywhere consistently.
+    pub fn get_active_projection(&self) -> Matrix4<f32> {
+        if self.is_orthographic {
+            self.get_orthographic_projection()
+        } else {
+            self.get_projection()
+        }
+    }
+
     pub fn update_view_projection_matrix(&mut self) {
         let view_matrix = self.get_view();
-        let projection_matrix = self.get_projection();
+        let projection_matrix = self.get_active_projection();
 
         self.view_projection_matrix = projection_matrix * view_matrix;
         self.inverse_view_matrix = view_matrix

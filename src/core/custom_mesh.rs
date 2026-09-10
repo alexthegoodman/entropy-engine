@@ -73,7 +73,11 @@ impl CustomMesh {
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some(&format!("Custom Mesh Vertex Buffer {}", id)),
             contents: vertex_data,
-            usage: wgpu::BufferUsages::VERTEX,
+            // COPY_DST is required for Entropy.Mesh.updateVertices (op_mesh_update_vertices,
+            // addon_engine.rs) to queue.write_buffer into this buffer after creation - without
+            // it, wgpu rejects the write with a validation panic rather than silently ignoring
+            // it, which is how the queue.write_buffer half of that op's fix was actually found.
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
         let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

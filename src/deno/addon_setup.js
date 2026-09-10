@@ -1097,6 +1097,9 @@ globalThis.Entropy = {
         setTransform: (position, target) => {
             ops.op_camera_set_transform(position || null, target || null);
         },
+        setOrthographic: (enabled, viewHeight) => {
+            ops.op_camera_set_orthographic(enabled, viewHeight === undefined ? null : viewHeight);
+        },
         screenToWorldRay: (screenX, screenY) => {
             const [pos, dir] = ops.op_camera_get_transform(); // Default fallback
             try {
@@ -1403,6 +1406,10 @@ globalThis.Entropy = {
         isAltPressed: () => {
             const state = ops.op_input_get_state();
             return state.modifiers.alt;
+        },
+        isPointerOverUI: () => {
+            const state = ops.op_input_get_state();
+            return state.pointerOverUi;
         }
     },
     Selection: {
