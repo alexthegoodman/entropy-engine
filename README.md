@@ -1,6 +1,6 @@
 # Entropy Engine
 
-**A native Rust + TypeScript app framework** — zero-copy without the Node/Chromium overhead. The Rust core handles windowing, rendering, physics and audio; your TypeScript addons handle logic, UI and content, running in an embedded [Deno](https://deno.com/) runtime with direct access to a powerful native API.
+**A native Rust + TypeScript app framework** — zero-copy without the WebView/Chromium overhead. The Rust core handles windowing, rendering, physics and audio; your TypeScript addons handle logic, UI and content, running in an embedded [Deno](https://deno.com/) runtime with direct access to a powerful native API.
 
 **Entropy Engine is experimental and in beta, and some things may not work as expected**
 
