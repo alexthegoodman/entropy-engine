@@ -102,26 +102,24 @@ Namespaces on the global `Entropy` object (most are also available scoped to you
 
 Check out some examples in isolation:
 
+All studio-bundle examples share one binary - pass the example's name as an arg:
+
 ```bash
 cd examples/studio-bundle/
 
 npm run build-daw
-cargo run --bin example_daw --release
+cargo run --bin example --release -- daw
 
 npm run build-fft-water
-cargo run --bin example_fft_water --release
+cargo run --bin example --release -- fft-water
 
 npm run build-fft-river
-cargo run --bin example_fft_river --release
+cargo run --bin example --release -- fft-river
 ```
 
-| Example | What it shows |
-|---|---|
-| [Entropy Studio](#entropy-studio) | The full reference editor — every namespace above, in one app |
-| [`fps_rpg`](./examples/studio-bundle/src/fps_rpg/index.ts) | Combat, squads, quests, dialogue — a complete FPS-RPG |
-| [`tower_defense_game.ts`](./examples/studio-bundle/src/tower_defense_game.ts) | Wave spawning, pathing, tower placement |
-| [`studio-bundle`](./examples/studio-bundle) | 50+ smaller addons: FFT water/rivers, procedural houses, hair-particle grass, PBR material designer, DAW-style synth, character creator, and more |
-| [`example_addon.js`](./examples/example_addon.js) | Minimal hand-written addon, no build step |
+Run `cargo run --bin example` with no name for the full list (also: `game2d`,
+`level-editor-2d`, `light-hive`, `mcp-tools-demo`, `media-player`, `node-graph`,
+`theme-gallery`).
 
 ---
 
