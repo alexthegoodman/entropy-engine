@@ -27,9 +27,9 @@
 
 No project picker, no forced data model. Your addons persist their own data under a directory you control with `.with_data_dir(...)` (defaults to `./data`) — see [Persisting your own data](#persisting-your-own-data).
 
-Currently, Entropy has only been tested on Windows machines.
+Currently, Entropy has only been tested on Windows machines. Mac and Linux support coming soon.
 
-Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://github.com/alexthegoodman/indie-machine), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-08-fft-ocean-water.mdx), [replacing egui with an in-house immediate-mode GUI kit](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-08-replacing-egui-with-entropy-gui.mdx), and [building a Media Foundation-backed media player addon](https://github.com/alexthegoodman/indie-machine/blob/master/app/posts/2026-09-09-entropy-media-player.mdx).
+Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://indie-machine.com), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://indie-machine.com/posts/fft-ocean-water), [replacing egui with an in-house immediate-mode GUI kit](https://indie-machine.com/posts/replacing-egui-with-entropy-gui), and [building a Media Foundation-backed media player addon](https://indie-machine.com/posts/entropy-media-player).
 
 ---
 
@@ -100,7 +100,7 @@ Namespaces on the global `Entropy` object (most are also available scoped to you
 
 ## Examples
 
-Check out some examples in isolation:
+Check out some examples in isolation!
 
 All studio-bundle examples share one binary - pass the example's name as an arg:
 
@@ -123,22 +123,16 @@ Run `cargo run --bin example` with no name for the full list (also: `game2d`,
 
 ---
 
-## Entropy Studio
+## Gallery
 
 | | |
 |-|-|
 | ![Entropy Engine / Chat Value](public/water1.png "Entropy Engine / Chat Value") | ![Entropy Chat UI](public/image-3.png "Entropy Chat UI") |
 
-Entropy Studio is the reference app built on this framework: a full open-world game editor with a live viewport, docking panels, and every addon in [`examples/studio-bundle`](./examples/studio-bundle) loaded. It's the best way to see the API above in action, and the source of the example addon code linked throughout this README.
-
-```bash
-cd examples/studio-bundle/
-npm run build
-cargo run --bin editor --release
-```
+## MCP
 
 ```bash
 claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp
 ```
 
-The second command wires your agent subscription into Studio's running instance. All tools registered with `registerTool` in an addon will be accessible via MCP.
+All tools registered with `registerTool` in an addon will be accessible via MCP, simply startup your app, and the MCP server will be active as well.
