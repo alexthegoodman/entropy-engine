@@ -395,6 +395,28 @@ export interface ScopedAPI {
     createPointLight: (config: PointLightConfig) => void;
     updateSun: (config: ProceduralSkyConfig) => void;
   };
+  // Windows/Media-Foundation only - see src/media_player/mod.rs (playback) and
+  // src/video_export/exporter.rs (export). Not previously declared here even though
+  // media_player_addon.ts has called it since that addon shipped - `deno bundle` doesn't
+  // type-check, so the gap went unnoticed until this was added alongside Entropy.Video.export.
+  Video: {
+    open: (path: string) => { handle: string; durationMs: number; width: number; height: number; frameRate: number };
+    bindTexture: (handle: string, textureId: string) => void;
+    play: (handle: string) => void;
+    pause: (handle: string) => void;
+    seek: (handle: string, ms: number) => void;
+    setVolume: (handle: string, volume: number) => void;
+    close: (handle: string) => void;
+    poll: (handle: string) => { currentTimeMs: number; playing: boolean };
+    /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
+     * it to an H.264 MP4 at `outputPath` (resolution is pinned to the current window size, not
+     * configurable yet - see run_export's doc comment). Returns immediately; the export itself
+     * runs synchronously on the render thread starting next frame and blocks it for its
+     * duration, so the addon's own onUpdatePlus won't tick again until pollExport() reports a
+     * result. */
+    export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
+    pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
+  };
   IO: {
     save: (data: any) => void;
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
@@ -865,6 +887,24 @@ export interface EntropyAPI {
       disableOverride: () => void,
       setGlobalSettings: (settings: GlobalSettings) => void,
       getGlobalSettings: () => GlobalSettings,
+  };
+  Video: {
+    open: (path: string) => { handle: string; durationMs: number; width: number; height: number; frameRate: number };
+    bindTexture: (handle: string, textureId: string) => void;
+    play: (handle: string) => void;
+    pause: (handle: string) => void;
+    seek: (handle: string, ms: number) => void;
+    setVolume: (handle: string, volume: number) => void;
+    close: (handle: string) => void;
+    poll: (handle: string) => { currentTimeMs: number; playing: boolean };
+    /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
+     * it to an H.264 MP4 at `outputPath` (resolution is pinned to the current window size, not
+     * configurable yet - see run_export's doc comment). Returns immediately; the export itself
+     * runs synchronously on the render thread starting next frame and blocks it for its
+     * duration, so the addon's own onUpdatePlus won't tick again until pollExport() reports a
+     * result. */
+    export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
+    pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
   };
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;

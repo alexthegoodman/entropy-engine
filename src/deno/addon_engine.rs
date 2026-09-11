@@ -71,6 +71,7 @@ use crate::deno::addon_ops::{
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
     op_video_open, op_video_bind_texture, op_video_play, op_video_pause, op_video_seek, op_video_set_volume, op_video_close, op_video_poll,
+    op_video_export_start, op_video_export_poll,
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
@@ -212,6 +213,8 @@ extension!(
         op_video_set_volume,
         op_video_close,
         op_video_poll,
+        op_video_export_start,
+        op_video_export_poll,
         op_addon_load_data,
         op_audio_play_synth,
         op_audio_play_note,
@@ -566,6 +569,10 @@ impl AddonEngine {
             on_action_callbacks: Vec::new(),
             #[cfg(target_os = "windows")]
             video_players: HashMap::new(),
+            #[cfg(target_os = "windows")]
+            pending_video_export: None,
+            #[cfg(target_os = "windows")]
+            video_export_result: None,
         };
         runtime.op_state().borrow_mut().put(context);
 

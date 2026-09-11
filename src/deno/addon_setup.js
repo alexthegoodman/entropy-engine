@@ -76,7 +76,9 @@ const videoAPI = {
     seek: (handle, ms) => ops.op_video_seek(handle, ms),
     setVolume: (handle, volume) => ops.op_video_set_volume(handle, volume),
     close: (handle) => ops.op_video_close(handle),
-    poll: (handle) => ops.op_video_poll(handle)
+    poll: (handle) => ops.op_video_poll(handle),
+    export: (config) => ops.op_video_export_start(config.outputPath, config.fps, config.durationMs),
+    pollExport: () => ops.op_video_export_poll()
 };
 
 const noiseAPI = {

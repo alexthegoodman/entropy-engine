@@ -58,6 +58,10 @@ async fn main() {
                 .with_hot_reload(true)
                 .with_title("Theme Gallery")
                 .with_window_size(1000.0, 700.0),
+            Some("video-export-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/video_export_demo.js")
+                .with_title("Video Export Demo")
+                .with_window_size(1280.0, 720.0),
             other => {
                 if let Some(name) = other {
                     eprintln!("Unknown example \"{name}\".\n");
@@ -87,4 +91,5 @@ const EXAMPLES: &[&str] = &[
     "media-player",
     "node-graph",
     "theme-gallery",
+    "video-export-demo",
 ];

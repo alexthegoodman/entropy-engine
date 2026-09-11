@@ -49,6 +49,12 @@ impl FrameCaptureBuffer {
         }
     }
 
+    /// Copies `render_texture` into `capture_texture`, then `capture_texture` into the staging
+    /// buffer, for later CPU readback via `get_frame_data`. Pre-existing (see
+    /// render_addon_frame.rs/render_frame.rs, guarded behind `pipeline.frame_buffer.is_some()`,
+    /// which nothing currently sets) - kept as-is for those call sites. `run_export` doesn't use
+    /// this: it renders directly into the view from `create_view()` instead, so it only needs
+    /// the second half - see `copy_to_staging`.
     pub fn capture_frame(
         &self,
         device: &wgpu::Device,
@@ -56,10 +62,8 @@ impl FrameCaptureBuffer {
         render_texture: &wgpu::Texture,
         encoder: &mut CommandEncoder,
     ) {
-        // Copy render texture to capture texture
         encoder.copy_texture_to_texture(
-            render_texture.as_image_copy(), // as_image_copy() doesn't exist for TextureView
-            // surface_texture.texture.as_image_copy(),
+            render_texture.as_image_copy(),
             self.capture_texture.as_image_copy(),
             wgpu::Extent3d {
                 width: self.capture_texture.width(),
@@ -68,7 +72,20 @@ impl FrameCaptureBuffer {
             },
         );
 
-        // Copy capture texture to staging buffer
+        self.copy_to_staging(encoder);
+    }
+
+    /// A view onto `capture_texture` itself, for rendering directly into this buffer instead of
+    /// rendering elsewhere and copying in - see `exporter::run_export`, which is the only
+    /// current caller and needs a `RENDER_ATTACHMENT`-usable view to pass as a frame's
+    /// `target_view`.
+    pub fn create_view(&self) -> wgpu::TextureView {
+        self.capture_texture.create_view(&wgpu::TextureViewDescriptor::default())
+    }
+
+    /// Copies `capture_texture`'s current contents into the staging buffer for CPU readback via
+    /// `get_frame_data`.
+    pub fn copy_to_staging(&self, encoder: &mut CommandEncoder) {
         let buffer_dimensions =
             BufferDimensions::new(self.capture_texture.width(), self.capture_texture.height());
 

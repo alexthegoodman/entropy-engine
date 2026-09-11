@@ -1976,6 +1976,35 @@ impl EntropyPipeline {
 
     #[cfg(target_os = "windows")]
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
+        // Video export needs `&mut self` (to drive `render_addon_frame` against the live scene
+        // repeatedly, offscreen) - an addon op can't borrow that, so `op_video_export_start`
+        // only queues a request in `AddonContext` and it's drained here, synchronously, before
+        // this frame's normal on-screen render. See `video_export::exporter::run_export`.
+        let pending_export = self.export_editor.as_mut().and_then(|editor| {
+            editor
+                .addon_engine
+                .runtime
+                .op_state()
+                .borrow_mut()
+                .try_borrow_mut::<crate::deno::addon_ops::AddonContext>()
+                .and_then(|ctx| ctx.pending_video_export.take())
+        });
+
+        if let Some(request) = pending_export {
+            let result = crate::video_export::exporter::run_export(self, &request);
+            if let Some(editor) = self.export_editor.as_mut() {
+                if let Some(ctx) = editor
+                    .addon_engine
+                    .runtime
+                    .op_state()
+                    .borrow_mut()
+                    .try_borrow_mut::<crate::deno::addon_ops::AddonContext>()
+                {
+                    ctx.video_export_result = Some(result);
+                }
+            }
+        }
+
         let now = std::time::Instant::now();
         if let Some(editor) = &mut self.export_editor {
             let delta = if let Some(last) = editor.last_frame_time {

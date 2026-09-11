@@ -773,6 +773,10 @@ pub struct AddonContext {
     pub yumon_trainers: HashMap<String, crate::yumon::system::BackgroundTrainer>,
     #[cfg(target_os = "windows")]
     pub video_players: HashMap<String, VideoPlayerEntry>,
+    #[cfg(target_os = "windows")]
+    pub pending_video_export: Option<crate::video_export::exporter::VideoExportRequest>,
+    #[cfg(target_os = "windows")]
+    pub video_export_result: Option<Result<crate::video_export::exporter::VideoExportResult, String>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -1613,6 +1617,61 @@ pub fn op_video_poll(state: &mut OpState, #[string] handle: String) -> VideoPoll
     }
 
     VideoPollResult { current_time_ms, playing }
+}
+
+// --- Video export (Windows/Media Foundation) ---
+// See `crate::video_export::exporter::run_export` for the actual frame loop. It needs `&mut
+// EntropyPipeline` (to call `render_addon_frame` against the live scene) which ops can't borrow
+// directly, so `op_video_export_start` just queues a request and `run_export` is invoked from
+// `EntropyPipeline::render_display_frame` on the next redraw, which drains it synchronously
+// before that frame's normal on-screen render. `op_video_export_poll` is how the addon finds out
+// it's done.
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoExportResultJs {
+    pub output_path: String,
+    pub frame_count: u32,
+    pub elapsed_ms: u64,
+    pub error: Option<String>,
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_export_start(
+    state: &mut OpState,
+    #[string] output_path: String,
+    fps: u32,
+    duration_ms: u32,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_video_export = Some(crate::video_export::exporter::VideoExportRequest {
+            output_path,
+            fps,
+            duration_ms,
+        });
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2]
+#[serde]
+pub fn op_video_export_poll(state: &mut OpState) -> Option<VideoExportResultJs> {
+    let ctx = state.try_borrow_mut::<AddonContext>()?;
+    match ctx.video_export_result.take()? {
+        Ok(r) => Some(VideoExportResultJs {
+            output_path: r.output_path,
+            frame_count: r.frame_count,
+            elapsed_ms: r.elapsed_ms,
+            error: None,
+        }),
+        Err(e) => Some(VideoExportResultJs {
+            output_path: String::new(),
+            frame_count: 0,
+            elapsed_ms: 0,
+            error: Some(e),
+        }),
+    }
 }
 
 #[op2]
