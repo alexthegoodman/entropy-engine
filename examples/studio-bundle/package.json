@@ -23,6 +23,7 @@
     "build-fft-water": "npm run ensure-dist && deno bundle src/fft_water_addon.ts > dist/fft_water.js",
     "build-fft-river": "npm run ensure-dist && deno bundle src/fft_river_water_addon.ts > dist/fft_river.js",
     "build-light-hive": "npm run ensure-dist && deno bundle src/light_hive_addon.ts > dist/light_hive.js",
+    "build-mcp-demo": "npm run ensure-dist && deno bundle src/mcp_tools_demo_addon.ts > dist/mcp_demo.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },
