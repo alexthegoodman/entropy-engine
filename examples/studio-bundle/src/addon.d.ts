@@ -393,10 +393,13 @@ export interface ScopedAPI {
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
-      /** Parses `html` (see src/deno/html_ui.rs) and pushes the resulting entropy_gui widgets -
-       * no CSS, no layout, block tags get their own line and headings are bold, that's it.
-       * Re-parses every call, so pass the same string each frame rather than mutating it. */
-      html: (windowId: string, html: string) => void;
+      /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
+       * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
+       * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).
+       * Re-parses every call, so pass the same string each frame rather than mutating it.
+       * `options.baseUrl` resolves relative `<img src>`/`<a href>` for a real fetched page;
+       * `options.width` sets the layout viewport width (default 760px). */
+      html: (windowId: string, html: string, options?: { baseUrl?: string; width?: number }) => void;
     };
   };
   /** One blocking text fetch (see op_http_get_text's doc comment in addon_ops.rs) - meant for
@@ -952,10 +955,13 @@ export interface EntropyAPI {
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
-      /** Parses `html` (see src/deno/html_ui.rs) and pushes the resulting entropy_gui widgets -
-       * no CSS, no layout, block tags get their own line and headings are bold, that's it.
-       * Re-parses every call, so pass the same string each frame rather than mutating it. */
-      html: (windowId: string, html: string) => void;
+      /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
+       * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
+       * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).
+       * Re-parses every call, so pass the same string each frame rather than mutating it.
+       * `options.baseUrl` resolves relative `<img src>`/`<a href>` for a real fetched page;
+       * `options.width` sets the layout viewport width (default 760px). */
+      html: (windowId: string, html: string, options?: { baseUrl?: string; width?: number }) => void;
     };
   };
   /** One blocking text fetch (see op_http_get_text's doc comment in addon_ops.rs) - meant for

@@ -393,6 +393,7 @@ pub enum UiWidget {
     Separator,
     Hyperlink { id: String, text: String, url: String },
     TextInput { id: String, label: String, value: String },
+    LayoutCanvas { id: String, width: f32, height: f32, boxes: Vec<crate::deno::html_layout::LayoutBox> },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -796,6 +797,12 @@ pub struct AddonContext {
     pub landscape_position: [f32; 3],
     pub landscape_config: Option<[f32; 3]>,
     pub addon_textures: HashMap<String, crate::core::Texture::Texture>,
+    /// `<img>` fetch cache for the HTML-as-UI experiment (`html_layout.rs`), keyed by resolved
+    /// absolute URL so a page re-rendered every frame doesn't re-fetch/re-decode/re-upload its
+    /// images each time. `html_image_failed` remembers a permanently-broken URL so a dead image
+    /// link isn't retried every frame either.
+    pub html_image_dims: HashMap<String, (u32, u32)>,
+    pub html_image_failed: HashSet<String>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
     pub buffers: HashMap<String, Arc<wgpu::Buffer>>,
@@ -2670,17 +2677,22 @@ pub fn op_ui_widget_text_input(
     }
 }
 
-/// `Entropy.UI.Widget.html(windowId, html)` — the HTML-as-UI-description experiment (see
-/// `crate::deno::html_ui`). Parses `html` fresh on every call and appends the resulting
-/// widgets; there's no diffing or state retention across frames, so anything an entropy_gui
-/// widget would normally need fed back in (a typed `TextInput` value, a moved `Slider`) just
-/// resets to whatever the HTML string said next frame unless the caller re-renders with
-/// updated markup itself.
+/// `Entropy.UI.Widget.html(windowId, html, {baseUrl?, width?})` — the HTML-as-UI-description
+/// experiment (see `crate::deno::html_layout`). Parses `html` + any `<style>`/inline CSS fresh
+/// on every call and pushes a single `UiWidget::LayoutCanvas`; there's no diffing or state
+/// retention of the parsed content across frames (though entropy_gui's own per-widget state -
+/// text-edit caret/focus - still persists normally, see html_layout's doc comment), so anything
+/// that would normally need feeding back in just resets to whatever the HTML string said next
+/// frame unless the caller re-renders with updated markup itself. `base_url` (pass an empty
+/// string for none) resolves relative `<img src>`/`<a href>` on a real fetched page. `width`
+/// <= 0 uses html_layout's default viewport width.
 #[op2(fast)]
-pub fn op_ui_render_html(state: &mut OpState, #[string] window_id: String, #[string] html: String) {
-    let widgets = crate::deno::html_ui::html_to_widgets(&html);
+pub fn op_ui_render_html(state: &mut OpState, #[string] window_id: String, #[string] html: String, #[string] base_url: String, width: f32) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().extend(widgets);
+        let base = if base_url.is_empty() { None } else { Some(base_url.as_str()) };
+        let (w, h, boxes) = crate::deno::html_layout::build(&html, base, width, ctx);
+        let id = format!("html_canvas_{}", ctx.ui_widgets.get(&window_id).map(|v| v.len()).unwrap_or(0));
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::LayoutCanvas { id, width: w, height: h, boxes });
     }
 }
 
@@ -2688,16 +2700,13 @@ pub fn op_ui_render_html(state: &mut OpState, #[string] window_id: String, #[str
 /// feed into `op_ui_render_html`. There is no async op mechanism anywhere in this addon layer
 /// (see the other `op_*` functions in this file), so this blocks the calling frame until the
 /// request finishes; call it once (e.g. from `addon.onInit`) and cache the result, not from a
-/// per-frame render callback. Run on a plain `std::thread` (not `reqwest::blocking` directly)
-/// because the engine's own `main` runs inside a Tokio runtime (see `src/bin/example.rs`), and
-/// `reqwest::blocking` panics if constructed from within one.
+/// per-frame render callback. See `crate::deno::net` for why this runs on a plain thread rather
+/// than calling `reqwest::blocking` directly, and for the "never executes what it fetches"
+/// security note that keeps this safe to leave consent-free.
 #[op2]
 #[string]
 pub fn op_http_get_text(#[string] url: String) -> Result<String, deno_error::JsErrorBox> {
-    std::thread::spawn(move || reqwest::blocking::get(&url).and_then(|r| r.error_for_status()).and_then(|r| r.text()))
-        .join()
-        .map_err(|_| deno_error::JsErrorBox::generic("op_http_get_text: fetch thread panicked"))?
-        .map_err(|e| deno_error::JsErrorBox::generic(format!("op_http_get_text: {}", e)))
+    crate::deno::net::blocking_fetch_text(&url).map_err(deno_error::JsErrorBox::generic)
 }
 
 /// `Entropy.UI.setTheme(...)` — stashes the requested theme for `AddonEngine::render_ui`/

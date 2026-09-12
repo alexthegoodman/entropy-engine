@@ -885,12 +885,17 @@ globalThis.Entropy = {
                 ops.op_ui_widget_text_input(windowId, label, value, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
-            // The HTML-as-UI-description experiment: parses `html` in Rust (see
-            // src/deno/html_ui.rs) and pushes the resulting widgets directly - no CSS, no
-            // layout, just tag shape. Re-parses on every call, so pass the same string every
-            // frame from a render callback rather than trying to mutate it incrementally.
-            html: (windowId, html) => {
-                ops.op_ui_render_html(windowId, html || "");
+            // The HTML-as-UI-description experiment: parses `html` + any <style>/inline CSS in
+            // Rust (see src/deno/html_layout.rs and html_css.rs) and lays it out with taffy
+            // (Block by default, Flex opt-in via `display: flex`) - real box positions, but no
+            // text wrapping and no specificity-aware cascade, see html_layout.rs's doc comment
+            // for the full list of what "basics" does and doesn't cover. Re-parses on every
+            // call, so pass the same string every frame from a render callback rather than
+            // trying to mutate it incrementally. `options.baseUrl` resolves relative
+            // `<img src>`/`<a href>` - pass the fetched page's own URL for real webpages.
+            // `options.width` sets the layout viewport width (default 760px).
+            html: (windowId, html, options) => {
+                ops.op_ui_render_html(windowId, html || "", options?.baseUrl || "", options?.width || 0);
             }
         }
     },

@@ -535,6 +535,8 @@ impl AddonEngine {
             landscape_position: [0.0, 0.0, 0.0],
             landscape_config: None,
             addon_textures: HashMap::new(),
+            html_image_dims: HashMap::new(),
+            html_image_failed: HashSet::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
             buffers: HashMap::new(),
@@ -4334,6 +4336,98 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             events_to_push.push(payload);
                         }
                     });
+                }
+                UiWidget::LayoutCanvas { id: _, width, height, boxes } => {
+                    // The HTML-as-UI experiment's CSS/taffy layout result (see html_layout.rs):
+                    // a flat list of already-absolutely-positioned boxes. Backgrounds/borders/
+                    // text are painted directly; interactive leaves go through
+                    // `ui.child_ui_at` so button/checkbox/text-edit/hyperlink/dropdown all get
+                    // entropy_gui's real, already-correct widget behavior at that computed rect
+                    // instead of hand-rolled hit-testing.
+                    let (rect, _resp) = ui.allocate_exact_size(egui::vec2(*width, *height), egui::Sense::hover());
+                    let origin = rect.min;
+                    for b in boxes {
+                        let box_rect = egui::Rect::from_min_size(origin + egui::vec2(b.x, b.y), egui::vec2(b.w, b.h));
+                        if let Some(bg) = b.background {
+                            ui.painter().rect_filled(box_rect, 0.0, egui::Color32::from_rgba_f32(bg));
+                        }
+                        if let Some((color, stroke_width)) = &b.border {
+                            ui.painter().rect_stroke(box_rect, 0.0, egui::Stroke::new(*stroke_width, egui::Color32::from_rgba_f32(*color)), egui::StrokeKind::Middle);
+                        }
+                        match &b.leaf {
+                            None => {}
+                            Some(crate::deno::html_layout::LayoutLeaf::Text { text, bold, color, align: _ }) => {
+                                if !text.is_empty() {
+                                    let mut rich = egui::RichText::new(text);
+                                    if *bold {
+                                        rich = rich.strong();
+                                    }
+                                    if let Some(c) = color {
+                                        rich = rich.color(egui::Color32::from_rgba_f32(*c));
+                                    }
+                                    let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                    child.label(rich);
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::Button { id: btn_id, text }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                if child.button(text).clicked() {
+                                    events_to_push.push(btn_id.clone());
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::Checkbox { id: chk_id, value }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                let mut current = *value;
+                                if child.checkbox(&mut current, "").changed() {
+                                    events_to_push.push(format!("{}|{}", chk_id, current));
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::TextInput { id: inp_id, value }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                let mut current = value.clone();
+                                if child.text_edit_singleline(&mut current).changed() {
+                                    events_to_push.push(format!("{}|{}", inp_id, current));
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::Hyperlink { id: _, text, url }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                child.hyperlink_to(text, url.as_str());
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::Dropdown { id: drop_id, options, selected_index }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                let mut current = *selected_index;
+                                let mut changed = false;
+                                egui::ComboBox::from_id_source(drop_id).selected_text(options.get(current).cloned().unwrap_or_default()).show_ui(&mut child, |ui| {
+                                    for (opt_i, opt) in options.iter().enumerate() {
+                                        if ui.selectable_value(&mut current, opt_i, opt).clicked() {
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                                if changed {
+                                    events_to_push.push(format!("{}|{}", drop_id, current));
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::Image { texture_id }) => {
+                                let tid = if let Some(tid) = context.egui_textures.get(texture_id) {
+                                    Some(*tid)
+                                } else if let (Some(view), Some(gpu)) = (context.textures.get(texture_id), &context.gpu_resources) {
+                                    let tid = egui_renderer.register_native_texture(&gpu.device, view, wgpu::FilterMode::Linear);
+                                    context.egui_textures.insert(texture_id.clone(), tid);
+                                    Some(tid)
+                                } else {
+                                    None
+                                };
+                                if let Some(tid) = tid {
+                                    ui.painter().image(tid, box_rect, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
+                                }
+                            }
+                            Some(crate::deno::html_layout::LayoutLeaf::ImagePlaceholder { text }) => {
+                                let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
+                                child.label(text);
+                            }
+                        }
+                    }
                 }
             }
             i += 1;
