@@ -789,6 +789,13 @@ pub enum InputEvent {
     KeyUp { key: String },
     GamepadButton { button: String, pressed: bool },
     GamepadAxis { leftStick: [f32; 2], rightStick: [f32; 2] },
+    // Pen/stylus input (Windows only - see `crate::stylus`). `pressure` is winit's own
+    // normalized `Force` (0..1). `tiltX`/`tiltY` are in degrees, 0 = perpendicular to the
+    // surface, +-90 = flat against it; `null` on the JS side (`Option::None` here) means this
+    // pen's driver didn't report that axis, not that the pen is untilted.
+    StylusDown { x: f32, y: f32, pressure: f32, tiltX: Option<f32>, tiltY: Option<f32> },
+    StylusMove { x: f32, y: f32, pressure: f32, tiltX: Option<f32>, tiltY: Option<f32> },
+    StylusUp { x: f32, y: f32 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

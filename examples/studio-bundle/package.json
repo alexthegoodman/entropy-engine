@@ -25,6 +25,7 @@
     "build-light-hive": "npm run ensure-dist && deno bundle src/light_hive_addon.ts > dist/light_hive.js",
     "build-mcp-demo": "npm run ensure-dist && deno bundle src/mcp_tools_demo_addon.ts > dist/mcp_demo.js",
     "build-video-export-demo": "npm run ensure-dist && deno bundle src/video_export_demo_addon.ts > dist/video_export_demo.js",
+    "build-stylus-drawing": "npm run ensure-dist && deno bundle src/stylus_drawing_addon.ts > dist/stylus_drawing.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },

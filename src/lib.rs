@@ -31,6 +31,8 @@ pub mod renderer_text;
 pub mod renderer_videos;
 #[cfg(target_os = "windows")]
 pub mod media_player;
+#[cfg(target_os = "windows")]
+pub mod stylus;
 pub mod screen_capture;
 pub mod shape_primitives;
 pub mod vector_animations;

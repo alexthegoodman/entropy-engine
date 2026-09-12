@@ -988,6 +988,15 @@ globalThis.Entropy = {
                 case "GamepadAxis":
                     fireAll("onGamepadAxis", event.leftStick, event.rightStick);
                     break;
+                case "StylusDown":
+                    fireAll("onStylusDown", { x: event.x, y: event.y, pressure: event.pressure, tiltX: event.tiltX, tiltY: event.tiltY });
+                    break;
+                case "StylusMove":
+                    fireAll("onStylusMove", { x: event.x, y: event.y, pressure: event.pressure, tiltX: event.tiltX, tiltY: event.tiltY });
+                    break;
+                case "StylusUp":
+                    fireAll("onStylusUp", { x: event.x, y: event.y });
+                    break;
             }
         }
     },
@@ -1390,6 +1399,14 @@ globalThis.Entropy = {
         onKeyUp: (callback) => globalThis.Entropy.Input._on("onKeyUp", callback),
         onGamepadButton: (callback) => globalThis.Entropy.Input._on("onGamepadButton", callback),
         onGamepadAxis: (callback) => globalThis.Entropy.Input._on("onGamepadAxis", callback),
+        // Pen/stylus input (Windows only - see src/stylus.rs). Each callback receives one object:
+        // { x, y, pressure, tiltX, tiltY } for down/move (pressure is 0..1; tiltX/tiltY are
+        // degrees, 0 = perpendicular to the tablet, null if this pen's driver doesn't report that
+        // axis), { x, y } for up. Never fires for plain mouse/touch input - only WM_POINTER
+        // packets whose pointerType is PT_PEN.
+        onStylusDown: (callback) => globalThis.Entropy.Input._on("onStylusDown", callback),
+        onStylusMove: (callback) => globalThis.Entropy.Input._on("onStylusMove", callback),
+        onStylusUp: (callback) => globalThis.Entropy.Input._on("onStylusUp", callback),
         isKeyPressed: (key) => {
             const state = ops.op_input_get_state();
             // if (state.pressedKeys?.length) {

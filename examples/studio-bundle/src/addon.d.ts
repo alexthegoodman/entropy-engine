@@ -576,6 +576,8 @@ export interface SliderConfig {
     min: number;
     max: number;
     onChange?: (value: string) => void;
+    // See ButtonConfig.id - same "already read at runtime, never declared" gap.
+    id?: string;
 }
 
 export interface NumericInputConfig {
@@ -631,6 +633,10 @@ export interface PianoRollConfig {
 export interface ButtonConfig {
   text: string;
   onClick?: () => void;
+  // Stable widget id across re-renders (an immediate-mode onRender re-declares every widget
+  // every frame) - falls back to deriving one from `text` when omitted. Already read at runtime
+  // (src/deno/addon_setup.js's Widget.button: `config?.id`) but never declared here before.
+  id?: string;
 }
 
 export interface BindingEntry {
@@ -1103,6 +1109,12 @@ export interface EntropyAPI {
     onKeyUp: (callback: (key: string) => void) => () => void;
     onGamepadButton: (callback: (button: string, pressed: boolean) => void) => () => void;
     onGamepadAxis: (callback: (leftStick: [number, number], rightStick: [number, number]) => void) => () => void;
+    // Pen/stylus input (Windows only, PT_PEN pointers - see src/stylus.rs). pressure is 0..1.
+    // tiltX/tiltY are degrees (0 = perpendicular to the tablet, +-90 = flat against it), or null
+    // if this pen's driver doesn't report that axis. Never fires for mouse or finger-touch input.
+    onStylusDown: (callback: (e: { x: number; y: number; pressure: number; tiltX: number | null; tiltY: number | null }) => void) => () => void;
+    onStylusMove: (callback: (e: { x: number; y: number; pressure: number; tiltX: number | null; tiltY: number | null }) => void) => () => void;
+    onStylusUp: (callback: (e: { x: number; y: number }) => void) => () => void;
     isKeyPressed: (key: string) => boolean;
     isCtrlPressed: () => boolean;
     isShiftPressed: () => boolean;

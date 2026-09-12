@@ -601,6 +601,40 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 
 
 
+/// Pushes a native pen/stylus packet (`WindowEvent::Touch`, Windows-only pointer-type PT_PEN) as
+/// an `InputEvent::Stylus*` for addons to consume via `Entropy.Input.onStylusDown/Move/Up`. Tilt
+/// comes from `crate::stylus::tilt_for` - winit's own `Touch` has no field for it (see that
+/// module's doc comment) - correlated to this packet by `touch.id`, the same pointer ID Win32
+/// handed both call sites.
+#[cfg(target_os = "windows")]
+pub fn handle_stylus_touch(state: &mut Editor, touch: &winit::event::Touch) {
+    use winit::event::TouchPhase;
+
+    let x = touch.location.x as f32;
+    let y = touch.location.y as f32;
+    let pointer_id = touch.id as u32;
+
+    let mut op_state = state.addon_engine.runtime.op_state();
+    let mut op_state = op_state.borrow_mut();
+    let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() else { return };
+
+    match touch.phase {
+        TouchPhase::Started | TouchPhase::Moved => {
+            let pressure = touch.force.map(|f| f.normalized() as f32).unwrap_or(0.0);
+            let tilt = crate::stylus::tilt_for(pointer_id).unwrap_or_default();
+            let event = if touch.phase == TouchPhase::Started {
+                InputEvent::StylusDown { x, y, pressure, tiltX: tilt.tilt_x, tiltY: tilt.tilt_y }
+            } else {
+                InputEvent::StylusMove { x, y, pressure, tiltX: tilt.tilt_x, tiltY: tilt.tilt_y }
+            };
+            ctx.input_events.push(event);
+        }
+        TouchPhase::Ended | TouchPhase::Cancelled => {
+            ctx.input_events.push(InputEvent::StylusUp { x, y });
+        }
+    }
+}
+
 pub fn handle_mouse_move(mousePressed: bool, currentPosition: Option<EntropyPosition>, dx: f32, dy: f32, state: &mut Editor) {
     let renderer_state = state.renderer_state.as_mut().expect("Couldn't get renderer state");
     let gpu_resources = state.gpu_resources.as_ref().expect("Couldn't get gpu resources");

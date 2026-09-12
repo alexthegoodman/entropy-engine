@@ -50,6 +50,8 @@ use winit::platform::x11::WindowAttributesExtX11;
 
 #[cfg(target_os = "windows")]
 use wry;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 
 /// The amount of points to around the window for drag resize direction calculations.
 const BORDER_SIZE: f64 = 20.;
@@ -100,7 +102,13 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
 
     // tracing::init();
 
-    let event_loop = EventLoop::<UserEvent>::with_user_event().build()?;
+    let mut event_loop_builder = EventLoop::<UserEvent>::with_user_event();
+    // See `crate::stylus` - winit's own `Touch` event has no tilt field, so we snoop the raw
+    // WM_POINTER pen packet ourselves, ahead of winit's own dispatch, and correlate it back to
+    // the `Touch` event by pointer ID once that arrives through the normal event loop below.
+    #[cfg(target_os = "windows")]
+    event_loop_builder.with_msg_hook(crate::stylus::msg_hook_capture_tilt);
+    let event_loop = event_loop_builder.build()?;
     let _event_loop_proxy = event_loop.create_proxy();
 
     // Wire the user event from another thread.
@@ -802,6 +810,10 @@ impl ApplicationHandler<UserEvent> for Application {
             WindowEvent::DoubleTapGesture { .. } => {
                 info!("Smart zoom");
             },
+            WindowEvent::Touch(touch) => {
+                let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
+                crate::handlers::handle_stylus_touch(editor, &touch);
+            },
             WindowEvent::TouchpadPressure { .. }
             | WindowEvent::HoveredFileCancelled
             | WindowEvent::KeyboardInput { .. }
@@ -810,7 +822,6 @@ impl ApplicationHandler<UserEvent> for Application {
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_)
             | WindowEvent::Destroyed
-            | WindowEvent::Touch(_)
             | WindowEvent::Moved(_) => (),
         }
     }

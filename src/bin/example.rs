@@ -53,6 +53,10 @@ async fn main() {
                 .with_hot_reload(true)
                 .with_title("Nocode Calculator")
                 .with_window_size(1100.0, 700.0),
+            Some("stylus-drawing") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/stylus_drawing.js")
+                .with_title("Stylus Drawing")
+                .with_window_size(1280.0, 800.0),
             Some("theme-gallery") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/theme_gallery.js")
                 .with_hot_reload(true)
@@ -90,6 +94,7 @@ const EXAMPLES: &[&str] = &[
     "mcp-tools-demo",
     "media-player",
     "node-graph",
+    "stylus-drawing",
     "theme-gallery",
     "video-export-demo",
 ];
