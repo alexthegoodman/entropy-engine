@@ -1,16 +1,17 @@
 // Exercises the video export path added alongside this addon: a Windows/Media-Foundation H.264
-// encoder (src/video_export/encode.rs) and the offscreen frame loop that drives it
-// (src/video_export/exporter.rs's run_export, called from EntropyPipeline::render_display_frame
-// via the new Entropy.Video.export/pollExport ops - see src/deno/addon_ops.rs `op_video_export_*`).
+// encoder (src/video_export/encode.rs) and the offscreen frame-at-a-time state machine that
+// drives it (src/video_export/exporter.rs's start_export/step_export, one step per real call to
+// EntropyPipeline::render_display_frame, via the new Entropy.Video.export/pollExport ops - see
+// src/deno/addon_ops.rs `op_video_export_*`). Export does *not* block the window or this addon's
+// own onUpdatePlus - it advances one captured frame per real frame, same as everything else.
 //
-// The scene is a single lit cube with an orbiting camera. The orbit itself is driven twice, by
-// two different pieces of code: `onUpdatePlus` below animates it live while nothing is
-// exporting, and `run_export` drives the identical formula directly in Rust during an export.
-// That duplication is deliberate, not an oversight: export runs synchronously on the render
-// thread and blocks the whole JS runtime (including this addon's own onUpdatePlus) for its
-// duration, so the live per-tick callback never runs during the frames being captured - an
-// export that relied on it would just capture N copies of one frozen frame. See the 2026-09-11
-// video export post's decision log.
+// The scene is a single lit cube with an orbiting camera. The orbit is computed in two places:
+// `onUpdatePlus` below animates it live while nothing is exporting, and `step_export` drives the
+// identical formula directly in Rust, keyed off the export's own frame index/fps rather than
+// real elapsed time, while an export is running. That's deliberate, not duplication for its own
+// sake: tying capture timing to however fast real frames happen to arrive would make the
+// exported clip's frame pacing depend on this machine's frame rate instead of the requested fps.
+// See the 2026-09-11 video export post's decision log.
 
 const addonInfo = {
     name: "Video Export Demo",
@@ -90,7 +91,7 @@ function renderUI(win: string) {
         onClick: () => {
             if (exporting) return;
             exporting = true;
-            statusText = `Exporting ${EXPORT_DURATION_MS / 1000}s @ ${EXPORT_FPS}fps - window will freeze...`;
+            statusText = `Exporting ${EXPORT_DURATION_MS / 1000}s @ ${EXPORT_FPS}fps...`;
             Entropy.Video.export({
                 outputPath: OUTPUT_PATH,
                 fps: EXPORT_FPS,
@@ -145,8 +146,9 @@ addon.onUpdatePlus("Global", (_time: number) => {
                 : `Exported ${result.frameCount} frames to ${result.outputPath} in ${result.elapsedMs}ms`;
             Entropy.println(`[video-export-demo] ${statusText}`);
         }
-        // Frozen during export (see the file-level note) - no point animating the live camera
-        // for frames that won't be shown until the export finishes anyway.
+        // Not frozen - onUpdatePlus keeps ticking during export - but step_export overwrites
+        // the camera every real frame anyway (see the file-level note), so setting it here too
+        // would just be redundant work with no visible effect.
         return;
     }
 

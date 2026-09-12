@@ -286,6 +286,8 @@ pub struct EntropyPipeline {
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
+    #[cfg(target_os = "windows")]
+    pub video_export: Option<crate::video_export::exporter::VideoExportState>,
     pub chat: Chat,
     pub new_project_name: String,
     pub projects: Vec<(String, String)>,
@@ -386,6 +388,8 @@ impl EntropyPipeline {
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
+            #[cfg(target_os = "windows")]
+            video_export: None,
             chat: Chat::new(),
             new_project_name: String::new(),
             projects: Vec::new(),
@@ -1975,33 +1979,54 @@ impl EntropyPipeline {
     pub fn render_display_frame(&mut self, game_mode: bool) {}
 
     #[cfg(target_os = "windows")]
-    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
-        // Video export needs `&mut self` (to drive `render_addon_frame` against the live scene
-        // repeatedly, offscreen) - an addon op can't borrow that, so `op_video_export_start`
-        // only queues a request in `AddonContext` and it's drained here, synchronously, before
-        // this frame's normal on-screen render. See `video_export::exporter::run_export`.
-        let pending_export = self.export_editor.as_mut().and_then(|editor| {
-            editor
+    fn publish_video_export_result(&mut self, result: Result<crate::video_export::exporter::VideoExportResult, String>) {
+        if let Some(editor) = self.export_editor.as_mut() {
+            if let Some(ctx) = editor
                 .addon_engine
                 .runtime
                 .op_state()
                 .borrow_mut()
                 .try_borrow_mut::<crate::deno::addon_ops::AddonContext>()
-                .and_then(|ctx| ctx.pending_video_export.take())
-        });
+            {
+                ctx.video_export_result = Some(result);
+            }
+        }
+    }
 
-        if let Some(request) = pending_export {
-            let result = crate::video_export::exporter::run_export(self, &request);
-            if let Some(editor) = self.export_editor.as_mut() {
-                if let Some(ctx) = editor
+    #[cfg(target_os = "windows")]
+    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
+        // Video export advances by exactly one captured frame per real call here, not all at
+        // once - an earlier version rendered every requested frame in a single blocking loop,
+        // which meant the window (and the addon's own JS onUpdatePlus) froze for the export's
+        // whole duration. `op_video_export_start` only queues a request in `AddonContext`
+        // (an addon op can't borrow `&mut EntropyPipeline` directly, which is what driving
+        // `render_addon_frame` against the live scene needs); `start_export` is called once
+        // to pick it up, and `step_export` once per frame after that until it reports done.
+        // See `video_export::exporter` and the 2026-09-11 video export post's decision log.
+        if self.video_export.is_none() {
+            let pending = self.export_editor.as_mut().and_then(|editor| {
+                editor
                     .addon_engine
                     .runtime
                     .op_state()
                     .borrow_mut()
                     .try_borrow_mut::<crate::deno::addon_ops::AddonContext>()
-                {
-                    ctx.video_export_result = Some(result);
+                    .and_then(|ctx| ctx.pending_video_export.take())
+            });
+
+            if let Some(request) = pending {
+                match crate::video_export::exporter::start_export(self, request) {
+                    Ok(state) => self.video_export = Some(state),
+                    Err(e) => self.publish_video_export_result(Err(e)),
                 }
+            }
+        }
+
+        if let Some(mut state) = self.video_export.take() {
+            match crate::video_export::exporter::step_export(self, &mut state) {
+                Ok(Some(result)) => self.publish_video_export_result(Ok(result)),
+                Ok(None) => self.video_export = Some(state), // more frames to go - resumed next call
+                Err(e) => self.publish_video_export_result(Err(e)), // abort: `state` is dropped
             }
         }
 

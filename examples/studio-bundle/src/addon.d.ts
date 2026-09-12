@@ -410,10 +410,10 @@ export interface ScopedAPI {
     poll: (handle: string) => { currentTimeMs: number; playing: boolean };
     /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
      * it to an H.264 MP4 at `outputPath` (resolution is pinned to the current window size, not
-     * configurable yet - see run_export's doc comment). Returns immediately; the export itself
-     * runs synchronously on the render thread starting next frame and blocks it for its
-     * duration, so the addon's own onUpdatePlus won't tick again until pollExport() reports a
-     * result. */
+     * configurable yet - see start_export's doc comment). Returns immediately; the export itself
+     * advances one captured frame per real render frame from then on (see step_export) rather
+     * than blocking - the window and this addon's own onUpdatePlus keep running normally while
+     * pollExport() is polled for a result. */
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
   };
@@ -899,10 +899,10 @@ export interface EntropyAPI {
     poll: (handle: string) => { currentTimeMs: number; playing: boolean };
     /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
      * it to an H.264 MP4 at `outputPath` (resolution is pinned to the current window size, not
-     * configurable yet - see run_export's doc comment). Returns immediately; the export itself
-     * runs synchronously on the render thread starting next frame and blocks it for its
-     * duration, so the addon's own onUpdatePlus won't tick again until pollExport() reports a
-     * result. */
+     * configurable yet - see start_export's doc comment). Returns immediately; the export itself
+     * advances one captured frame per real render frame from then on (see step_export) rather
+     * than blocking - the window and this addon's own onUpdatePlus keep running normally while
+     * pollExport() is polled for a result. */
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
   };
