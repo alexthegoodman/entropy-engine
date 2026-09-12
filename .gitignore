@@ -2,6 +2,5 @@
 node_modules
 /data
 *.log
-*.png
 *.mp4
 **/data/level_editor_2d/

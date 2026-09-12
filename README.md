@@ -127,7 +127,9 @@ Run `cargo run --bin example` with no name for the full list (also: `game2d`,
 
 | | |
 |-|-|
-| ![Entropy Engine / Chat Value](public/water1.png "Entropy Engine / Chat Value") | ![Entropy Chat UI](public/image-3.png "Entropy Chat UI") |
+| ![Entropy Engine / Keyframe Tracks](public/entropy-keyframe-tracks-clip-drag.png "Entropy Engine / Keyframe Tracks") | ![Entropy Drawing Example](public/entropy-stylus-drawing-tilt-hello.png "Entropy Drawing Example") |
+| ![Entropy Engine](public/water1.png "Entropy Engine") | ![Entropy Engine](public/image-3.png "Entropy Engine") |
+| ![Entropy Node Graph](public/entropy-node-graph-zoom.png "Entropy Node Graph") | |
 
 ## MCP
 
