@@ -44,6 +44,11 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/mcp_demo.js")
                 .with_title("MCP Tools Demo")
                 .with_window_size(1000.0, 700.0),
+            Some("keyframe-tracks-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/keyframe_tracks_demo.js")
+                .with_hot_reload(true)
+                .with_title("Clip & Curve Editor")
+                .with_window_size(1100.0, 760.0),
             Some("media-player") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/media_player.js")
                 .with_title("Entropy Media Player")
@@ -89,6 +94,7 @@ const EXAMPLES: &[&str] = &[
     "fft-river",
     "fft-water",
     "game2d",
+    "keyframe-tracks-demo",
     "level-editor-2d",
     "light-hive",
     "mcp-tools-demo",

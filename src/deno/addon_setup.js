@@ -795,6 +795,52 @@ globalThis.Entropy = {
                     });
                 }
             },
+            keyframeTimeline: (windowId, config) => {
+                const durationMs = config?.durationMs || 1000;
+                const playheadMs = config?.playheadMs ?? 0;
+                const rows = config?.rows || [];
+                const selected = config?.selected ? [config.selected.row, config.selected.keyframe] : null;
+                const id = nextWidgetId(windowId, "keyframeTimeline", config?.id);
+
+                ops.op_ui_widget_keyframe_timeline(windowId, durationMs, playheadMs, rows, selected, id);
+
+                if (config?.onSeek || config?.onKeyframeMoved || config?.onKeyframeSelected || config?.onKeyframeAdd || config?.onKeyframeDelete || config?.onRowClicked || config?.onBackgroundClicked) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "KFTL_SEEK" && config.onSeek) config.onSeek(parseInt(parts[2], 10));
+                        else if (type === "KFTL_KF_MOVED" && config.onKeyframeMoved) config.onKeyframeMoved(parts[2], parts[3], parseInt(parts[4], 10));
+                        else if (type === "KFTL_KF_SELECTED" && config.onKeyframeSelected) config.onKeyframeSelected(parts[2], parts[3]);
+                        else if (type === "KFTL_KF_ADD" && config.onKeyframeAdd) config.onKeyframeAdd(parts[2], parseInt(parts[3], 10));
+                        else if (type === "KFTL_KF_DELETE" && config.onKeyframeDelete) config.onKeyframeDelete(parts[2], parts[3]);
+                        else if (type === "KFTL_ROW_CLICKED" && config.onRowClicked) config.onRowClicked(parts[2]);
+                        else if (type === "KFTL_BG_CLICKED" && config.onBackgroundClicked) config.onBackgroundClicked();
+                    });
+                }
+            },
+            tracks: (windowId, config) => {
+                const durationMs = config?.durationMs || 1000;
+                const playheadMs = config?.playheadMs ?? 0;
+                const tracks = config?.tracks || [];
+                const selected = config?.selected ? [config.selected.track, config.selected.clip] : null;
+                const id = nextWidgetId(windowId, "tracks", config?.id);
+
+                ops.op_ui_widget_tracks(windowId, durationMs, playheadMs, tracks, selected, id);
+
+                if (config?.onSeek || config?.onClipMoved || config?.onClipResized || config?.onClipSelected || config?.onClipDelete || config?.onTrackClicked || config?.onBackgroundClicked) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "TRACKS_SEEK" && config.onSeek) config.onSeek(parseInt(parts[2], 10));
+                        else if (type === "TRACKS_CLIP_MOVED" && config.onClipMoved) config.onClipMoved(parts[2], parts[3], parseInt(parts[4], 10));
+                        else if (type === "TRACKS_CLIP_RESIZED" && config.onClipResized) config.onClipResized(parts[2], parts[3], parseInt(parts[4], 10), parseInt(parts[5], 10));
+                        else if (type === "TRACKS_CLIP_SELECTED" && config.onClipSelected) config.onClipSelected(parts[2], parts[3]);
+                        else if (type === "TRACKS_CLIP_DELETE" && config.onClipDelete) config.onClipDelete(parts[2], parts[3]);
+                        else if (type === "TRACKS_TRACK_CLICKED" && config.onTrackClicked) config.onTrackClicked(parts[2]);
+                        else if (type === "TRACKS_BG_CLICKED" && config.onBackgroundClicked) config.onBackgroundClicked();
+                    });
+                }
+            },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const id = nextWidgetId(windowId, "snarl", config?.id);
@@ -860,6 +906,11 @@ globalThis.Entropy = {
             } else if (event.startsWith("PIANOROLL_")) {
                 const parts = event.split("|");
                 id = parts[1]; // pianoRoll id
+                payload = event; // pass the whole event to the listener
+                isRaw = true;
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_")) {
+                const parts = event.split("|");
+                id = parts[1]; // keyframeTimeline/tracks widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

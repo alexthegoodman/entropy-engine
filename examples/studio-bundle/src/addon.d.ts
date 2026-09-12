@@ -386,6 +386,8 @@ export interface ScopedAPI {
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
       pianoRoll: (windowId: string, config: PianoRollConfig) => void;
+      keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
+      tracks: (windowId: string, config: TracksConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
@@ -630,6 +632,65 @@ export interface PianoRollConfig {
   onNoteUp?: (row: number, step: number) => void;
 }
 
+export interface KeyframeConfig {
+  id: string;
+  timeMs: number;
+}
+
+export interface KeyframeRowConfig {
+  id: string;
+  label: string;
+  keyframes: KeyframeConfig[];
+}
+
+export interface KeyframeTimelineConfig {
+  id?: string;
+  durationMs?: number;
+  playheadMs?: number;
+  rows?: KeyframeRowConfig[];
+  selected?: { row: string; keyframe: string };
+  onSeek?: (timeMs: number) => void;
+  onKeyframeMoved?: (row: string, keyframe: string, timeMs: number) => void;
+  onKeyframeSelected?: (row: string, keyframe: string) => void;
+  onKeyframeAdd?: (row: string, timeMs: number) => void;
+  onKeyframeDelete?: (row: string, keyframe: string) => void;
+  onRowClicked?: (row: string) => void;
+  onBackgroundClicked?: () => void;
+}
+
+export interface TrackClipConfig {
+  id: string;
+  label: string;
+  startMs: number;
+  durationMs: number;
+  /// [r, g, b, a] in 0-1, same convention as `Widget.colorInput`.
+  color?: [number, number, number, number];
+  /// Normalized (0-1) amplitude peaks - an addon-computed waveform for an audio clip.
+  /// Omitted for a video or other non-audio clip.
+  peaks?: number[];
+}
+
+export interface TrackConfig {
+  id: string;
+  label: string;
+  clips: TrackClipConfig[];
+}
+
+export interface TracksConfig {
+  id?: string;
+  durationMs?: number;
+  playheadMs?: number;
+  tracks?: TrackConfig[];
+  selected?: { track: string; clip: string };
+  onSeek?: (timeMs: number) => void;
+  onClipMoved?: (track: string, clip: string, startMs: number) => void;
+  onClipResized?: (track: string, clip: string, startMs: number, durationMs: number) => void;
+  onClipSelected?: (track: string, clip: string) => void;
+  onClipDelete?: (track: string, clip: string) => void;
+  onTrackClicked?: (track: string) => void;
+  onBackgroundClicked?: () => void;
+}
+
 export interface ButtonConfig {
   text: string;
   onClick?: () => void;
@@ -859,6 +920,8 @@ export interface EntropyAPI {
       miniMap: (windowId: string, config: MiniMapConfig) => void;
       snarl: (windowId: string, config: SnarlConfig) => void;
       pianoRoll: (windowId: string, config: PianoRollConfig) => void;
+      keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
+      tracks: (windowId: string, config: TracksConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;

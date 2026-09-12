@@ -75,7 +75,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_set_theme, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick
 };
@@ -188,6 +188,8 @@ extension!(
         op_ui_widget_mini_map,
         op_ui_widget_snarl,
         op_ui_widget_piano_roll,
+        op_ui_widget_keyframe_timeline,
+        op_ui_widget_tracks,
         op_ui_widget_collapsing_header,
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
@@ -4102,6 +4104,91 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                 if let Some(kind) = kind {
                                     events_to_push.push(format!("PIANOROLL_{}|{}|{},{}", kind, pr_id, row, step));
                                 }
+                            }
+                        }
+                    }
+                }
+                UiWidget::KeyframeTimeline { id: kftl_id, duration_ms, playhead_ms, rows, selected } => {
+                    let rows: Vec<crate::entropy_gui::KeyframeRow> = rows
+                        .iter()
+                        .map(|r| {
+                            let mut row = crate::entropy_gui::KeyframeRow::new(r.id.clone(), r.label.clone());
+                            row.keyframes = r.keyframes.iter().map(|k| crate::entropy_gui::Keyframe::new(k.id.clone(), k.time_ms)).collect();
+                            row
+                        })
+                        .collect();
+                    let selected_ref = selected.as_ref().map(|(r, k)| (r.as_str(), k.as_str()));
+
+                    let resp = crate::entropy_gui::KeyframeTimeline::new(kftl_id.as_str()).show(ui, &rows, *duration_ms, *playhead_ms, selected_ref);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::KeyframeTimelineEvent::Seek(t) => {
+                                events_to_push.push(format!("KFTL_SEEK|{}|{}", kftl_id, t));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::KeyframeMoved { row, keyframe, time_ms } => {
+                                events_to_push.push(format!("KFTL_KF_MOVED|{}|{}|{}|{}", kftl_id, row, keyframe, time_ms));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::KeyframeSelected { row, keyframe } => {
+                                events_to_push.push(format!("KFTL_KF_SELECTED|{}|{}|{}", kftl_id, row, keyframe));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::KeyframeAddRequested { row, time_ms } => {
+                                events_to_push.push(format!("KFTL_KF_ADD|{}|{}|{}", kftl_id, row, time_ms));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::KeyframeDeleteRequested { row, keyframe } => {
+                                events_to_push.push(format!("KFTL_KF_DELETE|{}|{}|{}", kftl_id, row, keyframe));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::RowClicked(row) => {
+                                events_to_push.push(format!("KFTL_ROW_CLICKED|{}|{}", kftl_id, row));
+                            }
+                            crate::entropy_gui::KeyframeTimelineEvent::BackgroundClicked => {
+                                events_to_push.push(format!("KFTL_BG_CLICKED|{}", kftl_id));
+                            }
+                        }
+                    }
+                }
+                UiWidget::Tracks { id: tracks_id, duration_ms, playhead_ms, tracks, selected } => {
+                    let tracks_data: Vec<crate::entropy_gui::Track> = tracks
+                        .iter()
+                        .map(|t| {
+                            let mut track = crate::entropy_gui::Track::new(t.id.clone(), t.label.clone());
+                            track.clips = t
+                                .clips
+                                .iter()
+                                .map(|c| {
+                                    let color = c.color.map(egui::Color32::from_rgba_f32).unwrap_or(egui::Color32::from_rgb(80, 120, 200));
+                                    let mut clip = crate::entropy_gui::TrackClip::new(c.id.clone(), c.label.clone(), c.start_ms, c.duration_ms, color);
+                                    clip.peaks = c.peaks.clone().unwrap_or_default();
+                                    clip
+                                })
+                                .collect();
+                            track
+                        })
+                        .collect();
+                    let selected_ref = selected.as_ref().map(|(t, c)| (t.as_str(), c.as_str()));
+
+                    let resp = crate::entropy_gui::TrackView::new(tracks_id.as_str()).show(ui, &tracks_data, *duration_ms, *playhead_ms, selected_ref);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::TrackViewEvent::Seek(t) => {
+                                events_to_push.push(format!("TRACKS_SEEK|{}|{}", tracks_id, t));
+                            }
+                            crate::entropy_gui::TrackViewEvent::ClipMoved { track, clip, start_ms } => {
+                                events_to_push.push(format!("TRACKS_CLIP_MOVED|{}|{}|{}|{}", tracks_id, track, clip, start_ms));
+                            }
+                            crate::entropy_gui::TrackViewEvent::ClipResized { track, clip, start_ms, duration_ms } => {
+                                events_to_push.push(format!("TRACKS_CLIP_RESIZED|{}|{}|{}|{}|{}", tracks_id, track, clip, start_ms, duration_ms));
+                            }
+                            crate::entropy_gui::TrackViewEvent::ClipSelected { track, clip } => {
+                                events_to_push.push(format!("TRACKS_CLIP_SELECTED|{}|{}|{}", tracks_id, track, clip));
+                            }
+                            crate::entropy_gui::TrackViewEvent::ClipDeleteRequested { track, clip } => {
+                                events_to_push.push(format!("TRACKS_CLIP_DELETE|{}|{}|{}", tracks_id, track, clip));
+                            }
+                            crate::entropy_gui::TrackViewEvent::TrackClicked(track) => {
+                                events_to_push.push(format!("TRACKS_TRACK_CLICKED|{}|{}", tracks_id, track));
+                            }
+                            crate::entropy_gui::TrackViewEvent::BackgroundClicked => {
+                                events_to_push.push(format!("TRACKS_BG_CLICKED|{}", tracks_id));
                             }
                         }
                     }

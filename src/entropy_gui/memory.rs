@@ -27,6 +27,18 @@ pub enum WidgetState {
     PanelWidth(f32),
     /// Pan/zoom for one `NodeGraphEditor` instance, keyed by its editor id.
     NodeGraphView { pan: Vec2, zoom: f32 },
+    /// Horizontal scroll (px) + zoom (ms/px) for one `KeyframeTimeline` or `TrackView`
+    /// instance, keyed by its own id - the two widgets share this variant since they never
+    /// collide (different id namespaces) and want the exact same pan/zoom shape.
+    TimelineView { scroll_x: f32, zoom: f32 },
+}
+
+/// Which edge (if any) of a `TrackView` clip is being dragged - see `widgets_tracks`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClipDragKind {
+    Move,
+    ResizeLeft,
+    ResizeRight,
 }
 
 /// Live state for a node-graph link currently being dragged out of a pin — see
@@ -58,6 +70,13 @@ pub struct Memory {
     /// Set while dragging a new link out of a pin in a `NodeGraphEditor`; cleared on release
     /// (whether or not the release landed on a valid opposite-kind pin).
     pub link_drag: Option<LinkDrag>,
+    /// Live (time_ms) override for a `KeyframeTimeline` keyframe being dragged, keyed by the
+    /// keyframe's own interact id - same lag-free-preview rationale as `node_drag`, since the
+    /// widget never gets a `&mut` into the caller's keyframes either.
+    pub keyframe_drag: Option<(Id, i32)>,
+    /// Live (kind, start_ms, duration_ms) override for a `TrackView` clip being moved or
+    /// resized, keyed by the clip's own interact id - same rationale as `keyframe_drag`.
+    pub clip_drag: Option<(Id, ClipDragKind, i32, i32)>,
 }
 
 impl Memory {
@@ -123,5 +142,15 @@ impl Memory {
     }
     pub fn set_node_graph_view(&mut self, id: Id, pan: Vec2, zoom: f32) {
         self.data.insert(id, WidgetState::NodeGraphView { pan, zoom });
+    }
+
+    pub fn get_timeline_view(&self, id: Id) -> (f32, f32) {
+        match self.data.get(&id) {
+            Some(WidgetState::TimelineView { scroll_x, zoom }) => (*scroll_x, *zoom),
+            _ => (0.0, 5.0),
+        }
+    }
+    pub fn set_timeline_view(&mut self, id: Id, scroll_x: f32, zoom: f32) {
+        self.data.insert(id, WidgetState::TimelineView { scroll_x, zoom });
     }
 }

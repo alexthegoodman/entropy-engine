@@ -23,7 +23,9 @@ pub mod text_layout;
 pub mod ui;
 pub mod widgets;
 pub mod widgets_code_editor;
+pub mod widgets_keyframe_timeline;
 pub mod widgets_node_graph;
+pub mod widgets_tracks;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -45,7 +47,9 @@ pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widge
 pub use ui::{InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, ScrollArea, Slider};
+pub use widgets_keyframe_timeline::{Keyframe, KeyframeRow, KeyframeTimeline, KeyframeTimelineEvent, KeyframeTimelineResponse};
 pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
+pub use widgets_tracks::{Track, TrackClip, TrackView, TrackViewEvent, TrackViewResponse};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

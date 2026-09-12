@@ -303,6 +303,43 @@ pub struct PianoRollCell {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyframeConfig {
+    pub id: String,
+    pub time_ms: i32,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyframeRowConfig {
+    pub id: String,
+    pub label: String,
+    pub keyframes: Vec<KeyframeConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackClipConfig {
+    pub id: String,
+    pub label: String,
+    pub start_ms: i32,
+    pub duration_ms: i32,
+    /// [r, g, b, a] in 0..1, same convention as `Widget.colorInput`.
+    pub color: Option<[f32; 4]>,
+    /// Normalized (0..1) amplitude peaks - an addon-computed waveform for an audio clip.
+    /// Omitted/empty for a video or other non-audio clip.
+    pub peaks: Option<Vec<f32>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackConfig {
+    pub id: String,
+    pub label: String,
+    pub clips: Vec<TrackClipConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
     Label { text: String, bold: Option<bool> },
@@ -332,6 +369,22 @@ pub enum UiWidget {
         row_labels: Option<Vec<String>>,
         cells: Vec<PianoRollCell>,
         playhead: f32,
+    },
+    KeyframeTimeline {
+        id: String,
+        duration_ms: i32,
+        playhead_ms: i32,
+        rows: Vec<KeyframeRowConfig>,
+        /// (row id, keyframe id) - highlights that keyframe as selected.
+        selected: Option<(String, String)>,
+    },
+    Tracks {
+        id: String,
+        duration_ms: i32,
+        playhead_ms: i32,
+        tracks: Vec<TrackConfig>,
+        /// (track id, clip id) - highlights that clip as selected.
+        selected: Option<(String, String)>,
     },
     CollapsingHeader { title: String, id: String },
     EndCollapsingHeader,
@@ -2503,6 +2556,48 @@ pub fn op_ui_widget_piano_roll(
             row_labels,
             cells,
             playhead,
+        });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_keyframe_timeline(
+    state: &mut OpState,
+    #[string] window_id: String,
+    duration_ms: i32,
+    playhead_ms: i32,
+    #[serde] rows: Vec<KeyframeRowConfig>,
+    #[serde] selected: Option<(String, String)>,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::KeyframeTimeline {
+            id,
+            duration_ms,
+            playhead_ms,
+            rows,
+            selected,
+        });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_tracks(
+    state: &mut OpState,
+    #[string] window_id: String,
+    duration_ms: i32,
+    playhead_ms: i32,
+    #[serde] tracks: Vec<TrackConfig>,
+    #[serde] selected: Option<(String, String)>,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Tracks {
+            id,
+            duration_ms,
+            playhead_ms,
+            tracks,
+            selected,
         });
     }
 }
