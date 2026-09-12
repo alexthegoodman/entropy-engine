@@ -44,6 +44,11 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/mcp_demo.js")
                 .with_title("MCP Tools Demo")
                 .with_window_size(1000.0, 700.0),
+            Some("html-ui-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/html_ui_demo.js")
+                .with_hot_reload(true)
+                .with_title("HTML UI Experiment")
+                .with_window_size(900.0, 700.0),
             Some("keyframe-tracks-demo") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/keyframe_tracks_demo.js")
                 .with_hot_reload(true)
@@ -94,6 +99,7 @@ const EXAMPLES: &[&str] = &[
     "fft-river",
     "fft-water",
     "game2d",
+    "html-ui-demo",
     "keyframe-tracks-demo",
     "level-editor-2d",
     "light-hive",

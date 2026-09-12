@@ -869,7 +869,37 @@ globalThis.Entropy = {
             },
             separator: (windowId) => {
                 ops.op_ui_widget_separator(windowId);
+            },
+            hyperlink: (windowId, config) => {
+                const text = typeof config === 'string' ? config : (config?.text || "");
+                const url = typeof config === 'object' ? (config?.url || "#") : "#";
+                const id = nextWidgetId(windowId, text, config?.id);
+
+                ops.op_ui_widget_hyperlink(windowId, text, url, id);
+            },
+            textInput: (windowId, config) => {
+                const label = config?.label || "";
+                const value = config?.value || "";
+                const id = nextWidgetId(windowId, label, config?.id);
+
+                ops.op_ui_widget_text_input(windowId, label, value, id);
+                bindListener('_entropy_event_listeners', id, config?.onChange);
+            },
+            // The HTML-as-UI-description experiment: parses `html` in Rust (see
+            // src/deno/html_ui.rs) and pushes the resulting widgets directly - no CSS, no
+            // layout, just tag shape. Re-parses on every call, so pass the same string every
+            // frame from a render callback rather than trying to mutate it incrementally.
+            html: (windowId, html) => {
+                ops.op_ui_render_html(windowId, html || "");
             }
+        }
+    },
+    // Deliberately minimal: one blocking text fetch, meant for pulling down a real webpage's
+    // HTML to feed into `Entropy.UI.Widget.html`. Call it once (e.g. from `addon.onInit`), not
+    // from a per-frame render callback - see op_http_get_text's doc comment in addon_ops.rs.
+    Net: {
+        getText: (url) => {
+            return ops.op_http_get_text(url);
         }
     },
     _process_events: (events) => {

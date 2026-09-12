@@ -391,7 +391,19 @@ export interface ScopedAPI {
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
+      hyperlink: (windowId: string, config: HyperlinkConfig) => void;
+      textInput: (windowId: string, config: TextInputConfig) => void;
+      /** Parses `html` (see src/deno/html_ui.rs) and pushes the resulting entropy_gui widgets -
+       * no CSS, no layout, block tags get their own line and headings are bold, that's it.
+       * Re-parses every call, so pass the same string each frame rather than mutating it. */
+      html: (windowId: string, html: string) => void;
     };
+  };
+  /** One blocking text fetch (see op_http_get_text's doc comment in addon_ops.rs) - meant for
+   * pulling down a real webpage's HTML to feed into `UI.Widget.html`. Call once, e.g. from
+   * `addon.onInit`, and cache the result; calling it from a render callback stalls that frame. */
+  Net: {
+    getText: (url: string) => string;
   };
   Lighting: {
     createPointLight: (config: PointLightConfig) => void;
@@ -700,6 +712,19 @@ export interface ButtonConfig {
   id?: string;
 }
 
+export interface HyperlinkConfig {
+  text: string;
+  url: string;
+  id?: string;
+}
+
+export interface TextInputConfig {
+  label?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  id?: string;
+}
+
 export interface BindingEntry {
   binding: number;
   visibility: ("Compute" | "Vertex" | "Fragment")[];
@@ -925,7 +950,19 @@ export interface EntropyAPI {
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
+      hyperlink: (windowId: string, config: HyperlinkConfig) => void;
+      textInput: (windowId: string, config: TextInputConfig) => void;
+      /** Parses `html` (see src/deno/html_ui.rs) and pushes the resulting entropy_gui widgets -
+       * no CSS, no layout, block tags get their own line and headings are bold, that's it.
+       * Re-parses every call, so pass the same string each frame rather than mutating it. */
+      html: (windowId: string, html: string) => void;
     };
+  };
+  /** One blocking text fetch (see op_http_get_text's doc comment in addon_ops.rs) - meant for
+   * pulling down a real webpage's HTML to feed into `UI.Widget.html`. Call once, e.g. from
+   * `addon.onInit`, and cache the result; calling it from a render callback stalls that frame. */
+  Net: {
+    getText: (url: string) => string;
   };
   Composer?: {
     editors: { [key: string]: any };

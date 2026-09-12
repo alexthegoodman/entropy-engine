@@ -391,6 +391,8 @@ pub enum UiWidget {
     StartHorizontal,
     EndHorizontal,
     Separator,
+    Hyperlink { id: String, text: String, url: String },
+    TextInput { id: String, label: String, value: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2640,6 +2642,62 @@ pub fn op_ui_widget_separator(state: &mut OpState, #[string] window_id: String) 
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Separator);
     }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_hyperlink(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] text: String,
+    #[string] url: String,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Hyperlink { id, text, url });
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_text_input(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    #[string] value: String,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value });
+    }
+}
+
+/// `Entropy.UI.Widget.html(windowId, html)` — the HTML-as-UI-description experiment (see
+/// `crate::deno::html_ui`). Parses `html` fresh on every call and appends the resulting
+/// widgets; there's no diffing or state retention across frames, so anything an entropy_gui
+/// widget would normally need fed back in (a typed `TextInput` value, a moved `Slider`) just
+/// resets to whatever the HTML string said next frame unless the caller re-renders with
+/// updated markup itself.
+#[op2(fast)]
+pub fn op_ui_render_html(state: &mut OpState, #[string] window_id: String, #[string] html: String) {
+    let widgets = crate::deno::html_ui::html_to_widgets(&html);
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().extend(widgets);
+    }
+}
+
+/// `Entropy.Net.getText(url)` — a plain blocking GET, for fetching a real webpage's HTML to
+/// feed into `op_ui_render_html`. There is no async op mechanism anywhere in this addon layer
+/// (see the other `op_*` functions in this file), so this blocks the calling frame until the
+/// request finishes; call it once (e.g. from `addon.onInit`) and cache the result, not from a
+/// per-frame render callback. Run on a plain `std::thread` (not `reqwest::blocking` directly)
+/// because the engine's own `main` runs inside a Tokio runtime (see `src/bin/example.rs`), and
+/// `reqwest::blocking` panics if constructed from within one.
+#[op2]
+#[string]
+pub fn op_http_get_text(#[string] url: String) -> Result<String, deno_error::JsErrorBox> {
+    std::thread::spawn(move || reqwest::blocking::get(&url).and_then(|r| r.error_for_status()).and_then(|r| r.text()))
+        .join()
+        .map_err(|_| deno_error::JsErrorBox::generic("op_http_get_text: fetch thread panicked"))?
+        .map_err(|e| deno_error::JsErrorBox::generic(format!("op_http_get_text: {}", e)))
 }
 
 /// `Entropy.UI.setTheme(...)` — stashes the requested theme for `AddonEngine::render_ui`/
