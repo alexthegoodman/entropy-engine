@@ -3554,10 +3554,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     window
                         .open(&mut open)
                         .show(ctx, |ui| {
-                             let widgets = context.ui_widgets.remove(&id);
-                             if let Some(widgets) = widgets {
-                                 Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
-                             }
+                             egui::ScrollArea::vertical().show(ui, |ui| {
+                                 let widgets = context.ui_widgets.remove(&id);
+                                 if let Some(widgets) = widgets {
+                                     Self::render_widgets(ui, &widgets, &mut events_to_push, context, egui_renderer);
+                                 }
+                             });
                         });
                 }
             }
