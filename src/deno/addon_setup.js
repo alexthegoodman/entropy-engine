@@ -81,6 +81,22 @@ const videoAPI = {
     pollExport: () => ops.op_video_export_poll()
 };
 
+// A visual node graph (Input -> Dense... -> Loss, see ml_graph_demo_addon.ts) compiled into a
+// real Burn MLP and trained on a background thread (crate::ml_graph). `trainGraph` validates and
+// starts synchronously (a malformed graph throws right away, no thread spun up); `poll` drains
+// whatever per-epoch updates have queued since the last call - usually one or zero, since a tiny
+// MLP on a tiny dataset can finish many epochs between two animation frames.
+const mlAPI = {
+    trainGraph: (id, config) => ops.op_ml_graph_train(
+        id,
+        JSON.stringify({ nodes: config.nodes, links: config.links }),
+        config.dataset,
+        config.epochs ?? 200,
+        config.lr ?? 0.02
+    ),
+    poll: (id) => ops.op_ml_graph_poll(id)
+};
+
 const noiseAPI = {
     create: (config) => ops.op_noise_create({
         noiseType: config.type || "fbm",
@@ -1224,6 +1240,7 @@ globalThis.Entropy = {
     },
     Audio: audioAPI,
     Video: videoAPI,
+    ML: mlAPI,
     println: (msg) => {
         ops.op_println(String(msg));
     },

@@ -452,6 +452,24 @@ export interface ScopedAPI {
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
   };
+  /** Compiles a visual node graph (Input -> Dense... -> Loss) into a real Burn MLP and trains it
+   * on a background thread against a small built-in synthetic dataset - see `crate::ml_graph`
+   * and `ml_graph_demo_addon.ts`. No branching: the graph must be a single chain from the one
+   * Input node to the one Loss node, walked via `links`, or `trainGraph` throws synchronously. */
+  ML: {
+    trainGraph: (id: string, config: {
+      nodes: Array<
+        | { kind: "Input"; id: string; size: number }
+        | { kind: "Dense"; id: string; units: number; activation: "relu" | "tanh" | "sigmoid" | "linear" }
+        | { kind: "Loss"; id: string }
+      >;
+      links: Array<{ from: string; to: string }>;
+      dataset: "xor" | "two_moons";
+      epochs?: number;
+      lr?: number;
+    }) => void;
+    poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
+  };
   IO: {
     save: (data: any) => void;
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
@@ -1079,6 +1097,20 @@ export interface EntropyAPI {
      * pollExport() is polled for a result. */
     export: (config: { outputPath: string; fps: number; durationMs: number }) => void;
     pollExport: () => { outputPath: string; frameCount: number; elapsedMs: number; error?: string } | null;
+  };
+  ML: {
+    trainGraph: (id: string, config: {
+      nodes: Array<
+        | { kind: "Input"; id: string; size: number }
+        | { kind: "Dense"; id: string; units: number; activation: "relu" | "tanh" | "sigmoid" | "linear" }
+        | { kind: "Loss"; id: string }
+      >;
+      links: Array<{ from: string; to: string }>;
+      dataset: "xor" | "two_moons";
+      epochs?: number;
+      lr?: number;
+    }) => void;
+    poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
   };
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;

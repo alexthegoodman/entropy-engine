@@ -63,6 +63,11 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/media_player.js")
                 .with_title("Entropy Media Player")
                 .with_window_size(1280.0, 760.0),
+            Some("ml-graph-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/ml_graph_demo.js")
+                .with_hot_reload(true)
+                .with_title("ML Graph Trainer")
+                .with_window_size(1220.0, 780.0),
             Some("node-graph") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/node_graph.js")
                 .with_hot_reload(true)
@@ -111,6 +116,7 @@ const EXAMPLES: &[&str] = &[
     "light-hive",
     "mcp-tools-demo",
     "media-player",
+    "ml-graph-demo",
     "node-graph",
     "stylus-drawing",
     "theme-gallery",

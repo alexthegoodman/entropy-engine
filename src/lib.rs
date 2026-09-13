@@ -51,3 +51,4 @@ pub mod mcp;
 pub mod audio;
 pub mod alpha;
 pub mod yumon;
+pub mod ml_graph;

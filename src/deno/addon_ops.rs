@@ -845,6 +845,10 @@ pub struct AddonContext {
     pub yumon_instances: HashMap<String, crate::yumon::system::YumonBrain<crate::yumon::system::MyBackend>>,
     pub yumon_runtime_actions: HashMap<String, YumonActionState>,
     pub yumon_trainers: HashMap<String, crate::yumon::system::BackgroundTrainer>,
+    /// Background trainers for `Entropy.ML.trainGraph` - see `crate::ml_graph`. Keyed by the
+    /// same id the addon passes to `trainGraph`/`poll`; a fresh `trainGraph` call for an id
+    /// already present just replaces the old entry, dropping (and thus stopping) its thread.
+    pub ml_trainers: HashMap<String, crate::ml_graph::MlTrainer>,
     #[cfg(target_os = "windows")]
     pub video_players: HashMap<String, VideoPlayerEntry>,
     #[cfg(target_os = "windows")]
@@ -3943,6 +3947,40 @@ pub fn op_yumon_brain_load(state: &mut OpState, #[string] archetype_name: String
     
     ctx.yumon_brains.insert(archetype_name, brain);
     Ok(())
+}
+
+// --- ML node-graph training (Entropy.ML) — see `crate::ml_graph` ---
+//
+// Unlike the Yumon brain trainer, there's no persistent model to apply weights back onto once
+// training finishes: the model lives only inside the training thread's closure, and what the
+// addon actually wants back is the numbers (loss/accuracy per epoch). So this follows the video
+// export ops' shape (explicit start + explicit poll) rather than yumon's
+// automatic-per-frame-drain-and-apply loop.
+
+#[op2(fast)]
+pub fn op_ml_graph_train(
+    state: &mut OpState,
+    #[string] id: String,
+    #[string] graph_json: String,
+    #[string] dataset: String,
+    epochs: u32,
+    lr: f64,
+) -> Result<(), deno_error::JsErrorBox> {
+    let trainer = crate::ml_graph::MlTrainer::start(&graph_json, &dataset, epochs as usize, lr)
+        .map_err(deno_error::JsErrorBox::generic)?;
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    ctx.ml_trainers.insert(id, trainer);
+    Ok(())
+}
+
+#[op2]
+#[serde]
+pub fn op_ml_graph_poll(state: &mut OpState, #[string] id: String) -> Vec<crate::ml_graph::MlTrainingUpdate> {
+    let mut ctx = state.borrow_mut::<AddonContext>();
+    match ctx.ml_trainers.get_mut(&id) {
+        Some(trainer) => trainer.poll(),
+        None => Vec::new(),
+    }
 }
 
 #[op2(fast)]
