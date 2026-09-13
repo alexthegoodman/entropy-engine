@@ -620,7 +620,25 @@ pub struct NoteConfig {
     pub decay: f64,
     pub sustain: f64,
     pub release: f64,
+    #[serde(default)]
+    pub delay_time: f64,
+    #[serde(default)]
+    pub delay_feedback: f64,
+    #[serde(default)]
+    pub delay_mix: f64,
+    #[serde(default = "default_reverb_room_size")]
+    pub reverb_room_size: f64,
+    #[serde(default = "default_reverb_time")]
+    pub reverb_time: f64,
+    #[serde(default = "default_reverb_damping")]
+    pub reverb_damping: f64,
+    #[serde(default)]
+    pub reverb_mix: f64,
 }
+
+fn default_reverb_room_size() -> f64 { 10.0 }
+fn default_reverb_time() -> f64 { 1.0 }
+fn default_reverb_damping() -> f64 { 0.5 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1929,7 +1947,132 @@ pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
             decay: config.decay,
             sustain: config.sustain,
             release: config.release,
+            delay_time: config.delay_time,
+            delay_feedback: config.delay_feedback,
+            delay_mix: config.delay_mix,
+            reverb_room_size: config.reverb_room_size,
+            reverb_time: config.reverb_time,
+            reverb_damping: config.reverb_damping,
+            reverb_mix: config.reverb_mix,
         });
+    }
+}
+
+// --- Offline pattern-to-WAV export ---
+// Unlike `op_audio_play_note` (one detached realtime rodio Sink per note, fire-and-forget),
+// this renders a whole pattern's worth of pre-scheduled note events entirely offline via
+// `crate::audio::render_pattern_to_wav` - no OutputStream/Sink involved, so it's sample-
+// accurate and can run faster than realtime. The DAW addon builds the event list (one loop
+// of the pattern, mute/solo/gain/velocity already applied) and calls this once.
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteEventConfig {
+    pub start_time: f64,
+    pub waveform: String,
+    pub freq: f64,
+    pub duration: f64,
+    pub cutoff: f64,
+    pub resonance: f64,
+    pub gain: f64,
+    pub attack: f64,
+    pub decay: f64,
+    pub sustain: f64,
+    pub release: f64,
+    #[serde(default)]
+    pub delay_time: f64,
+    #[serde(default)]
+    pub delay_feedback: f64,
+    #[serde(default)]
+    pub delay_mix: f64,
+    #[serde(default = "default_reverb_room_size")]
+    pub reverb_room_size: f64,
+    #[serde(default = "default_reverb_time")]
+    pub reverb_time: f64,
+    #[serde(default = "default_reverb_damping")]
+    pub reverb_damping: f64,
+    #[serde(default)]
+    pub reverb_mix: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RenderPatternWavResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub duration_seconds: f64,
+    pub error: Option<String>,
+}
+
+#[op2]
+#[serde]
+pub fn op_audio_render_pattern_wav(
+    state: &mut OpState,
+    #[serde] events: Vec<NoteEventConfig>,
+    #[string] suggested_name: String,
+) -> RenderPatternWavResult {
+    if state.try_borrow::<AddonContext>().is_none() {
+        return RenderPatternWavResult {
+            success: false,
+            path: None,
+            duration_seconds: 0.0,
+            error: Some("Context not available".to_string()),
+        };
+    }
+
+    let file_path = rfd::FileDialog::new()
+        .add_filter("WAV Audio", &["wav"])
+        .set_file_name(&suggested_name)
+        .save_file();
+
+    let Some(output_path) = file_path else {
+        return RenderPatternWavResult {
+            success: false,
+            path: None,
+            duration_seconds: 0.0,
+            error: Some("Export cancelled".to_string()),
+        };
+    };
+
+    let note_events: Vec<crate::audio::NoteEvent> = events
+        .into_iter()
+        .map(|e| crate::audio::NoteEvent {
+            start_time: e.start_time,
+            voice: e.waveform,
+            params: crate::audio::NoteParams {
+                freq: e.freq,
+                duration: e.duration,
+                cutoff: e.cutoff,
+                resonance: e.resonance,
+                gain: e.gain,
+                attack: e.attack,
+                decay: e.decay,
+                sustain: e.sustain,
+                release: e.release,
+                delay_time: e.delay_time,
+                delay_feedback: e.delay_feedback,
+                delay_mix: e.delay_mix,
+                reverb_room_size: e.reverb_room_size,
+                reverb_time: e.reverb_time,
+                reverb_damping: e.reverb_damping,
+                reverb_mix: e.reverb_mix,
+            },
+        })
+        .collect();
+
+    match crate::audio::render_pattern_to_wav(&note_events, 44100, &output_path) {
+        Ok(duration_seconds) => RenderPatternWavResult {
+            success: true,
+            path: Some(output_path.to_string_lossy().into_owned()),
+            duration_seconds,
+            error: None,
+        },
+        Err(e) => RenderPatternWavResult {
+            success: false,
+            path: None,
+            duration_seconds: 0.0,
+            error: Some(e),
+        },
     }
 }
 

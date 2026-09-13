@@ -38,11 +38,44 @@ const audioAPI = {
             attack: config.attack ?? 0.005,
             decay: config.decay ?? 0.05,
             sustain: config.sustain ?? 0.85,
-            release: config.release ?? 0.05
+            release: config.release ?? 0.05,
+            // Delay/reverb are always in the note's own signal graph engine-side; leaving
+            // these at 0 mix reproduces the exact old (pre-FX-chain) behavior.
+            delayTime: config.delayTime ?? 0.0,
+            delayFeedback: config.delayFeedback ?? 0.0,
+            delayMix: config.delayMix ?? 0.0,
+            reverbRoomSize: config.reverbRoomSize ?? 10.0,
+            reverbTime: config.reverbTime ?? 1.0,
+            reverbDamping: config.reverbDamping ?? 0.5,
+            reverbMix: config.reverbMix ?? 0.0
         });
     },
     playTestTone: () => {
         ops.op_audio_play_test();
+    },
+    // Renders a whole list of pre-scheduled note events offline to a WAV file (opens a native
+    // save dialog engine-side); see `op_audio_render_pattern_wav` for the shape of `events`.
+    renderPatternToWav: (events, suggestedName) => {
+        return ops.op_audio_render_pattern_wav(events.map(e => ({
+            startTime: e.startTime || 0.0,
+            freq: e.freq || 440.0,
+            waveform: e.waveform || "sine",
+            duration: e.duration || 0.5,
+            cutoff: e.cutoff || 20000.0,
+            resonance: e.resonance || 1.0,
+            gain: e.gain || 0.2,
+            attack: e.attack ?? 0.005,
+            decay: e.decay ?? 0.05,
+            sustain: e.sustain ?? 0.85,
+            release: e.release ?? 0.05,
+            delayTime: e.delayTime ?? 0.0,
+            delayFeedback: e.delayFeedback ?? 0.0,
+            delayMix: e.delayMix ?? 0.0,
+            reverbRoomSize: e.reverbRoomSize ?? 10.0,
+            reverbTime: e.reverbTime ?? 1.0,
+            reverbDamping: e.reverbDamping ?? 0.5,
+            reverbMix: e.reverbMix ?? 0.0
+        })), suggestedName || "pattern.wav");
     }
 };
 

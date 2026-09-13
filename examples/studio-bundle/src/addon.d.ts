@@ -345,6 +345,8 @@ export interface ScopedAPI {
     playSynth: (config: SynthConfig) => void;
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
+    /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
   };
   Particles: {
     createHair: (config: {
@@ -662,6 +664,36 @@ export interface NoteConfig {
   decay?: number;
   sustain?: number;
   release?: number;
+  /** Echo delay time in seconds. Omit or 0 for no delay. */
+  delayTime?: number;
+  /** Feedback gain fed back into the delay line each repeat, 0..0.95. */
+  delayFeedback?: number;
+  /** Wet/dry mix of the delayed signal, 0 (off, default)..1. */
+  delayMix?: number;
+  /** fundsp reverb room size in meters, clamped to 10..30. Default 10. */
+  reverbRoomSize?: number;
+  /** Reverberation time in seconds to -60dB. Default 1.0. */
+  reverbTime?: number;
+  /** Damping filter amount, 0..1. Default 0.5. */
+  reverbDamping?: number;
+  /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. */
+  reverbMix?: number;
+}
+
+/** One pre-scheduled note in an offline pattern render - see `Audio.renderPatternToWav`. */
+export interface NoteEvent extends NoteConfig {
+  /** When this note starts, in seconds from the start of the rendered pattern. */
+  startTime: number;
+}
+
+export interface RenderPatternWavResult {
+  success: boolean;
+  /** Absolute path of the written WAV file, if `success`. */
+  path?: string;
+  /** Rendered file duration in seconds (includes any delay/reverb tail past the last note). */
+  durationSeconds: number;
+  /** Set when `success` is false - e.g. the user cancelled the save dialog. */
+  error?: string;
 }
 
 export interface PianoRollCell {
@@ -1287,6 +1319,8 @@ export interface EntropyAPI {
     playSynth: (config: SynthConfig) => void;
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
+    /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
   };
   println: (msg: unknown) => void;
   generateUUID: () => string;

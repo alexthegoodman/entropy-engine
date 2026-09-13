@@ -78,6 +78,14 @@ interface VoiceParams {
     decay: number;
     sustain: number;
     release: number;
+    // Effects chain - see NoteConfig in addon.d.ts. Defaults keep the pre-FX sound unchanged.
+    delayTime: number;
+    delayFeedback: number;
+    delayMix: number;
+    reverbRoomSize: number;
+    reverbTime: number;
+    reverbDamping: number;
+    reverbMix: number;
 }
 
 interface Track {
@@ -103,11 +111,17 @@ interface DAWProject {
 }
 
 function defaultSynthVoice(waveform = "saw"): VoiceParams {
-    return { waveform, cutoff: 4000, resonance: 1.0, attack: 0.005, decay: 0.08, sustain: 0.6, release: 0.12 };
+    return {
+        waveform, cutoff: 4000, resonance: 1.0, attack: 0.005, decay: 0.08, sustain: 0.6, release: 0.12,
+        delayTime: 0, delayFeedback: 0.35, delayMix: 0, reverbRoomSize: 10, reverbTime: 1.2, reverbDamping: 0.5, reverbMix: 0
+    };
 }
 
 function defaultDrumVoice(): VoiceParams {
-    return { waveform: "kick", cutoff: 1800, resonance: 1.0, attack: 0.002, decay: 0.12, sustain: 0.0, release: 0.08 };
+    return {
+        waveform: "kick", cutoff: 1800, resonance: 1.0, attack: 0.002, decay: 0.12, sustain: 0.0, release: 0.08,
+        delayTime: 0, delayFeedback: 0.35, delayMix: 0, reverbRoomSize: 10, reverbTime: 0.8, reverbDamping: 0.5, reverbMix: 0
+    };
 }
 
 function makeStarterProject(): DAWProject {
@@ -204,10 +218,69 @@ function triggerStep(stepIndex: number) {
                 attack: track.voice.attack,
                 decay: track.voice.decay,
                 sustain: track.voice.sustain,
-                release: track.voice.release
+                release: track.voice.release,
+                delayTime: track.voice.delayTime,
+                delayFeedback: track.voice.delayFeedback,
+                delayMix: track.voice.delayMix,
+                reverbRoomSize: track.voice.reverbRoomSize,
+                reverbTime: track.voice.reverbTime,
+                reverbDamping: track.voice.reverbDamping,
+                reverbMix: track.voice.reverbMix
             });
         }
     }
+}
+
+// --- Offline WAV export -----------------------------------------------------
+
+let lastExportStatus: string | null = null;
+
+function buildPatternEvents(): any[] {
+    const anySolo = project.tracks.some(t => t.solo);
+    const sd = stepDuration();
+    const events: any[] = [];
+
+    for (const track of project.tracks) {
+        if (track.muted) continue;
+        if (anySolo && !track.solo) continue;
+
+        for (const note of track.notes) {
+            const { voice, freq } = noteVoiceAndFreq(track, note.row);
+            const duration = Math.max(0.03, note.length * sd * 0.95);
+
+            events.push({
+                startTime: note.step * sd,
+                freq,
+                waveform: voice,
+                duration,
+                cutoff: track.voice.cutoff,
+                resonance: track.voice.resonance,
+                gain: track.gain * note.velocity,
+                attack: track.voice.attack,
+                decay: track.voice.decay,
+                sustain: track.voice.sustain,
+                release: track.voice.release,
+                delayTime: track.voice.delayTime,
+                delayFeedback: track.voice.delayFeedback,
+                delayMix: track.voice.delayMix,
+                reverbRoomSize: track.voice.reverbRoomSize,
+                reverbTime: track.voice.reverbTime,
+                reverbDamping: track.voice.reverbDamping,
+                reverbMix: track.voice.reverbMix
+            });
+        }
+    }
+
+    return events;
+}
+
+function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
+    const events = buildPatternEvents();
+    const result = addon.Audio.renderPatternToWav(events, `daw-pattern-${project.bpm}bpm.wav`);
+    lastExportStatus = result.success
+        ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
+        : `Export failed: ${result.error}`;
+    return result;
 }
 
 function play() {
@@ -309,6 +382,14 @@ addon.onInit(async () => {
                 onClick: () => { transport.playing ? stop() : play(); }
             });
         });
+
+        Entropy.UI.Widget.button(tabId, {
+            text: "⬇ Export Pattern to WAV",
+            onClick: () => { exportPatternToWav(); }
+        });
+        if (lastExportStatus) {
+            Entropy.UI.Widget.label(tabId, { text: lastExportStatus });
+        }
 
         Entropy.UI.Widget.numericInput(tabId, {
             label: "BPM",
@@ -464,6 +545,46 @@ addon.onInit(async () => {
             onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
         });
 
+        Entropy.UI.Widget.separator(tabId);
+        Entropy.UI.Widget.label(tabId, { text: "FX - Delay", bold: true });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Delay Time (s)",
+            value: track.voice.delayTime, min: 0, max: 1,
+            onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
+        });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Delay Feedback",
+            value: track.voice.delayFeedback, min: 0, max: 0.95,
+            onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
+        });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Delay Mix",
+            value: track.voice.delayMix, min: 0, max: 1,
+            onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
+        });
+
+        Entropy.UI.Widget.label(tabId, { text: "FX - Reverb", bold: true });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Room Size (m)",
+            value: track.voice.reverbRoomSize, min: 10, max: 30,
+            onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
+        });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Reverb Time (s)",
+            value: track.voice.reverbTime, min: 0.1, max: 6,
+            onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
+        });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Damping",
+            value: track.voice.reverbDamping, min: 0, max: 1,
+            onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
+        });
+        Entropy.UI.Widget.slider(tabId, {
+            label: "Reverb Mix",
+            value: track.voice.reverbMix, min: 0, max: 1,
+            onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
+        });
+
         Entropy.UI.Widget.label(tabId, { text: "Preview", bold: true });
         Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
             const previewRows = track.kind === "drum" ? DRUM_ROWS.length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
@@ -477,7 +598,10 @@ addon.onInit(async () => {
                             freq, waveform: voice, duration: 0.5,
                             cutoff: track.voice.cutoff, resonance: track.voice.resonance,
                             gain: track.gain, attack: track.voice.attack, decay: track.voice.decay,
-                            sustain: track.voice.sustain, release: track.voice.release
+                            sustain: track.voice.sustain, release: track.voice.release,
+                            delayTime: track.voice.delayTime, delayFeedback: track.voice.delayFeedback, delayMix: track.voice.delayMix,
+                            reverbRoomSize: track.voice.reverbRoomSize, reverbTime: track.voice.reverbTime,
+                            reverbDamping: track.voice.reverbDamping, reverbMix: track.voice.reverbMix
                         });
                     }
                 });
@@ -645,7 +769,14 @@ addon.onInit(async () => {
                 attack: { type: "number" },
                 decay: { type: "number" },
                 sustain: { type: "number" },
-                release: { type: "number" }
+                release: { type: "number" },
+                delayTime: { type: "number", description: "Echo delay time in seconds, 0 = off." },
+                delayFeedback: { type: "number", description: "0-0.95." },
+                delayMix: { type: "number", description: "0 (off) - 1 wet/dry mix." },
+                reverbRoomSize: { type: "number", description: "Meters, 10-30." },
+                reverbTime: { type: "number", description: "Seconds to -60dB." },
+                reverbDamping: { type: "number", description: "0-1." },
+                reverbMix: { type: "number", description: "0 (off) - 1 wet/dry mix." }
             },
             required: ["trackId"]
         }
@@ -664,6 +795,13 @@ addon.onInit(async () => {
         if (typeof args.decay === "number") track.voice.decay = args.decay;
         if (typeof args.sustain === "number") track.voice.sustain = args.sustain;
         if (typeof args.release === "number") track.voice.release = args.release;
+        if (typeof args.delayTime === "number") track.voice.delayTime = args.delayTime;
+        if (typeof args.delayFeedback === "number") track.voice.delayFeedback = args.delayFeedback;
+        if (typeof args.delayMix === "number") track.voice.delayMix = args.delayMix;
+        if (typeof args.reverbRoomSize === "number") track.voice.reverbRoomSize = args.reverbRoomSize;
+        if (typeof args.reverbTime === "number") track.voice.reverbTime = args.reverbTime;
+        if (typeof args.reverbDamping === "number") track.voice.reverbDamping = args.reverbDamping;
+        if (typeof args.reverbMix === "number") track.voice.reverbMix = args.reverbMix;
 
         persist();
         return { success: true, track: { id: track.id, name: track.name, voice: track.voice, gain: track.gain, muted: track.muted, solo: track.solo } };
@@ -783,5 +921,13 @@ Default mode replaces the track's whole pattern; pass mode:"add" to layer new no
         else if (args.playing === false) stop();
         persist();
         return { success: true, bpm: project.bpm, steps: project.steps, stepsPerBeat: project.stepsPerBeat, playing: transport.playing };
+    });
+
+    addon.registerTool({
+        name: "daw_export_wav",
+        description: "Render the current pattern (all unmuted tracks, one loop, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, so this only completes when a human picks a location - it is not silent/headless.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        return exportPatternToWav();
     });
 });
