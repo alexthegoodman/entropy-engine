@@ -1,6 +1,6 @@
 # Entropy Engine
 
-**A native Rust + TypeScript app framework** — zero-copy without the WebView/Chromium overhead. The Rust core handles windowing, rendering, physics and audio; your TypeScript addons handle logic, UI and content, running in an embedded [Deno](https://deno.com/) runtime with direct access to a powerful native API.
+**A desktop software framework for high-performance, creative apps** - TypeScript without the WebView/Chromium overhead. The Rust core handles all of the intensive processing, while your TypeScript acts as a true scripting layer. Get access to a comprehensive native UI kit (including piano roll, kanban, timeline views), GPU, Video, and Audio capabilities, and unified input paradigms.
 
 **Entropy Engine is experimental and in beta, and some things may not work as expected**
 
@@ -22,6 +22,10 @@
 ---
 
 ## Embedding Quickstart
+
+**Have production needs to extend the TypeScript API itself? Fork Entropy Engine and build new Rust components as needed.**
+
+Building just a simple app or prototype? Need to use the existing API to build an app? Follow below:
 
 1. `cargo new my_app` and add `entropy-engine` as a dependency.
 2. Write your app's logic as one or more addons (see [Writing Addons](#writing-addons)), and bundle it with Deno:
