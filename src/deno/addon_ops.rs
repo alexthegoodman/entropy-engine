@@ -841,6 +841,11 @@ pub struct AddonContext {
     /// link isn't retried every frame either.
     pub html_image_dims: HashMap<String, (u32, u32)>,
     pub html_image_failed: HashSet<String>,
+    /// Same cache/failed-remembering pattern as `html_image_dims`/`html_image_failed`, but for
+    /// `<link rel="stylesheet">` text - a page re-rendered every frame doesn't refetch its
+    /// external CSS each time.
+    pub html_css_cache: HashMap<String, String>,
+    pub html_css_failed: HashSet<String>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
     pub buffers: HashMap<String, Arc<wgpu::Buffer>>,

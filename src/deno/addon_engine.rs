@@ -553,6 +553,8 @@ impl AddonEngine {
             addon_textures: HashMap::new(),
             html_image_dims: HashMap::new(),
             html_image_failed: HashSet::new(),
+            html_css_cache: HashMap::new(),
+            html_css_failed: HashSet::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
             buffers: HashMap::new(),

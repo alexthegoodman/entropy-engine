@@ -81,13 +81,19 @@ struct StyleRule {
     decls: Vec<(String, String)>,
 }
 
-/// Resolves every element's `ComputedStyle` by parsing `<style>` blocks + inline `style=`
-/// attributes and matching selectors against the whole document. Called once per
-/// `html_layout::build` call (i.e. once per `Entropy.UI.Widget.html()` call - see that
-/// function's doc comment for why this isn't cached across frames).
-pub fn resolve_styles(document: &Html) -> HashMap<NodeId, ComputedStyle> {
+/// Resolves every element's `ComputedStyle` by parsing `external_css` (the concatenated text of
+/// any `<link rel="stylesheet">` sheets the caller already fetched - see `html_layout::build`),
+/// `<style>` blocks, and inline `style=` attributes, then matching selectors against the whole
+/// document. Called once per `html_layout::build` call (i.e. once per `Entropy.UI.Widget.html()`
+/// call - see that function's doc comment for why this isn't cached across frames). Source-order
+/// cascade only (see this module's top doc comment), so `external_css` is applied first - real
+/// pages almost always link their stylesheets before any inline `<style>` override - and inline
+/// `style=` attributes are applied last, always winning.
+pub fn resolve_styles(document: &Html, external_css: &str) -> HashMap<NodeId, ComputedStyle> {
     let style_selector = Selector::parse("style").unwrap();
     let mut css_text = String::new();
+    css_text.push_str(external_css);
+    css_text.push('\n');
     for el in document.select(&style_selector) {
         css_text.push_str(&el.text().collect::<Vec<_>>().join(""));
         css_text.push('\n');

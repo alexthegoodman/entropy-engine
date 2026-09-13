@@ -27,7 +27,7 @@
 
 use crate::deno::html_css::{self, ComputedStyle, DisplayMode, FlexDir, Justify, AlignI, Len, TextAlign};
 use ego_tree::{NodeId, NodeRef};
-use scraper::{Html, Node};
+use scraper::{Html, Node, Selector};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -170,6 +170,50 @@ fn fetch_and_cache_image(ctx: &mut crate::deno::addon_ops::AddonContext, url: &s
     ctx.raw_textures.insert(texture_id.clone(), std::sync::Arc::new(texture));
     ctx.html_image_dims.insert(url.to_string(), (w, h));
     Some((texture_id, w as f32, h as f32))
+}
+
+/// Fetches and caches the text of one `<link rel="stylesheet">` sheet, keyed by resolved URL, so
+/// a page re-rendered every frame doesn't refetch its CSS each time - same cache/failed-set
+/// pattern as `fetch_and_cache_image` above, just for text instead of a decoded bitmap.
+fn fetch_and_cache_stylesheet(ctx: &mut crate::deno::addon_ops::AddonContext, url: &str) -> Option<String> {
+    if let Some(css) = ctx.html_css_cache.get(url) {
+        return Some(css.clone());
+    }
+    if ctx.html_css_failed.contains(url) {
+        return None;
+    }
+    match crate::deno::net::blocking_fetch_text(url) {
+        Ok(text) => {
+            ctx.html_css_cache.insert(url.to_string(), text.clone());
+            Some(text)
+        }
+        Err(_) => {
+            ctx.html_css_failed.insert(url.to_string());
+            None
+        }
+    }
+}
+
+/// Collects the concatenated text of every `<link rel="stylesheet" href="...">` in `document`,
+/// resolving each `href` against `base_url`. Most real-world pages (including every Next.js site
+/// this engine has been pointed at) ship their CSS this way rather than inline `<style>` blocks -
+/// without this, `html_css::resolve_styles` only ever sees inline styles, which is why real sites
+/// used to render completely unstyled while hand-authored demo markup (which uses `<style>`
+/// directly) looked fine.
+fn collect_external_css(document: &Html, base_url: &Option<url::Url>, ctx: &mut crate::deno::addon_ops::AddonContext) -> String {
+    let mut out = String::new();
+    let Ok(link_selector) = Selector::parse(r#"link[rel~="stylesheet"]"#) else {
+        return out;
+    };
+    for el in document.select(&link_selector) {
+        let Some(href) = el.value().attr("href") else { continue };
+        let Some(resolved) = resolve_url(base_url, href) else { continue };
+        if let Some(css) = fetch_and_cache_stylesheet(ctx, &resolved) {
+            out.push_str(&css);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn html_image_texture_id(url: &str) -> String {
@@ -545,8 +589,9 @@ fn build_leaf_element(node: NodeRef<'_, Node>, tag: &str, style: &ComputedStyle,
 /// own URL for real webpages; omit it for hand-authored addon markup that has none.
 pub fn build(html: &str, base_url: Option<&str>, viewport_width: f32, ctx: &mut crate::deno::addon_ops::AddonContext) -> (f32, f32, Vec<LayoutBox>) {
     let document = Html::parse_document(html);
-    let styles = html_css::resolve_styles(&document);
     let base_url = base_url.and_then(|u| url::Url::parse(u).ok());
+    let external_css = collect_external_css(&document, &base_url, ctx);
+    let styles = html_css::resolve_styles(&document, &external_css);
     let viewport_width = if viewport_width > 0.0 { viewport_width } else { DEFAULT_VIEWPORT_WIDTH };
 
     let mut builder = Builder { tree: taffy::TaffyTree::new(), meta: HashMap::new(), styles, base_url, ctx, counter: 0 };
