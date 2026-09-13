@@ -110,7 +110,6 @@ This section describes every namespace in plain language. Click a heading to exp
 - [Input, camera & controls](#input-camera--controls)
 - [Audio](#audio)
 - [Particles & lighting](#particles--lighting)
-- [Gameplay systems](#gameplay-systems)
 - [Persistence & files](#persistence--files)
 - [Video](#video)
 - [Networking](#networking)
@@ -275,23 +274,6 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Lighting.updateSun(config)` | Configures the procedural sky/sun: horizon and zenith color, sun direction, color, and intensity. |
 | `Lighting.setPointLightShader(wgslSource)` | Replaces the built-in point-light shading function with your own WGSL — validated before swap-in, so a broken shader is rejected instead of crashing the app. Call with no argument to reset to default. |
 | `Lighting.configureShadows(config)` | Tunes the directional light's shadow map: resolution, depth bias, slope scale, and covered area. Point lights don't cast shadows. |
-
-</details>
-
-<a id="gameplay-systems"></a>
-<details>
-<summary><strong>Gameplay systems</strong></summary>
-
-Small, ready-made systems for common game mechanics, so you don't have to build inventory/quest/pickup logic from scratch.
-
-| Call | What it does |
-|---|---|
-| `Collectable.create(config)` | Spawns a pickup (health/ammo/quest item/currency) at a position with a model and value, firing a callback when a player collects it. |
-| `Collectable.remove(id)` | Despawns a pickup. |
-| `Quest.create(id, config)` | Registers a quest with a title and a list of objectives. |
-| `Quest.updateObjective` / `getStatus` | Marks an objective complete, or reads a quest's current state. |
-| `Inventory.addItem` / `removeItem` / `hasItem` | Basic per-player item stack management. |
-| `Humanoid.create()` | Creates a procedural humanoid character instance. |
 
 </details>
 
