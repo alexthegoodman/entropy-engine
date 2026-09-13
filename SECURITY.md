@@ -9,6 +9,8 @@ This is how we will establish the trust of an install, with the convenience of i
 It also provides a bonus reward for those who purchase the certs, granting them instant ROI. Disadvantaged people may be enabled
 to submit an app for review and a free cert depending on certain conditions in the future, to level the playing field.
 
+Actually, we won't even do it via websites. It will all be hosted on our platform, gated by our directory. Totally safe. The point is instant UX.
+
 ## High concern — effectively unscoped, any addon can call today
 
 Net.getText(url) — arbitrary URL, no allowlist, no per-addon declaration. Covered already, but it's the standout: exfiltration and internal-network probing (http://169.254.169.254/..., LAN scanning) both work through this with zero other capability needed.

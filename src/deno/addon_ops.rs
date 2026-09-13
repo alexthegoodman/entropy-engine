@@ -394,6 +394,14 @@ pub enum UiWidget {
     Hyperlink { id: String, text: String, url: String },
     TextInput { id: String, label: String, value: String },
     LayoutCanvas { id: String, width: f32, height: f32, boxes: Vec<crate::deno::html_layout::LayoutBox> },
+    /// A true multi-page document editor - see `entropy_gui::widgets_doc_editor`. Unlike every
+    /// other widget above, the document itself is NOT part of this command: it lives entirely
+    /// Rust-side (in `entropy_gui::Memory`, keyed by `id`), because round-tripping a
+    /// potentially huge document through JSON on every one of these pushes (once per rendered
+    /// frame) would itself be the bottleneck the pagination/reshape performance work is trying
+    /// to avoid. The addon only supplies page geometry; stats come back over `ui_events` the
+    /// same way a button click does (see `addon_engine.rs`'s `UiWidget::DocEditor` arm).
+    DocEditor { id: String, page_width: f32, page_height: f32, margin: f32 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2674,6 +2682,20 @@ pub fn op_ui_widget_text_input(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value });
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_doc_editor(
+    state: &mut OpState,
+    #[string] window_id: String,
+    page_width: f32,
+    page_height: f32,
+    margin: f32,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::DocEditor { id, page_width, page_height, margin });
     }
 }
 

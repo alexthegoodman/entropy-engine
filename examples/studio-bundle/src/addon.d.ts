@@ -393,6 +393,7 @@ export interface ScopedAPI {
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
+      docEditor: (windowId: string, config: DocEditorConfig) => void;
       /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
        * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
        * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).
@@ -706,6 +707,18 @@ export interface TracksConfig {
   onBackgroundClicked?: () => void;
 }
 
+export interface DocEditorConfig {
+  id?: string;
+  /** Page size/margin in px (96 = 1" at 96 DPI). Defaults to US Letter, 1" margins. */
+  pageWidth?: number;
+  pageHeight?: number;
+  margin?: number;
+  /** Fires every frame with the document's current word/char/page counts. The document
+   * content itself never crosses into JS - it lives Rust-side, keyed by this widget's id
+   * (see `entropy_gui::widgets_doc_editor`'s module docs for why). */
+  onStats?: (stats: { words: number; chars: number; pages: number }) => void;
+}
+
 export interface ButtonConfig {
   text: string;
   onClick?: () => void;
@@ -955,6 +968,7 @@ export interface EntropyAPI {
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
+      docEditor: (windowId: string, config: DocEditorConfig) => void;
       /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
        * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
        * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).

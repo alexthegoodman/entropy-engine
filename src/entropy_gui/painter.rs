@@ -171,4 +171,64 @@ impl Painter {
         let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, text);
         crate::entropy_gui::geometry::vec2(shaped.width, shaped.height.max(font_id.size))
     }
+
+    /// Paints already-shaped glyphs (from `text_layout::shape_text`) with an optional
+    /// per-glyph bold/italic style, resolved by `style_at(byte_offset)` - used by
+    /// `entropy_gui::widgets_doc_editor` to render mixed-format runs. There's no separate
+    /// bold/italic font face anywhere in this engine (see `fonts` module docs), so bold is a
+    /// faux double-strike (the glyph painted twice, offset a fraction of a pixel) and italic
+    /// is a per-vertex shear (top corners unmoved, bottom corners pushed right) - real visual
+    /// effects, just not built from dedicated font weights/styles.
+    pub fn styled_glyphs(
+        &self,
+        origin: crate::entropy_gui::geometry::Pos2,
+        glyphs: &[crate::entropy_gui::text_layout::ShapedGlyph],
+        family: crate::entropy_gui::geometry::FontFamily,
+        color: Color32,
+        style_at: impl Fn(usize) -> (bool, bool),
+    ) {
+        const BOLD_OFFSET: f32 = 0.55;
+        const ITALIC_SHEAR: f32 = 0.22;
+
+        let mut guard = self.ctx.inner_mut();
+        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, .. } = &mut *guard;
+        let face_set = fonts.shaping_set(family);
+
+        let mut vertices = Vec::with_capacity(glyphs.len() * 4);
+        let mut indices = Vec::with_capacity(glyphs.len() * 6);
+        let c = color.to_array_f32();
+        for g in glyphs {
+            let font = face_set[g.font_index as usize];
+            let cached = atlas.get_or_rasterize(font, g.raster_config);
+            if cached.width <= 0.0 || cached.height <= 0.0 {
+                continue;
+            }
+            let (bold, italic) = style_at(g.byte_offset);
+            let x0 = origin.x + g.x;
+            let y0 = origin.y + g.y;
+            let x1 = x0 + cached.width;
+            let y1 = y0 + cached.height;
+            let (u0, v0) = cached.uv_min;
+            let (uw, vh) = cached.uv_size;
+            let shear = if italic { (y1 - y0) * ITALIC_SHEAR } else { 0.0 };
+
+            let passes: &[f32] = if bold { &[0.0, BOLD_OFFSET] } else { &[0.0] };
+            for &dx in passes {
+                let base = vertices.len() as u32;
+                vertices.extend_from_slice(&[
+                    Vertex { position: [x0 + dx + shear, y0, 0.0], normal: [0.0; 3], tex_coords: [u0, v0], color: c },
+                    Vertex { position: [x1 + dx + shear, y0, 0.0], normal: [0.0; 3], tex_coords: [u0 + uw, v0], color: c },
+                    Vertex { position: [x1 + dx, y1, 0.0], normal: [0.0; 3], tex_coords: [u0 + uw, v0 + vh], color: c },
+                    Vertex { position: [x0 + dx, y1, 0.0], normal: [0.0; 3], tex_coords: [u0, v0 + vh], color: c },
+                ]);
+                indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            }
+        }
+
+        let list = match self.target {
+            DrawTarget::Main => &mut *draw_list,
+            DrawTarget::Overlay => &mut *overlay_draw_list,
+        };
+        list.push(self.clip_rect, DrawTexture::Glyph, vertices, indices);
+    }
 }

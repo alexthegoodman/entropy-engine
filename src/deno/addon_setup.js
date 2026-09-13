@@ -885,6 +885,28 @@ globalThis.Entropy = {
                 ops.op_ui_widget_text_input(windowId, label, value, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
+            // A true multi-page document editor (see `entropy_gui::widgets_doc_editor`). Only
+            // page geometry crosses this call - the document itself lives Rust-side, keyed by
+            // `id`, so it is NOT round-tripped through JSON every frame like `tracks`/
+            // `keyframeTimeline`'s data is. `onStats` fires every frame with word/char/page
+            // counts, the same "TYPE|id|args" event shape those other widgets use.
+            docEditor: (windowId, config) => {
+                const pageWidth = config?.pageWidth ?? 816;
+                const pageHeight = config?.pageHeight ?? 1056;
+                const margin = config?.margin ?? 96;
+                const id = nextWidgetId(windowId, "docEditor", config?.id);
+
+                ops.op_ui_widget_doc_editor(windowId, pageWidth, pageHeight, margin, id);
+
+                if (config?.onStats) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        if (parts[0] === "DOCEDIT_STATS") {
+                            config.onStats({ words: parseInt(parts[2], 10), chars: parseInt(parts[3], 10), pages: parseInt(parts[4], 10) });
+                        }
+                    });
+                }
+            },
             // The HTML-as-UI-description experiment: parses `html` + any <style>/inline CSS in
             // Rust (see src/deno/html_layout.rs and html_css.rs) and lays it out with taffy
             // (Block by default, Flex opt-in via `display: flex`) - real box positions, but no
@@ -943,9 +965,9 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_")) {
                 const parts = event.split("|");
-                id = parts[1]; // keyframeTimeline/tracks widget id
+                id = parts[1]; // keyframeTimeline/tracks/docEditor widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

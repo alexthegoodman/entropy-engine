@@ -77,6 +77,13 @@ pub struct Memory {
     /// Live (kind, start_ms, duration_ms) override for a `TrackView` clip being moved or
     /// resized, keyed by the clip's own interact id - same rationale as `keyframe_drag`.
     pub clip_drag: Option<(Id, ClipDragKind, i32, i32)>,
+    /// One `DocEditor` instance's whole document (paragraphs, per-paragraph layout cache,
+    /// cursor/selection) - keyed by the widget's id like everything else here, but stored in
+    /// its own map rather than the small `WidgetState` enum: that enum's `get`/`set` clone the
+    /// whole value on every access, which is fine for a few bytes of cursor/blink state but
+    /// would mean cloning an entire (potentially huge) document every frame. `take_doc_editor`/
+    /// `put_doc_editor` move it in and out instead - see `widgets_doc_editor` module docs.
+    doc_editors: IdMap<crate::entropy_gui::widgets_doc_editor::DocEditorState>,
 }
 
 impl Memory {
@@ -152,5 +159,16 @@ impl Memory {
     }
     pub fn set_timeline_view(&mut self, id: Id, scroll_x: f32, zoom: f32) {
         self.data.insert(id, WidgetState::TimelineView { scroll_x, zoom });
+    }
+
+    /// Moves a `DocEditor`'s document out of `Memory` for the duration of one `show()` call -
+    /// pair with `put_doc_editor` at the end. Returns a fresh default document the first time
+    /// (or if called twice in a row without a matching `put_doc_editor`, which no real caller
+    /// does).
+    pub fn take_doc_editor(&mut self, id: Id) -> crate::entropy_gui::widgets_doc_editor::DocEditorState {
+        self.doc_editors.remove(&id).unwrap_or_default()
+    }
+    pub fn put_doc_editor(&mut self, id: Id, state: crate::entropy_gui::widgets_doc_editor::DocEditorState) {
+        self.doc_editors.insert(id, state);
     }
 }

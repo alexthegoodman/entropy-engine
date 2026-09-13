@@ -11,6 +11,11 @@ async fn main() {
         let app = match name.as_deref() {
             Some("daw") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/daw.js"),
+            Some("doc-editor-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/doc_editor_demo.js")
+                .with_hot_reload(true)
+                .with_title("Document Editor Demo")
+                .with_window_size(1000.0, 820.0),
             Some("fft-river") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/fft_river.js")
                 .with_title("FFT River")
@@ -96,6 +101,7 @@ async fn main() {
 #[cfg(target_os = "windows")]
 const EXAMPLES: &[&str] = &[
     "daw",
+    "doc-editor-demo",
     "fft-river",
     "fft-water",
     "game2d",
