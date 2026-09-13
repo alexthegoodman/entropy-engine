@@ -30,6 +30,7 @@
     "build-keyframe-tracks-demo": "npm run ensure-dist && deno bundle src/apps/keyframe_tracks_demo_addon.ts > dist/keyframe_tracks_demo.js",
     "build-doc-editor-demo": "npm run ensure-dist && deno bundle src/apps/doc_editor_demo_addon.ts > dist/doc_editor_demo.js",
     "build-ml-graph-demo": "npm run ensure-dist && deno bundle src/apps/ml_graph_demo_addon.ts > dist/ml_graph_demo.js",
+    "build-cc-manager": "npm run ensure-dist && deno bundle src/apps/cc_manager_addon.ts > dist/cc_manager.js",
     "test": "vitest",
     "typecheck": "tsc --noEmit"
   },

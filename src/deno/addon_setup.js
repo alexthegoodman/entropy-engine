@@ -857,6 +857,26 @@ globalThis.Entropy = {
                     });
                 }
             },
+            kanban: (windowId, config) => {
+                const columns = config?.columns || [];
+                const selected = config?.selected ? [config.selected.column, config.selected.card] : null;
+                const id = nextWidgetId(windowId, "kanban", config?.id);
+
+                ops.op_ui_widget_kanban(windowId, columns, selected, id);
+
+                if (config?.onCardMoved || config?.onCardSelected || config?.onCardDelete || config?.onAddCard || config?.onColumnClicked || config?.onBackgroundClicked) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "KANBAN_CARD_MOVED" && config.onCardMoved) config.onCardMoved(parts[2], parts[3], parts[4], parseInt(parts[5], 10));
+                        else if (type === "KANBAN_CARD_SELECTED" && config.onCardSelected) config.onCardSelected(parts[2], parts[3]);
+                        else if (type === "KANBAN_CARD_DELETE" && config.onCardDelete) config.onCardDelete(parts[2], parts[3]);
+                        else if (type === "KANBAN_ADD_CARD" && config.onAddCard) config.onAddCard(parts[2]);
+                        else if (type === "KANBAN_COLUMN_CLICKED" && config.onColumnClicked) config.onColumnClicked(parts[2]);
+                        else if (type === "KANBAN_BG_CLICKED" && config.onBackgroundClicked) config.onBackgroundClicked();
+                    });
+                }
+            },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const id = nextWidgetId(windowId, "snarl", config?.id);
@@ -1010,9 +1030,9 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_")) {
                 const parts = event.split("|");
-                id = parts[1]; // keyframeTimeline/tracks/docEditor widget id
+                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

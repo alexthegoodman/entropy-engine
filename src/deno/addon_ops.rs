@@ -340,6 +340,26 @@ pub struct TrackConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanCardConfig {
+    pub id: String,
+    pub title: String,
+    pub description: Option<String>,
+    /// [r, g, b, a] in 0..1, same convention as `Widget.colorInput`. Used for the card's
+    /// left accent bar.
+    pub color: Option<[f32; 4]>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct KanbanColumnConfig {
+    pub id: String,
+    pub title: String,
+    pub cards: Vec<KanbanCardConfig>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
     Label { text: String, bold: Option<bool> },
@@ -384,6 +404,12 @@ pub enum UiWidget {
         playhead_ms: i32,
         tracks: Vec<TrackConfig>,
         /// (track id, clip id) - highlights that clip as selected.
+        selected: Option<(String, String)>,
+    },
+    Kanban {
+        id: String,
+        columns: Vec<KanbanColumnConfig>,
+        /// (column id, card id) - highlights that card as selected.
         selected: Option<(String, String)>,
     },
     CollapsingHeader { title: String, id: String },
@@ -2624,6 +2650,19 @@ pub fn op_ui_widget_tracks(
             tracks,
             selected,
         });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_kanban(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] columns: Vec<KanbanColumnConfig>,
+    #[serde] selected: Option<(String, String)>,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Kanban { id, columns, selected });
     }
 }
 

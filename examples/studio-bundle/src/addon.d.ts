@@ -388,6 +388,7 @@ export interface ScopedAPI {
       pianoRoll: (windowId: string, config: PianoRollConfig) => void;
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
+      kanban: (windowId: string, config: KanbanConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
@@ -742,6 +743,41 @@ export interface TracksConfig {
   onBackgroundClicked?: () => void;
 }
 
+export interface KanbanCardConfig {
+  id: string;
+  title: string;
+  description?: string;
+  /** [r, g, b, a] in 0-1, same convention as `Widget.colorInput`. Used for the card's left
+   * accent bar. Defaults to a neutral blue if omitted. */
+  color?: [number, number, number, number];
+  tags?: string[];
+}
+
+export interface KanbanColumnConfig {
+  id: string;
+  title: string;
+  cards: KanbanCardConfig[];
+}
+
+export interface KanbanConfig {
+  id?: string;
+  columns?: KanbanColumnConfig[];
+  selected?: { column: string; card: string };
+  /** Fired when a card is dropped - `toColumn` may equal `fromColumn` (reordering within one
+   * column). Apply this to your own data; the widget never mutates it for you. */
+  onCardMoved?: (card: string, fromColumn: string, toColumn: string, toIndex: number) => void;
+  /** Fired on a plain click, or when a drag starts (indistinguishable from a click until
+   * release) - use it to track which card is selected. */
+  onCardSelected?: (column: string, card: string) => void;
+  /** Fired from a card's right-click "Delete Card" menu item, or Delete/Backspace when
+   * `selected` names a card. */
+  onCardDelete?: (column: string, card: string) => void;
+  /** Fired when a column header's "+" button is clicked. */
+  onAddCard?: (column: string) => void;
+  onColumnClicked?: (column: string) => void;
+  onBackgroundClicked?: () => void;
+}
+
 export interface DocEditorConfig {
   id?: string;
   /** Page size/margin in px (96 = 1" at 96 DPI). Defaults to US Letter, 1" margins. */
@@ -1012,6 +1048,7 @@ export interface EntropyAPI {
       pianoRoll: (windowId: string, config: PianoRollConfig) => void;
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
+      kanban: (windowId: string, config: KanbanConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;

@@ -9,6 +9,16 @@ async fn main() {
         let name = env::args().nth(1);
 
         let app = match name.as_deref() {
+            Some("cc-manager") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/cc_manager.js")
+                .with_hot_reload(true)
+                .with_title("CC Manager")
+                .with_window_size(1240.0, 800.0)
+                // `tasks.json` lands at `<repo root>/cc-manager/tasks.json` - a plain,
+                // predictable path a Claude Code session can read/edit directly (see
+                // `Entropy.IO.save`/`.load` in cc_manager_addon.ts and op_addon_save_data's
+                // dev-controlled-data_dir path in src/deno/addon_ops.rs).
+                .with_data_dir("../cc-manager"),
             Some("daw") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/daw.js"),
             Some("doc-editor-demo") => entropy_engine::EntropyApp::new()
@@ -105,6 +115,7 @@ async fn main() {
 
 #[cfg(target_os = "windows")]
 const EXAMPLES: &[&str] = &[
+    "cc-manager",
     "daw",
     "doc-editor-demo",
     "fft-river",

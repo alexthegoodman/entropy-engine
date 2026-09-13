@@ -77,6 +77,11 @@ pub struct Memory {
     /// Live (kind, start_ms, duration_ms) override for a `TrackView` clip being moved or
     /// resized, keyed by the clip's own interact id - same rationale as `keyframe_drag`.
     pub clip_drag: Option<(Id, ClipDragKind, i32, i32)>,
+    /// Set while a `KanbanBoard` card is being dragged: (board id, source column id, card
+    /// id). The card's live position isn't stored here - it's read straight from the
+    /// pointer each frame - only its identity, so the widget knows which card to draw as a
+    /// floating ghost and skip drawing at its normal column position.
+    pub kanban_drag: Option<(Id, String, String)>,
     /// One `DocEditor` instance's whole document (paragraphs, per-paragraph layout cache,
     /// cursor/selection) - keyed by the widget's id like everything else here, but stored in
     /// its own map rather than the small `WidgetState` enum: that enum's `get`/`set` clone the

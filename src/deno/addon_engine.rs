@@ -75,7 +75,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
     op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text,
@@ -194,6 +194,7 @@ extension!(
         op_ui_widget_piano_roll,
         op_ui_widget_keyframe_timeline,
         op_ui_widget_tracks,
+        op_ui_widget_kanban,
         op_ui_widget_collapsing_header,
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
@@ -4214,6 +4215,51 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             crate::entropy_gui::TrackViewEvent::BackgroundClicked => {
                                 events_to_push.push(format!("TRACKS_BG_CLICKED|{}", tracks_id));
+                            }
+                        }
+                    }
+                }
+                UiWidget::Kanban { id: kanban_id, columns, selected } => {
+                    let columns_data: Vec<crate::entropy_gui::KanbanColumn> = columns
+                        .iter()
+                        .map(|col| {
+                            let mut column = crate::entropy_gui::KanbanColumn::new(col.id.clone(), col.title.clone());
+                            column.cards = col
+                                .cards
+                                .iter()
+                                .map(|c| {
+                                    let mut card = crate::entropy_gui::KanbanCard::new(c.id.clone(), c.title.clone());
+                                    card.description = c.description.clone().unwrap_or_default();
+                                    card.color = c.color.map(egui::Color32::from_rgba_f32).unwrap_or(egui::Color32::from_rgb(90, 130, 230));
+                                    card.tags = c.tags.clone().unwrap_or_default();
+                                    card
+                                })
+                                .collect();
+                            column
+                        })
+                        .collect();
+                    let selected_ref = selected.as_ref().map(|(c, k)| (c.as_str(), k.as_str()));
+
+                    let resp = crate::entropy_gui::KanbanBoard::new(kanban_id.as_str()).show(ui, &columns_data, selected_ref);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::KanbanEvent::CardMoved { card, from_column, to_column, to_index } => {
+                                events_to_push.push(format!("KANBAN_CARD_MOVED|{}|{}|{}|{}|{}", kanban_id, card, from_column, to_column, to_index));
+                            }
+                            crate::entropy_gui::KanbanEvent::CardSelected { column, card } => {
+                                events_to_push.push(format!("KANBAN_CARD_SELECTED|{}|{}|{}", kanban_id, column, card));
+                            }
+                            crate::entropy_gui::KanbanEvent::CardDeleteRequested { column, card } => {
+                                events_to_push.push(format!("KANBAN_CARD_DELETE|{}|{}|{}", kanban_id, column, card));
+                            }
+                            crate::entropy_gui::KanbanEvent::AddCardRequested { column } => {
+                                events_to_push.push(format!("KANBAN_ADD_CARD|{}|{}", kanban_id, column));
+                            }
+                            crate::entropy_gui::KanbanEvent::ColumnClicked(column) => {
+                                events_to_push.push(format!("KANBAN_COLUMN_CLICKED|{}|{}", kanban_id, column));
+                            }
+                            crate::entropy_gui::KanbanEvent::BackgroundClicked => {
+                                events_to_push.push(format!("KANBAN_BG_CLICKED|{}", kanban_id));
                             }
                         }
                     }
