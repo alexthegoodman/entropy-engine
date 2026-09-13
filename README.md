@@ -367,14 +367,17 @@ All studio-bundle examples share one binary - pass the example's name as an arg:
 ```bash
 cd examples/studio-bundle/
 
+// audio editor
 npm run build-daw
 cargo run --bin example --release -- daw
 
+// water simulation
 npm run build-fft-water
 cargo run --bin example --release -- fft-water
 
-npm run build-fft-river
-cargo run --bin example --release -- fft-river
+// multi-page text editor
+npm run build-doc-editor-demo
+cargo run --bin example --release -- doc-editor-demo
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,
