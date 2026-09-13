@@ -4,6 +4,21 @@
 
 **Entropy Engine is experimental and in beta, and some things may not work as expected**
 
+|                          | React Native | Flutter | **Entropy** |
+| ------------------------ | ------------ | ------- | ----------- |
+| TypeScript               | **✓**        | —       | **✓**       |
+| Native                   | **✓**        | **✓**   | **✓**       |
+| Cross-platform UI        | **✓✓✓**      | **✓✓✓** | ✓           |
+| GPU / rendering          | ✓            | ✓✓      | **✓✓✓**     |
+| 3D                       | —            | △       | **✓✓✓**     |
+| Physics                  | —            | △       | **✓✓✓**     |
+| Audio                    | △            | △       | **✓✓**      |
+| Game systems             | —            | △       | **✓✓✓**     |
+| Creative-tool primitives | △            | ✓       | **✓✓✓**     |
+| Low-level extensibility  | ✓            | ✓       | **✓✓✓**     |
+| TypeScript productivity  | **✓✓✓**      | —       | **✓✓✓**     |
+| Ecosystem                | **✓✓✓**      | **✓✓✓** | —           |
+
 ---
 
 ## Embedding Quickstart
