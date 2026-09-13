@@ -113,7 +113,6 @@ This section describes every namespace in plain language. Click a heading to exp
 - [Persistence & files](#persistence--files)
 - [Video](#video)
 - [Networking](#networking)
-- [Yumon (imitation-learning NPCs)](#yumon-imitation-learning-npcs)
 - [Composer (cross-addon registry)](#composer-cross-addon-registry)
 - [Utilities & misc](#utilities--misc)
 
@@ -317,27 +316,6 @@ Windows/Media Foundation-only. Playback and offscreen export, both backed by rea
 | Call | What it does |
 |---|---|
 | `Net.getText(url)` | Fetches a URL's raw text (e.g. a webpage's HTML) — a single blocking call, meant to be made once (like from `onInit`) and cached, since calling it from a per-frame render callback stalls that frame. Commonly paired with `UI.Widget.html` to render a real fetched page. |
-
-</details>
-
-<a id="yumon-imitation-learning-npcs"></a>
-<details>
-<summary><strong>Yumon (imitation-learning NPCs)</strong></summary>
-
-An alternative to hand-authored behavior trees: NPCs whose behavior is trained from demonstrated examples instead of scripted logic.
-
-| Call | What it does |
-|---|---|
-| `Yumon.create(name)` | Creates a new Yumon-driven NPC brain by name. |
-| `Yumon.tick(name)` | Advances the NPC one step, returning its current state (position, battery, health, stamina, boredom, storage, last action). |
-| `Yumon.sleep(name)` | Pauses/rests the NPC. |
-| `Yumon.brain.create(id, archetype)` | Creates a brain of a given archetype (a predefined behavior/model family). |
-| `Yumon.brain.observe(...)` | Feeds the brain one training example: world state, self state, action taken, rotation, and the reward it earned — this is how you "demonstrate" instead of script. |
-| `Yumon.brain.infer(id)` / `testInfer(arch, context)` | Asks the trained brain what action it would take given the current context. |
-| `Yumon.brain.sleep(id, epochs)` | Runs a training pass over accumulated observations for a number of epochs. |
-| `Yumon.brain.save(id)` / `load(archetype)` | Persists or restores a trained brain. |
-| `Yumon.brain.getState(id)` | Reads training diagnostics: current loss, epoch, whether it's actively training, and more. |
-| `Yumon.brain.augment(id)` | Augments the training set (e.g. synthetic variations) to improve generalization. |
 
 </details>
 
