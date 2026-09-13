@@ -21,12 +21,22 @@
 //! Both are ~1-12MB system files read at runtime, not embedded.
 
 use crate::entropy_gui::geometry::FontFamily;
+use crate::renderer_text::fonts::FontManager;
+use std::collections::HashMap;
 
 pub struct FontRegistry {
     proportional: fontdue::Font,
     monospace: fontdue::Font,
     emoji: Option<fontdue::Font>,
     symbol: Option<fontdue::Font>,
+    /// The engine's full ~60-font catalog (`src/renderer_text/fonts.rs`, already embedded via
+    /// `include_bytes!` for the old 3D-scene text renderer) - reused here so `DocEditor`'s font
+    /// picker has real choices instead of just proportional/monospace. Only raw bytes are
+    /// duplicated at startup (a `FontManager` owns its own `Vec<u8>` per font); the expensive
+    /// part, fontdue parsing, only happens lazily in `named_font_cache` for fonts a document
+    /// actually uses.
+    catalog: FontManager,
+    named_font_cache: HashMap<String, fontdue::Font>,
 }
 
 const PROPORTIONAL_BYTES: &[u8] = include_bytes!("../fonts/figtree/Figtree[wght].ttf");
@@ -44,7 +54,30 @@ impl FontRegistry {
         let emoji = Self::load_system_font(&["C:/Windows/Fonts/seguiemj.ttf"]);
         let symbol = Self::load_system_font(&["C:/Windows/Fonts/seguisym.ttf"]);
 
-        Self { proportional, monospace, emoji, symbol }
+        Self { proportional, monospace, emoji, symbol, catalog: FontManager::new(), named_font_cache: HashMap::new() }
+    }
+
+    /// Every font name `DocEditor`'s font picker can offer, in catalog order.
+    pub fn catalog_font_names(&self) -> Vec<String> {
+        self.catalog.get_available_font_names()
+    }
+
+    /// Parses and caches the named catalog font on first use; a no-op after that. Silently
+    /// does nothing for an unknown name or a file fontdue can't parse - callers fall back to
+    /// the proportional face via `get_named`/`resolve_named_or_fallback` returning `None`.
+    pub fn ensure_named(&mut self, name: &str) {
+        if self.named_font_cache.contains_key(name) {
+            return;
+        }
+        if let Some(bytes) = self.catalog.get_font_by_name(name) {
+            if let Ok(font) = fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()) {
+                self.named_font_cache.insert(name.to_string(), font);
+            }
+        }
+    }
+
+    pub fn get_named(&self, name: &str) -> Option<&fontdue::Font> {
+        self.named_font_cache.get(name)
     }
 
     #[cfg(target_os = "windows")]

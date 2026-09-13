@@ -888,8 +888,11 @@ globalThis.Entropy = {
             // A true multi-page document editor (see `entropy_gui::widgets_doc_editor`). Only
             // page geometry crosses this call - the document itself lives Rust-side, keyed by
             // `id`, so it is NOT round-tripped through JSON every frame like `tracks`/
-            // `keyframeTimeline`'s data is. `onStats` fires every frame with word/char/page
-            // counts, the same "TYPE|id|args" event shape those other widgets use.
+            // `keyframeTimeline`'s data is. This widget draws only the page canvas - Bold/
+            // Italic/font/size/color/pagination controls are the addon's own toolbar, built out
+            // of ordinary widgets and wired to the `docEditorToggleBold`/etc. functions below.
+            // `onStats` fires every frame with word/char/page counts and the current active
+            // format, so the addon's own buttons can reflect current state.
             docEditor: (windowId, config) => {
                 const pageWidth = config?.pageWidth ?? 816;
                 const pageHeight = config?.pageHeight ?? 1056;
@@ -902,11 +905,37 @@ globalThis.Entropy = {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         if (parts[0] === "DOCEDIT_STATS") {
-                            config.onStats({ words: parseInt(parts[2], 10), chars: parseInt(parts[3], 10), pages: parseInt(parts[4], 10) });
+                            const [cr, cg, cb, ca] = parts[9].split(',').map(Number);
+                            config.onStats({
+                                words: parseInt(parts[2], 10),
+                                chars: parseInt(parts[3], 10),
+                                pages: parseInt(parts[4], 10),
+                                paginated: parts[5] === "true",
+                                bold: parts[6] === "true",
+                                italic: parts[7] === "true",
+                                fontSize: parseFloat(parts[8]),
+                                color: [cr, cg, cb, ca],
+                                fontFamily: parts[10],
+                            });
                         }
                     });
                 }
             },
+            // Imperative commands a caller's own toolbar sends into a `DocEditor` by its widget
+            // id (the same `id` passed to/returned by `docEditor()` above, or the auto-generated
+            // one if none was given) - applied once, in order, at the start of that widget's
+            // next `show()`. Each is a fire-and-forget op call, not a per-frame widget.
+            docEditorToggleBold: (id) => ops.op_doc_editor_toggle_bold(id),
+            docEditorToggleItalic: (id) => ops.op_doc_editor_toggle_italic(id),
+            docEditorSetFontFamily: (id, family) => ops.op_doc_editor_set_font_family(id, family),
+            docEditorSetFontSize: (id, size) => ops.op_doc_editor_set_font_size(id, size),
+            docEditorSetColor: (id, color) => ops.op_doc_editor_set_color(id, color),
+            docEditorSetPaginated: (id, paginated) => ops.op_doc_editor_set_paginated(id, paginated),
+            docEditorLoadSample: (id, count) => ops.op_doc_editor_load_sample(id, count ?? 300),
+            // Every font family name the engine's ~60-font catalog offers, for a toolbar's font
+            // dropdown - static, cheap to call once (e.g. from `addon.onInit`), no reason to
+            // call it every frame.
+            docEditorFontNames: () => ops.op_doc_editor_font_names(),
             // The HTML-as-UI-description experiment: parses `html` + any <style>/inline CSS in
             // Rust (see src/deno/html_layout.rs and html_css.rs) and lays it out with taffy
             // (Block by default, Flex opt-in via `display: flex`) - real box positions, but no

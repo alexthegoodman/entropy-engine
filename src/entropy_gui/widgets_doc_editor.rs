@@ -1,58 +1,74 @@
 //! `DocEditor` — a true multi-page document editor: fixed-size pages with margins, real
 //! pagination (paragraphs flow and break across page boundaries at line granularity, not just
-//! line-wrapped in one infinite column), basic bold/italic formatting, and a performance model
-//! designed so a keystroke's cost doesn't grow with total document length.
+//! line-wrapped in one infinite column), per-run font family/size/color/bold/italic, an
+//! optional continuous (non-paginated) mode, and a performance model designed so a keystroke's
+//! cost doesn't grow with total document length.
+//!
+//! ## Who builds the toolbar
+//! This widget is the page canvas ONLY - no built-in Bold/Italic/font/size/color/load-sample
+//! controls. An addon builds its own toolbar out of ordinary `Entropy.UI.Widget.*` widgets
+//! (buttons, a dropdown for font family, a numeric input for size, a color input) and drives
+//! this widget through `DocEditorCommand`s (`Entropy.UI.Widget.docEditorToggleBold`, etc. on the
+//! JS side - see `addon_ops.rs`), applied once at the top of `show()` before input/layout/paint.
+//! `DocEditorResponse` reports the current active format back (via the `DOCEDIT_STATS` event)
+//! so the addon's own buttons can show correct pressed/current-value state.
 //!
 //! ## Data model
 //! A document is `Vec<Paragraph>`, each paragraph a `Vec<Run>` of (text, format). Enter creates
 //! a new paragraph; a paragraph's concatenated run text never contains `\n`, so word-wrap only
-//! ever needs to reason about one paragraph's plain text at a time.
+//! ever needs to reason about one paragraph's plain text at a time. `RunFormat` carries bold,
+//! italic, a font family name (looked up in the engine's ~60-font catalog, `entropy_gui::fonts`
+//! - see its own module docs), a point size, and a color - all independently settable per run.
 //!
 //! ## Performance model
 //! Two passes run every frame:
-//! - **Reshape** (`ensure_layout`): fontdue shaping of one paragraph's text via
-//!   `text_layout::shape_text`, cached in `layout_cache` keyed by paragraph index and
-//!   invalidated only for paragraphs whose text, format, or the page's content width actually
-//!   changed. A keystroke touches exactly one paragraph, so this costs O(that paragraph's
-//!   length), not O(document length) - see the "v1 simplifications" note below on what that
-//!   still doesn't cover.
+//! - **Reshape** (`ensure_layout`): shapes one paragraph's runs (each against its own font/size)
+//!   via a small `fontdue::layout::Layout` driven directly in `layout_paragraph`, cached in
+//!   `layout_cache` keyed by paragraph index and invalidated only for paragraphs whose text,
+//!   format, or the page's content width actually changed. A keystroke touches exactly one
+//!   paragraph, so this costs O(that paragraph's length), not O(document length) - see the "v1
+//!   simplifications" note below on what that still doesn't cover.
 //! - **Paginate** (`paginate`): walks every already-shaped line's cached height and buckets
-//!   lines into pages. This is O(total lines in the document), but it's pure arithmetic over
-//!   already-cached heights (no fontdue/atlas access at all), so even at a few thousand lines
-//!   it's microseconds - see `src/bin/doc_editor_bench.rs` for measured numbers.
+//!   lines into pages (or, in continuous mode, one unbounded page). This is O(total lines in
+//!   the document), but it's pure arithmetic over already-cached heights (no fontdue/atlas
+//!   access at all), so even at a few thousand lines it's microseconds - see
+//!   `src/bin/doc_editor_bench.rs` for measured numbers.
 //!
 //! Both are exposed as plain methods on `DocEditorState` so `doc_editor_bench` can exercise the
-//! exact same code path the live widget uses, headlessly (no window/GPU needed - `shape_text`
-//! only needs an `entropy_gui::Context` for its `FontRegistry`).
+//! exact same code path the live widget uses, headlessly (no window/GPU needed - shaping only
+//! needs an `entropy_gui::Context` for its `FontRegistry`).
 //!
 //! ## v1 simplifications (documented, not accidental)
-//! - No true bold/italic font faces exist in this engine (`entropy_gui::fonts` loads exactly
-//!   one proportional face). Bold is a faux double-strike, italic a per-vertex shear - see
-//!   `Painter::styled_glyphs`. Real, but not what a shipping word processor would want.
+//! - No bold/italic *weight* of any catalog font is loaded - just whichever regular-weight file
+//!   the catalog embeds per family name. Bold is a faux double-strike, italic a per-vertex
+//!   shear - see `Painter::styled_glyphs`. Real, but not what a shipping word processor would
+//!   want for a family that actually ships a bold/italic file.
 //! - Only Left/Right/Up/Down/Home/End/Backspace/Delete/Enter + Shift-extend selection are
 //!   wired up. No mouse drag-to-select, no copy/paste, no undo.
-//! - Bold/Italic toolbar buttons apply to a selection only when it's within one paragraph
-//!   (`apply_format_range` bails out across paragraph boundaries) - a documented gap, not a
-//!   silent one.
+//! - Format commands (bold/italic/family/size/color) apply to a selection only when it's
+//!   within one paragraph (`apply_to_selection_or_active` bails out across paragraph
+//!   boundaries) - a documented gap, not a silent one.
 //! - Reshaping is per-paragraph, not per-line: a keystroke in a 5,000-character paragraph
 //!   reshapes all 5,000 characters, not just the touched line. Fine for normal prose
 //!   paragraphs (measured in `doc_editor_bench`); a pathologically long single paragraph would
 //!   need real incremental (line-level) reshaping to stay fast.
+//! - Continuous (non-paginated) mode still uses `PageConfig`'s width/margin for line-wrapping
+//!   and horizontal placement - only the page-*height*-driven page breaking is disabled. There
+//!   is no "infinite width" mode.
 
 use crate::entropy_gui::color::{Color32, Stroke};
 use crate::entropy_gui::context::{Context, Key};
-use crate::entropy_gui::geometry::{pos2, vec2, FontFamily, Rect, StrokeKind};
+use crate::entropy_gui::geometry::{pos2, vec2, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::response::Sense;
-use crate::entropy_gui::text_layout::{shape_text, ShapedGlyph};
+use crate::entropy_gui::text_layout::ShapedGlyph;
 use crate::entropy_gui::ui::Ui;
 
 pub const DOC_FONT_SIZE: f32 = 15.0;
+pub const DEFAULT_FONT_NAME: &str = "Figtree";
 const LINE_HEIGHT_EXTRA: f32 = 6.0;
-const LINE_HEIGHT: f32 = DOC_FONT_SIZE + LINE_HEIGHT_EXTRA;
 const PARA_SPACING: f32 = 8.0;
 const PAGE_GAP: f32 = 28.0;
-const TOOLBAR_H: f32 = 30.0;
 
 fn prev_char_boundary(s: &str, i: usize) -> usize {
     if i == 0 {
@@ -75,10 +91,19 @@ fn next_char_boundary(s: &str, i: usize) -> usize {
     j
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RunFormat {
     pub bold: bool,
     pub italic: bool,
+    pub font_name: String,
+    pub size: f32,
+    pub color: Color32,
+}
+
+impl Default for RunFormat {
+    fn default() -> Self {
+        Self { bold: false, italic: false, font_name: DEFAULT_FONT_NAME.to_string(), size: DOC_FONT_SIZE, color: Color32::from_gray(20) }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -110,22 +135,22 @@ impl Paragraph {
         for r in &self.runs {
             let end = acc + r.text.len();
             if offset < end {
-                return r.format;
+                return r.format.clone();
             }
             acc = end;
         }
-        self.runs.last().map(|r| r.format).unwrap_or_default()
+        self.runs.last().map(|r| r.format.clone()).unwrap_or_default()
     }
 
     /// Inserts `text` (all one format) at byte offset `at`, splitting/merging runs as needed.
     /// The common case - typing continues in a run that already has the active format - is a
     /// single `String::insert_str` with no run-list surgery at all.
-    fn insert(&mut self, at: usize, text: &str, format: RunFormat) {
+    fn insert(&mut self, at: usize, text: &str, format: &RunFormat) {
         if text.is_empty() {
             return;
         }
         if self.runs.is_empty() {
-            self.runs.push(Run { text: text.to_string(), format });
+            self.runs.push(Run { text: text.to_string(), format: format.clone() });
             return;
         }
         let mut acc = 0usize;
@@ -134,16 +159,16 @@ impl Paragraph {
             let run_end = acc + run_len;
             if at <= run_end {
                 let local = at - acc;
-                if self.runs[i].format == format {
+                if self.runs[i].format == *format {
                     self.runs[i].text.insert_str(local, text);
-                } else if local == run_len && i + 1 < self.runs.len() && self.runs[i + 1].format == format {
+                } else if local == run_len && i + 1 < self.runs.len() && self.runs[i + 1].format == *format {
                     self.runs[i + 1].text.insert_str(0, text);
                 } else if local == 0 {
-                    self.runs.insert(i, Run { text: text.to_string(), format });
+                    self.runs.insert(i, Run { text: text.to_string(), format: format.clone() });
                 } else {
                     let tail = self.runs[i].text.split_off(local);
-                    let tail_run = Run { text: tail, format: self.runs[i].format };
-                    self.runs.insert(i + 1, Run { text: text.to_string(), format });
+                    let tail_run = Run { text: tail, format: self.runs[i].format.clone() };
+                    self.runs.insert(i + 1, Run { text: text.to_string(), format: format.clone() });
                     self.runs.insert(i + 2, tail_run);
                 }
                 return;
@@ -184,7 +209,7 @@ fn split_run_at(para: &mut Paragraph, at: usize) {
         if at > acc && at < end {
             let local = at - acc;
             let tail = para.runs[i].text.split_off(local);
-            let fmt = para.runs[i].format;
+            let fmt = para.runs[i].format.clone();
             para.runs.insert(i + 1, Run { text: tail, format: fmt });
             return;
         }
@@ -208,6 +233,21 @@ fn merge_adjacent_runs(para: &mut Paragraph) {
     para.runs.retain(|r| !r.text.is_empty());
 }
 
+/// Max run size overlapping byte range `[start, end)` - used to size a shaped line by its
+/// tallest run, same idea real typesetting uses for mixed-size lines.
+fn max_size_in_range(para: &Paragraph, start: usize, end: usize) -> f32 {
+    let mut acc = 0usize;
+    let mut max_size: Option<f32> = None;
+    for r in &para.runs {
+        let r_end = acc + r.text.len();
+        if acc < end.max(start + 1) && r_end > start {
+            max_size = Some(max_size.map_or(r.format.size, |m: f32| m.max(r.format.size)));
+        }
+        acc = r_end;
+    }
+    max_size.unwrap_or(DOC_FONT_SIZE)
+}
+
 #[derive(Clone, Debug)]
 struct ShapedLine {
     /// Positions are relative to the paragraph's own top-left (x already accounts for
@@ -218,67 +258,169 @@ struct ShapedLine {
     /// the last line.
     end_byte: usize,
     width: f32,
+    /// This line's own height (tallest run's size + padding) - lines in the same paragraph can
+    /// differ if their runs have different font sizes.
+    height: f32,
 }
 
 #[derive(Clone, Debug)]
 pub struct ParagraphLayout {
     lines: Vec<ShapedLine>,
+    /// Font names used by this paragraph's runs, in the order `ShapedGlyph::font_index` indexes
+    /// into - indices past the end mean the shared emoji/symbol fallback faces. Stored
+    /// alongside the shaped lines because painting (a different frame/call than shaping) needs
+    /// the same name-to-index mapping to resolve glyphs back to real fonts - see
+    /// `Painter::styled_glyphs`.
+    face_names: Vec<String>,
 }
 
+/// Shapes one paragraph's runs - each against its own font/size - as one continuous,
+/// word-wrapped `fontdue::layout::Layout`, so wrapping still flows correctly across a run
+/// boundary in the middle of a line (e.g. a bold word followed by a plain one). Glyph byte
+/// offsets are corrected to be relative to the whole paragraph's plain text: fontdue's own
+/// `byte_offset` restarts at 0 for every `Layout::append` call (confirmed against fontdue
+/// 0.9.2's actual source - not documented on docs.rs), so each call's offsets are rebased by
+/// `base`, the cumulative length of everything appended so far this call.
 fn layout_paragraph(ctx: &Context, para: &Paragraph, content_width: f32) -> ParagraphLayout {
-    let text = para.plain_text();
-    let shaped = {
-        let mut guard = ctx.inner_mut();
-        let face_set = guard.fonts.shaping_set(FontFamily::Proportional);
-        shape_text(face_set, DOC_FONT_SIZE, Some(content_width.max(10.0)), &text)
-    };
+    use fontdue::layout::{CoordinateSystem, Layout, LayoutSettings, TextStyle};
 
-    if shaped.glyphs.is_empty() {
-        return ParagraphLayout { lines: vec![ShapedLine { glyphs: Vec::new(), start_byte: 0, end_byte: 0, width: 0.0 }] };
+    let mut face_names: Vec<String> = Vec::new();
+    for run in &para.runs {
+        if !face_names.iter().any(|n| n == &run.format.font_name) {
+            face_names.push(run.format.font_name.clone());
+        }
+    }
+
+    let mut glyphs: Vec<ShapedGlyph> = Vec::new();
+    {
+        let mut guard = ctx.inner_mut();
+        for name in &face_names {
+            guard.fonts.ensure_named(name);
+        }
+        let fallback = guard.fonts.font_for(crate::entropy_gui::geometry::FontFamily::Proportional);
+        let mut faces: Vec<&fontdue::Font> = Vec::with_capacity(face_names.len() + 2);
+        for name in &face_names {
+            faces.push(guard.fonts.get_named(name).unwrap_or(fallback));
+        }
+        let emoji_idx = faces.len() as u8;
+        faces.push(guard.fonts.icon_fallbacks()[0].unwrap_or(fallback));
+        let symbol_idx = faces.len() as u8;
+        faces.push(guard.fonts.icon_fallbacks()[1].unwrap_or(fallback));
+
+        let mut layout: Layout<()> = Layout::new(CoordinateSystem::PositiveYDown);
+        layout.reset(&LayoutSettings { max_width: Some(content_width.max(10.0)), ..LayoutSettings::default() });
+
+        let mut base = 0usize;
+        for run in &para.runs {
+            if run.text.is_empty() {
+                continue;
+            }
+            let primary_idx = face_names.iter().position(|n| n == &run.format.font_name).unwrap_or(0) as u8;
+            let chars: Vec<(usize, char)> = run.text.char_indices().collect();
+            let mut sub_start = 0usize;
+            let mut sub_face: Option<u8> = None;
+            for (pos, &(bi, ch)) in chars.iter().enumerate() {
+                let face_here = if faces[primary_idx as usize].lookup_glyph_index(ch) != 0 {
+                    primary_idx
+                } else if faces[emoji_idx as usize].lookup_glyph_index(ch) != 0 {
+                    emoji_idx
+                } else if faces[symbol_idx as usize].lookup_glyph_index(ch) != 0 {
+                    symbol_idx
+                } else {
+                    primary_idx
+                };
+                match sub_face {
+                    None => sub_face = Some(face_here),
+                    Some(cur) if cur != face_here => {
+                        append_sub(&mut layout, &faces, run.format.size, &run.text[sub_start..bi], cur, base + sub_start, &mut glyphs);
+                        sub_start = bi;
+                        sub_face = Some(face_here);
+                    }
+                    _ => {}
+                }
+                if pos == chars.len() - 1 {
+                    if let Some(cur) = sub_face {
+                        append_sub(&mut layout, &faces, run.format.size, &run.text[sub_start..], cur, base + sub_start, &mut glyphs);
+                    }
+                }
+            }
+            base += run.text.len();
+        }
+        if glyphs.is_empty() {
+            // Nothing shaped (all runs empty/absent) - one call still needed for consistent
+            // metrics, matching `text_layout::shape_text`'s own empty-text handling.
+            layout.append(&faces, &TextStyle { text: "", px: DOC_FONT_SIZE, font_index: 0, user_data: () });
+        }
+    }
+
+    if glyphs.is_empty() {
+        let h = para.runs.first().map(|r| r.format.size).unwrap_or(DOC_FONT_SIZE) + LINE_HEIGHT_EXTRA;
+        return ParagraphLayout {
+            lines: vec![ShapedLine { glyphs: Vec::new(), start_byte: 0, end_byte: 0, width: 0.0, height: h }],
+            face_names,
+        };
     }
 
     // A wrapped line boundary is detected by the pen's x resetting backward, not by watching
     // `g.y`: fontdue reports each glyph's *own* top-left y, which shifts slightly per-glyph
     // with that glyph's individual ascent/descent metrics even within a single visual line
-    // (a bug caught by actually screenshotting this - see the doc editor post's failure
-    // notes) - so a small y-based epsilon produced a false "new line" every couple of
-    // characters, and painting each of those at a full line-height step while their x values
-    // kept climbing (never reset) drew the text as a descending staircase instead of wrapped
-    // paragraphs. x is monotonically non-decreasing within one real line and only resets at
-    // an actual wrap, so it's the reliable signal.
+    // (confirmed against fontdue 0.9.2's own docs.rs page for `GlyphPosition::y`: it's each
+    // glyph's own bounding-box top, not a shared line baseline) - so a small y-based epsilon
+    // produced a false "new line" every couple of characters, and painting each of those at a
+    // full line-height step while their x values kept climbing (never reset) drew the text as
+    // a descending staircase instead of wrapped paragraphs, a bug caught by actually
+    // screenshotting this. x is monotonically non-decreasing within one real line and only
+    // resets at an actual wrap, so it's the reliable signal.
     //
     // `finish_line` also re-zeroes every glyph's y to be relative to that line's own top
     // (subtracting the line's minimum y) rather than fontdue's absolute-within-paragraph y -
-    // painting adds its own per-line vertical offset (`LINE_HEIGHT * line_index`), so leaving
+    // painting adds its own per-line vertical offset (via each line's own `height`), so leaving
     // the absolute y in would double-count it while also carrying over the same per-glyph
     // metric jitter that broke line detection.
-    fn finish_line(glyphs: Vec<ShapedGlyph>) -> ShapedLine {
+    fn finish_line(glyphs: Vec<ShapedGlyph>) -> (usize, f32, Vec<ShapedGlyph>) {
         let start_byte = glyphs.first().unwrap().byte_offset;
         let width = glyphs.iter().fold(0.0f32, |m, g| m.max(g.x));
         let min_y = glyphs.iter().fold(f32::MAX, |m, g| m.min(g.y));
         let glyphs = glyphs.into_iter().map(|mut g| { g.y -= min_y; g }).collect();
-        ShapedLine { glyphs, start_byte, end_byte: 0, width }
+        (start_byte, width, glyphs)
     }
 
-    let mut lines: Vec<ShapedLine> = Vec::new();
+    let mut raw_lines: Vec<(usize, f32, Vec<ShapedGlyph>)> = Vec::new();
     let mut current: Vec<ShapedGlyph> = Vec::new();
     let mut prev_x = -1.0f32;
-    for g in shaped.glyphs {
+    for g in glyphs {
         if g.x < prev_x - 0.01 && !current.is_empty() {
-            lines.push(finish_line(std::mem::take(&mut current)));
+            raw_lines.push(finish_line(std::mem::take(&mut current)));
         }
         prev_x = g.x;
         current.push(g);
     }
     if !current.is_empty() {
-        lines.push(finish_line(current));
+        raw_lines.push(finish_line(current));
     }
 
-    let n = lines.len();
+    let text_len = para.len();
+    let n = raw_lines.len();
+    let mut lines: Vec<ShapedLine> = Vec::with_capacity(n);
     for i in 0..n {
-        lines[i].end_byte = if i + 1 < n { lines[i + 1].start_byte } else { text.len() };
+        let (start_byte, width, glyphs) = std::mem::replace(&mut raw_lines[i], (0, 0.0, Vec::new()));
+        let end_byte = if i + 1 < n { raw_lines[i + 1].0 } else { text_len };
+        let height = max_size_in_range(para, start_byte, end_byte.max(start_byte + 1)) + LINE_HEIGHT_EXTRA;
+        lines.push(ShapedLine { glyphs, start_byte, end_byte, width, height });
     }
-    ParagraphLayout { lines }
+
+    ParagraphLayout { lines, face_names }
+}
+
+fn append_sub(layout: &mut fontdue::layout::Layout<()>, faces: &[&fontdue::Font], px: f32, text: &str, font_index: u8, base_offset: usize, out: &mut Vec<ShapedGlyph>) {
+    if text.is_empty() {
+        return;
+    }
+    let before = layout.glyphs().len();
+    layout.append(faces, &fontdue::layout::TextStyle { text, px, font_index: font_index as usize, user_data: () });
+    for g in &layout.glyphs()[before..] {
+        out.push(ShapedGlyph { byte_offset: base_offset + g.byte_offset, x: g.x, y: g.y, raster_config: g.key, font_index: g.font_index as u8 });
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -314,6 +456,25 @@ pub struct PageLayout {
     pub used_height: f32,
 }
 
+/// A command an addon-built toolbar sends in to mutate the document - applied to the current
+/// selection if there is one (single-paragraph only, see module docs), otherwise to the format
+/// that will be used for whatever's typed next. Queued JS-side (one op per command) and drained
+/// once per frame right before `DocEditor::show` runs - see `addon_ops.rs`/`addon_engine.rs`.
+#[derive(Clone, Debug)]
+pub enum DocEditorCommand {
+    ToggleBold,
+    ToggleItalic,
+    SetFontFamily(String),
+    SetFontSize(f32),
+    SetColor(Color32),
+    /// Turns page-height-driven pagination on/off - off means one continuous, unbounded page
+    /// (still wrapped/margined at the page's width) rather than discrete page breaks.
+    SetPaginated(bool),
+    /// Replaces the whole document with this many synthetic sample paragraphs - for a demo's
+    /// "Load Sample" button.
+    LoadSample(usize),
+}
+
 #[derive(Clone, Debug)]
 pub struct DocEditorState {
     paragraphs: Vec<Paragraph>,
@@ -323,6 +484,7 @@ pub struct DocEditorState {
     cursor_off: usize,
     selection_anchor: Option<(usize, usize)>,
     active_format: RunFormat,
+    paginated: bool,
     desired_x: Option<f32>,
     scroll_y: f32,
     blink_on: bool,
@@ -339,6 +501,7 @@ impl Default for DocEditorState {
             cursor_off: 0,
             selection_anchor: None,
             active_format: RunFormat::default(),
+            paginated: true,
             desired_x: None,
             scroll_y: 0.0,
             blink_on: true,
@@ -361,6 +524,24 @@ impl DocEditorState {
     pub fn paragraph_count(&self) -> usize {
         self.paragraphs.len()
     }
+    pub fn is_paginated(&self) -> bool {
+        self.paginated
+    }
+    pub fn active_bold(&self) -> bool {
+        self.active_format.bold
+    }
+    pub fn active_italic(&self) -> bool {
+        self.active_format.italic
+    }
+    pub fn active_font_name(&self) -> &str {
+        &self.active_format.font_name
+    }
+    pub fn active_font_size(&self) -> f32 {
+        self.active_format.size
+    }
+    pub fn active_color(&self) -> Color32 {
+        self.active_format.color
+    }
 
     pub fn set_cursor(&mut self, para: usize, offset: usize) {
         let para = para.min(self.paragraphs.len().saturating_sub(1));
@@ -380,9 +561,8 @@ impl DocEditorState {
     pub fn insert_char(&mut self, ch: char) {
         let mut buf = [0u8; 4];
         let s = ch.encode_utf8(&mut buf);
-        let format = self.active_format;
         let (p, o) = (self.cursor_para, self.cursor_off);
-        self.paragraphs[p].insert(o, s, format);
+        self.paragraphs[p].insert(o, s, &self.active_format.clone());
         self.cursor_off += s.len();
         self.invalidate(p);
         self.desired_x = None;
@@ -408,7 +588,7 @@ impl DocEditorState {
                     let local = o - acc;
                     if local > 0 {
                         let tail = para.runs[i].text.split_off(local);
-                        right_runs.push(Run { text: tail, format: para.runs[i].format });
+                        right_runs.push(Run { text: tail, format: para.runs[i].format.clone() });
                         i += 1;
                     }
                     right_runs.extend(para.runs.drain(i..));
@@ -613,14 +793,21 @@ impl DocEditorState {
         }
     }
 
+    fn selection_bounds(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.selection_anchor?;
+        let mut a = anchor;
+        let mut b = (self.cursor_para, self.cursor_off);
+        if b < a {
+            std::mem::swap(&mut a, &mut b);
+        }
+        if a.0 != b.0 || a.1 == b.1 {
+            return None; // v1: single-paragraph, non-empty selections only, see module docs.
+        }
+        Some((a, b))
+    }
+
     fn selection_all_has(&self, a: (usize, usize), b: (usize, usize), bold_flag: bool, italic_flag: bool) -> bool {
-        if a.0 != b.0 {
-            return false;
-        }
-        let (start, end) = (a.1.min(b.1), a.1.max(b.1));
-        if start >= end {
-            return true;
-        }
+        let (start, end) = (a.1, b.1);
         let mut acc = 0usize;
         for r in &self.paragraphs[a.0].runs {
             let r_end = acc + r.text.len();
@@ -639,50 +826,52 @@ impl DocEditorState {
         true
     }
 
-    fn apply_format_range(&mut self, a: (usize, usize), b: (usize, usize), bold_flag: bool, italic_flag: bool, new_val: bool) {
-        if a.0 != b.0 {
-            return; // v1: single-paragraph formatting only, see module docs.
-        }
-        let p = a.0;
-        let (start, end) = (a.1.min(b.1), a.1.max(b.1));
-        if start == end {
-            return;
-        }
-        let para = &mut self.paragraphs[p];
-        split_run_at(para, start);
-        split_run_at(para, end);
-        let mut acc = 0usize;
-        for r in para.runs.iter_mut() {
-            let r_end = acc + r.text.len();
-            if acc >= start && r_end <= end {
-                if bold_flag {
-                    r.format.bold = new_val;
+    /// Applies `mutate` to every run fully inside the current selection (splitting at its
+    /// boundaries first), or to `active_format` (what gets used for text typed next) if there
+    /// is no selection. Selections spanning more than one paragraph are a no-op - see module
+    /// docs.
+    fn apply_to_selection_or_active(&mut self, mutate: impl Fn(&mut RunFormat)) {
+        if let Some((a, b)) = self.selection_bounds() {
+            let p = a.0;
+            let (start, end) = (a.1, b.1);
+            let para = &mut self.paragraphs[p];
+            split_run_at(para, start);
+            split_run_at(para, end);
+            let mut acc = 0usize;
+            for r in para.runs.iter_mut() {
+                let r_end = acc + r.text.len();
+                if acc >= start && r_end <= end {
+                    mutate(&mut r.format);
                 }
-                if italic_flag {
-                    r.format.italic = new_val;
-                }
+                acc = r_end;
             }
-            acc = r_end;
+            merge_adjacent_runs(para);
+            self.invalidate(p);
+        } else {
+            mutate(&mut self.active_format);
         }
-        merge_adjacent_runs(para);
-        self.invalidate(p);
     }
 
     fn toggle_format(&mut self, bold: bool, italic: bool) {
-        if let Some(anchor) = self.selection_anchor {
-            let mut a = anchor;
-            let mut b = (self.cursor_para, self.cursor_off);
-            if b < a {
-                std::mem::swap(&mut a, &mut b);
+        match self.selection_bounds() {
+            Some((a, b)) => {
+                let new_val = !self.selection_all_has(a, b, bold, italic);
+                self.apply_to_selection_or_active(|f| {
+                    if bold {
+                        f.bold = new_val;
+                    }
+                    if italic {
+                        f.italic = new_val;
+                    }
+                });
             }
-            let all_set = self.selection_all_has(a, b, bold, italic);
-            self.apply_format_range(a, b, bold, italic, !all_set);
-        } else {
-            if bold {
-                self.active_format.bold = !self.active_format.bold;
-            }
-            if italic {
-                self.active_format.italic = !self.active_format.italic;
+            None => {
+                if bold {
+                    self.active_format.bold = !self.active_format.bold;
+                }
+                if italic {
+                    self.active_format.italic = !self.active_format.italic;
+                }
             }
         }
     }
@@ -692,33 +881,54 @@ impl DocEditorState {
     pub fn toggle_italic(&mut self) {
         self.toggle_format(false, true);
     }
-    pub fn active_bold(&self) -> bool {
-        self.active_format.bold
+    pub fn set_font_family(&mut self, name: String) {
+        self.apply_to_selection_or_active(move |f| f.font_name = name.clone());
     }
-    pub fn active_italic(&self) -> bool {
-        self.active_format.italic
+    pub fn set_font_size(&mut self, size: f32) {
+        let size = size.clamp(4.0, 200.0);
+        self.apply_to_selection_or_active(move |f| f.size = size);
+    }
+    pub fn set_color(&mut self, color: Color32) {
+        self.apply_to_selection_or_active(move |f| f.color = color);
+    }
+    pub fn set_paginated(&mut self, paginated: bool) {
+        self.paginated = paginated;
     }
 
-    /// Buckets already-shaped lines into fixed-height pages. O(total lines), no shaping.
+    pub fn apply_command(&mut self, command: &DocEditorCommand) {
+        match command {
+            DocEditorCommand::ToggleBold => self.toggle_bold(),
+            DocEditorCommand::ToggleItalic => self.toggle_italic(),
+            DocEditorCommand::SetFontFamily(name) => self.set_font_family(name.clone()),
+            DocEditorCommand::SetFontSize(size) => self.set_font_size(*size),
+            DocEditorCommand::SetColor(color) => self.set_color(*color),
+            DocEditorCommand::SetPaginated(v) => self.set_paginated(*v),
+            DocEditorCommand::LoadSample(count) => self.seed_sample(*count),
+        }
+    }
+
+    /// Buckets already-shaped lines into pages. O(total lines), no shaping. In continuous
+    /// (`paginated == false`) mode, content height is treated as unbounded, so this always
+    /// returns exactly one `PageLayout` holding the whole document.
     pub fn paginate(&self, page: PageConfig) -> Vec<PageLayout> {
-        let content_h = page.content_height();
-        let mut pages = Vec::new();
+        let content_h = if self.paginated { page.content_height() } else { f32::INFINITY };
+        let mut pages: Vec<PageLayout> = Vec::new();
         let mut cur = PageLayout::default();
         for (pi, layout) in self.layout_cache.iter().enumerate() {
             let Some(layout) = layout else { continue };
-            let n_lines = layout.lines.len().max(1);
-            let mut line_start = 0usize;
-            while line_start < n_lines {
-                let remaining = content_h - cur.used_height;
-                let max_fit = (remaining / LINE_HEIGHT).floor().max(0.0) as usize;
-                if max_fit == 0 && cur.used_height > 0.0 {
+            for (li, line) in layout.lines.iter().enumerate() {
+                if cur.used_height > 0.0 && cur.used_height + line.height > content_h {
                     pages.push(std::mem::take(&mut cur));
-                    continue;
                 }
-                let take = max_fit.max(1).min(n_lines - line_start);
-                cur.entries.push(PageEntry { para: pi, line_start, line_end: line_start + take });
-                cur.used_height += take as f32 * LINE_HEIGHT;
-                line_start += take;
+                if let Some(last) = cur.entries.last_mut() {
+                    if last.para == pi && last.line_end == li {
+                        last.line_end = li + 1;
+                        cur.used_height += line.height;
+                        continue;
+                    }
+                }
+                cur.entries.push(PageEntry { para: pi, line_start: li, line_end: li + 1 });
+                cur.used_height += line.height;
             }
             cur.used_height += PARA_SPACING;
         }
@@ -726,6 +936,19 @@ impl DocEditorState {
             pages.push(cur);
         }
         pages
+    }
+
+    /// (top-of-page, height) in document space for every page `paginate` returned - uniform
+    /// `page.height` steps in paginated mode, or a single page sized to its own content in
+    /// continuous mode. Used for scroll clamping, visible-range culling, and click mapping so
+    /// both modes share one code path in `DocEditor::show`.
+    pub fn page_metrics(&self, pages: &[PageLayout], page: PageConfig) -> Vec<(f32, f32)> {
+        if self.paginated {
+            (0..pages.len()).map(|i| (i as f32 * (page.height + PAGE_GAP), page.height)).collect()
+        } else {
+            let h = pages.first().map(|p| p.used_height).unwrap_or(0.0) + 2.0 * page.margin;
+            vec![(0.0, h.max(page.height))]
+        }
     }
 
     fn layout_ref(&self, idx: usize) -> &ParagraphLayout {
@@ -746,19 +969,19 @@ impl DocEditorState {
             let layout = self.layout_cache[entry.para].as_ref()?;
             for li in entry.line_start..entry.line_end {
                 let line = &layout.lines[li];
-                if local_y >= y && local_y < y + LINE_HEIGHT {
+                if local_y >= y && local_y < y + line.height {
                     return Some((entry.para, self.byte_at_x(entry.para, li, local_x)));
                 }
                 last = Some((entry.para, line.end_byte));
-                y += LINE_HEIGHT;
+                y += line.height;
             }
             y += PARA_SPACING;
         }
         last
     }
 
-    /// Replaces the whole document with `count` synthetic paragraphs of varying length - used
-    /// by the "Load Sample" toolbar button and `doc_editor_bench`.
+    /// Replaces the whole document with `count` synthetic paragraphs of varying length - see
+    /// `DocEditorCommand::LoadSample` and `doc_editor_bench`.
     pub fn seed_sample(&mut self, count: usize) {
         const WORDS: &[&str] = &[
             "the", "quick", "brown", "fox", "jumps", "over", "lazy", "dog", "entropy", "engine",
@@ -793,6 +1016,12 @@ pub struct DocEditorResponse {
     pub word_count: usize,
     pub char_count: usize,
     pub page_count: usize,
+    pub paginated: bool,
+    pub active_bold: bool,
+    pub active_italic: bool,
+    pub active_font_name: String,
+    pub active_font_size: f32,
+    pub active_color: Color32,
 }
 
 pub struct DocEditor {
@@ -804,30 +1033,20 @@ impl DocEditor {
         Self { id: Id::new("doc_editor").with(id_salt) }
     }
 
-    pub fn show(self, ui: &mut Ui, page: PageConfig) -> DocEditorResponse {
+    /// `commands` are applied once, in order, before input handling/layout/paint - see the
+    /// module docs' "who builds the toolbar" section. This widget draws only the paginated (or
+    /// continuous) page canvas; every control is the caller's own.
+    pub fn show(self, ui: &mut Ui, page: PageConfig, commands: &[DocEditorCommand]) -> DocEditorResponse {
         let ctx = ui.ctx().clone();
         let id = self.id;
         let mut state = ctx.memory_mut(|m| m.take_doc_editor(id));
 
-        ui.horizontal(|ui| {
-            let bold_label = if state.active_bold() { "Bold *" } else { "Bold" };
-            if ui.button(bold_label).clicked() {
-                state.toggle_bold();
-            }
-            let italic_label = if state.active_italic() { "Italic *" } else { "Italic" };
-            if ui.button(italic_label).clicked() {
-                state.toggle_italic();
-            }
-            if ui.button("Load 300-Paragraph Sample").clicked() {
-                state.seed_sample(300);
-            }
-            ui.label(format!("{} words", state.word_count()));
-        });
-        ui.add_space(4.0);
+        for command in commands {
+            state.apply_command(command);
+        }
 
         let region = ui.available_rect_before_wrap();
-        let canvas_size = vec2(region.width(), (region.height() - TOOLBAR_H).max(60.0));
-        let (canvas_response, painter) = ui.allocate_painter(canvas_size, Sense::click_and_drag());
+        let (canvas_response, painter) = ui.allocate_painter(region.size(), Sense::click_and_drag());
         let canvas_rect = canvas_response.rect;
 
         if canvas_response.clicked() {
@@ -869,8 +1088,9 @@ impl DocEditor {
 
         state.ensure_all_layout(&ctx, page);
         let pages = state.paginate(page);
-        let total_page_h = page.height + PAGE_GAP;
-        let max_scroll = ((pages.len() as f32) * total_page_h - canvas_rect.height()).max(0.0);
+        let metrics = state.page_metrics(&pages, page);
+        let doc_total_h = metrics.last().map(|(top, h)| top + h).unwrap_or(0.0);
+        let max_scroll = (doc_total_h - canvas_rect.height()).max(0.0);
         state.scroll_y = state.scroll_y.clamp(0.0, max_scroll);
 
         // Gated on `clicked()`, not `interact_pointer_pos()` - the latter is `Some` on every
@@ -880,30 +1100,26 @@ impl DocEditor {
         // the first click, which scrambled typed text as the paragraph reflowed underneath a
         // stationary pointer - caught by actually typing into a running window, not just by
         // the app failing to crash.
-        let clicked_pos = canvas_response.clicked().then(|| canvas_response.interact_pointer_pos()).flatten().map(|p| {
+        let clicked_pos = canvas_response.clicked().then(|| canvas_response.interact_pointer_pos()).flatten().and_then(|p| {
             let doc_y = p.y - canvas_rect.min.y + state.scroll_y;
-            let page_idx = ((doc_y / total_page_h).floor().max(0.0)) as usize;
-            let page_top = page_idx as f32 * total_page_h;
+            let page_idx = metrics.iter().position(|(top, h)| doc_y >= *top && doc_y < top + h)?;
+            let (page_top, _) = metrics[page_idx];
             let local_y = doc_y - page_top - page.margin;
             let page_x0 = canvas_rect.min.x + ((canvas_rect.width() - page.width) / 2.0).max(0.0);
             let local_x = p.x - page_x0 - page.margin;
-            (page_idx, local_x, local_y)
+            Some((page_idx, local_x, local_y))
         });
 
-        let first_visible = ((state.scroll_y / total_page_h).floor().max(0.0)) as usize;
-        let last_visible = (((state.scroll_y + canvas_rect.height()) / total_page_h).ceil().max(0.0)) as usize;
-
-        for page_idx in first_visible..=last_visible {
+        for (page_idx, (page_top_doc_y, page_h)) in metrics.iter().enumerate() {
             if page_idx >= pages.len() {
                 break;
             }
-            let page_top_doc_y = page_idx as f32 * total_page_h;
             let page_top_screen_y = canvas_rect.min.y + page_top_doc_y - state.scroll_y;
-            if page_top_screen_y > canvas_rect.max.y || page_top_screen_y + page.height < canvas_rect.min.y {
+            if page_top_screen_y > canvas_rect.max.y || page_top_screen_y + page_h < canvas_rect.min.y {
                 continue;
             }
             let page_x0 = canvas_rect.min.x + ((canvas_rect.width() - page.width) / 2.0).max(0.0);
-            let page_rect = Rect::from_min_size(pos2(page_x0, page_top_screen_y), vec2(page.width, page.height));
+            let page_rect = Rect::from_min_size(pos2(page_x0, page_top_screen_y), vec2(page.width, *page_h));
 
             painter.rect_filled(page_rect, 2u8, Color32::from_gray(248));
             painter.rect_stroke(page_rect, 2u8, Stroke::new(1.0, Color32::from_gray(60)), StrokeKind::Middle);
@@ -916,9 +1132,9 @@ impl DocEditor {
                 for li in entry.line_start..entry.line_end {
                     let line = &layout.lines[li];
                     let origin = pos2(content_origin.x, content_origin.y + y);
-                    clipped.styled_glyphs(origin, &line.glyphs, FontFamily::Proportional, Color32::from_gray(20), |off| {
+                    clipped.styled_glyphs(origin, &line.glyphs, &layout.face_names, |off| {
                         let f = state.paragraph_format_at(entry.para, off);
-                        (f.bold, f.italic)
+                        (f.bold, f.italic, f.color)
                     });
 
                     if is_focused
@@ -929,12 +1145,13 @@ impl DocEditor {
                         && state.cursor_off <= line.end_byte
                     {
                         let cx = state.cursor_x(entry.para);
+                        let caret_h = line.height - LINE_HEIGHT_EXTRA * 0.5;
                         clipped.line_segment(
-                            [pos2(origin.x + cx, origin.y), pos2(origin.x + cx, origin.y + DOC_FONT_SIZE)],
+                            [pos2(origin.x + cx, origin.y), pos2(origin.x + cx, origin.y + caret_h)],
                             Stroke::new(1.5, Color32::from_rgb(20, 20, 200)),
                         );
                     }
-                    y += LINE_HEIGHT;
+                    y += line.height;
                 }
                 y += PARA_SPACING;
             }
@@ -954,7 +1171,17 @@ impl DocEditor {
             state.blink_on = !state.blink_on;
         }
 
-        let response = DocEditorResponse { word_count: state.word_count(), char_count: state.char_count(), page_count: pages.len() };
+        let response = DocEditorResponse {
+            word_count: state.word_count(),
+            char_count: state.char_count(),
+            page_count: pages.len(),
+            paginated: state.is_paginated(),
+            active_bold: state.active_bold(),
+            active_italic: state.active_italic(),
+            active_font_name: state.active_font_name().to_string(),
+            active_font_size: state.active_font_size(),
+            active_color: state.active_color(),
+        };
         ctx.memory_mut(|m| m.put_doc_editor(id, state));
         response
     }

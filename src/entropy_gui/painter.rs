@@ -172,38 +172,56 @@ impl Painter {
         crate::entropy_gui::geometry::vec2(shaped.width, shaped.height.max(font_id.size))
     }
 
-    /// Paints already-shaped glyphs (from `text_layout::shape_text`) with an optional
-    /// per-glyph bold/italic style, resolved by `style_at(byte_offset)` - used by
-    /// `entropy_gui::widgets_doc_editor` to render mixed-format runs. There's no separate
-    /// bold/italic font face anywhere in this engine (see `fonts` module docs), so bold is a
-    /// faux double-strike (the glyph painted twice, offset a fraction of a pixel) and italic
-    /// is a per-vertex shear (top corners unmoved, bottom corners pushed right) - real visual
-    /// effects, just not built from dedicated font weights/styles.
+    /// Paints already-shaped glyphs (from `entropy_gui::widgets_doc_editor`'s own multi-face
+    /// shaping, not `text_layout::shape_text`) with a per-glyph bold/italic/color style,
+    /// resolved by `style_at(byte_offset)`. `face_names` is the same ordered list of font
+    /// names that shaping resolved `ShapedGlyph::font_index` against for THIS paragraph
+    /// (`ParagraphLayout::face_names`) - indices past the end of that list mean the shared
+    /// emoji/symbol fallback faces, same convention both shaping and painting agree on. There
+    /// is no separate bold/italic *weight* of any catalog font loaded here (just whichever
+    /// regular-weight file the catalog embeds), so bold is a faux double-strike (the glyph
+    /// painted twice, offset a fraction of a pixel) and italic is a per-vertex shear (top
+    /// corners unmoved, bottom corners pushed right) - real visual effects, just not built
+    /// from dedicated font weights/styles.
     pub fn styled_glyphs(
         &self,
         origin: crate::entropy_gui::geometry::Pos2,
         glyphs: &[crate::entropy_gui::text_layout::ShapedGlyph],
-        family: crate::entropy_gui::geometry::FontFamily,
-        color: Color32,
-        style_at: impl Fn(usize) -> (bool, bool),
+        face_names: &[String],
+        style_at: impl Fn(usize) -> (bool, bool, Color32),
     ) {
         const BOLD_OFFSET: f32 = 0.55;
         const ITALIC_SHEAR: f32 = 0.22;
 
         let mut guard = self.ctx.inner_mut();
+        for name in face_names {
+            guard.fonts.ensure_named(name);
+        }
         let ContextInner { fonts, atlas, draw_list, overlay_draw_list, .. } = &mut *guard;
-        let face_set = fonts.shaping_set(family);
+        let emoji_idx = face_names.len();
+        let symbol_idx = face_names.len() + 1;
+        let fallback = fonts.font_for(crate::entropy_gui::geometry::FontFamily::Proportional);
+        let resolve_face = |idx: usize| -> &fontdue::Font {
+            if idx < face_names.len() {
+                fonts.get_named(&face_names[idx]).unwrap_or(fallback)
+            } else if idx == emoji_idx {
+                fonts.icon_fallbacks()[0].unwrap_or(fallback)
+            } else {
+                let _ = symbol_idx;
+                fonts.icon_fallbacks()[1].unwrap_or(fallback)
+            }
+        };
 
         let mut vertices = Vec::with_capacity(glyphs.len() * 4);
         let mut indices = Vec::with_capacity(glyphs.len() * 6);
-        let c = color.to_array_f32();
         for g in glyphs {
-            let font = face_set[g.font_index as usize];
+            let font = resolve_face(g.font_index as usize);
             let cached = atlas.get_or_rasterize(font, g.raster_config);
             if cached.width <= 0.0 || cached.height <= 0.0 {
                 continue;
             }
-            let (bold, italic) = style_at(g.byte_offset);
+            let (bold, italic, color) = style_at(g.byte_offset);
+            let c = color.to_array_f32();
             let x0 = origin.x + g.x;
             let y0 = origin.y + g.y;
             let x1 = x0 + cached.width;

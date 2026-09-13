@@ -785,6 +785,10 @@ pub struct AddonContext {
     /// render_ui`/`render_tabs` each frame - see those functions for why it isn't cleared here.
     pub pending_theme: Option<crate::entropy_gui::style::ThemeDescriptor>,
     pub ui_events: Arc<Mutex<Vec<String>>>, // triggered events (e.g. button clicks)
+    /// Pending `DocEditorCommand`s per `DocEditor` widget id - pushed by `op_doc_editor_*` ops
+    /// (called whenever an addon's own toolbar button is clicked) and drained once per frame,
+    /// right before that widget's `show()` runs, by the `UiWidget::DocEditor` render arm.
+    pub doc_editor_commands: HashMap<String, Vec<crate::entropy_gui::DocEditorCommand>>,
     pub new_tabs: Vec<(String, String, String)>, // (id, title, addon_name)
     /// Stable creation-order list of tab ids, for the generic (non-Studio) full-window tab bar
     /// rendered by `AddonEngine::render_tabs` for embedded apps - HashMap iteration order isn't
@@ -2697,6 +2701,69 @@ pub fn op_ui_widget_doc_editor(
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::DocEditor { id, page_width, page_height, margin });
     }
+}
+
+/// Push helper shared by every `op_doc_editor_*` command below - these target a `DocEditor` by
+/// its own widget id (not a window id: an addon typically has exactly one, and unlike
+/// `ui_widgets` these don't need to be re-pushed every frame, just once per toolbar click).
+fn push_doc_editor_command(state: &mut OpState, id: String, command: crate::entropy_gui::DocEditorCommand) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.doc_editor_commands.entry(id).or_default().push(command);
+    }
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_toggle_bold(state: &mut OpState, #[string] id: String) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::ToggleBold);
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_toggle_italic(state: &mut OpState, #[string] id: String) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::ToggleItalic);
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_set_font_family(state: &mut OpState, #[string] id: String, #[string] family: String) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::SetFontFamily(family));
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_set_font_size(state: &mut OpState, #[string] id: String, size: f32) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::SetFontSize(size));
+}
+
+#[op2]
+pub fn op_doc_editor_set_color(state: &mut OpState, #[string] id: String, #[serde] color: Vec<f32>) {
+    let c = [
+        color.first().copied().unwrap_or(0.0),
+        color.get(1).copied().unwrap_or(0.0),
+        color.get(2).copied().unwrap_or(0.0),
+        color.get(3).copied().unwrap_or(1.0),
+    ];
+    let to_u8 = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    let color32 = crate::entropy_gui::Color32::from_rgba_unmultiplied(to_u8(c[0]), to_u8(c[1]), to_u8(c[2]), to_u8(c[3]));
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::SetColor(color32));
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_set_paginated(state: &mut OpState, #[string] id: String, paginated: bool) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::SetPaginated(paginated));
+}
+
+#[op2(fast)]
+pub fn op_doc_editor_load_sample(state: &mut OpState, #[string] id: String, count: u32) {
+    push_doc_editor_command(state, id, crate::entropy_gui::DocEditorCommand::LoadSample(count as usize));
+}
+
+/// Every font family name `DocEditor`'s font picker can offer (the engine's ~60-font catalog,
+/// `src/renderer_text/fonts.rs`) - static/global, so this doesn't need a window id, a
+/// `DocEditor` instance, or even `OpState` (an `entropy_gui::Context` isn't reachable from an
+/// op at all - it lives in the render loop, not `AddonContext` - so this reads the same
+/// catalog directly instead of asking the widget's own `FontRegistry` for its cached names).
+#[op2]
+#[serde]
+pub fn op_doc_editor_font_names(_state: &mut OpState) -> Vec<String> {
+    crate::renderer_text::fonts::FontManager::new().get_available_font_names()
 }
 
 /// `Entropy.UI.Widget.html(windowId, html, {baseUrl?, width?})` — the HTML-as-UI-description

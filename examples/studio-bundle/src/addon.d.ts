@@ -394,6 +394,23 @@ export interface ScopedAPI {
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
       docEditor: (windowId: string, config: DocEditorConfig) => void;
+      /** Toggles bold on the current selection (single-paragraph only), or flips the active
+       * format for whatever gets typed next if there's no selection. */
+      docEditorToggleBold: (id: string) => void;
+      docEditorToggleItalic: (id: string) => void;
+      /** `family` must be a name from `docEditorFontNames()`; an unknown name silently falls
+       * back to the document's default proportional face. */
+      docEditorSetFontFamily: (id: string, family: string) => void;
+      docEditorSetFontSize: (id: string, size: number) => void;
+      /** [r, g, b, a] in 0-1, same convention as `Widget.colorInput`. */
+      docEditorSetColor: (id: string, color: [number, number, number, number]) => void;
+      /** Off = one continuous, unbounded page (still wrapped/margined at the page width) rather
+       * than discrete page breaks. */
+      docEditorSetPaginated: (id: string, paginated: boolean) => void;
+      docEditorLoadSample: (id: string, count?: number) => void;
+      /** Every font family name the engine's ~60-font catalog offers, for a toolbar's font
+       * dropdown. Static; cheap to call once (e.g. from `addon.onInit`). */
+      docEditorFontNames: () => string[];
       /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
        * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
        * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).
@@ -713,10 +730,24 @@ export interface DocEditorConfig {
   pageWidth?: number;
   pageHeight?: number;
   margin?: number;
-  /** Fires every frame with the document's current word/char/page counts. The document
-   * content itself never crosses into JS - it lives Rust-side, keyed by this widget's id
-   * (see `entropy_gui::widgets_doc_editor`'s module docs for why). */
-  onStats?: (stats: { words: number; chars: number; pages: number }) => void;
+  /** Fires every frame with the document's current word/char/page counts and active format
+   * (what bold/italic/font/size/color the next typed character would use, or - with a
+   * selection - what toggling would flip). The document content itself never crosses into JS -
+   * it lives Rust-side, keyed by this widget's id (see `entropy_gui::widgets_doc_editor`'s
+   * module docs for why). This widget draws only the page canvas - build your own toolbar out
+   * of ordinary widgets and drive it with the `docEditor*` functions below. */
+  onStats?: (stats: {
+    words: number;
+    chars: number;
+    pages: number;
+    paginated: boolean;
+    bold: boolean;
+    italic: boolean;
+    fontFamily: string;
+    fontSize: number;
+    /** [r, g, b, a] in 0-1, same convention as `Widget.colorInput`. */
+    color: [number, number, number, number];
+  }) => void;
 }
 
 export interface ButtonConfig {
@@ -969,6 +1000,23 @@ export interface EntropyAPI {
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
       docEditor: (windowId: string, config: DocEditorConfig) => void;
+      /** Toggles bold on the current selection (single-paragraph only), or flips the active
+       * format for whatever gets typed next if there's no selection. */
+      docEditorToggleBold: (id: string) => void;
+      docEditorToggleItalic: (id: string) => void;
+      /** `family` must be a name from `docEditorFontNames()`; an unknown name silently falls
+       * back to the document's default proportional face. */
+      docEditorSetFontFamily: (id: string, family: string) => void;
+      docEditorSetFontSize: (id: string, size: number) => void;
+      /** [r, g, b, a] in 0-1, same convention as `Widget.colorInput`. */
+      docEditorSetColor: (id: string, color: [number, number, number, number]) => void;
+      /** Off = one continuous, unbounded page (still wrapped/margined at the page width) rather
+       * than discrete page breaks. */
+      docEditorSetPaginated: (id: string, paginated: boolean) => void;
+      docEditorLoadSample: (id: string, count?: number) => void;
+      /** Every font family name the engine's ~60-font catalog offers, for a toolbar's font
+       * dropdown. Static; cheap to call once (e.g. from `addon.onInit`). */
+      docEditorFontNames: () => string[];
       /** Parses `html` + any `<style>`/inline CSS (see src/deno/html_layout.rs) and lays it out
        * with taffy - real Block/Flex box layout, but no text wrapping and only a basic,
        * specificity-free cascade (see html_layout.rs's doc comment for the full "basics" list).

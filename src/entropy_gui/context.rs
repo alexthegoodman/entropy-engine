@@ -241,6 +241,11 @@ impl Context {
         self.0.borrow_mut().used_rect = rect;
     }
 
+    /// Every font name available to `DocEditor`'s font picker (the engine's ~60-font catalog).
+    pub fn font_names(&self) -> Vec<String> {
+        self.0.borrow().fonts.catalog_font_names()
+    }
+
     pub fn memory<R>(&self, reader: impl FnOnce(&Memory) -> R) -> R {
         reader(&self.0.borrow().memory)
     }
