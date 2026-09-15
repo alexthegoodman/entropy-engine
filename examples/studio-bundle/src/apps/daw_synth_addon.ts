@@ -100,6 +100,12 @@ interface Track {
     muted: boolean;
     solo: boolean;
     notes: NoteCell[];
+    // Lazily created the first time this track's bus is synced (see ensureTrackEffects) - ids
+    // into the engine's shared Entropy.AudioEffect registry, one delay + one reverb per track,
+    // reused by every note that plays through this track's persistent mixing bus instead of
+    // each note getting its own fresh (and, for reverb, expensive) effect instance.
+    delayEffectId?: string | null;
+    reverbEffectId?: string | null;
 }
 
 interface DAWProject {
@@ -169,8 +175,50 @@ function getActiveTrack(): Track | undefined {
     return project.tracks.find(t => t.id === project.activeTrackId) || project.tracks[0];
 }
 
+// --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
+
+function ensureTrackEffects(track: Track) {
+    if (!track.delayEffectId) {
+        track.delayEffectId = addon.AudioEffect.createDelay({
+            time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
+        });
+    }
+    if (!track.reverbEffectId) {
+        track.reverbEffectId = addon.AudioEffect.createReverb({
+            roomSize: track.voice.reverbRoomSize, time: track.voice.reverbTime,
+            damping: track.voice.reverbDamping, mix: track.voice.reverbMix
+        });
+    }
+}
+
+// Pushes one track's current gain/mute/solo/FX params into the engine's persistent bus for that
+// track - creating the bus (and its two effect instances) on first call. Cheap to call on every
+// edit: the DAW's sliders are click-to-set rather than continuous-drag, so this fires once per
+// interaction, not once per frame.
+function syncTrackBus(track: Track) {
+    ensureTrackEffects(track);
+    addon.AudioEffect.setDelayParams(track.delayEffectId!, {
+        time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
+    });
+    addon.AudioEffect.setReverbParams(track.reverbEffectId!, {
+        roomSize: track.voice.reverbRoomSize, time: track.voice.reverbTime,
+        damping: track.voice.reverbDamping, mix: track.voice.reverbMix
+    });
+    addon.Audio.ensureTrackBus(track.id, {
+        gain: track.gain, muted: track.muted, solo: track.solo,
+        effectIds: [track.delayEffectId!, track.reverbEffectId!]
+    });
+}
+
+function removeTrackBus(track: Track) {
+    addon.Audio.removeTrackBus(track.id);
+    if (track.delayEffectId) addon.AudioEffect.destroy(track.delayEffectId);
+    if (track.reverbEffectId) addon.AudioEffect.destroy(track.reverbEffectId);
+}
+
 function persist() {
     addon.IO.save(project);
+    project.tracks.forEach(syncTrackBus);
 }
 
 // --- Transport / sequencer --------------------------------------------------
@@ -194,38 +242,32 @@ function noteVoiceAndFreq(track: Track, row: number): { voice: string; freq: num
     return { voice: track.voice.waveform, freq: midiToFreq(rowToMidi(row, track.rootNote, track.scale)) };
 }
 
+// Unlike the old per-note architecture, mute/solo are no longer pre-filtered here - every
+// track's bus (see syncTrackBus) applies them live, every sample, so toggling either one while
+// a note is already ringing takes effect immediately instead of only affecting the *next*
+// trigger. Track gain is likewise applied continuously by the bus, so only the note's own
+// velocity is passed through here.
 function triggerStep(stepIndex: number) {
-    const anySolo = project.tracks.some(t => t.solo);
     const sd = stepDuration();
 
     for (const track of project.tracks) {
-        if (track.muted) continue;
-        if (anySolo && !track.solo) continue;
-
         for (const note of track.notes) {
             if (note.step !== stepIndex) continue;
 
             const { voice, freq } = noteVoiceAndFreq(track, note.row);
             const duration = Math.max(0.03, note.length * sd * 0.95);
 
-            addon.Audio.playNote({
+            addon.Audio.playNoteOnTrack(track.id, {
                 freq,
                 waveform: voice,
                 duration,
                 cutoff: track.voice.cutoff,
                 resonance: track.voice.resonance,
-                gain: track.gain * note.velocity,
+                gain: note.velocity,
                 attack: track.voice.attack,
                 decay: track.voice.decay,
                 sustain: track.voice.sustain,
-                release: track.voice.release,
-                delayTime: track.voice.delayTime,
-                delayFeedback: track.voice.delayFeedback,
-                delayMix: track.voice.delayMix,
-                reverbRoomSize: track.voice.reverbRoomSize,
-                reverbTime: track.voice.reverbTime,
-                reverbDamping: track.voice.reverbDamping,
-                reverbMix: track.voice.reverbMix
+                release: track.voice.release
             });
         }
     }
@@ -373,97 +415,111 @@ addon.onInit(async () => {
     //     }
     // });
 
+    // Create the starter tracks' persistent mixing buses (and their effect instances) up front,
+    // rather than waiting for the first user interaction to call persist().
+    project.tracks.forEach(syncTrackBus);
+
     const renderDAWUI = (tabId: string) => {
-        Entropy.UI.Widget.label(tabId, { text: "🎛 Transport", bold: true });
-
-        Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
-            Entropy.UI.Widget.button(tid, {
-                text: transport.playing ? "⏸ Stop" : "▶ Play",
-                onClick: () => { transport.playing ? stop() : play(); }
+        Entropy.UI.Widget.collapsingHeader(tabId, "🎛 Transport", (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.button(tid2, {
+                    text: transport.playing ? "⏸ Stop" : "▶ Play",
+                    onClick: () => { transport.playing ? stop() : play(); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: "⬇ Export Pattern to WAV",
+                    onClick: () => { exportPatternToWav(); }
+                });
             });
-        });
-
-        Entropy.UI.Widget.button(tabId, {
-            text: "⬇ Export Pattern to WAV",
-            onClick: () => { exportPatternToWav(); }
-        });
-        if (lastExportStatus) {
-            Entropy.UI.Widget.label(tabId, { text: lastExportStatus });
-        }
-
-        Entropy.UI.Widget.numericInput(tabId, {
-            label: "BPM",
-            value: project.bpm,
-            onChange: (v: string) => { project.bpm = Math.max(20, Math.min(300, parseFloat(v) || project.bpm)); persist(); }
-        });
-
-        Entropy.UI.Widget.numericInput(tabId, {
-            label: "Pattern Steps",
-            value: project.steps,
-            onChange: (v: string) => {
-                project.steps = Math.max(1, Math.round(parseFloat(v)) || project.steps);
-                persist();
+            if (lastExportStatus) {
+                Entropy.UI.Widget.label(tid, { text: lastExportStatus });
             }
-        });
-
-        Entropy.UI.Widget.separator(tabId);
-        Entropy.UI.Widget.label(tabId, { text: "🎚 Tracks", bold: true });
-
-        project.tracks.forEach(track => {
-            Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
-                Entropy.UI.Widget.button(tid, {
-                    text: (track.id === project.activeTrackId ? "▶ " : "") + track.name,
-                    onClick: () => { project.activeTrackId = track.id; }
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.numericInput(tid2, {
+                    label: "BPM",
+                    value: project.bpm,
+                    onChange: (v: string) => { project.bpm = Math.max(20, Math.min(300, parseFloat(v) || project.bpm)); persist(); }
                 });
-                Entropy.UI.Widget.checkbox(tid, {
-                    label: "Mute",
-                    value: track.muted,
-                    onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
-                });
-                Entropy.UI.Widget.checkbox(tid, {
-                    label: "Solo",
-                    value: track.solo,
-                    onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
-                });
-                Entropy.UI.Widget.button(tid, {
-                    text: "🗑",
-                    onClick: () => {
-                        project.tracks = project.tracks.filter(t => t.id !== track.id);
-                        if (project.activeTrackId === track.id) {
-                            project.activeTrackId = project.tracks[0]?.id ?? null;
-                        }
+                Entropy.UI.Widget.numericInput(tid2, {
+                    label: "Pattern Steps",
+                    value: project.steps,
+                    onChange: (v: string) => {
+                        project.steps = Math.max(1, Math.round(parseFloat(v)) || project.steps);
                         persist();
                     }
                 });
             });
         });
 
-        Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
-            Entropy.UI.Widget.button(tid, {
-                text: "+ Synth Track",
-                onClick: () => {
-                    const id = Entropy.generateUUID();
-                    project.tracks.push({
-                        id, name: `Synth ${project.tracks.length + 1}`, kind: "synth",
-                        rootNote: 60, scale: "pentatonic_minor", rows: 10,
-                        voice: defaultSynthVoice("saw"), gain: 0.25, muted: false, solo: false, notes: []
+        // Mixer: one channel-strip group per track, laid out side by side like a real mixing
+        // console instead of a flat vertical list of rows.
+        Entropy.UI.Widget.collapsingHeader(tabId, "🎚 Mixer", (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                project.tracks.forEach(track => {
+                    Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                        Entropy.UI.Widget.button(tid3, {
+                            text: (track.id === project.activeTrackId ? "▶ " : "") + track.name,
+                            onClick: () => { project.activeTrackId = track.id; }
+                        });
+                        Entropy.UI.Widget.slider(tid3, {
+                            label: "Gain",
+                            value: track.gain, min: 0, max: 1,
+                            onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
+                        });
+                        Entropy.UI.Widget.horizontal(tid3, (tid4: string) => {
+                            Entropy.UI.Widget.checkbox(tid4, {
+                                label: "M",
+                                value: track.muted,
+                                onChange: (v: any) => { track.muted = v === true || v === "true"; persist(); }
+                            });
+                            Entropy.UI.Widget.checkbox(tid4, {
+                                label: "S",
+                                value: track.solo,
+                                onChange: (v: any) => { track.solo = v === true || v === "true"; persist(); }
+                            });
+                        });
+                        Entropy.UI.Widget.button(tid3, {
+                            text: "🗑 Delete",
+                            onClick: () => {
+                                removeTrackBus(track);
+                                project.tracks = project.tracks.filter(t => t.id !== track.id);
+                                if (project.activeTrackId === track.id) {
+                                    project.activeTrackId = project.tracks[0]?.id ?? null;
+                                }
+                                persist();
+                            }
+                        });
                     });
-                    project.activeTrackId = id;
-                    persist();
-                }
+                });
             });
-            Entropy.UI.Widget.button(tid, {
-                text: "+ Drum Track",
-                onClick: () => {
-                    const id = Entropy.generateUUID();
-                    project.tracks.push({
-                        id, name: `Drums ${project.tracks.length + 1}`, kind: "drum",
-                        rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
-                        voice: defaultDrumVoice(), gain: 0.5, muted: false, solo: false, notes: []
-                    });
-                    project.activeTrackId = id;
-                    persist();
-                }
+
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.button(tid2, {
+                    text: "+ Synth Track",
+                    onClick: () => {
+                        const id = Entropy.generateUUID();
+                        project.tracks.push({
+                            id, name: `Synth ${project.tracks.length + 1}`, kind: "synth",
+                            rootNote: 60, scale: "pentatonic_minor", rows: 10,
+                            voice: defaultSynthVoice("saw"), gain: 0.25, muted: false, solo: false, notes: []
+                        });
+                        project.activeTrackId = id;
+                        persist();
+                    }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: "+ Drum Track",
+                    onClick: () => {
+                        const id = Entropy.generateUUID();
+                        project.tracks.push({
+                            id, name: `Drums ${project.tracks.length + 1}`, kind: "drum",
+                            rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
+                            voice: defaultDrumVoice(), gain: 0.5, muted: false, solo: false, notes: []
+                        });
+                        project.activeTrackId = id;
+                        persist();
+                    }
+                });
             });
         });
 
@@ -473,142 +529,154 @@ addon.onInit(async () => {
             return;
         }
 
-        Entropy.UI.Widget.separator(tabId);
-        Entropy.UI.Widget.label(tabId, { text: `🎹 ${track.name} — Voice`, bold: true });
+        Entropy.UI.Widget.collapsingHeader(tabId, `🎹 ${track.name} — Voice`, (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                    Entropy.UI.Widget.label(tid3, { text: "Oscillator", bold: true });
 
-        if (track.kind === "synth") {
-            const wfIndex = Math.max(0, WAVEFORMS.indexOf(track.voice.waveform));
-            Entropy.UI.Widget.dropdown(tabId, {
-                label: "Waveform",
-                options: WAVEFORMS,
-                selectedIndex: wfIndex,
-                onChange: (idx: string) => { track.voice.waveform = WAVEFORMS[parseInt(idx, 10)]; persist(); }
-            });
+                    if (track.kind === "synth") {
+                        const wfIndex = Math.max(0, WAVEFORMS.indexOf(track.voice.waveform));
+                        Entropy.UI.Widget.dropdown(tid3, {
+                            label: "Waveform",
+                            options: WAVEFORMS,
+                            selectedIndex: wfIndex,
+                            onChange: (idx: string) => { track.voice.waveform = WAVEFORMS[parseInt(idx, 10)]; persist(); }
+                        });
 
-            const scaleIndex = Math.max(0, SCALE_NAMES.indexOf(track.scale));
-            Entropy.UI.Widget.dropdown(tabId, {
-                label: "Scale",
-                options: SCALE_NAMES,
-                selectedIndex: scaleIndex,
-                onChange: (idx: string) => { track.scale = SCALE_NAMES[parseInt(idx, 10)]; persist(); }
-            });
+                        const scaleIndex = Math.max(0, SCALE_NAMES.indexOf(track.scale));
+                        Entropy.UI.Widget.dropdown(tid3, {
+                            label: "Scale",
+                            options: SCALE_NAMES,
+                            selectedIndex: scaleIndex,
+                            onChange: (idx: string) => { track.scale = SCALE_NAMES[parseInt(idx, 10)]; persist(); }
+                        });
 
-            Entropy.UI.Widget.numericInput(tabId, {
-                label: "Root Note (MIDI)",
-                value: track.rootNote,
-                onChange: (v: string) => { track.rootNote = parseFloat(v) || track.rootNote; persist(); }
-            });
+                        Entropy.UI.Widget.numericInput(tid3, {
+                            label: "Root Note (MIDI)",
+                            value: track.rootNote,
+                            onChange: (v: string) => { track.rootNote = parseFloat(v) || track.rootNote; persist(); }
+                        });
 
-            Entropy.UI.Widget.numericInput(tabId, {
-                label: "Rows (octave span)",
-                value: track.rows,
-                onChange: (v: string) => { track.rows = Math.max(1, Math.round(parseFloat(v)) || track.rows); persist(); }
-            });
-        }
-
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Track Gain",
-            value: track.gain, min: 0, max: 1,
-            onChange: (v: string) => { track.gain = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.slider(tabId, {
-            label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
-            value: track.voice.cutoff, min: 100, max: 20000,
-            onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Resonance",
-            value: track.voice.resonance, min: 0.1, max: 10,
-            onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Attack",
-            value: track.voice.attack, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Decay",
-            value: track.voice.decay, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Sustain",
-            value: track.voice.sustain, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Release",
-            value: track.voice.release, min: 0, max: 2,
-            onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.separator(tabId);
-        Entropy.UI.Widget.label(tabId, { text: "FX - Delay", bold: true });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Delay Time (s)",
-            value: track.voice.delayTime, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Delay Feedback",
-            value: track.voice.delayFeedback, min: 0, max: 0.95,
-            onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Delay Mix",
-            value: track.voice.delayMix, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.label(tabId, { text: "FX - Reverb", bold: true });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Room Size (m)",
-            value: track.voice.reverbRoomSize, min: 10, max: 30,
-            onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Reverb Time (s)",
-            value: track.voice.reverbTime, min: 0.1, max: 6,
-            onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Damping",
-            value: track.voice.reverbDamping, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
-        });
-        Entropy.UI.Widget.slider(tabId, {
-            label: "Reverb Mix",
-            value: track.voice.reverbMix, min: 0, max: 1,
-            onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
-        });
-
-        Entropy.UI.Widget.label(tabId, { text: "Preview", bold: true });
-        Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
-            const previewRows = track.kind === "drum" ? DRUM_ROWS.length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
-            for (let r = 0; r < previewRows; r++) {
-                const { voice, freq } = noteVoiceAndFreq(track, r);
-                const label = track.kind === "drum" ? DRUM_ROWS[r].name : midiToName(rowToMidi(r, track.rootNote, track.scale));
-                Entropy.UI.Widget.button(tid, {
-                    text: label,
-                    onClick: () => {
-                        addon.Audio.playNote({
-                            freq, waveform: voice, duration: 0.5,
-                            cutoff: track.voice.cutoff, resonance: track.voice.resonance,
-                            gain: track.gain, attack: track.voice.attack, decay: track.voice.decay,
-                            sustain: track.voice.sustain, release: track.voice.release,
-                            delayTime: track.voice.delayTime, delayFeedback: track.voice.delayFeedback, delayMix: track.voice.delayMix,
-                            reverbRoomSize: track.voice.reverbRoomSize, reverbTime: track.voice.reverbTime,
-                            reverbDamping: track.voice.reverbDamping, reverbMix: track.voice.reverbMix
+                        Entropy.UI.Widget.numericInput(tid3, {
+                            label: "Rows (octave span)",
+                            value: track.rows,
+                            onChange: (v: string) => { track.rows = Math.max(1, Math.round(parseFloat(v)) || track.rows); persist(); }
                         });
                     }
+
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: track.kind === "drum" ? "Tone (filter)" : "Cutoff",
+                        value: track.voice.cutoff, min: 100, max: 20000,
+                        onChange: (v: string) => { track.voice.cutoff = parseFloat(v); persist(); }
+                    });
+
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Resonance",
+                        value: track.voice.resonance, min: 0.1, max: 10,
+                        onChange: (v: string) => { track.voice.resonance = parseFloat(v); persist(); }
+                    });
                 });
-            }
+
+                Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                    Entropy.UI.Widget.label(tid3, { text: "Envelope", bold: true });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Attack",
+                        value: track.voice.attack, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.attack = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Decay",
+                        value: track.voice.decay, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.decay = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Sustain",
+                        value: track.voice.sustain, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.sustain = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Release",
+                        value: track.voice.release, min: 0, max: 2,
+                        onChange: (v: string) => { track.voice.release = parseFloat(v); persist(); }
+                    });
+                });
+            });
         });
 
-        Entropy.UI.Widget.separator(tabId);
+        // FX: each track owns exactly one shared delay + reverb Entropy.AudioEffect instance
+        // (see syncTrackBus) - these sliders edit that instance's live params, not a per-note
+        // config anymore.
+        Entropy.UI.Widget.collapsingHeader(tabId, "✨ Effects", (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                    Entropy.UI.Widget.label(tid3, { text: "Delay", bold: true });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Time (s)",
+                        value: track.voice.delayTime, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.delayTime = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Feedback",
+                        value: track.voice.delayFeedback, min: 0, max: 0.95,
+                        onChange: (v: string) => { track.voice.delayFeedback = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Mix",
+                        value: track.voice.delayMix, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.delayMix = parseFloat(v); persist(); }
+                    });
+                });
+
+                Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                    Entropy.UI.Widget.label(tid3, { text: "Reverb", bold: true });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Room Size (m)",
+                        value: track.voice.reverbRoomSize, min: 10, max: 30,
+                        onChange: (v: string) => { track.voice.reverbRoomSize = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Time (s)",
+                        value: track.voice.reverbTime, min: 0.1, max: 6,
+                        onChange: (v: string) => { track.voice.reverbTime = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Damping",
+                        value: track.voice.reverbDamping, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.reverbDamping = parseFloat(v); persist(); }
+                    });
+                    Entropy.UI.Widget.slider(tid3, {
+                        label: "Mix",
+                        value: track.voice.reverbMix, min: 0, max: 1,
+                        onChange: (v: string) => { track.voice.reverbMix = parseFloat(v); persist(); }
+                    });
+                });
+            });
+        });
+
+        // Preview plays through this track's own persistent bus (ensureTrackBus/syncTrackBus),
+        // so it's an honest preview of the track's actual gain/mute/solo/FX, not a bypassed
+        // one-off - the tradeoff is a muted track previews silent too.
+        Entropy.UI.Widget.collapsingHeader(tabId, "🔊 Preview", (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                const previewRows = track.kind === "drum" ? DRUM_ROWS.length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
+                for (let r = 0; r < previewRows; r++) {
+                    const { voice, freq } = noteVoiceAndFreq(track, r);
+                    const label = track.kind === "drum" ? DRUM_ROWS[r].name : midiToName(rowToMidi(r, track.rootNote, track.scale));
+                    Entropy.UI.Widget.button(tid2, {
+                        text: label,
+                        onClick: () => {
+                            addon.Audio.playNoteOnTrack(track.id, {
+                                freq, waveform: voice, duration: 0.5,
+                                cutoff: track.voice.cutoff, resonance: track.voice.resonance,
+                                gain: 1.0, attack: track.voice.attack, decay: track.voice.decay,
+                                sustain: track.voice.sustain, release: track.voice.release
+                            });
+                        }
+                    });
+                }
+            });
+        });
+
         Entropy.UI.Widget.label(tabId, { text: "Piano Roll (click/drag to paint, click a note to erase)" });
 
         const displayCells = track.notes.map(n => ({
@@ -813,6 +881,8 @@ addon.onInit(async () => {
         parameters: { type: "object", properties: { trackId: { type: "string" } }, required: ["trackId"] }
     }, (args: any) => {
         const before = project.tracks.length;
+        const removed = project.tracks.find(t => t.id === args.trackId);
+        if (removed) removeTrackBus(removed);
         project.tracks = project.tracks.filter(t => t.id !== args.trackId);
         if (project.activeTrackId === args.trackId) {
             project.activeTrackId = project.tracks[0]?.id ?? null;

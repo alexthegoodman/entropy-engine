@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
@@ -225,6 +227,69 @@ fn build_note_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<dy
     }
 }
 
+/// Builds just a voice's oscillator/noise source -> ADSR envelope/gain -> centered
+/// mono-to-stereo pan, with no delay/reverb spliced in - used by `AudioEngine::play_note_on_track`
+/// (the persistent per-track mixing bus path, see `TrackBus`), where FX now lives once on the
+/// track's bus via `Entropy.AudioEffect`/`ensure_track_bus` instead of being baked into every
+/// note. Deliberately a near-duplicate of `build_note_node`'s oscillator match arms rather than
+/// a shared helper: each arm's `$node` has a different concrete fundsp type before it's erased
+/// to `Box<dyn AudioUnit>`, and unifying that with `build_note_node`'s differing tail (delay/
+/// reverb combinators vs. nothing) would need real macro-of-macros plumbing that isn't worth it
+/// for two call sites - see the entropy-daw-mixing-bus post's decision log.
+fn build_voice_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<dyn AudioUnit> {
+    let freq = params.freq.max(1.0) as f32;
+    let cutoff = params.cutoff.max(20.0) as f32;
+    let q = params.resonance.max(0.1) as f32;
+    let gain = params.gain as f32;
+    let dur = params.duration.max(0.02) as f32;
+    let a = params.attack.max(0.0) as f32;
+    let d = params.decay.max(0.0) as f32;
+    let s = params.sustain.clamp(0.0, 1.0) as f32;
+    let r = params.release.max(0.0) as f32;
+
+    macro_rules! env {
+        () => {
+            lfo(move |t: f32| adsr_amp(t, a, d, s, r, dur))
+        };
+    }
+
+    macro_rules! voice_node {
+        ($node:expr) => {{
+            let mut node = ($node) >> pan(0.0);
+            node.set_sample_rate(sample_rate as f64);
+            node.reset();
+            Box::new(node) as Box<dyn AudioUnit>
+        }};
+    }
+
+    match voice {
+        "square" => voice_node!((square_hz(freq) >> lowpass_hz(cutoff, q)) * env!() * gain),
+        "saw" => voice_node!((saw_hz(freq) >> lowpass_hz(cutoff, q)) * env!() * gain),
+        "triangle" => voice_node!((triangle_hz(freq) >> lowpass_hz(cutoff, q)) * env!() * gain),
+        "noise" => voice_node!((noise() >> lowpass_hz(cutoff, q)) * env!() * gain),
+
+        "kick" => {
+            let start_f = freq * 3.0 + 40.0;
+            let end_f = freq.max(30.0);
+            let pitch_env = lfo(move |t: f32| end_f + (start_f - end_f) * (-t / 0.045).exp());
+            voice_node!((pitch_env >> sine::<f32>()) * env!() * gain)
+        }
+        "tom" => {
+            let start_f = freq * 1.6 + 20.0;
+            let end_f = freq.max(40.0);
+            let pitch_env = lfo(move |t: f32| end_f + (start_f - end_f) * (-t / 0.08).exp());
+            voice_node!((pitch_env >> sine::<f32>()) * env!() * gain)
+        }
+        "snare" => {
+            voice_node!(((noise() >> bandpass_hz(cutoff, q)) + sine_hz::<f32>(freq) * 0.25) * env!() * gain)
+        }
+        "clap" => voice_node!((noise() >> bandpass_hz(cutoff, q)) * env!() * gain),
+        "hihat" => voice_node!((noise() >> highpass_hz(cutoff, q)) * env!() * gain),
+
+        _ => voice_node!((sine_hz::<f32>(freq) >> lowpass_hz(cutoff, q)) * env!() * gain),
+    }
+}
+
 /// One scheduled note in an offline pattern render - see `render_pattern_to_wav`.
 #[derive(Clone, Debug)]
 pub struct NoteEvent {
@@ -308,8 +373,270 @@ pub fn render_pattern_to_wav(
     Ok(total_frames as f64 / sample_rate as f64)
 }
 
+// --- Generic, shareable audio effects (Entropy.AudioEffect) -----------------------------------
+//
+// Before this, delay/reverb were flat fields (delayTime, reverbRoomSize, ...) baked directly
+// into every note/track config - simple, but it meant every effect kind had to be a hardcoded
+// field on every call site, and (see `build_note_node`'s doc comment / the daw-fx-bench numbers)
+// every triggered note allocated its own fresh 32-channel reverb FDN even at mix=0. An effect is
+// now a standalone object created once via `AudioEngine::create_effect`, referenced by id, and
+// attached to a track's mixing bus (`ensure_track_bus`'s `effect_ids`) - so it's built once and
+// its (potentially expensive) internal state is shared across every note that passes through
+// that bus, and adding a new effect kind later doesn't mean touching every note-trigger call
+// site's parameter list.
+//
+// This is deliberately bus-only, not attachable straight to an individual one-shot note: a
+// stateful streaming effect (a delay line, an FDN reverb) has to see one continuous, already-
+// summed signal to process correctly. Sharing one live effect instance across several
+// *simultaneously* triggered, independently-clocked notes would mean multiple unsynchronized
+// callers ticking the same internal buffer - which is exactly what a mixing bus exists to
+// prevent, by summing a track's notes into one stream before anything downstream (gain, mute,
+// solo, effects) ever sees them. A single note that wants its own private, non-shared FX still
+// has the old baked-in path (`build_note_node`/`play_note`/`render_pattern_to_wav`), unchanged.
+
+/// A simple stereo echo, hand-rolled as a ring buffer rather than fundsp's `delay()` combinator.
+/// fundsp's `delay(t)` fixes its buffer length at graph-construction time - fine for the old
+/// per-note bake (a new graph every trigger anyway), but wrong for a persistent effect meant to
+/// have its delay time/feedback dragged live on a slider without rebuilding anything. The ring
+/// buffer is sized once to `max_seconds` and `process` just moves its read offset, so time and
+/// feedback are ordinary atomics read every sample - no rebuild, ever, for this effect kind.
+struct StereoDelayLine {
+    buffer: Vec<[f32; 2]>,
+    write_pos: usize,
+    sample_rate: f32,
+}
+
+impl StereoDelayLine {
+    fn new(sample_rate: f32, max_seconds: f32) -> Self {
+        let capacity = std::cmp::Ord::max((sample_rate * max_seconds).ceil() as usize, 1) + 1;
+        StereoDelayLine { buffer: vec![[0.0; 2]; capacity], write_pos: 0, sample_rate }
+    }
+
+    /// Returns the delayed (wet, pre-mix) sample and writes `input + feedback*delayed` back into
+    /// the ring buffer, matching a standard feedback-delay/echo topology.
+    fn process(&mut self, input: [f32; 2], delay_time: f32, feedback: f32) -> [f32; 2] {
+        let cap = self.buffer.len();
+        let delay_samples = ((delay_time.max(0.0)) * self.sample_rate) as usize;
+        let delay_samples = std::cmp::Ord::min(delay_samples, cap - 1);
+        let read_pos = (self.write_pos + cap - delay_samples) % cap;
+        let delayed = self.buffer[read_pos];
+        let fb = feedback.clamp(0.0, 0.95);
+        self.buffer[self.write_pos] = [input[0] + delayed[0] * fb, input[1] + delayed[1] * fb];
+        self.write_pos = (self.write_pos + 1) % cap;
+        delayed
+    }
+}
+
+/// Params for creating or updating a delay effect - see `Entropy.AudioEffect.createDelay`.
+#[derive(Clone, Copy, Debug)]
+pub struct DelayEffectParams {
+    pub time: f64,
+    pub feedback: f64,
+    pub mix: f64,
+}
+
+/// Params for creating or updating a reverb effect - see `Entropy.AudioEffect.createReverb`.
+#[derive(Clone, Copy, Debug)]
+pub struct ReverbEffectParams {
+    pub room_size: f64,
+    pub time: f64,
+    pub damping: f64,
+    pub mix: f64,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum EffectParams {
+    Delay(DelayEffectParams),
+    Reverb(ReverbEffectParams),
+}
+
+enum EffectState {
+    Delay { line: StereoDelayLine, time: f32, feedback: f32 },
+    /// `room_size`/`time`/`damping` are kept alongside the built node purely so `set_params` can
+    /// tell whether they actually changed before paying for a rebuild (`reverb_stereo` allocates
+    /// 32 delay lines - see `build_note_node`'s doc comment for what that costs per call).
+    Reverb { node: Box<dyn AudioUnit>, room_size: f64, time: f64, damping: f64 },
+}
+
+impl EffectState {
+    fn process(&mut self, input: [f32; 2]) -> [f32; 2] {
+        match self {
+            EffectState::Delay { line, time, feedback } => line.process(input, *time, *feedback),
+            EffectState::Reverb { node, .. } => {
+                let mut out = [0.0f32; 2];
+                node.tick(&input, &mut out);
+                out
+            }
+        }
+    }
+}
+
+fn build_reverb_node(room_size: f64, time: f64, damping: f64, sample_rate: f32) -> Box<dyn AudioUnit> {
+    let mut node = reverb_stereo(room_size.clamp(10.0, 30.0), time.max(0.05), damping.clamp(0.0, 1.0));
+    node.set_sample_rate(sample_rate as f64);
+    node.reset();
+    Box::new(node)
+}
+
+/// A shared, live-adjustable effect instance, created via `AudioEngine::create_effect` and
+/// attached to one or more track buses by id. `mix` (the wet/dry blend applied by whichever bus
+/// is calling `process_and_mix`) is a lock-free atomic since it's read on the audio thread every
+/// sample; the effect's own internal processing state sits behind a `Mutex` instead, since a
+/// delay ring buffer or reverb FDN needs `&mut` access to tick - locked once per sample, which
+/// is a real but small cost, and one this project accepts here the same way the reverb-rebuild
+/// path already does elsewhere (see the entropy-daw-mixing-bus post's decision log).
+pub struct EffectHandle {
+    state: Mutex<EffectState>,
+    mix: AtomicU32,
+    sample_rate: f32,
+}
+
+impl EffectHandle {
+    fn new(sample_rate: f32, params: EffectParams) -> Self {
+        let (state, mix) = match params {
+            EffectParams::Delay(p) => (
+                EffectState::Delay {
+                    line: StereoDelayLine::new(sample_rate, 2.0),
+                    time: p.time.max(0.0) as f32,
+                    feedback: p.feedback.clamp(0.0, 0.95) as f32,
+                },
+                p.mix,
+            ),
+            EffectParams::Reverb(p) => (
+                EffectState::Reverb {
+                    node: build_reverb_node(p.room_size, p.time, p.damping, sample_rate),
+                    room_size: p.room_size,
+                    time: p.time,
+                    damping: p.damping,
+                },
+                p.mix,
+            ),
+        };
+        EffectHandle { state: Mutex::new(state), mix: AtomicU32::new((mix.clamp(0.0, 1.0) as f32).to_bits()), sample_rate: sample_rate }
+    }
+
+    /// Updates this effect's params in place. Delay time/feedback/mix are always live (no
+    /// rebuild - see `StereoDelayLine`); reverb's room/time/damping only trigger a rebuild of
+    /// the internal fundsp node when one of them actually changed, and reverb's mix is always
+    /// live regardless. Silently does nothing if `params`'s kind doesn't match this handle's
+    /// existing kind (an addon shouldn't call `setDelayParams` on a reverb id, but a stale id
+    /// reused across a hot-reload shouldn't panic the audio thread either).
+    fn set_params(&self, params: EffectParams) {
+        match params {
+            EffectParams::Delay(p) => {
+                self.mix.store((p.mix.clamp(0.0, 1.0) as f32).to_bits(), Ordering::Relaxed);
+                if let EffectState::Delay { time, feedback, .. } = &mut *self.state.lock().unwrap() {
+                    *time = p.time.max(0.0) as f32;
+                    *feedback = p.feedback.clamp(0.0, 0.95) as f32;
+                }
+            }
+            EffectParams::Reverb(p) => {
+                self.mix.store((p.mix.clamp(0.0, 1.0) as f32).to_bits(), Ordering::Relaxed);
+                let mut state = self.state.lock().unwrap();
+                if let EffectState::Reverb { node, room_size, time, damping } = &mut *state {
+                    if *room_size != p.room_size || *time != p.time || *damping != p.damping {
+                        *node = build_reverb_node(p.room_size, p.time, p.damping, self.sample_rate);
+                        *room_size = p.room_size;
+                        *time = p.time;
+                        *damping = p.damping;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Processes one dry stereo frame through this effect and adds the result back in at its
+    /// live mix level - `dry + wet*mix`, an insert-style send matching the additive dry+wet
+    /// blend the old per-note delay/reverb combinators already used, so chaining several of
+    /// these (see `TrackBusSource`) reproduces the same "each stage adds onto what came before"
+    /// signal flow as the original per-note `wrap!` macro's `multipass::<U2>() & (... * mix)`.
+    fn process_and_mix(&self, dry: [f32; 2]) -> [f32; 2] {
+        let wet = self.state.lock().unwrap().process(dry);
+        let mix = f32::from_bits(self.mix.load(Ordering::Relaxed));
+        [dry[0] + wet[0] * mix, dry[1] + wet[1] * mix]
+    }
+}
+
+/// The persistent, continuously-running signal source behind one track's mixing bus. Wraps a
+/// `rodio::mixer::MixerSource` (which sums every note currently playing on this track) rather
+/// than being appended straight to a `Sink` - a bare `MixerSource` reports itself finished
+/// (`next()` returns `None`) whenever it has no current notes, which would let a `Sink` drop it
+/// the instant a track goes quiet between notes. This wrapper never signals completion: an empty
+/// mixer just reads as silence, so the bus - and anything live-adjusted on it (gain/mute/solo/
+/// effects) - keeps running for the track's entire lifetime, exactly like a real mixing console
+/// channel.
+struct TrackBusSource {
+    mixer_source: rodio::mixer::MixerSource,
+    effects: Arc<Mutex<Vec<Arc<EffectHandle>>>>,
+    gain: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    solo: Arc<AtomicBool>,
+    any_solo: Arc<AtomicBool>,
+    sample_rate: f32,
+    buf: [f32; 2],
+    buf_idx: u8,
+}
+
+impl Iterator for TrackBusSource {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buf_idx == 0 {
+            let dry = [
+                self.mixer_source.next().unwrap_or(0.0),
+                self.mixer_source.next().unwrap_or(0.0),
+            ];
+
+            let mut x = dry;
+            for effect in self.effects.lock().unwrap().iter() {
+                x = effect.process_and_mix(x);
+            }
+
+            // Real-time mute/solo: read every sample, not just at note-trigger time, so toggling
+            // either one takes effect immediately on notes already ringing - the actual point of
+            // a persistent bus instead of the old fire-and-forget per-note sinks.
+            let active = if self.any_solo.load(Ordering::Relaxed) {
+                self.solo.load(Ordering::Relaxed)
+            } else {
+                !self.muted.load(Ordering::Relaxed)
+            };
+            let gain = if active { f32::from_bits(self.gain.load(Ordering::Relaxed)) } else { 0.0 };
+
+            self.buf = [x[0] * gain, x[1] * gain];
+        }
+        let sample = self.buf[self.buf_idx as usize];
+        self.buf_idx = (self.buf_idx + 1) % 2;
+        Some(sample)
+    }
+}
+
+impl Source for TrackBusSource {
+    fn current_span_len(&self) -> Option<usize> { None }
+    fn channels(&self) -> u16 { 2 }
+    fn sample_rate(&self) -> u32 { self.sample_rate as u32 }
+    fn total_duration(&self) -> Option<std::time::Duration> { None }
+}
+
+/// The main-thread-facing handle for one track's persistent mixing bus - see `TrackBusSource`
+/// for the audio-thread side sharing these same `Arc`s. `_sink` is never read again after
+/// creation; it's kept alive purely so dropping this `TrackBus` (on `remove_track_bus`) also
+/// drops the `Sink`, which is how a deleted track's bus actually stops making sound - a
+/// never-ending source like `TrackBusSource` can't be dropped by any other means (unlike the old
+/// per-note sinks, this one is never `.detach()`ed).
+struct TrackBus {
+    note_mixer: rodio::mixer::Mixer,
+    _sink: Sink,
+    gain: Arc<AtomicU32>,
+    muted: Arc<AtomicBool>,
+    solo: Arc<AtomicBool>,
+    effects: Arc<Mutex<Vec<Arc<EffectHandle>>>>,
+}
+
 pub struct AudioEngine {
     stream_handle: OutputStream,
+    effects: Mutex<HashMap<String, Arc<EffectHandle>>>,
+    track_buses: Mutex<HashMap<String, TrackBus>>,
+    any_solo: Arc<AtomicBool>,
 }
 
 impl AudioEngine {
@@ -318,7 +645,111 @@ impl AudioEngine {
 
         AudioEngine {
             stream_handle,
+            effects: Mutex::new(HashMap::new()),
+            track_buses: Mutex::new(HashMap::new()),
+            any_solo: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    // --- Entropy.AudioEffect: a shared, reusable effect registry (see the module doc comment
+    // above `StereoDelayLine`) ---
+
+    pub fn create_effect(&self, params: EffectParams) -> String {
+        let id = uuid::Uuid::new_v4().to_string();
+        let handle = Arc::new(EffectHandle::new(44100.0, params));
+        self.effects.lock().unwrap().insert(id.clone(), handle);
+        id
+    }
+
+    pub fn set_effect_params(&self, effect_id: &str, params: EffectParams) {
+        if let Some(handle) = self.effects.lock().unwrap().get(effect_id) {
+            handle.set_params(params);
+        }
+    }
+
+    pub fn destroy_effect(&self, effect_id: &str) {
+        self.effects.lock().unwrap().remove(effect_id);
+    }
+
+    // --- Entropy.Audio track buses: persistent per-track mixer + gain/mute/solo + effect chain ---
+
+    /// Creates a track's bus on first call, or updates its gain/mute/solo/effect chain on every
+    /// call after that - the DAW addon calls this once per track every time it persists project
+    /// state, so there's no separate create-vs-update entry point to keep in sync.
+    pub fn ensure_track_bus(&self, track_id: &str, gain: f64, muted: bool, solo: bool, effect_ids: &[String]) {
+        let resolved: Vec<Arc<EffectHandle>> = {
+            let effects = self.effects.lock().unwrap();
+            effect_ids.iter().filter_map(|id| effects.get(id).cloned()).collect()
+        };
+
+        let mut buses = self.track_buses.lock().unwrap();
+        if let Some(bus) = buses.get(track_id) {
+            bus.gain.store((gain as f32).to_bits(), Ordering::Relaxed);
+            bus.muted.store(muted, Ordering::Relaxed);
+            bus.solo.store(solo, Ordering::Relaxed);
+            *bus.effects.lock().unwrap() = resolved;
+        } else {
+            let sample_rate = 44100.0f32;
+            let (note_mixer, mixer_source) = rodio::mixer::mixer(2, sample_rate as u32);
+
+            let gain_a = Arc::new(AtomicU32::new((gain as f32).to_bits()));
+            let muted_a = Arc::new(AtomicBool::new(muted));
+            let solo_a = Arc::new(AtomicBool::new(solo));
+            let effects_a = Arc::new(Mutex::new(resolved));
+
+            let source = TrackBusSource {
+                mixer_source,
+                effects: effects_a.clone(),
+                gain: gain_a.clone(),
+                muted: muted_a.clone(),
+                solo: solo_a.clone(),
+                any_solo: self.any_solo.clone(),
+                sample_rate,
+                buf: [0.0; 2],
+                buf_idx: 0,
+            };
+
+            let sink = Sink::connect_new(self.stream_handle.mixer());
+            sink.append(source);
+
+            buses.insert(track_id.to_string(), TrackBus {
+                note_mixer,
+                _sink: sink,
+                gain: gain_a,
+                muted: muted_a,
+                solo: solo_a,
+                effects: effects_a,
+            });
+        }
+
+        let any = buses.values().any(|b| b.solo.load(Ordering::Relaxed));
+        self.any_solo.store(any, Ordering::Relaxed);
+    }
+
+    pub fn remove_track_bus(&self, track_id: &str) {
+        let mut buses = self.track_buses.lock().unwrap();
+        buses.remove(track_id);
+        let any = buses.values().any(|b| b.solo.load(Ordering::Relaxed));
+        self.any_solo.store(any, Ordering::Relaxed);
+    }
+
+    /// Triggers one note on an already-created track bus (see `ensure_track_bus`) - the note
+    /// gets only its own oscillator/envelope graph (`build_voice_node`, no FX baked in); delay/
+    /// reverb now live once on the bus and are shared by every note passing through it. Silently
+    /// does nothing if the track bus doesn't exist yet (the addon always calls `ensure_track_bus`
+    /// before this, but a stale/deleted track id shouldn't panic the audio thread).
+    pub fn play_note_on_track(&self, track_id: &str, voice: &str, params: NoteParams) {
+        let buses = self.track_buses.lock().unwrap();
+        let Some(bus) = buses.get(track_id) else { return; };
+
+        let sample_rate = 44100.0f32;
+        let node = build_voice_node(voice, &params, sample_rate);
+        let dur = params.duration.max(0.02) as f32;
+
+        let source = FundspSource { node, sample_rate, buf: [0.0; 2], buf_idx: 0 }
+            .take_duration(std::time::Duration::from_secs_f32(dur));
+
+        bus.note_mixer.add(source);
     }
 
     pub fn play_test_tone(&self) {

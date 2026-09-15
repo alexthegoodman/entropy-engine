@@ -347,6 +347,34 @@ export interface ScopedAPI {
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
     renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
+    /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
+     * bus: gain/mute/solo apply continuously and in real time, including to notes already
+     * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
+     * params change (mirroring how the DAW addon calls it from its own `persist()`). */
+    ensureTrackBus: (trackId: string, config: TrackBusConfig) => void;
+    /** Tears down a track's bus (and stops its sound) - call when a track is deleted. */
+    removeTrackBus: (trackId: string) => void;
+    /** Triggers one note on an already-created track bus (see `ensureTrackBus`). The bus's own
+     * `effectIds` chain handles FX now, so there are no delay/reverb fields here. */
+    playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+  };
+  /** A shared, reusable effect registry - create an effect once, then attach it to one or more
+   * track buses by id via `Audio.ensureTrackBus`'s `effectIds`, instead of baking delay/reverb
+   * fields into every note/track config. Effects are bus-only (not attachable to a single
+   * one-shot `Audio.playNote` call): a stateful streaming effect like a delay line or reverb
+   * needs one already-summed signal to process correctly, which is exactly what a mixing bus
+   * provides and an individual note doesn't. */
+  AudioEffect: {
+    createDelay: (config?: DelayEffectConfig) => string;
+    createReverb: (config?: ReverbEffectConfig) => string;
+    /** Time/feedback/mix all update live, no rebuild. */
+    setDelayParams: (effectId: string, config: DelayEffectConfig) => void;
+    /** `mix` updates live; changing `roomSize`/`time`/`damping` rebuilds the effect's internal
+     * reverb node in place (see `ReverbEffectConfig.mix`'s doc comment). */
+    setReverbParams: (effectId: string, config: ReverbEffectConfig) => void;
+    /** Removes the effect from the registry. Any track bus still referencing this id by name
+     * simply drops it from its chain on its next `ensureTrackBus` call. */
+    destroy: (effectId: string) => void;
   };
   Particles: {
     createHair: (config: {
@@ -393,6 +421,12 @@ export interface ScopedAPI {
       kanban: (windowId: string, config: KanbanConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
+      /** A vertical stack, same shape as `horizontal` - mainly useful inside a `horizontal` row
+       * so each cell can hold several stacked widgets (a "column"). */
+      vertical: (windowId: string, render: (windowId: string) => void) => void;
+      /** Like `vertical`, but draws a visible frame/border around its contents - use for a
+       * "channel strip" or boxed section instead of an unbroken flat stack of widgets. */
+      group: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
@@ -694,6 +728,57 @@ export interface RenderPatternWavResult {
   durationSeconds: number;
   /** Set when `success` is false - e.g. the user cancelled the save dialog. */
   error?: string;
+}
+
+export interface DelayEffectConfig {
+  /** Echo delay time in seconds, 0..2. Default 0.3. */
+  time?: number;
+  /** Feedback gain fed back into the delay line each repeat, 0..0.95. Default 0.35. */
+  feedback?: number;
+  /** Wet/dry mix of the delayed signal, 0 (off, default)..1. Live-adjustable with no rebuild. */
+  mix?: number;
+}
+
+export interface ReverbEffectConfig {
+  /** Room size in meters, clamped to 10..30. Default 10. */
+  roomSize?: number;
+  /** Reverberation time in seconds to -60dB. Default 1.2. */
+  time?: number;
+  /** Damping filter amount, 0..1. Default 0.5. */
+  damping?: number;
+  /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. Live-adjustable; changing
+   * `roomSize`/`time`/`damping` rebuilds the effect's internal reverb node in place. */
+  mix?: number;
+}
+
+/** Config for `Audio.ensureTrackBus` - creates a track's persistent mixing bus on first call,
+ * updates its gain/mute/solo/effect chain on every call after that. */
+export interface TrackBusConfig {
+  /** 0..1, applied continuously (including to notes already ringing), unlike a note's own gain. */
+  gain?: number;
+  /** Silences this track's output immediately, even mid-note - unlike the old per-note
+   * architecture, mute isn't just "don't trigger new notes." */
+  muted?: boolean;
+  solo?: boolean;
+  /** Effect ids from `AudioEffect.createDelay`/`createReverb`, chained in order - each stage's
+   * wet signal is added onto what came before it (insert-style), then the next effect in the
+   * list sees that combined signal. */
+  effectIds?: string[];
+}
+
+/** Config for `Audio.playNoteOnTrack` - like `NoteConfig` but with no delay/reverb fields: FX
+ * now lives on the track's bus (see `TrackBusConfig.effectIds`), shared by every note on it. */
+export interface PlayNoteOnTrackConfig {
+  freq: number;
+  waveform?: SynthWaveform | DrumVoice | string;
+  duration?: number;
+  cutoff?: number;
+  resonance?: number;
+  gain?: number;
+  attack?: number;
+  decay?: number;
+  sustain?: number;
+  release?: number;
 }
 
 export interface PianoRollCell {
@@ -1083,6 +1168,12 @@ export interface EntropyAPI {
       kanban: (windowId: string, config: KanbanConfig) => void;
       collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
+      /** A vertical stack, same shape as `horizontal` - mainly useful inside a `horizontal` row
+       * so each cell can hold several stacked widgets (a "column"). */
+      vertical: (windowId: string, render: (windowId: string) => void) => void;
+      /** Like `vertical`, but draws a visible frame/border around its contents - use for a
+       * "channel strip" or boxed section instead of an unbroken flat stack of widgets. */
+      group: (windowId: string, render: (windowId: string) => void) => void;
       separator: (windowId: string) => void;
       hyperlink: (windowId: string, config: HyperlinkConfig) => void;
       textInput: (windowId: string, config: TextInputConfig) => void;
@@ -1321,6 +1412,23 @@ export interface EntropyAPI {
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
     renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
+    /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
+     * bus: gain/mute/solo apply continuously and in real time, including to notes already
+     * ringing - not just to future `playNoteOnTrack` calls. */
+    ensureTrackBus: (trackId: string, config: TrackBusConfig) => void;
+    /** Tears down a track's bus (and stops its sound) - call when a track is deleted. */
+    removeTrackBus: (trackId: string) => void;
+    /** Triggers one note on an already-created track bus (see `ensureTrackBus`). */
+    playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+  };
+  /** A shared, reusable effect registry - see the scoped `Entropy.Addon.register()` API's
+   * `AudioEffect` for the full doc comment (identical surface, top-level here). */
+  AudioEffect: {
+    createDelay: (config?: DelayEffectConfig) => string;
+    createReverb: (config?: ReverbEffectConfig) => string;
+    setDelayParams: (effectId: string, config: DelayEffectConfig) => void;
+    setReverbParams: (effectId: string, config: ReverbEffectConfig) => void;
+    destroy: (effectId: string) => void;
   };
   println: (msg: unknown) => void;
   generateUUID: () => string;

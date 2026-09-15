@@ -416,6 +416,13 @@ pub enum UiWidget {
     EndCollapsingHeader,
     StartHorizontal,
     EndHorizontal,
+    StartVertical,
+    EndVertical,
+    /// Like `StartVertical`/`EndVertical`, but also draws a visible frame/border around its
+    /// contents (`ui.group`) - for a "channel strip" or "section box" look instead of an
+    /// unbroken flat stack of widgets.
+    StartGroup,
+    EndGroup,
     Separator,
     Hyperlink { id: String, text: String, url: String },
     TextInput { id: String, label: String, value: String },
@@ -1958,6 +1965,139 @@ pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
     }
 }
 
+// --- Entropy.AudioEffect: a shared, reusable effect registry (see the doc comment above
+// `StereoDelayLine` in src/audio/mod.rs for why this replaced flat delay*/reverb* fields on
+// every note/track config) and Entropy.Audio's persistent per-track mixing bus. ---
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateDelayConfig {
+    pub time: f64,
+    pub feedback: f64,
+    pub mix: f64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateReverbConfig {
+    pub room_size: f64,
+    pub time: f64,
+    pub damping: f64,
+    pub mix: f64,
+}
+
+#[op2]
+#[string]
+pub fn op_audio_effect_create_delay(state: &mut OpState, #[serde] config: CreateDelayConfig) -> String {
+    let ctx = state.borrow::<AddonContext>();
+    ctx.audio_engine.create_effect(crate::audio::EffectParams::Delay(crate::audio::DelayEffectParams {
+        time: config.time,
+        feedback: config.feedback,
+        mix: config.mix,
+    }))
+}
+
+#[op2]
+#[string]
+pub fn op_audio_effect_create_reverb(state: &mut OpState, #[serde] config: CreateReverbConfig) -> String {
+    let ctx = state.borrow::<AddonContext>();
+    ctx.audio_engine.create_effect(crate::audio::EffectParams::Reverb(crate::audio::ReverbEffectParams {
+        room_size: config.room_size,
+        time: config.time,
+        damping: config.damping,
+        mix: config.mix,
+    }))
+}
+
+#[op2]
+pub fn op_audio_effect_set_delay(state: &mut OpState, #[string] effect_id: String, #[serde] config: CreateDelayConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.set_effect_params(&effect_id, crate::audio::EffectParams::Delay(crate::audio::DelayEffectParams {
+            time: config.time,
+            feedback: config.feedback,
+            mix: config.mix,
+        }));
+    }
+}
+
+#[op2]
+pub fn op_audio_effect_set_reverb(state: &mut OpState, #[string] effect_id: String, #[serde] config: CreateReverbConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.set_effect_params(&effect_id, crate::audio::EffectParams::Reverb(crate::audio::ReverbEffectParams {
+            room_size: config.room_size,
+            time: config.time,
+            damping: config.damping,
+            mix: config.mix,
+        }));
+    }
+}
+
+#[op2(fast)]
+pub fn op_audio_effect_destroy(state: &mut OpState, #[string] effect_id: String) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.destroy_effect(&effect_id);
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsureTrackBusConfig {
+    pub track_id: String,
+    pub gain: f64,
+    pub muted: bool,
+    pub solo: bool,
+    #[serde(default)]
+    pub effect_ids: Vec<String>,
+}
+
+#[op2]
+pub fn op_audio_ensure_track_bus(state: &mut OpState, #[serde] config: EnsureTrackBusConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.ensure_track_bus(&config.track_id, config.gain, config.muted, config.solo, &config.effect_ids);
+    }
+}
+
+#[op2(fast)]
+pub fn op_audio_remove_track_bus(state: &mut OpState, #[string] track_id: String) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.remove_track_bus(&track_id);
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PlayNoteOnTrackConfig {
+    pub track_id: String,
+    pub freq: f64,
+    pub waveform: String,
+    pub duration: f64,
+    pub cutoff: f64,
+    pub resonance: f64,
+    pub gain: f64,
+    pub attack: f64,
+    pub decay: f64,
+    pub sustain: f64,
+    pub release: f64,
+}
+
+#[op2]
+pub fn op_audio_play_note_on_track(state: &mut OpState, #[serde] config: PlayNoteOnTrackConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.play_note_on_track(&config.track_id, &config.waveform, crate::audio::NoteParams {
+            freq: config.freq,
+            duration: config.duration,
+            cutoff: config.cutoff,
+            resonance: config.resonance,
+            gain: config.gain,
+            attack: config.attack,
+            decay: config.decay,
+            sustain: config.sustain,
+            release: config.release,
+            ..Default::default()
+        });
+    }
+}
+
 // --- Offline pattern-to-WAV export ---
 // Unlike `op_audio_play_note` (one detached realtime rodio Sink per note, fire-and-forget),
 // this renders a whole pattern's worth of pre-scheduled note events entirely offline via
@@ -2844,6 +2984,34 @@ pub fn op_ui_widget_start_horizontal(state: &mut OpState, #[string] window_id: S
 pub fn op_ui_widget_end_horizontal(state: &mut OpState, #[string] window_id: String) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::EndHorizontal);
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_start_vertical(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::StartVertical);
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_end_vertical(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::EndVertical);
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_start_group(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::StartGroup);
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_end_group(state: &mut OpState, #[string] window_id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::EndGroup);
     }
 }
 

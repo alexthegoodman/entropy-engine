@@ -76,7 +76,70 @@ const audioAPI = {
             reverbDamping: e.reverbDamping ?? 0.5,
             reverbMix: e.reverbMix ?? 0.0
         })), suggestedName || "pattern.wav");
+    },
+    // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
+    // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
+    // chain on every call after that - call this any time a track's own params change, not just
+    // once at creation. `effectIds` are ids returned by Entropy.AudioEffect.createDelay/createReverb.
+    ensureTrackBus: (trackId, config) => {
+        ops.op_audio_ensure_track_bus({
+            trackId,
+            gain: config?.gain ?? 0.5,
+            muted: config?.muted ?? false,
+            solo: config?.solo ?? false,
+            effectIds: config?.effectIds ?? []
+        });
+    },
+    removeTrackBus: (trackId) => {
+        ops.op_audio_remove_track_bus(trackId);
+    },
+    // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
+    // fields here - FX lives on the bus itself now, shared by every note passing through it.
+    playNoteOnTrack: (trackId, config) => {
+        ops.op_audio_play_note_on_track({
+            trackId,
+            freq: config.freq || 440.0,
+            waveform: config.waveform || "sine",
+            duration: config.duration || 0.5,
+            cutoff: config.cutoff || 20000.0,
+            resonance: config.resonance || 1.0,
+            gain: config.gain || 0.2,
+            attack: config.attack ?? 0.005,
+            decay: config.decay ?? 0.05,
+            sustain: config.sustain ?? 0.85,
+            release: config.release ?? 0.05
+        });
     }
+};
+
+// A shared, reusable effect registry - create an effect once (createDelay/createReverb), then
+// attach it to one or more track buses by id via Entropy.Audio.ensureTrackBus's `effectIds`
+// instead of baking delay/reverb fields into every note/track config. See the doc comment above
+// `StereoDelayLine` in src/audio/mod.rs for why.
+const audioEffectAPI = {
+    createDelay: (config) => ops.op_audio_effect_create_delay({
+        time: config?.time ?? 0.3,
+        feedback: config?.feedback ?? 0.35,
+        mix: config?.mix ?? 0.0
+    }),
+    createReverb: (config) => ops.op_audio_effect_create_reverb({
+        roomSize: config?.roomSize ?? 10.0,
+        time: config?.time ?? 1.2,
+        damping: config?.damping ?? 0.5,
+        mix: config?.mix ?? 0.0
+    }),
+    setDelayParams: (effectId, config) => ops.op_audio_effect_set_delay(effectId, {
+        time: config?.time ?? 0.3,
+        feedback: config?.feedback ?? 0.35,
+        mix: config?.mix ?? 0.0
+    }),
+    setReverbParams: (effectId, config) => ops.op_audio_effect_set_reverb(effectId, {
+        roomSize: config?.roomSize ?? 10.0,
+        time: config?.time ?? 1.2,
+        damping: config?.damping ?? 0.5,
+        mix: config?.mix ?? 0.0
+    }),
+    destroy: (effectId) => ops.op_audio_effect_destroy(effectId)
 };
 
 const textureAPI = {
@@ -599,6 +662,7 @@ globalThis.Entropy = {
                 Texture: textureAPI,
                 Lighting: contextualAPI.Lighting,
                 Audio: audioAPI,
+                AudioEffect: audioEffectAPI,
                 IO: {
                     save: (data) => {
                         ops.op_println(String("Saving Data: " + metadata.name));
@@ -821,6 +885,20 @@ globalThis.Entropy = {
                 ops.op_ui_widget_start_horizontal(windowId);
                 render(windowId);
                 ops.op_ui_widget_end_horizontal(windowId);
+            },
+            // A vertical stack, same shape as horizontal() - mainly useful inside a horizontal()
+            // row, so each cell can itself hold several stacked widgets (a "column").
+            vertical: (windowId, render) => {
+                ops.op_ui_widget_start_vertical(windowId);
+                render(windowId);
+                ops.op_ui_widget_end_vertical(windowId);
+            },
+            // Like vertical(), but draws a visible frame/border around its contents - use for a
+            // "channel strip" or boxed section instead of an unbroken flat stack of widgets.
+            group: (windowId, render) => {
+                ops.op_ui_widget_start_group(windowId);
+                render(windowId);
+                ops.op_ui_widget_end_group(windowId);
             },
             pianoRoll: (windowId, config) => {
                 const rows = config?.rows || 12;
@@ -1292,6 +1370,7 @@ globalThis.Entropy = {
         }
     },
     Audio: audioAPI,
+    AudioEffect: audioEffectAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

@@ -60,6 +60,8 @@ use crate::deno::addon_ops::{
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
     op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_behavior_register, op_buffer_create,
+    op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_destroy,
+    op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
@@ -77,6 +79,7 @@ use crate::deno::addon_ops::{
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
     op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
+    op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
     op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text,
     op_ui_set_theme, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
@@ -199,6 +202,10 @@ extension!(
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
         op_ui_widget_end_horizontal,
+        op_ui_widget_start_vertical,
+        op_ui_widget_end_vertical,
+        op_ui_widget_start_group,
+        op_ui_widget_end_group,
         op_ui_widget_separator,
         op_ui_widget_hyperlink,
         op_ui_widget_text_input,
@@ -240,6 +247,14 @@ extension!(
         op_audio_play_note,
         op_audio_play_test,
         op_audio_render_pattern_wav,
+        op_audio_effect_create_delay,
+        op_audio_effect_create_reverb,
+        op_audio_effect_set_delay,
+        op_audio_effect_set_reverb,
+        op_audio_effect_destroy,
+        op_audio_ensure_track_bus,
+        op_audio_remove_track_bus,
+        op_audio_play_note_on_track,
         op_addon_on_project_changed,
         op_addon_set_visibility,
         op_camera_get_transform,
@@ -4405,6 +4420,56 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     }
                 }
                 UiWidget::EndHorizontal => {}
+                UiWidget::StartVertical => {
+                    // Find matching EndVertical
+                    let mut depth = 1;
+                    let mut end_idx = i + 1;
+                    while end_idx < widgets.len() && depth > 0 {
+                        match &widgets[end_idx] {
+                            UiWidget::StartVertical => depth += 1,
+                            UiWidget::EndVertical => depth -= 1,
+                            _ => {}
+                        }
+                        if depth > 0 {
+                            end_idx += 1;
+                        }
+                    }
+
+                    if end_idx < widgets.len() {
+                        let sub_widgets = &widgets[i + 1..end_idx];
+                        ui.vertical(|ui| {
+                            Self::render_widgets(ui, sub_widgets, events_to_push, context, egui_renderer);
+                        });
+                        i = end_idx;
+                    }
+                }
+                UiWidget::EndVertical => {}
+                UiWidget::StartGroup => {
+                    // Find matching EndGroup
+                    let mut depth = 1;
+                    let mut end_idx = i + 1;
+                    while end_idx < widgets.len() && depth > 0 {
+                        match &widgets[end_idx] {
+                            UiWidget::StartGroup => depth += 1,
+                            UiWidget::EndGroup => depth -= 1,
+                            _ => {}
+                        }
+                        if depth > 0 {
+                            end_idx += 1;
+                        }
+                    }
+
+                    if end_idx < widgets.len() {
+                        let sub_widgets = &widgets[i + 1..end_idx];
+                        ui.group(|ui| {
+                            ui.vertical(|ui| {
+                                Self::render_widgets(ui, sub_widgets, events_to_push, context, egui_renderer);
+                            });
+                        });
+                        i = end_idx;
+                    }
+                }
+                UiWidget::EndGroup => {}
                 UiWidget::Separator => {
                     ui.separator();
                 }
