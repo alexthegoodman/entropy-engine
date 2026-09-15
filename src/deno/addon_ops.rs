@@ -930,6 +930,12 @@ pub enum InputEvent {
     StylusDown { x: f32, y: f32, pressure: f32, tiltX: Option<f32>, tiltY: Option<f32> },
     StylusMove { x: f32, y: f32, pressure: f32, tiltX: Option<f32>, tiltY: Option<f32> },
     StylusUp { x: f32, y: f32 },
+    // A drawing tablet's physical zoom wheel/dial reports through the same WindowEvent::MouseWheel
+    // a real mouse scroll wheel does - no separate pointer-packet plumbing needed, unlike tilt/
+    // barrel. `deltaY` is normalized to "lines" (a PixelDelta is divided by 20px/line - an
+    // arbitrary but reasonable line height, matching common browser/OS conventions) so callers
+    // don't need to care which delta type the platform sent.
+    MouseWheel { deltaX: f32, deltaY: f32 },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -966,11 +972,21 @@ pub struct ComputePipelineConfig {
     pub bind_groups: Vec<BindGroupDef>,
 }
 
+fn default_gizmo_rotation() -> [f32; 4] {
+    [0.0, 0.0, 0.0, 1.0] // identity quaternion, [x, y, z, w]
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GizmoState {
     pub position: [f32; 3],
-    pub mode: String, // "translate", "rotate", "scale"
+    // [x, y, z, w] - identity when a caller doesn't seed one, which is every pre-existing
+    // caller (game_composer_addon.ts, inorganic_modelling_addon.ts): they never move off
+    // identity since their mode strings never include a rotate handle, so this addition is a
+    // no-op for them.
+    #[serde(default = "default_gizmo_rotation")]
+    pub rotation: [f32; 4],
+    pub mode: String, // "translate", "rotate", "scale", "translate_rotate"
     pub space: String, // "world", "local"
     pub id: String,
 }
@@ -2137,6 +2153,93 @@ pub struct NoteEventConfig {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct GlbMeshExportConfig {
+    pub name: String,
+    pub positions: Vec<f32>, // flat x,y,z - already world-space (see GLBExporter's doc comment)
+    pub normals: Vec<f32>,   // flat x,y,z
+    pub uvs: Vec<f32>,       // flat u,v
+    pub indices: Vec<u32>,
+    pub texture_width: u32,
+    pub texture_height: u32,
+    // NOT texture pixel data - see op_model_export_glb's doc comment on the separate `textures`
+    // buffer param for why.
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportGlbResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+// Opens a native Save As dialog and writes a self-contained .glb (textures embedded, no
+// external references) built from addon-supplied, already-world-space mesh data - see
+// src/art_assets/GLBExporter.rs for the actual glTF/GLB assembly. Mirrors
+// op_audio_render_pattern_wav's shape (save dialog -> build bytes -> write -> report path).
+//
+// Texture pixel data is a SEPARATE `#[buffer]` param (every mesh's RGBA canvas concatenated
+// back-to-back, in `meshes` order - addon_setup.js's exportGlb wrapper does the concatenating,
+// invisible to the addon-facing API) rather than a `texture_rgba: Vec<u8>` field on
+// GlbMeshExportConfig. A field on a #[serde]-deserialized struct has no zero-copy path - each
+// of a CANVAS_RES^2*4 (~2.3MB) array's individual bytes would cross the V8 boundary one
+// serde_v8 element at a time, which measured as an effectively-hung, many-second-plus stall
+// with zero output for even a single surface. A top-level `#[buffer]` arg gets a real
+// zero-copy slice instead - this one change took the same call from "looks hung" to instant.
+#[op2]
+#[serde]
+pub fn op_model_export_glb(
+    state: &mut OpState,
+    #[serde] meshes: Vec<GlbMeshExportConfig>,
+    #[buffer] textures: &[u8],
+    #[string] suggested_name: String,
+) -> ExportGlbResult {
+    if state.try_borrow::<AddonContext>().is_none() {
+        return ExportGlbResult { success: false, path: None, error: Some("Context not available".to_string()) };
+    }
+
+    let file_path = rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&suggested_name)
+        .save_file();
+
+    let Some(output_path) = file_path else {
+        return ExportGlbResult { success: false, path: None, error: Some("Export cancelled".to_string()) };
+    };
+
+    let mut export_meshes: Vec<crate::art_assets::GLBExporter::GlbMeshExport> = Vec::with_capacity(meshes.len());
+    let mut tex_offset = 0usize;
+    for m in meshes {
+        let tex_len = (m.texture_width as usize) * (m.texture_height as usize) * 4;
+        let Some(texture_rgba) = textures.get(tex_offset..tex_offset + tex_len) else {
+            return ExportGlbResult { success: false, path: None, error: Some(format!("texture buffer too short for mesh '{}'", m.name)) };
+        };
+        tex_offset += tex_len;
+        export_meshes.push(crate::art_assets::GLBExporter::GlbMeshExport {
+            name: m.name,
+            positions: m.positions,
+            normals: m.normals,
+            uvs: m.uvs,
+            indices: m.indices,
+            texture_rgba: texture_rgba.to_vec(),
+            texture_width: m.texture_width,
+            texture_height: m.texture_height,
+        });
+    }
+
+    let bytes = match crate::art_assets::GLBExporter::build_glb(&export_meshes) {
+        Ok(b) => b,
+        Err(e) => return ExportGlbResult { success: false, path: None, error: Some(e) },
+    };
+
+    match std::fs::write(&output_path, &bytes) {
+        Ok(_) => ExportGlbResult { success: true, path: Some(output_path.display().to_string()), error: None },
+        Err(e) => ExportGlbResult { success: false, path: None, error: Some(format!("Write failed: {e}")) },
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct RenderPatternWavResult {
     pub success: bool,
     pub path: Option<String>,
@@ -2315,6 +2418,21 @@ pub fn op_gizmo_update(state: &mut OpState, x: f32, y: f32, z: f32) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         if let Some(gizmo) = &mut ctx.active_gizmo {
             gizmo.position = [x, y, z];
+        }
+    }
+}
+
+// Mirrors op_gizmo_update but for rotation - a caller using a rotate-capable mode needs this
+// for the same reason op_gizmo_update exists for position (see game_composer_addon.ts's own
+// comment on updatePosition): the widget's Rust-side rotation is only ever set from
+// Gizmo.show's initial value, so without pushing the new value back after a drag, the gizmo
+// visually snaps back to its pre-drag orientation once the widget's transform is rebuilt from
+// the now-stale rotation next frame.
+#[op2(fast)]
+pub fn op_gizmo_update_rotation(state: &mut OpState, x: f32, y: f32, z: f32, w: f32) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(gizmo) = &mut ctx.active_gizmo {
+            gizmo.rotation = [x, y, z, w];
         }
     }
 }

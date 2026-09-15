@@ -204,6 +204,29 @@ pub struct RendererState {
     pub last_known_mouse_position: Option<EntropyPosition>,
     pub last_mouse_delta: (f32, f32),
 
+    // True from a WindowEvent::Touch(Started) through its matching Ended/Cancelled (see
+    // handlers.rs's handle_stylus_touch). Windows also delivers legacy mouse-compatibility
+    // CursorMoved/MouseInput events alongside real pen contact (the same fact
+    // stylus_drawing_addon.ts's own `usingStylus` JS-side flag already guards against, to avoid
+    // double-drawing) - without gating startup.rs's CursorMoved/MouseInput handlers on this
+    // flag, that legacy synthesis (reporting mousePressed=false, since no real mouse button is
+    // actually down) raced with and immediately stomped the touch-driven
+    // mouse_state.is_dragging/current_mouse_position this same event set right back to
+    // false/stale, so a stylus drag on the gizmo (or via Entropy.Controls' orbit) looked like it
+    // did nothing at all even though hover worked fine.
+    //
+    // Read through `is_stylus_active()`, not directly - a lost/undelivered Ended/Cancelled
+    // (pen lift-off has already been observed to be flaky: the 2026-09-11 stylus post notes
+    // pressure/tilt reading back toward 0 right at lift-off, "not yet root-caused") would
+    // otherwise leave this stuck `true` forever, permanently locking out real mouse input.
+    pub stylus_active: bool,
+    pub last_touch_time: Option<Instant>,
+    // Edge-detected in handlers.rs's handle_stylus_touch (via crate::stylus::tilt_for's
+    // `barrel` field) to synthesize a real InputEvent::MouseDown/Up{button:1} - a pen's barrel
+    // button has no Win32 mouse-message equivalent at all (see PenTilt's doc comment), so
+    // without this, Entropy.Controls' right-click-bound orbit trigger can never see it.
+    pub stylus_barrel_down: bool,
+
     pub shift_active: bool,
     pub ctrl_active: bool,
     pub alt_active: bool,
@@ -372,6 +395,9 @@ impl RendererState {
             display_debug_spheres: true,
             quest_state: QuestState::new(),
             last_mouse_delta: (0.0, 0.0),
+            stylus_active: false,
+            last_touch_time: None,
+            stylus_barrel_down: false,
             shift_active: false,
             ctrl_active: false,
             alt_active: false,

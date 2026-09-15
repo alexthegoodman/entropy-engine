@@ -1281,6 +1281,9 @@ globalThis.Entropy = {
                 case "StylusUp":
                     fireAll("onStylusUp", { x: event.x, y: event.y });
                     break;
+                case "MouseWheel":
+                    fireAll("onMouseWheel", event.deltaX, event.deltaY);
+                    break;
             }
         }
     },
@@ -1367,6 +1370,42 @@ globalThis.Entropy = {
         },
         clearMesh: (meshId) => {
             ops.op_mesh_clear(globalThis.__entropy_current_addon_context_override || "Global", meshId);
+        },
+        // Opens a native Save As dialog and writes a self-contained .glb built from
+        // already-world-space mesh data the caller supplies directly (no engine-side mesh
+        // registry lookup - unlike load/createMesh, this doesn't touch any live mesh, so it
+        // works equally for a mesh that was never registered as a scene entity at all). See
+        // src/art_assets/GLBExporter.rs for the actual glTF/GLB assembly.
+        //
+        // Every mesh's textureRgba is concatenated into ONE buffer here rather than passed as
+        // a per-mesh field, invisibly to the caller - op_model_export_glb takes it as a single
+        // top-level #[buffer] arg instead of a Vec<u8> field nested in each mesh's #[serde]
+        // struct, since the latter has no zero-copy path in deno_core (confirmed: a single
+        // ~2.3MB canvas passed that way looked like a hang - no crash, no dialog, no error -
+        // for several seconds+ with nothing to show for it, going through serde_v8's generic
+        // one-element-at-a-time Vec<T> path instead of a real buffer view).
+        exportGlb: (meshes, suggestedName) => {
+            let totalLen = 0;
+            for (const m of meshes) totalLen += m.textureRgba.length;
+            const textures = new Uint8Array(totalLen);
+            let off = 0;
+            for (const m of meshes) {
+                textures.set(m.textureRgba, off);
+                off += m.textureRgba.length;
+            }
+            return ops.op_model_export_glb(
+                meshes.map(m => ({
+                    name: m.name,
+                    positions: m.positions,
+                    normals: m.normals,
+                    uvs: m.uvs,
+                    indices: m.indices,
+                    textureWidth: m.textureWidth,
+                    textureHeight: m.textureHeight
+                })),
+                textures,
+                suggestedName || "export.glb"
+            );
         }
     },
     Audio: audioAPI,
@@ -1447,6 +1486,7 @@ globalThis.Entropy = {
         //   minPitch / maxPitch: radians, clamps orbit pitch (default
         //     +-~85 degrees to avoid flipping over the pole).
         //   invertY: flip vertical drag direction.
+        //   invertX: flip horizontal drag direction (orbit's yaw only).
         //   target: world-space point to orbit/pan around (defaults to the
         //     camera's current look-at target from Camera.getTransform()).
         enable(format, options = {}) {
@@ -1478,6 +1518,7 @@ globalThis.Entropy = {
                     minPitch: options.minPitch ?? -1.48,
                     maxPitch: options.maxPitch ?? 1.48,
                     invertY: options.invertY ?? false,
+                    invertX: options.invertX ?? false,
                 }
             };
 
@@ -1563,10 +1604,21 @@ globalThis.Entropy = {
                 if (button === state.options.button) state.dragging = false;
                 if (button === state.options.zoomButton) state.zooming = false;
             };
+            // A real mouse scroll wheel or a drawing tablet's physical zoom wheel/dial - always
+            // active regardless of trigger/dragging state (unlike drag-to-zoom, a wheel tick has
+            // no other meaning to disambiguate from here, so it doesn't need gating). Only
+            // "orbit" has a distance/target model to zoom along; "pan" has no forward-dolly
+            // concept established here, so wheel ticks are a no-op for it.
+            const onWheel = (_deltaX, deltaY) => {
+                if (format !== "orbit" || deltaY === 0) return;
+                state.distance = Math.max(0.5, state.distance - deltaY * state.options.zoomSpeed * state.distance * 0.1);
+                applyOrbit();
+            };
 
             globalThis.Entropy.Controls._unsubs = [
                 globalThis.Entropy.Input.onMouseDown(onDown),
                 globalThis.Entropy.Input.onMouseUp(onUp),
+                globalThis.Entropy.Input.onMouseWheel(onWheel),
             ];
 
             // The tick reads Controls._state fresh every call, so it's safe to
@@ -1591,11 +1643,12 @@ globalThis.Entropy = {
                     if (dxp === 0 && dyp === 0) return;
 
                     const yDir = s.options.invertY ? -1 : 1;
+                    const xDir = s.options.invertX ? -1 : 1;
                     if (s.zooming) {
                         s.distance = Math.max(0.5, s.distance - dyp * yDir * s.options.zoomSpeed * s.distance * 0.1);
                         s._applyOrbit();
                     } else if (s.format === "orbit") {
-                        s.yaw -= dxp * s.options.rotateSpeed;
+                        s.yaw -= xDir * dxp * s.options.rotateSpeed;
                         s.pitch = Math.max(s.options.minPitch, Math.min(s.options.maxPitch, s.pitch - yDir * dyp * s.options.rotateSpeed));
                         s._applyOrbit();
                     } else if (s.format === "pan") {
@@ -1634,6 +1687,9 @@ globalThis.Entropy = {
             ops.op_gizmo_show({
                 id,
                 position: config.position,
+                // [x, y, z, w] - omitted means identity, matching every pre-existing caller
+                // that never used a rotate handle in the first place.
+                rotation: config.rotation || [0, 0, 0, 1],
                 mode: config.mode,
                 space: config.space || "world"
             });
@@ -1641,6 +1697,7 @@ globalThis.Entropy = {
             globalThis._entropy_gizmo_callbacks = globalThis._entropy_gizmo_callbacks || {};
             globalThis._entropy_gizmo_callbacks[id] = {
                 onTransform: config.onTransform,
+                onRotate: config.onRotate,
                 onComplete: config.onComplete
             };
             return id;
@@ -1653,6 +1710,11 @@ globalThis.Entropy = {
         },
         updatePosition: (id, position) => {
             ops.op_gizmo_update(position[0], position[1], position[2]);
+        },
+        // Mirrors updatePosition - see op_gizmo_update_rotation's doc comment for why a
+        // "rotate"/"translate_rotate" gizmo needs this pushed back after every onRotate.
+        updateRotation: (id, rotation) => {
+            ops.op_gizmo_update_rotation(rotation[0], rotation[1], rotation[2], rotation[3]);
         },
         getState: (id) => {
             // Need op_gizmo_get_state if we want to poll it
@@ -1681,6 +1743,11 @@ globalThis.Entropy = {
         onMouseDown: (callback) => globalThis.Entropy.Input._on("onMouseDown", callback),
         onMouseMove: (callback) => globalThis.Entropy.Input._on("onMouseMove", callback),
         onMouseUp: (callback) => globalThis.Entropy.Input._on("onMouseUp", callback),
+        // A real mouse scroll wheel and a drawing tablet's physical zoom wheel/dial both arrive
+        // here identically (WindowEvent::MouseWheel doesn't distinguish them) - deltaY > 0 is
+        // "wheel up"/scroll away from the user, matching this engine's existing MouseScrollDelta
+        // sign convention (see Entropy.Controls' own use of this below for zoom).
+        onMouseWheel: (callback) => globalThis.Entropy.Input._on("onMouseWheel", callback),
         onKeyDown: (callback) => globalThis.Entropy.Input._on("onKeyDown", callback),
         onKeyUp: (callback) => globalThis.Entropy.Input._on("onKeyUp", callback),
         onGamepadButton: (callback) => globalThis.Entropy.Input._on("onGamepadButton", callback),

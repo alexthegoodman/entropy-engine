@@ -13,7 +13,12 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/canvas_surfaces.js")
                 .with_hot_reload(true)
                 .with_title("Canvas Surfaces")
-                .with_window_size(1400.0, 900.0),
+                .with_window_size(1400.0, 900.0)
+                // Same reasoning as cc-manager's own with_data_dir below: a standalone
+                // EntropyApp has neither a dev data_dir nor a loaded project by default, so
+                // Entropy.IO.save/load (see canvas_surface_addon.ts's Save/Load Scene buttons)
+                // would silently no-op without this.
+                .with_data_dir("../canvas-surfaces-data"),
             Some("cc-manager") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/cc_manager.js")
                 .with_hot_reload(true)

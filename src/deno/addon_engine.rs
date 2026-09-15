@@ -66,9 +66,9 @@ use crate::deno::addon_ops::{
     op_compute_dispatch, op_compute_pipeline_create, op_cube_spawn, op_dialogue_add_option, op_dialogue_close, op_dialogue_get_node, 
     op_dialogue_select_option, op_dialogue_show, op_dialogue_start_quest, op_entity_apply_impulse, op_entity_get_stats, op_entity_play_animation, 
     op_entity_set_rotation, op_entity_set_stats, op_entity_set_velocity, op_entity_set_xz_velocity, op_generate_uuid, op_gizmo_hide, op_gizmo_show, 
-    op_gizmo_update, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
+    op_gizmo_update, op_gizmo_update_rotation, op_grass_create, op_input_get_state, op_io_list_models, op_io_pick_and_import_model, op_landscape_create, op_landscape_get_height,
     op_landscape_update_pbr_texture, op_landscape_update_texture, op_landscape3d_create, op_lighting_update_sun, op_mesh_clear, op_mesh_create, 
-    op_mesh_get_data, op_mesh_update_vertices, op_meshes_clear, op_model_load, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
+    op_mesh_get_data, op_mesh_update_vertices, op_meshes_clear, op_model_load, op_model_export_glb, op_model_set_bone_transform, op_noise_create, op_pipeline_create, op_point_light_create,
     op_point_light_remove, op_lighting_set_point_light_shader, op_shadow_configure,
     op_println, op_quadscape_create, op_register_composite_texture, op_script_list, op_script_read, op_script_write, op_selection_get_selected,
     op_set_game_mode, op_system_spawn_particles, op_texture_create, op_texture_create_ex, op_texture_load, op_texture_update,
@@ -163,6 +163,7 @@ extension!(
         op_buffer_write,
         op_cube_spawn,
         op_model_load,
+        op_model_export_glb,
         op_alpha_model_load,
         op_visual_load,
         op_mesh_create,
@@ -268,6 +269,7 @@ extension!(
         op_gizmo_show,
         op_gizmo_hide,
         op_gizmo_update,
+        op_gizmo_update_rotation,
         op_input_get_state,
         op_camera_screen_to_world,
         op_window_get_size,
@@ -2122,6 +2124,9 @@ impl AddonEngine {
                 "translate" => transform_gizmo::GizmoMode::all_translate(),
                 "rotate" => transform_gizmo::GizmoMode::all_rotate(),
                 "scale" => transform_gizmo::GizmoMode::all_scale(),
+                // Both handle sets shown and draggable at once - transform_gizmo's GizmoMode is
+                // an EnumSet, so combining is just a union, no separate interaction path needed.
+                "translate_rotate" => transform_gizmo::GizmoMode::all_translate() | transform_gizmo::GizmoMode::all_rotate(),
                 _ => transform_gizmo::GizmoMode::all_translate(),
             };
 
@@ -2136,12 +2141,14 @@ impl AddonEngine {
             use transform_gizmo::math::Transform;
             use transform_gizmo::mint::{Vector3 as MintVector3, Quaternion as MintQuaternion};
             
-            // For now, we only support single position from addon
-            // Rotation/Scale are identity unless we expand GizmoState
+            // Scale is still always identity - no caller has asked for scale handles yet.
+            // Rotation is seeded from gs.rotation (identity for every pre-existing caller, see
+            // GizmoState's doc comment), so a "rotate"/"translate_rotate" gizmo starts drawn at
+            // the object's actual current orientation instead of always world-aligned.
             let mut transforms = vec![
                 Transform::from_scale_rotation_translation(
                     MintVector3::from([1.0, 1.0, 1.0]),
-                    MintQuaternion::from([0.0, 0.0, 0.0, 1.0]),
+                    MintQuaternion::from([gs.rotation[0] as f64, gs.rotation[1] as f64, gs.rotation[2] as f64, gs.rotation[3] as f64]),
                     MintVector3::from([gs.position[0] as f64, gs.position[1] as f64, gs.position[2] as f64])
                 )
             ];
@@ -2160,19 +2167,17 @@ impl AddonEngine {
                 ..Default::default()
             };
 
-            let update_result = renderer_state.gizmo.update(interaction, &mut transforms);
+            // Consume the one-shot drag_started signal now that it's been read into
+            // `interaction` above - see handle_stylus_touch's doc comment on why this is set
+            // sticky-true by the input handler rather than recomputed fresh per-event: this is
+            // the one place responsible for clearing it back to false, so it reliably survives
+            // from "touch went down" through to whichever render frame actually consumes it,
+            // regardless of how many touch events land in between.
+            if interaction.drag_started {
+                renderer_state.mouse_state.drag_started = false;
+            };
 
-            // Log unconditionally (not just while dragging) so we can see whether even
-            // hover-only interaction is ever detected as a hit, throttled to every 10th
-            // frame to keep output readable during a manual test.
-            static GIZMO_LOG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            let n = GIZMO_LOG_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            // if n % 10 == 0 {
-            //     println!("[GIZMO-DEBUG] dragging={} drag_started={} cursor={:?} gizmo_pos={:?} viewport={:?} update_returned_some={} hovered_gizmo={}",
-            //         interaction.dragging, interaction.drag_started, interaction.cursor_pos, gs.position,
-            //         (camera.viewport.window_size.width, camera.viewport.window_size.height),
-            //         update_result.is_some(), renderer_state.mouse_state.hovered_gizmo);
-            // }
+            let update_result = renderer_state.gizmo.update(interaction, &mut transforms);
 
             if let Some((gizmo_result, new_transforms)) = update_result {
                 renderer_state.mouse_state.hovered_gizmo = true;
@@ -2206,6 +2211,53 @@ impl AddonEngine {
                                                     let on_transform_func = v8::Local::<v8::Function>::try_from(on_transform_val).unwrap();
                                                     let delta_v8 = serde_v8::to_v8(scope, delta).unwrap();
                                                     let _ = on_transform_func.call(scope, entropy_obj.into(), &[delta_v8]);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Same shape as the onTransform dispatch above, but for rotation: fires the
+                // ABSOLUTE new orientation (not a delta) since composing rotation deltas
+                // correctly on the JS side is much more error-prone than on the position side -
+                // a caller that cares just stores it directly or converts it to its own
+                // representation (e.g. canvas_surface_addon.ts converts to yaw/pitch/roll).
+                // No-ops for every pre-existing caller: they never register onRotate and their
+                // mode strings never include a rotate handle, so new_transform.rotation never
+                // moves off the identity they seeded.
+                if let Some(new_transform) = new_transforms.first() {
+                    let new_rot = [
+                        new_transform.rotation.v.x as f32,
+                        new_transform.rotation.v.y as f32,
+                        new_transform.rotation.v.z as f32,
+                        new_transform.rotation.s as f32,
+                    ];
+                    let rot_changed = (0..4).any(|i| (new_rot[i] - gs.rotation[i]).abs() > 0.0001);
+
+                    if rot_changed {
+                        let scope = &mut self.runtime.handle_scope();
+                        let global = scope.get_current_context().global(scope);
+                        let entropy_key = v8::String::new(scope, "Entropy").unwrap();
+                        if let Some(entropy_val) = global.get(scope, entropy_key.into()) {
+                            let entropy_obj = entropy_val.to_object(scope).unwrap();
+                            let gizmo_callbacks_key = v8::String::new(scope, "_entropy_gizmo_callbacks").unwrap();
+                            if let Some(callbacks_val) = global.get(scope, gizmo_callbacks_key.into()) {
+                                if callbacks_val.is_object() {
+                                    let callbacks_obj = callbacks_val.to_object(scope).unwrap();
+                                    let gizmo_id_key = v8::String::new(scope, &gs.id).unwrap();
+                                    if let Some(callback_entry_val) = callbacks_obj.get(scope, gizmo_id_key.into()) {
+                                        if callback_entry_val.is_object() {
+                                            let callback_entry = callback_entry_val.to_object(scope).unwrap();
+                                            let on_rotate_key = v8::String::new(scope, "onRotate").unwrap();
+                                            if let Some(on_rotate_val) = callback_entry.get(scope, on_rotate_key.into()) {
+                                                if on_rotate_val.is_function() {
+                                                    let on_rotate_func = v8::Local::<v8::Function>::try_from(on_rotate_val).unwrap();
+                                                    let rot_v8 = serde_v8::to_v8(scope, new_rot).unwrap();
+                                                    let _ = on_rotate_func.call(scope, entropy_obj.into(), &[rot_v8]);
                                                 }
                                             }
                                         }

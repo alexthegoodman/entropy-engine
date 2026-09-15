@@ -113,7 +113,7 @@ const BRUSHES: Brush[] = [
 ];
 
 let brushIndex = 1;
-let sizeMultiplier = 1.0;
+let sizeMultiplier = 0.25; // default ink brush size, per explicit ask - was 1.0
 function currentBrush(): Brush {
     return BRUSHES[brushIndex];
 }
@@ -151,6 +151,56 @@ function subV(a: Vec3, b: Vec3): Vec3 { return [a[0] - b[0], a[1] - b[1], a[2] -
 function dotV(a: Vec3, b: Vec3): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
 function crossV(a: Vec3, b: Vec3): Vec3 {
     return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+}
+
+// Quaternion form of the same yaw/pitch/roll convention above (world = Ry(yaw)*Rx(pitch)*Rz(roll)) -
+// used only to seed/read Entropy.Gizmo's rotate handles (see syncGizmoToSelection). Every other
+// rotation in this file still goes through rotX/rotY/rotZ directly; this is purely a bridge to
+// the gizmo's quaternion-based interface. [x, y, z, w] throughout, matching mint::Quaternion's
+// own `From<[T; 4]>` order (confirmed by reading the mint crate's source) and glTF's convention.
+type Quat = [number, number, number, number];
+
+function axisAngleQuat(axis: Vec3, angle: number): Quat {
+    const half = angle / 2, s = Math.sin(half);
+    return [axis[0] * s, axis[1] * s, axis[2] * s, Math.cos(half)];
+}
+
+// Hamilton product - q = a then b applied on top corresponds to matrix M(a)*M(b), the same
+// composition order as this file's own rotX/rotY/rotZ chaining.
+function quatMul(a: Quat, b: Quat): Quat {
+    const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ];
+}
+
+function eulerToQuat(yaw: number, pitch: number, roll: number): Quat {
+    return quatMul(quatMul(axisAngleQuat([0, 1, 0], yaw), axisAngleQuat([1, 0, 0], pitch)), axisAngleQuat([0, 0, 1], roll));
+}
+
+// Inverse of eulerToQuat - extracts yaw/pitch/roll back out of an arbitrary quaternion (as
+// returned by a gizmo rotate-handle drag) under the same Ry*Rx*Rz convention. Standard "YXZ"
+// Euler extraction via an intermediate rotation matrix (the quaternion->matrix formula and this
+// extraction are the well-known standard pairing - not re-derived here). Falls back to roll=0
+// at the pitch=+-90deg gimbal-lock singularity, same as any other YXZ extractor.
+function quatToEuler(q: Quat): { yaw: number; pitch: number; roll: number } {
+    const [x, y, z, w] = q;
+    const r02 = 2 * (x * z + y * w);
+    const r12 = 2 * (y * z - x * w);
+    const r22 = 1 - 2 * (x * x + y * y);
+    const r10 = 2 * (x * y + z * w);
+    const r11 = 1 - 2 * (x * x + z * z);
+    const r20 = 2 * (x * z - y * w);
+    const r00 = 1 - 2 * (y * y + z * z);
+
+    const pitch = Math.asin(Math.max(-1, Math.min(1, -r12)));
+    if (Math.abs(r12) > 0.9999) {
+        return { yaw: Math.atan2(-r20, r00), pitch, roll: 0 };
+    }
+    return { yaw: Math.atan2(r02, r22), pitch, roll: Math.atan2(r10, r11) };
 }
 
 // --- Surface geometry: shapes as one or more patches -------------------------------------------
@@ -371,26 +421,34 @@ interface WorldPatch {
     verts: Vec3[][];
     uv: Array<Array<{ u: number; v: number }>>;
     winding: [number, number, number, number, number, number];
-    normal: Vec3; // one representative world-space normal per patch - the shader ignores it (unlit), kept only for vertex-buffer completeness
+    // Per-vertex world-space normal, from the patch's own outwardAt(row,col) - a plane/box face
+    // has one normal everywhere so this is uniform for those, but a cylinder/sphere's outwardAt
+    // already varies smoothly per cell (see cylinderPatches/spherePatch), so using it per-vertex
+    // here (rather than one representative value for the whole patch) is what makes point-light
+    // shading (see setupUI's lighting section / CANVAS_SURFACE_SHADER) read as a smooth curved
+    // surface instead of one flat-shaded facet.
+    normals: Vec3[][];
 }
 
 function buildSurfaceWorldPatches(s: Surface): WorldPatch[] {
     return shapePatches(s).map(patch => {
         const verts: Vec3[][] = [];
         const uv: Array<Array<{ u: number; v: number }>> = [];
+        const normals: Vec3[][] = [];
         for (let row = 0; row < patch.rows; row++) {
             const vRow: Vec3[] = [];
             const uvRow: Array<{ u: number; v: number }> = [];
+            const nRow: Vec3[] = [];
             for (let col = 0; col < patch.cols; col++) {
                 vRow.push(addV(localToWorldDir(patch.localPoint(row, col), s.yaw, s.pitch, s.roll), s.position));
                 uvRow.push(patch.uvAt(row, col));
+                nRow.push(localToWorldDir(patch.outwardAt(row, col), s.yaw, s.pitch, s.roll));
             }
             verts.push(vRow);
             uv.push(uvRow);
+            normals.push(nRow);
         }
-        const repRow = Math.min(1, patch.rows - 2), repCol = Math.min(1, patch.cols - 2);
-        const normal = localToWorldDir(patch.outwardAt(repRow, repCol), s.yaw, s.pitch, s.roll);
-        return { rows: patch.rows, cols: patch.cols, verts, uv, winding: patchWinding(patch), normal };
+        return { rows: patch.rows, cols: patch.cols, verts, uv, winding: patchWinding(patch), normals };
     });
 }
 
@@ -442,8 +500,9 @@ function surfaceMeshData(s: Surface): { vertexData: number[]; indexData: number[
         for (let row = 0; row < patch.rows; row++) {
             for (let col = 0; col < patch.cols; col++) {
                 const [wx, wy, wz] = patch.verts[row][col];
+                const [nx, ny, nz] = patch.normals[row][col];
                 const { u, v } = patch.uv[row][col];
-                vertexData.push(wx, wy, wz, patch.normal[0], patch.normal[1], patch.normal[2], u, v, 1, 1, 1, 1);
+                vertexData.push(wx, wy, wz, nx, ny, nz, u, v, 1, 1, 1, 1);
             }
         }
         const rowStride = patch.cols;
@@ -567,32 +626,40 @@ let pendingKind: ShapeKind = "plane";
 // (UI onChange handlers, gizmo onTransform) already fires many frames after creation, so this
 // never bites normal use - it only matters for a future addon that reshapes a surface immediately
 // after spawning it.
+// `restore` is only ever passed by loadScene() - it seeds the fields a freshly-drawn "+ New
+// Surface" never needs a starting value for (an existing pitch/roll/bend, a previously-painted
+// canvas). Baking all of it into this ONE createSurfaceMesh call (below) rather than creating
+// flat-and-default then following up with a pushSurfaceTransform/setSurfaceBend* call is what
+// sidesteps the same-tick op_mesh_update_vertices/op_model_create_mesh ordering gotcha
+// documented above - there's no follow-up update call needed at all, the initial mesh is
+// already correct.
 function spawnSurface(
     position: Vec3, yaw: number, kind: ShapeKind = "plane",
-    halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS
+    halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS,
+    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array }
 ): Surface {
     surfaceCount++;
     const id = `canvas_surface_${Entropy.generateUUID()}`;
-    const canvas = new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
-    clearCanvasBuffer(canvas);
+    const canvas = restore?.canvas ?? new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
+    if (!restore?.canvas) clearCanvasBuffer(canvas);
     const textureId = Entropy.Texture.create(CANVAS_RES, CANVAS_RES, canvas);
 
     const s: Surface = {
         id,
         meshId: id,
         textureId,
-        name: `Surface ${surfaceCount}`,
+        name: restore?.name ?? `Surface ${surfaceCount}`,
         kind,
         position,
         yaw,
-        pitch: 0,
-        roll: 0,
+        pitch: restore?.pitch ?? 0,
+        roll: restore?.roll ?? 0,
         halfW,
         halfH,
         halfD,
         radius,
-        bend: 0,
-        bendAxis: "y",
+        bend: restore?.bend ?? 0,
+        bendAxis: restore?.bendAxis ?? "y",
         canvas,
         dirty: false,
         visible: true,
@@ -813,6 +880,24 @@ let usingStylus = false;
 let usingStylusClearPending = false;
 let mouseDrawing = false;
 
+// Tracks the orbit-trigger button (button 1 - see Entropy.Controls.enable's own button:1 in
+// onInit below) so drawing can be suppressed while it's held - explicit ask, since without this
+// a barrel-button-held stylus drag over a surface both orbited the camera AND painted a stroke
+// at the same time. Real mouse right-clicks and a stylus barrel button both arrive as the same
+// button:1 MouseDown/Up (see handle_stylus_touch's barrel-button synthesis, src/handlers.rs), so
+// this one flag covers either source without needing to know which one is in use.
+let orbitButtonDown = false;
+Entropy.Input.onMouseDown((button) => {
+    if (button !== 1) return;
+    orbitButtonDown = true;
+    // End whatever stroke was mid-flight cleanly rather than leaving a stale drawTarget/
+    // lastStrokePoint around - resuming from those once orbiting stops would otherwise draw a
+    // stray connecting line jump from wherever the stroke last was to wherever the pen re-lands.
+    drawTarget = null;
+    lastStrokePoint = null;
+});
+Entropy.Input.onMouseUp((button) => { if (button === 1) orbitButtonDown = false; });
+
 let lastStylusReading = { pressure: 0, tiltX: 0 as number | null, tiltY: 0 as number | null };
 
 function beginStroke(hit: SurfaceHit, pressure: number, tiltX: number, tiltY: number): void {
@@ -844,14 +929,14 @@ Entropy.Input.onStylusDown((e) => {
     usingStylus = true;
     usingStylusClearPending = false;
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
-    if (mode !== "draw" || Entropy.Input.isPointerOverUI()) return;
+    if (mode !== "draw" || orbitButtonDown || Entropy.Input.isPointerOverUI()) return;
     const hit = raycastSurfaces(e.x, e.y);
     if (hit) beginStroke(hit, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
 });
 
 Entropy.Input.onStylusMove((e) => {
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
-    if (mode !== "draw") return;
+    if (mode !== "draw" || orbitButtonDown) return;
     continueStroke(e.x, e.y, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
 });
 
@@ -897,8 +982,10 @@ Entropy.Input.onMouseUp((button) => {
     lastStrokePoint = null;
 });
 
-// --- Move mode: translate gizmo (rotation is UI sliders - see the phase-1 card for why: the
-// engine only feeds a real transform back to the addon gizmo in translate mode). ----------------
+// --- Move mode: translate + rotate gizmo. Both handle sets are shown and draggable at once
+// ("translate_rotate" mode) rather than a separate mode toggle - the Yaw/Pitch/Roll sliders
+// stay as an equally valid alternate input alongside the rotate handles, same reasoning the
+// phase-1 card already gave for keeping the X/Y/Z position sliders alongside translate. ---------
 
 let activeGizmoId: string | null = null;
 let lastGizmoSurfaceId: string | null = null;
@@ -917,12 +1004,31 @@ function syncGizmoToSelection(): void {
 
     activeGizmoId = Entropy.Gizmo.show({
         position: s.position,
-        mode: "translate",
+        rotation: eulerToQuat(s.yaw, s.pitch, s.roll),
+        mode: "translate_rotate",
         space: "world",
         onTransform: (delta) => {
             setSurfacePosition(s, addV(s.position, delta), true);
+        },
+        onRotate: (rotation) => {
+            const { yaw, pitch, roll } = quatToEuler(rotation);
+            s.yaw = yaw;
+            s.pitch = pitch;
+            s.roll = roll;
+            pushSurfaceTransform(s);
         }
     });
+}
+
+// Called whenever yaw/pitch/roll changes from somewhere OTHER than the gizmo's own rotate
+// handles (the Yaw/Pitch/Roll sliders) - without pushing the new orientation back, the gizmo's
+// own Rust-side rotation stays stale and it visually snaps back to the pre-change orientation
+// the next time its transform is rebuilt (same reason setSurfacePosition already does this for
+// position via updatePosition).
+function syncGizmoRotationFromSurface(s: Surface): void {
+    if (activeGizmoId && activeSurfaceId === s.id) {
+        Entropy.Gizmo.updateRotation(activeGizmoId, eulerToQuat(s.yaw, s.pitch, s.roll));
+    }
 }
 
 function setMode(next: Mode): void {
@@ -960,8 +1066,177 @@ function selectSurface(s: Surface): void {
     if (mode === "move") lastGizmoSurfaceId = null; // force syncGizmoToSelection to move the gizmo
 }
 
+// --- Save / load scene ---------------------------------------------------------------------------
+//
+// Persisted via this addon's own scoped Entropy.IO.save/load (see cc_manager_addon.ts for the
+// established precedent of this same API) - JSON.stringify under the hood, so each surface's
+// painted canvas (a CANVAS_RES x CANVAS_RES RGBA Uint8Array, ~2.3MB raw) is base64-encoded first
+// rather than embedded as a plain JSON number array, which JSON.stringify would otherwise expand
+// into one comma-separated digit sequence per byte - several times larger and far slower to
+// parse back. This addon's own registration needs `.with_data_dir(...)` in src/bin/example.rs
+// for IO.save/load to actually persist anywhere (op_addon_save_data silently no-ops without a
+// dev-controlled data_dir OR a loaded project - neither applies to a standalone EntropyApp like
+// this one) - see that binary's canvas-surface-demo entry.
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function bytesToBase64(bytes: Uint8Array): string {
+    let out = "";
+    for (let i = 0; i < bytes.length; i += 3) {
+        const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2];
+        out += BASE64_CHARS[b0 >> 2];
+        out += BASE64_CHARS[((b0 & 0x03) << 4) | (b1 === undefined ? 0 : b1 >> 4)];
+        out += b1 === undefined ? "=" : BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 === undefined ? 0 : b2 >> 6)];
+        out += b2 === undefined ? "=" : BASE64_CHARS[b2 & 0x3f];
+    }
+    return out;
+}
+
+function base64ToBytes(b64: string): Uint8Array {
+    const clean = b64.replace(/=+$/, "");
+    const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
+    let outI = 0;
+    for (let i = 0; i < clean.length; i += 4) {
+        const c0 = BASE64_CHARS.indexOf(clean[i]);
+        const c1 = BASE64_CHARS.indexOf(clean[i + 1]);
+        const c2 = clean[i + 2] !== undefined ? BASE64_CHARS.indexOf(clean[i + 2]) : -1;
+        const c3 = clean[i + 3] !== undefined ? BASE64_CHARS.indexOf(clean[i + 3]) : -1;
+        out[outI++] = (c0 << 2) | (c1 >> 4);
+        if (c2 >= 0) out[outI++] = ((c1 & 0x0f) << 4) | (c2 >> 2);
+        if (c3 >= 0) out[outI++] = ((c2 & 0x03) << 6) | c3;
+    }
+    return out.subarray(0, outI);
+}
+
+interface SavedSurface {
+    name: string;
+    kind: ShapeKind;
+    position: Vec3;
+    yaw: number; pitch: number; roll: number;
+    halfW: number; halfH: number; halfD: number; radius: number;
+    bend: number; bendAxis: BendAxis;
+    visible: boolean;
+    canvasBase64: string;
+}
+
+interface SavedScene {
+    version: 1;
+    surfaces: SavedSurface[];
+}
+
+function saveScene(): void {
+    const scene: SavedScene = {
+        version: 1,
+        surfaces: surfaces.map((s): SavedSurface => ({
+            name: s.name, kind: s.kind, position: s.position,
+            yaw: s.yaw, pitch: s.pitch, roll: s.roll,
+            halfW: s.halfW, halfH: s.halfH, halfD: s.halfD, radius: s.radius,
+            bend: s.bend, bendAxis: s.bendAxis, visible: s.visible,
+            canvasBase64: bytesToBase64(s.canvas),
+        })),
+    };
+    addon.IO.save(scene);
+    Entropy.println(`[canvas-surfaces] saved scene (${surfaces.length} surface(s))`);
+}
+
+// Replaces the whole scene rather than merging - a "Load Scene" click is a deliberate "give me
+// what's on disk" action, not an import/append. Every saved surface is created visible (even
+// one saved hidden) - see the doc comment on spawnSurface's `restore` param for why a
+// same-tick hide isn't attempted here; a human can just click Hide again from the Surfaces
+// panel for the rare saved-hidden case.
+function loadScene(): void {
+    const scene = addon.IO.load() as SavedScene | null;
+    if (!scene || !scene.surfaces) {
+        Entropy.println("[canvas-surfaces] no saved scene found");
+        return;
+    }
+
+    if (activeGizmoId) {
+        Entropy.Gizmo.hide(activeGizmoId);
+        activeGizmoId = null;
+        lastGizmoSurfaceId = null;
+    }
+    for (const s of [...surfaces]) deleteSurface(s);
+
+    for (const saved of scene.surfaces) {
+        spawnSurface(
+            saved.position, saved.yaw, saved.kind,
+            saved.halfW, saved.halfH, saved.halfD, saved.radius,
+            { name: saved.name, pitch: saved.pitch, roll: saved.roll, bend: saved.bend, bendAxis: saved.bendAxis, canvas: base64ToBytes(saved.canvasBase64) }
+        );
+    }
+    Entropy.println(`[canvas-surfaces] loaded scene (${scene.surfaces.length} surface(s))`);
+}
+
+// --- Export GLB ------------------------------------------------------------------------------
+//
+// Builds one glTF mesh per VISIBLE surface directly from its already-cached world-space
+// s.worldPatches (the same data raycastSurfaceMesh reads) - no separate export-specific mesh
+// build path. See src/art_assets/GLBExporter.rs for the actual glTF/GLB assembly on the Rust
+// side (this pipeline has no writer in the `gltf` crate, so it's hand-rolled there).
+function exportSceneToGlb(): void {
+    const visible = surfaces.filter(s => s.visible);
+    if (visible.length === 0) {
+        Entropy.println("[canvas-surfaces] nothing visible to export");
+        return;
+    }
+
+    const meshes = visible.map(s => {
+        const positions: number[] = [];
+        const normals: number[] = [];
+        const uvs: number[] = [];
+        const indices: number[] = [];
+        let base = 0;
+        for (const patch of s.worldPatches) {
+            for (let row = 0; row < patch.rows; row++) {
+                for (let col = 0; col < patch.cols; col++) {
+                    const [px, py, pz] = patch.verts[row][col];
+                    const [nx, ny, nz] = patch.normals[row][col];
+                    const { u, v } = patch.uv[row][col];
+                    positions.push(px, py, pz);
+                    normals.push(nx, ny, nz);
+                    uvs.push(u, v);
+                }
+            }
+            const rowStride = patch.cols;
+            const [i0, i1, i2, i3, i4, i5] = patch.winding;
+            for (let row = 0; row < patch.rows - 1; row++) {
+                for (let col = 0; col < patch.cols - 1; col++) {
+                    const a = base + row * rowStride + col, b = a + 1, c = a + rowStride, d = c + 1;
+                    const corner = [a, b, c, d];
+                    indices.push(corner[i0], corner[i1], corner[i2], corner[i3], corner[i4], corner[i5]);
+                }
+            }
+            base += patch.rows * patch.cols;
+        }
+        return {
+            name: s.name.replace(/[^a-zA-Z0-9_-]/g, "_"),
+            positions, normals, uvs, indices,
+            textureRgba: s.canvas,
+            textureWidth: CANVAS_RES,
+            textureHeight: CANVAS_RES,
+        };
+    });
+
+    const result = Entropy.Model.exportGlb(meshes, "canvas-surfaces-scene.glb");
+    if (result.success) {
+        Entropy.println(`[canvas-surfaces] exported GLB to ${result.path}`);
+    } else {
+        Entropy.println(`[canvas-surfaces] GLB export: ${result.error}`);
+    }
+}
+
 // --- Setup ---------------------------------------------------------------------------------------
 
+// Two fixed point lights (warm key + cool fill, classic two-point setup) baked directly into
+// this shader as WGSL constants rather than a dynamic uniform buffer: the engine's real
+// Entropy.Lighting.createPointLight system only ever reaches meshes drawn through the deferred
+// G-buffer/lighting pass (pbr:true pipelines) - this pipeline is deliberately pbr:false/unlit
+// (it just displays a painted texture as-is) and non-pbr custom meshes are drawn in a separate
+// forward pass that's never given a lighting bind group at all (confirmed by reading
+// render_addon_frame.rs's non-PBR mesh loop: only camera (group 0) and the addon's own
+// extraBindGroups are bound). Doing simple per-fragment Lambertian shading by hand here, fully
+// inside this one pipeline, gets real shadowing/depth without needing to plumb a new bind group
+// through the engine's non-PBR render path for what two static lights don't require.
 const CANVAS_SURFACE_SHADER = `
 struct Camera {
     view_proj: mat4x4<f32>,
@@ -986,21 +1261,50 @@ struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
     @location(1) color: vec4<f32>,
+    @location(2) world_pos: vec3<f32>,
+    @location(3) normal: vec3<f32>,
 };
 
 @vertex
 fn vs_main(in: VertexInput) -> VertexOutput {
     var out: VertexOutput;
+    // in.position is already world-space (this addon bakes every surface's transform directly
+    // into its vertex positions - see pushSurfaceTransform's doc comment), so no model matrix
+    // is needed here, just forward it for the fragment stage's lighting math.
     out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
     out.tex_coords = in.tex_coords;
     out.color = in.color;
+    out.world_pos = in.position;
+    out.normal = in.normal;
     return out;
+}
+
+const AMBIENT: f32 = 0.45;
+const LIGHT1_POS = vec3<f32>(4.0, 5.0, 3.0);
+const LIGHT1_COLOR = vec3<f32>(1.0, 0.96, 0.88);
+const LIGHT1_INTENSITY: f32 = 1.1;
+const LIGHT2_POS = vec3<f32>(-4.0, 3.0, -3.5);
+const LIGHT2_COLOR = vec3<f32>(0.55, 0.65, 0.95);
+const LIGHT2_INTENSITY: f32 = 0.7;
+
+fn point_light_diffuse(world_pos: vec3<f32>, n: vec3<f32>, light_pos: vec3<f32>, light_color: vec3<f32>, intensity: f32) -> vec3<f32> {
+    let to_light = light_pos - world_pos;
+    let dist = length(to_light);
+    let l = to_light / max(dist, 0.0001);
+    let ndotl = max(dot(n, l), 0.0);
+    let atten = 1.0 / (1.0 + 0.06 * dist + 0.012 * dist * dist);
+    return light_color * intensity * ndotl * atten;
 }
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sampled = textureSample(surface_texture, surface_sampler, in.tex_coords);
-    return vec4<f32>(sampled.rgb * in.color.rgb, sampled.a * in.color.a);
+    let n = normalize(in.normal);
+    var lighting = vec3<f32>(AMBIENT, AMBIENT, AMBIENT);
+    lighting += point_light_diffuse(in.world_pos, n, LIGHT1_POS, LIGHT1_COLOR, LIGHT1_INTENSITY);
+    lighting += point_light_diffuse(in.world_pos, n, LIGHT2_POS, LIGHT2_COLOR, LIGHT2_INTENSITY);
+    let lit_rgb = sampled.rgb * in.color.rgb * lighting;
+    return vec4<f32>(lit_rgb, sampled.a * in.color.a);
 }
 `;
 
@@ -1059,6 +1363,11 @@ function renderLayersUI(): void {
 function renderUI(): void {
     Entropy.UI.Widget.label(uiWindowId, { text: "Canvas Surfaces", bold: true });
     Entropy.UI.Widget.label(uiWindowId, { text: "Right-drag to orbit the camera" });
+    Entropy.UI.Widget.separator(uiWindowId);
+
+    Entropy.UI.Widget.button(uiWindowId, { text: "Save Scene", id: "save_scene", onClick: saveScene });
+    Entropy.UI.Widget.button(uiWindowId, { text: "Load Scene", id: "load_scene", onClick: loadScene });
+    Entropy.UI.Widget.button(uiWindowId, { text: "Export GLB", id: "export_glb", onClick: exportSceneToGlb });
     Entropy.UI.Widget.separator(uiWindowId);
 
     Entropy.UI.Widget.button(uiWindowId, {
@@ -1139,7 +1448,7 @@ function renderUI(): void {
             });
         }
         Entropy.UI.Widget.slider(uiWindowId, {
-            label: "Size", value: sizeMultiplier, min: 0.3, max: 3.0, id: "size_slider",
+            label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
             onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
         });
         Entropy.UI.Widget.label(uiWindowId, { text: `pressure: ${lastStylusReading.pressure.toFixed(2)}` });
@@ -1175,15 +1484,15 @@ function renderUI(): void {
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Yaw", value: s.yaw, min: -Math.PI, max: Math.PI, id: "yaw_slider",
-                onChange: (v: string) => { s.yaw = parseFloat(v); pushSurfaceTransform(s); }
+                onChange: (v: string) => { s.yaw = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Pitch", value: s.pitch, min: -Math.PI / 2, max: Math.PI / 2, id: "pitch_slider",
-                onChange: (v: string) => { s.pitch = parseFloat(v); pushSurfaceTransform(s); }
+                onChange: (v: string) => { s.pitch = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Roll", value: s.roll, min: -Math.PI, max: Math.PI, id: "roll_slider",
-                onChange: (v: string) => { s.roll = parseFloat(v); pushSurfaceTransform(s); }
+                onChange: (v: string) => { s.roll = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             // Dimension sliders are conditional on the surface's own (fixed-at-creation) kind -
             // a plane/box shares Width/Height, a box adds Depth, cylinder/sphere use Radius
@@ -1351,8 +1660,9 @@ addon.onInit(() => {
     Entropy.Camera.setTransform([0, 1.6, 6], [0, 1.2, 0]);
     // trigger:"always" + button:1 (right mouse button) instead of the default shift+left-drag -
     // easier to hold with a stylus in the drawing hand, and leaves plain left-drag free for
-    // drawing/gizmo use without a modifier key.
-    Entropy.Controls.enable("orbit", { target: [0, 1.2, 0], trigger: "always", button: 1 });
+    // drawing/gizmo use without a modifier key. invertX: real hardware feedback - dragging felt
+    // backwards from the natural expectation with the default (unflipped) sign.
+    Entropy.Controls.enable("orbit", { target: [0, 1.2, 0], trigger: "always", button: 1, invertX: true });
 
     spawnSurface([0, 1.5, 0], 0);
 

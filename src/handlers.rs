@@ -606,6 +606,24 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 /// comes from `crate::stylus::tilt_for` - winit's own `Touch` has no field for it (see that
 /// module's doc comment) - correlated to this packet by `touch.id`, the same pointer ID Win32
 /// handed both call sites.
+///
+/// Also feeds the SAME shared `renderer_state` mouse-position/drag state that
+/// `WindowEvent::CursorMoved`/`MouseInput` drive (see the block below, before the
+/// `InputEvent::Stylus*` push) - confirmed missing by a real-hardware report ("right-click +
+/// stylus drag" does nothing, "stylus drag on the gizmo" does nothing): on this hardware, pen
+/// movement is delivered ONLY via `WindowEvent::Touch`, never `WindowEvent::CursorMoved` (the
+/// same fact the 2026-09-11 stylus post already relied on for pressure/tilt). Two consumers
+/// read `renderer_state.current_mouse_position` and never saw it move during a stylus drag: the
+/// native transform-gizmo interaction (`addon_engine.rs`, reads it directly) and
+/// `Entropy.Controls`' orbit (`addon_setup.js`, polls `op_input_get_state().mousePosition`,
+/// itself just `current_mouse_position` mirrored into the addon context every frame). A bare
+/// touch (no button of any kind) is also treated as equivalent to a held left mouse button for
+/// `mouse_state.is_dragging` specifically - the same gesture that already grabs/drags a gizmo
+/// handle with a real mouse - but this does NOT synthesize an `InputEvent::MouseDown/Up`, so
+/// `Entropy.Controls`' own button-edge wiring (`onMouseDown`/`onMouseUp`) is untouched: a plain
+/// stylus touch alone still doesn't satisfy an orbit trigger bound to a real button (e.g.
+/// right-click) - it only supplies live position once that trigger is ALSO active via its own
+/// real button source (a mouse, or a tablet express key that sends a real click).
 #[cfg(target_os = "windows")]
 pub fn handle_stylus_touch(state: &mut Editor, touch: &winit::event::Touch) {
     use winit::event::TouchPhase;
@@ -613,15 +631,72 @@ pub fn handle_stylus_touch(state: &mut Editor, touch: &winit::event::Touch) {
     let x = touch.location.x as f32;
     let y = touch.location.y as f32;
     let pointer_id = touch.id as u32;
+    let tilt = crate::stylus::tilt_for(pointer_id).unwrap_or_default();
+
+    // Edge-detected barrel-button state -> a synthesized InputEvent::MouseDown/Up{button:1} -
+    // see PenTilt::barrel's doc comment for why this exists at all: a real-hardware report of
+    // "right-click + stylus does nothing" turned out to mean the human was holding their pen's
+    // own barrel button (confirmed: a debug session showed zero WindowEvent::MouseInput events
+    // fired during an entire test with the button held the whole time) - a barrel press has no
+    // Win32 mouse-message equivalent, so without this, Entropy.Controls' right-click-bound
+    // orbit trigger can never see it no matter what.
+    let mut synth_mouse_event: Option<InputEvent> = None;
+
+    if let Some(renderer_state) = state.renderer_state.as_mut() {
+        renderer_state.last_touch_time = Some(std::time::Instant::now());
+        match touch.phase {
+            TouchPhase::Started | TouchPhase::Moved => {
+                renderer_state.stylus_active = true;
+                renderer_state.set_mouse_position(EntropyPosition { x, y });
+                // Sticky-until-consumed, NOT recomputed fresh on every touch event: the
+                // transform_gizmo interaction (addon_engine.rs) only latches a handle for
+                // dragging on the exact single frame it sees drag_started==true (confirmed by
+                // reading transform-gizmo-0.8.0's own Gizmo::update() source), and a real
+                // hardware log showed multiple Touch events (Started immediately followed by
+                // Moved) arriving within the SAME rendered frame - the old `!was_dragging`
+                // recompute set this true then immediately false again before the render loop
+                // ever read it, so the gizmo almost never actually latched. Only ever SET here;
+                // addon_engine.rs's gizmo block is responsible for clearing it once it's
+                // actually been read for a frame, so the one-shot signal survives regardless of
+                // how many touch events land between renders.
+                if !renderer_state.mouse_state.is_dragging {
+                    renderer_state.mouse_state.drag_started = true;
+                }
+                renderer_state.mouse_state.is_dragging = true;
+
+                if tilt.barrel && !renderer_state.stylus_barrel_down {
+                    renderer_state.stylus_barrel_down = true;
+                    synth_mouse_event = Some(InputEvent::MouseDown { button: 1, x, y });
+                } else if !tilt.barrel && renderer_state.stylus_barrel_down {
+                    renderer_state.stylus_barrel_down = false;
+                    synth_mouse_event = Some(InputEvent::MouseUp { button: 1 });
+                }
+            }
+            TouchPhase::Ended | TouchPhase::Cancelled => {
+                renderer_state.stylus_active = false;
+                renderer_state.mouse_state.is_dragging = false;
+                renderer_state.mouse_state.drag_started = false;
+                // Pen lifted while the barrel button was still held down - end the orbit drag
+                // cleanly rather than leaving Entropy.Controls' `state.dragging` stuck true.
+                if renderer_state.stylus_barrel_down {
+                    renderer_state.stylus_barrel_down = false;
+                    synth_mouse_event = Some(InputEvent::MouseUp { button: 1 });
+                }
+            }
+        }
+    }
 
     let mut op_state = state.addon_engine.runtime.op_state();
     let mut op_state = op_state.borrow_mut();
     let Some(ctx) = op_state.try_borrow_mut::<AddonContext>() else { return };
 
+    if let Some(event) = synth_mouse_event {
+        ctx.input_events.push(event);
+    }
+
     match touch.phase {
         TouchPhase::Started | TouchPhase::Moved => {
             let pressure = touch.force.map(|f| f.normalized() as f32).unwrap_or(0.0);
-            let tilt = crate::stylus::tilt_for(pointer_id).unwrap_or_default();
             let event = if touch.phase == TouchPhase::Started {
                 InputEvent::StylusDown { x, y, pressure, tiltX: tilt.tilt_x, tiltY: tilt.tilt_y }
             } else {

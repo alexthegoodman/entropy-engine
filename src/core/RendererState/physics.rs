@@ -128,12 +128,26 @@ impl RendererState {
             0.0
         };
 
+        // Suppressed entirely while a stylus is actively down (the raw flag, not
+        // is_stylus_active()'s timestamp-gated read - see RendererState::stylus_active's doc
+        // comment): a real 100ms mouse-idle timeout is a reasonable "did the user actually walk
+        // away" heuristic for a mouse, but a stylus reports NO events at all while genuinely
+        // motionless (no sensor jitter the way a mouse has), so a completely normal brief pause
+        // mid-drag (composing a rotation, thinking) tripped this same clock - the resulting
+        // None then read back as cursor_pos (0.0, 0.0) in the gizmo interaction
+        // (addon_engine.rs), corrupting the drag ("jammed, wouldn't rotate all the way", a real
+        // hardware report). We don't need a heuristic for a stylus at all: Started/Ended are
+        // explicit ground truth for whether contact is ongoing, no timeout required - and if an
+        // Ended is ever lost (pen lift-off has already been observed to be flaky), the OTHER,
+        // timestamp-gated stylus_active check elsewhere still lets real mouse input resume after
+        // 250ms, so leaving this flag stuck true just means this one clear stays suppressed,
+        // never a permanent lock.
         #[cfg(target_os = "windows")]
         let near_future = self.last_mouse_position_time.checked_add(Duration::from_millis(100));
 
         #[cfg(target_os = "windows")]
         if let Some(future) = near_future {
-            if future < now {
+            if future < now && !self.stylus_active {
                 self.last_mouse_position = None;
                 self.current_mouse_position =  None;
             }

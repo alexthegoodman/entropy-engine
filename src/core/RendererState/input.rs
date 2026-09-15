@@ -29,6 +29,14 @@ impl RendererState {
         self.last_mouse_delta = (delta.0 as f32, delta.1 as f32);
     }
 
+    /// See `stylus_active`'s doc comment - true only while a stylus touch is active AND a touch
+    /// event has arrived recently, so a lost/undelivered lift-off event self-heals instead of
+    /// permanently locking out real mouse input.
+    pub fn is_stylus_active(&self) -> bool {
+        self.stylus_active
+            && self.last_touch_time.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250))
+    }
+
     // Usage in your main update/render loop:
     pub fn update_rays(
         &mut self,

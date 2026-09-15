@@ -33,21 +33,31 @@ use std::sync::{Mutex, OnceLock};
 use windows::Win32::UI::Input::Pointer::{GetPointerPenInfo, POINTER_PEN_INFO};
 use windows::Win32::UI::WindowsAndMessaging::{MSG, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE};
 
-/// Tilt reading for one pointer, in degrees (`POINTER_PEN_INFO::tiltX/tiltY`'s native unit):
-/// 0 is the pen standing straight up off the surface, +-90 is flat against it. `None` for an
-/// axis means this pen's driver didn't report it (`PEN_MASK_TILT_X`/`PEN_MASK_TILT_Y` unset in
-/// `penMask`) - most cheap styli only ever report pressure.
+/// Tilt/button reading for one pointer. Tilt is in degrees (`POINTER_PEN_INFO::tiltX/tiltY`'s
+/// native unit): 0 is the pen standing straight up off the surface, +-90 is flat against it.
+/// `None` for an axis means this pen's driver didn't report it (`PEN_MASK_TILT_X`/
+/// `PEN_MASK_TILT_Y` unset in `penMask`) - most cheap styli only ever report pressure.
+///
+/// `barrel` is the pen's side/barrel button (real hardware confirmed: a real-device report of
+/// "right-click + stylus does nothing" turned out to mean the human was holding their pen's own
+/// barrel button, not a separate mouse - and a barrel press has NO Win32 mouse-message
+/// equivalent at all on this hardware, confirmed by a debug session showing zero
+/// `WindowEvent::MouseInput` events during an entire test where the button was held throughout).
+/// It only ever reaches the app through this exact same `POINTER_PEN_INFO` packet tilt already
+/// comes through - `winit::event::Touch` has no field for it either, same gap as tilt.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PenTilt {
     pub tilt_x: Option<f32>,
     pub tilt_y: Option<f32>,
+    pub barrel: bool,
 }
 
-// PEN_MASK_TILT_X / PEN_MASK_TILT_Y aren't exposed as named constants by the `windows` crate's
-// Pointer module (unlike the POINTER_MESSAGE_FLAG_* / POINTER_FLAG_* families it does bind) -
-// these are the literal bit values from `winuser.h`.
+// PEN_MASK_TILT_X / PEN_MASK_TILT_Y / PEN_FLAG_BARREL aren't exposed as named constants by the
+// `windows` crate's Pointer module (unlike the POINTER_MESSAGE_FLAG_* / POINTER_FLAG_* families
+// it does bind) - these are the literal bit values from `winuser.h`.
 const PEN_MASK_TILT_X: u32 = 0x00000004;
 const PEN_MASK_TILT_Y: u32 = 0x00000008;
+const PEN_FLAG_BARREL: u32 = 0x00000001;
 
 fn tilt_map() -> &'static Mutex<HashMap<u32, PenTilt>> {
     static MAP: OnceLock<Mutex<HashMap<u32, PenTilt>>> = OnceLock::new();
@@ -74,10 +84,11 @@ pub fn msg_hook_capture_tilt(msg_ptr: *const c_void) -> bool {
     if unsafe { GetPointerPenInfo(pointer_id, &mut pen_info) }.is_ok() {
         let tilt_x = (pen_info.penMask & PEN_MASK_TILT_X != 0).then_some(pen_info.tiltX as f32);
         let tilt_y = (pen_info.penMask & PEN_MASK_TILT_Y != 0).then_some(pen_info.tiltY as f32);
+        let barrel = pen_info.penFlags & PEN_FLAG_BARREL != 0;
         tilt_map()
             .lock()
             .unwrap()
-            .insert(pointer_id, PenTilt { tilt_x, tilt_y });
+            .insert(pointer_id, PenTilt { tilt_x, tilt_y, barrel });
     }
 
     false

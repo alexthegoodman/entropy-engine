@@ -1045,9 +1045,16 @@ export interface CodeEditorConfig {
 
 export interface GizmoConfig {
   position: [number, number, number];
-  mode: "translate" | "rotate" | "scale";
+  /** [x, y, z, w] quaternion seeding the gizmo's drawn orientation. Default: identity. Only
+   * meaningful when `mode` includes rotate handles. */
+  rotation?: [number, number, number, number];
+  mode: "translate" | "rotate" | "scale" | "translate_rotate";
   space?: "world" | "local";
   onTransform?: (delta: [number, number, number]) => void;
+  /** Fires with the gizmo's new ABSOLUTE orientation (not a delta) as an [x, y, z, w]
+   * quaternion, whenever a rotate handle changes it. Only fires for `mode`s that include
+   * rotate handles ("rotate" / "translate_rotate"). */
+  onRotate?: (rotation: [number, number, number, number]) => void;
   onComplete?: () => void;
 }
 
@@ -1070,6 +1077,8 @@ export interface ControlsOptions {
   minPitch?: number;
   maxPitch?: number;
   invertY?: boolean;
+  /** Flip horizontal drag direction ("orbit"'s yaw only). Default false. */
+  invertX?: boolean;
   /** World-space point to orbit/pan around. Defaults to the camera's current look-at target. */
   target?: [number, number, number];
 }
@@ -1327,6 +1336,21 @@ export interface EntropyAPI {
         };
     }) => void;
     clearMesh: (meshId: string) => void;
+    /** Opens a native Save As dialog and writes a self-contained .glb (each mesh's texture
+     * PNG-encoded and embedded, no external file references) from already-world-space mesh
+     * data supplied directly - doesn't touch the engine's own mesh registry, so it works for
+     * meshes that were never `createMesh`'d as live scene entities too. Returns the chosen
+     * path, or `path: null`/`error` set if the dialog was cancelled or writing failed. */
+    exportGlb: (meshes: Array<{
+        name: string;
+        positions: number[]; // flat x,y,z, world-space
+        normals: number[]; // flat x,y,z
+        uvs: number[]; // flat u,v
+        indices: number[];
+        textureRgba: Uint8Array;
+        textureWidth: number;
+        textureHeight: number;
+    }>, suggestedName?: string) => { success: boolean; path: string | null; error: string | null };
   };
   Landscape: {
     create: (config: LandscapeConfig) => string;
@@ -1472,6 +1496,7 @@ export interface EntropyAPI {
     show: (config: GizmoConfig) => string;
     hide: (gizmoId: string) => void;
     updatePosition: (gizmoId: string, position: [number, number, number]) => void;
+    updateRotation: (gizmoId: string, rotation: [number, number, number, number]) => void;
     getState: (gizmoId: string) => { isActive: boolean; mode: string; position: [number, number, number] } | null;
   };
   /**
@@ -1484,6 +1509,9 @@ export interface EntropyAPI {
     onMouseDown: (callback: (button: number, x: number, y: number) => void) => () => void;
     onMouseMove: (callback: (x: number, y: number) => void) => () => void;
     onMouseUp: (callback: (button: number) => void) => () => void;
+    /** A real mouse scroll wheel and a drawing tablet's physical zoom wheel/dial both arrive
+     * here identically. deltaY > 0 is "wheel up"/scroll away from the user. */
+    onMouseWheel: (callback: (deltaX: number, deltaY: number) => void) => () => void;
     onKeyDown: (callback: (key: string, ctrl: boolean, shift: boolean, alt: boolean) => void) => () => void;
     onKeyUp: (callback: (key: string) => void) => () => void;
     onGamepadButton: (callback: (button: string, pressed: boolean) => void) => () => void;

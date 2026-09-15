@@ -560,13 +560,28 @@ impl ApplicationHandler<UserEvent> for Application {
                     }
                 }
             },
-            WindowEvent::MouseWheel { delta, .. } => match delta {
-                MouseScrollDelta::LineDelta(x, y) => {
-                    info!("Mouse wheel Line Delta: ({x},{y})");
-                },
-                MouseScrollDelta::PixelDelta(px) => {
-                    info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
-                },
+            WindowEvent::MouseWheel { delta, .. } => {
+                // A drawing tablet's zoom wheel/dial arrives here exactly like a real mouse
+                // scroll wheel (explicit ask: "we need the zoom wheel on my drawing tablet to
+                // help me zoom too") - previously only logged, never reaching addons at all.
+                let (dx, dy) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        info!("Mouse wheel Line Delta: ({x},{y})");
+                        (x, y)
+                    },
+                    MouseScrollDelta::PixelDelta(px) => {
+                        info!("Mouse wheel Pixel Delta: ({},{})", px.x, px.y);
+                        ((px.x / 20.0) as f32, (px.y / 20.0) as f32)
+                    },
+                };
+
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    let mut op_state = editor.addon_engine.runtime.op_state();
+                    let mut op_state = op_state.borrow_mut();
+                    if let Some(ctx) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                        ctx.input_events.push(crate::deno::addon_ops::InputEvent::MouseWheel { deltaX: dx, deltaY: dy });
+                    }
+                }
             },
             WindowEvent::KeyboardInput { event, is_synthetic: false, .. } => {
                 let mods = window.modifiers;
@@ -639,14 +654,33 @@ impl ApplicationHandler<UserEvent> for Application {
             WindowEvent::MouseInput { button, state: element_state, .. } => {
                 let mods = window.modifiers;
 
-                if element_state.is_pressed() {
-                    self.mouse_pressed = true;
-                } else {
-                    self.mouse_pressed = false;
-                }
-
                 // if window.game_mode {
                     let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
+
+                    // Windows delivers legacy mouse-compatibility MouseInput events alongside
+                    // real pen contact (see RendererState::stylus_active's doc comment) -
+                    // reporting them as real mouse-button state here would fight with
+                    // handle_stylus_touch's own is_dragging bookkeeping every time a stylus
+                    // interaction is already in progress, undoing it almost immediately.
+                    //
+                    // Only the LEFT button is suppressed - pen contact only ever echoes as a
+                    // synthesized LEFT click (the same fact stylus_drawing_addon.ts's
+                    // `usingStylus` guard already relies on), and gating every button
+                    // unconditionally here was a real regression: it silently dropped a genuine
+                    // right-click (a real mouse, or a tablet express-key mapped to right-click)
+                    // that happened to land while the pen was ALSO touching the surface -
+                    // exactly the "right-click + stylus" orbit gesture this exists to support -
+                    // so Entropy.Controls' orbit trigger never saw button 1 go down at all.
+                    let stylus_active = matches!(button, MouseButton::Left)
+                        && editor.renderer_state.as_ref().is_some_and(|rs| rs.is_stylus_active());
+
+                    if !stylus_active {
+                        if element_state.is_pressed() {
+                            self.mouse_pressed = true;
+                        } else {
+                            self.mouse_pressed = false;
+                        }
+                    }
 
                     #[cfg(target_os = "windows")]
                     if element_state.is_pressed() {
@@ -694,8 +728,10 @@ impl ApplicationHandler<UserEvent> for Application {
                         new_element = EntropyElementState::Pressed;        
                     }
 
-                    crate::handlers::handle_mouse_input(editor, new_button, new_element);
-                // } else 
+                    if !stylus_active {
+                        crate::handlers::handle_mouse_input(editor, new_button, new_element);
+                    }
+                // } else
                 if let Some(action) =
                     element_state.is_pressed().then(|| Self::process_mouse_binding(button, &mods)).flatten()
                 {
@@ -713,7 +749,16 @@ impl ApplicationHandler<UserEvent> for Application {
                 let editor = window.pipeline.export_editor.as_mut().expect("Couldn't get editor");
                 let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
 
-                renderer_state.set_mouse_position(EntropyPosition { x: position.x as f32, y: position.y as f32 });
+                // See RendererState::stylus_active's doc comment: Windows also delivers legacy
+                // mouse-compatibility CursorMoved events alongside real pen contact, which would
+                // otherwise immediately stomp the touch-driven position/is_dragging state right
+                // back to stale/false on top of handle_stylus_touch's own update this same
+                // frame.
+                let stylus_active = renderer_state.is_stylus_active();
+
+                if !stylus_active {
+                    renderer_state.set_mouse_position(EntropyPosition { x: position.x as f32, y: position.y as f32 });
+                }
 
                 let mut last_x = 0.0;
                 let mut last_y = 0.0;
@@ -750,13 +795,13 @@ impl ApplicationHandler<UserEvent> for Application {
                 // `window.cursor_grab` instead of `game_mode` keeps the original locked-cursor
                 // behavior (still skipped, since a locked cursor's reported position is
                 // meaningless/re-centering noise) while fixing the common non-FPS game case.
-                if (!self.game_mode || window.cursor_grab == CursorGrabMode::None) {
+                if !stylus_active && (!self.game_mode || window.cursor_grab == CursorGrabMode::None) {
                     handle_mouse_move(
                         self.mouse_pressed,
                         Some(EntropyPosition {
                             x: position.x as f32,
                             y: position.y as f32
-                        }), 
+                        }),
                         (position.x - last_x) as f32,
                         (position.y - last_y) as f32,
                         editor

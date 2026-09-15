@@ -11,7 +11,7 @@ use crate::entropy_gui::context::{Context, KeyEvent, Modifiers, PlatformOutput, 
 use crate::entropy_gui::context::Key as GuiKey;
 use crate::entropy_gui::context::ViewportId;
 use crate::entropy_gui::geometry::{pos2, vec2, CursorIcon as GuiCursorIcon, Rect, Vec2};
-use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::ActiveEventLoop;
 use winit::keyboard::{Key as WinitKey, NamedKey};
 use winit::window::{CustomCursor, CustomCursorSource, Window};
@@ -33,6 +33,15 @@ pub struct State {
     ime_preedit: Option<String>,
     last_frame_instant: std::time::Instant,
     pointer_cursors: Option<PointerCursors>,
+    // Mirrors RendererState::stylus_active/last_touch_time (src/core/RendererState/mod.rs) -
+    // see that doc comment for why this exists: Windows delivers legacy mouse-compatibility
+    // CursorMoved/MouseInput events alongside real pen contact, which would otherwise race with
+    // and immediately stomp the Touch arm's own pointer_pos/primary_down right back to
+    // stale/false - a slider or button dragged with a stylus would start responding on
+    // contact/hover but then freeze the instant a legacy event arrived. Timestamp-gated (not a
+    // bare bool) so a lost/undelivered Ended/Cancelled self-heals instead of permanently
+    // locking out real mouse input - pen lift-off has already been observed to be flaky.
+    last_touch_time: Option<std::time::Instant>,
 }
 
 /// The custom "modern pointer" art, one bitmap per DPI tier, swapped in for
@@ -106,7 +115,13 @@ impl State {
             ime_preedit: None,
             last_frame_instant: std::time::Instant::now(),
             pointer_cursors: None,
+            last_touch_time: None,
         }
+    }
+
+    /// See `last_touch_time`'s doc comment.
+    fn is_stylus_active(&self) -> bool {
+        self.last_touch_time.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250))
     }
 
     /// Installs the custom "modern pointer" art built by [`build_pointer_cursors`]; without
@@ -118,17 +133,45 @@ impl State {
     pub fn on_window_event(&mut self, _window: &Window, event: &WindowEvent) -> EventResponse {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
-                self.pointer_pos = Some(pos2(position.x as f32, position.y as f32));
+                if !self.is_stylus_active() {
+                    self.pointer_pos = Some(pos2(position.x as f32, position.y as f32));
+                }
             }
             WindowEvent::CursorLeft { .. } => {
                 self.pointer_pos = None;
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                // Only the LEFT button is suppressed during an active stylus touch - pen
+                // contact only ever echoes as a synthesized LEFT click (see
+                // RendererState::stylus_active's doc comment and startup.rs's identical
+                // button-aware gate) - a real right-click landing while the pen is also
+                // touching should still register normally.
                 let down = matches!(state, ElementState::Pressed);
                 match button {
-                    MouseButton::Left => self.primary_down = down,
+                    MouseButton::Left => {
+                        if !self.is_stylus_active() {
+                            self.primary_down = down;
+                        }
+                    }
                     MouseButton::Right => self.secondary_down = down,
                     _ => {}
+                }
+            }
+            // Stylus/pen and touch input arrives here, not as CursorMoved/MouseInput - Windows
+            // routes it through WM_POINTER*, which winit surfaces as WindowEvent::Touch (see
+            // src/handlers.rs's handle_stylus_touch, the addon-facing side of this same event).
+            // Without this arm, a pen never moves entropy_gui's own pointer_pos/primary_down at
+            // all, so GUI buttons/sliders never respond to it even though 3D-viewport drawing
+            // (which reads raw Entropy.Input.onStylusDown/Move/Up instead of this GUI state)
+            // already does. Treated as the primary pointer button, same as a real touchscreen or
+            // pen digitizer's default behavior - this GUI kit has no concept of multi-touch, so a
+            // second simultaneous touch point just moves the one shared pointer position too.
+            WindowEvent::Touch(touch) => {
+                self.last_touch_time = Some(std::time::Instant::now());
+                self.pointer_pos = Some(pos2(touch.location.x as f32, touch.location.y as f32));
+                match touch.phase {
+                    TouchPhase::Started | TouchPhase::Moved => self.primary_down = true,
+                    TouchPhase::Ended | TouchPhase::Cancelled => self.primary_down = false,
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
