@@ -9,6 +9,11 @@ async fn main() {
         let name = env::args().nth(1);
 
         let app = match name.as_deref() {
+            Some("canvas-surface-demo") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/canvas_surfaces.js")
+                .with_hot_reload(true)
+                .with_title("Canvas Surfaces")
+                .with_window_size(1400.0, 900.0),
             Some("cc-manager") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/cc_manager.js")
                 .with_hot_reload(true)
@@ -115,6 +120,7 @@ async fn main() {
 
 #[cfg(target_os = "windows")]
 const EXAMPLES: &[&str] = &[
+    "canvas-surface-demo",
     "cc-manager",
     "daw",
     "doc-editor-demo",
