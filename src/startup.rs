@@ -574,6 +574,9 @@ impl ApplicationHandler<UserEvent> for Application {
                         ((px.x / 20.0) as f32, (px.y / 20.0) as f32)
                     },
                 };
+                // TEMP DEBUG - remove once the real-hardware zoom-wheel issue is root-caused.
+                // println! (not info!) so it's visible without RUST_LOG being set.
+                println!("[MOUSEWHEEL-RS] delta={:?} normalized=({dx},{dy})", delta);
 
                 if let Some(editor) = window.pipeline.export_editor.as_mut() {
                     let mut op_state = editor.addon_engine.runtime.op_state();

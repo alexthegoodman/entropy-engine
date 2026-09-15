@@ -1610,6 +1610,8 @@ globalThis.Entropy = {
             // "orbit" has a distance/target model to zoom along; "pan" has no forward-dolly
             // concept established here, so wheel ticks are a no-op for it.
             const onWheel = (_deltaX, deltaY) => {
+                // TEMP DEBUG - remove once the real-hardware zoom-wheel issue is root-caused.
+                globalThis.Entropy.println(`[Controls DEBUG] onWheel deltaY=${deltaY} format=${format}`);
                 if (format !== "orbit" || deltaY === 0) return;
                 state.distance = Math.max(0.5, state.distance - deltaY * state.options.zoomSpeed * state.distance * 0.1);
                 applyOrbit();

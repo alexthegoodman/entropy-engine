@@ -64,12 +64,35 @@ fn tilt_map() -> &'static Mutex<HashMap<u32, PenTilt>> {
     MAP.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// TEMP DEBUG - remove once the real-hardware zoom-wheel issue is root-caused. Candidate
+// "wheel-like" message IDs a tablet's physical zoom wheel/dial might send instead of (or in
+// addition to) the legacy WM_MOUSEWHEEL winit already surfaces as WindowEvent::MouseWheel - the
+// same class of gap tilt/barrel already turned out to have (only reachable via the low-level
+// WM_POINTER* family, invisible to winit's own cross-platform event types). WM_POINTERWHEEL/
+// WM_POINTERHWHEEL (0x024E/0x024F) are the pointer-family siblings of WM_MOUSEWHEEL/
+// WM_MOUSEHWHEEL (0x020A/0x020E), introduced alongside WM_POINTERDOWN et al. for precision
+// touchpad/pen support; WM_APPCOMMAND (0x0319) is a second, unrelated fallback some drivers use
+// for zoom/volume-style dial input.
+const WM_MOUSEWHEEL: u32 = 0x020A;
+const WM_MOUSEHWHEEL: u32 = 0x020E;
+const WM_POINTERWHEEL: u32 = 0x024E;
+const WM_POINTERHWHEEL: u32 = 0x024F;
+const WM_APPCOMMAND: u32 = 0x0319;
+
 /// Install as `EventLoopBuilder::with_msg_hook`. Returns `false` always - this only observes
 /// pointer messages, it never claims to have handled them.
 pub fn msg_hook_capture_tilt(msg_ptr: *const c_void) -> bool {
     // Safety: `with_msg_hook`'s contract is that `msg_ptr` points to a valid Win32 `MSG` for the
     // duration of this call - the same guarantee winit's own doc example relies on.
     let msg = unsafe { &*(msg_ptr as *const MSG) };
+
+    // TEMP DEBUG - remove once the real-hardware zoom-wheel issue is root-caused.
+    if matches!(msg.message, WM_MOUSEWHEEL | WM_MOUSEHWHEEL | WM_POINTERWHEEL | WM_POINTERHWHEEL | WM_APPCOMMAND) {
+        println!(
+            "[WHEEL-MSG-RS] message=0x{:04X} wParam=0x{:X} lParam=0x{:X}",
+            msg.message, msg.wParam.0, msg.lParam.0
+        );
+    }
 
     if !matches!(msg.message, WM_POINTERDOWN | WM_POINTERUPDATE | WM_POINTERUP) {
         return false;
