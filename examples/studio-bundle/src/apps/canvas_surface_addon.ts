@@ -23,6 +23,16 @@
 // grid triangles (raycastSurfaceMesh, Möller-Trumbore) instead of phase 1's flat-plane shortcut,
 // so drawing accuracy holds on bent surfaces too, not just flat ones.
 //
+// Phase 4: a Cut tool/mode - draw a closed shape on a surface (same raycast path as painting) and
+// it auto-cuts a real hole through the surface once the shape loops back on itself (or on
+// pointer-up, as a fallback). Implemented purely as an alpha-channel operation on the surface's
+// existing canvas (floodFillCutAlpha zeroes alpha inside the shape) plus one `discard` in
+// CANVAS_SURFACE_SHADER's fragment stage for any pixel below that alpha threshold - no engine
+// change, no new geometry, no new persisted field (saveScene/loadScene already round-trip the
+// whole RGBA canvas). raycastSurfaceMesh also treats a cut pixel as a miss, so painting/selection
+// rays pass through a hole instead of catching on it. See the "Cut tool" section below for the
+// full design note, including the deliberate box/cylinder/sphere backface-culling side effect.
+//
 // Phase 3: surfaces are no longer only flat/bent planes - a surface's `kind` can also be "box",
 // "cylinder", or "sphere". All four kinds share one mesh-building/raycasting path via a generic
 // `Patch` abstraction (see "Surface geometry" below): a patch is just a row/col grid of local-space
@@ -755,6 +765,16 @@ function rayTriangleIntersect(origin: Vec3, dir: Vec3, v0: Vec3, v1: Vec3, v2: V
 // (deliberately simple, and still cheap at this demo's surface counts and stroke sampling rate) -
 // a box's 6 faces (3072 triangles total) is the priciest shape here and still comfortably
 // sub-millisecond in practice.
+// A cut hole (see finishCut) zeroes the canvas alpha inside its polygon and the fragment shader
+// discards any pixel below this same threshold - checking it here too means a ray (paint or
+// selection) passes straight through a hole instead of catching on it, matching what the eye
+// sees. Nearest-neighbor sample (round, not bilinear) is enough at CANVAS_RES=768 for a raycast.
+function isCanvasAlphaCut(s: Surface, px: number, py: number): boolean {
+    const x = Math.min(CANVAS_RES - 1, Math.max(0, Math.round(px)));
+    const y = Math.min(CANVAS_RES - 1, Math.max(0, Math.round(py)));
+    return s.canvas[(y * CANVAS_RES + x) * 4 + 3] < 128;
+}
+
 function raycastSurfaceMesh(s: Surface, origin: Vec3, dir: Vec3): SurfaceHit | null {
     let best: { t: number; u: number; v: number } | null = null;
 
@@ -766,14 +786,22 @@ function raycastSurfaceMesh(s: Surface, origin: Vec3, dir: Vec3): SurfaceHit | n
                 const cornerUV = [patch.uv[row][col], patch.uv[row][col + 1], patch.uv[row + 1][col], patch.uv[row + 1][col + 1]];
 
                 let hit = rayTriangleIntersect(origin, dir, cornerV[i0], cornerV[i1], cornerV[i2]);
-                if (hit && (!best || hit.t < best.t)) {
+                if (hit) {
                     const w0 = 1 - hit.bu - hit.bv, w1 = hit.bu, w2 = hit.bv;
-                    best = { t: hit.t, u: w0 * cornerUV[i0].u + w1 * cornerUV[i1].u + w2 * cornerUV[i2].u, v: w0 * cornerUV[i0].v + w1 * cornerUV[i1].v + w2 * cornerUV[i2].v };
+                    const u = w0 * cornerUV[i0].u + w1 * cornerUV[i1].u + w2 * cornerUV[i2].u;
+                    const v = w0 * cornerUV[i0].v + w1 * cornerUV[i1].v + w2 * cornerUV[i2].v;
+                    if ((!best || hit.t < best.t) && !isCanvasAlphaCut(s, u * CANVAS_RES, v * CANVAS_RES)) {
+                        best = { t: hit.t, u, v };
+                    }
                 }
                 hit = rayTriangleIntersect(origin, dir, cornerV[i3], cornerV[i4], cornerV[i5]);
-                if (hit && (!best || hit.t < best.t)) {
+                if (hit) {
                     const w0 = 1 - hit.bu - hit.bv, w1 = hit.bu, w2 = hit.bv;
-                    best = { t: hit.t, u: w0 * cornerUV[i3].u + w1 * cornerUV[i4].u + w2 * cornerUV[i5].u, v: w0 * cornerUV[i3].v + w1 * cornerUV[i4].v + w2 * cornerUV[i5].v };
+                    const u = w0 * cornerUV[i3].u + w1 * cornerUV[i4].u + w2 * cornerUV[i5].u;
+                    const v = w0 * cornerUV[i3].v + w1 * cornerUV[i4].v + w2 * cornerUV[i5].v;
+                    if ((!best || hit.t < best.t) && !isCanvasAlphaCut(s, u * CANVAS_RES, v * CANVAS_RES)) {
+                        best = { t: hit.t, u, v };
+                    }
                 }
             }
         }
@@ -868,10 +896,135 @@ function paintSegment(s: Surface, from: StrokePoint, to: StrokePoint): void {
     }
 }
 
-// --- Modes: Draw (paint on whichever surface the pointer hits) / Move (select + gizmo + rotate
-// sliders) - a plain click can't mean both at once. ---------------------------------------------
+// --- Cut tool: draw a closed shape on a surface, and once it loops back to its own start point,
+// punch a hole straight through the surface at that shape - a real see-through hole (the fragment
+// shader discards it, see CANVAS_SURFACE_SHADER below), not a color/opacity blend. ---------------
+//
+// Reuses the exact same screen -> surface-local raycast path painting already uses
+// (raycastSurfaceMesh via continueStroke's sibling below), so a cut stroke tracks the pointer
+// across a bent/curved surface exactly as accurately as a paint stroke does. Instead of stamping
+// color, it records the path (in the surface's own canvas-pixel space, same units stamp() already
+// works in) and paints a thin guide line as feedback so the shape being drawn is visible - reuses
+// `stamp` directly (which already takes an explicit Brush, unlike paintSegment) rather than
+// routing through currentBrush(), so drawing a cut guide never disturbs the active paint brush.
+//
+// Closing the loop is "the pointer comes back within CUT_CLOSE_DISTANCE canvas-px of the stroke's
+// own first point, after at least CUT_MIN_POINTS points" - a plain click-and-release without ever
+// looping back is NOT silently ignored: endCutStroke (pointer-up) also fires the cut using an
+// implicit closing segment from the last point straight back to the first, since a hand-drawn
+// shape (especially with a stylus) may never precisely re-cross its own start.
+//
+// The actual cut is a standard even-odd scanline polygon fill over the path's own canvas-pixel
+// bounding box, zeroing alpha (not color) inside it. That alpha buffer is the exact same one
+// CANVAS_SURFACE_SHADER samples and isCanvasAlphaCut (raycastSurfaceMesh, above) checks - one
+// buffer drives rendering, drawing-raycast pass-through, AND save/load (saveScene/loadScene
+// already base64-round-trip the whole RGBA canvas, so a cut needs no new persisted field at all).
+const CUT_GUIDE_COLOR: [number, number, number] = [206, 32, 32];
+const CUT_GUIDE_BRUSH: Brush = {
+    name: "CutGuide", color: CUT_GUIDE_COLOR, isEraser: false,
+    baseRadius: 2.2, radiusGain: 0, softness: 0.05, opacityBase: 1, opacityGain: 0,
+    tiltElongation: 0, spacingFactor: 0.3,
+};
+const CUT_CLOSE_DISTANCE = 16; // canvas px (of CANVAS_RES=768) - how close the loop must come to its own start
+const CUT_MIN_POINTS = 8; // guards against an accidental instant-closure right after starting
 
-type Mode = "draw" | "move";
+interface CutPoint { px: number; py: number; }
+
+let cutTarget: Surface | null = null;
+let cutPath: CutPoint[] = [];
+let mouseCutting = false;
+
+function paintCutGuideSegment(s: Surface, from: CutPoint, to: CutPoint): void {
+    const dist = Math.hypot(to.px - from.px, to.py - from.py);
+    const steps = Math.max(1, Math.ceil(dist / 1.5));
+    for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        stamp(s, CUT_GUIDE_BRUSH, from.px + (to.px - from.px) * t, from.py + (to.py - from.py) * t, CUT_GUIDE_BRUSH.baseRadius, 1, 0, 0);
+    }
+}
+
+// Standard even-odd scanline polygon fill, rasterized directly in canvas-pixel space (the same
+// space every point in `path` already lives in). Zeroes alpha only - RGB is left as whatever was
+// already painted/guide-lined there, since a discarded fragment never samples color at all.
+function floodFillCutAlpha(s: Surface, path: CutPoint[]): void {
+    if (path.length < 3) return;
+    let minY = Infinity, maxY = -Infinity;
+    for (const p of path) {
+        minY = Math.min(minY, p.py);
+        maxY = Math.max(maxY, p.py);
+    }
+    const y0 = Math.max(0, Math.floor(minY)), y1 = Math.min(CANVAS_RES - 1, Math.ceil(maxY));
+    const canvas = s.canvas;
+
+    for (let y = y0; y <= y1; y++) {
+        const yc = y + 0.5;
+        const xs: number[] = [];
+        for (let i = 0; i < path.length; i++) {
+            const a = path[i], b = path[(i + 1) % path.length];
+            if ((a.py <= yc && b.py > yc) || (b.py <= yc && a.py > yc)) {
+                xs.push(a.px + ((yc - a.py) / (b.py - a.py)) * (b.px - a.px));
+            }
+        }
+        xs.sort((m, n) => m - n);
+        for (let i = 0; i + 1 < xs.length; i += 2) {
+            const xStart = Math.max(0, Math.round(xs[i]));
+            const xEnd = Math.min(CANVAS_RES - 1, Math.round(xs[i + 1]));
+            for (let x = xStart; x <= xEnd; x++) {
+                canvas[(y * CANVAS_RES + x) * 4 + 3] = 0;
+            }
+        }
+    }
+    s.dirty = true;
+}
+
+function finishCut(s: Surface, path: CutPoint[]): void {
+    if (path.length < 3) return;
+    const first = path[0], last = path[path.length - 1];
+    if (Math.hypot(last.px - first.px, last.py - first.py) > 0.75) paintCutGuideSegment(s, last, first);
+    floodFillCutAlpha(s, path);
+    Entropy.println(`[canvas-surfaces] cut a ${path.length}-point hole into ${s.name}`);
+}
+
+function beginCut(hit: SurfaceHit): void {
+    cutTarget = hit.surface;
+    activeSurfaceId = hit.surface.id;
+    cutPath = [{ px: hit.px, py: hit.py }];
+    stamp(hit.surface, CUT_GUIDE_BRUSH, hit.px, hit.py, CUT_GUIDE_BRUSH.baseRadius, 1, 0, 0);
+}
+
+function continueCut(x: number, y: number): void {
+    if (!cutTarget || cutPath.length === 0) return;
+    const ray = Entropy.Camera.screenToWorldRay(x, y);
+    const hit = raycastSurfaceMesh(cutTarget, ray.origin, ray.direction);
+    if (!hit) return; // off the edge, or the ray grazed past a curved surface - keep the path alive
+
+    const point: CutPoint = { px: hit.px, py: hit.py };
+    paintCutGuideSegment(cutTarget, cutPath[cutPath.length - 1], point);
+    cutPath.push(point);
+
+    if (cutPath.length >= CUT_MIN_POINTS) {
+        const start = cutPath[0];
+        if (Math.hypot(point.px - start.px, point.py - start.py) <= CUT_CLOSE_DISTANCE) {
+            finishCut(cutTarget, cutPath);
+            cutTarget = null;
+            cutPath = [];
+        }
+    }
+}
+
+// Fallback for a stroke that's released without ever precisely looping back onto itself - closes
+// it with a straight implicit segment (see finishCut) rather than discarding the whole shape.
+function endCutStroke(): void {
+    if (cutTarget && cutPath.length >= 3) finishCut(cutTarget, cutPath);
+    cutTarget = null;
+    cutPath = [];
+}
+
+// --- Modes: Draw (paint on whichever surface the pointer hits) / Move (select + gizmo + rotate
+// sliders) / Cut (draw a closed shape that punches a hole through the surface once it closes) -
+// a plain click can't mean more than one of these at once. ---------------------------------------
+
+type Mode = "draw" | "move" | "cut";
 let mode: Mode = "draw";
 
 let drawTarget: Surface | null = null;
@@ -895,6 +1048,10 @@ Entropy.Input.onMouseDown((button) => {
     // stray connecting line jump from wherever the stroke last was to wherever the pen re-lands.
     drawTarget = null;
     lastStrokePoint = null;
+    // Same reasoning for an in-flight cut path: abandon it rather than resuming it after an
+    // orbit, which would otherwise jump the shape across whatever the camera move revealed.
+    cutTarget = null;
+    cutPath = [];
 });
 Entropy.Input.onMouseUp((button) => { if (button === 1) orbitButtonDown = false; });
 
@@ -929,20 +1086,27 @@ Entropy.Input.onStylusDown((e) => {
     usingStylus = true;
     usingStylusClearPending = false;
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
-    if (mode !== "draw" || orbitButtonDown || Entropy.Input.isPointerOverUI()) return;
-    const hit = raycastSurfaces(e.x, e.y);
-    if (hit) beginStroke(hit, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
+    if (orbitButtonDown || Entropy.Input.isPointerOverUI()) return;
+    if (mode === "draw") {
+        const hit = raycastSurfaces(e.x, e.y);
+        if (hit) beginStroke(hit, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
+    } else if (mode === "cut") {
+        const hit = raycastSurfaces(e.x, e.y);
+        if (hit) beginCut(hit);
+    }
 });
 
 Entropy.Input.onStylusMove((e) => {
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
-    if (mode !== "draw" || orbitButtonDown) return;
-    continueStroke(e.x, e.y, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
+    if (orbitButtonDown) return;
+    if (mode === "draw") continueStroke(e.x, e.y, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
+    else if (mode === "cut") continueCut(e.x, e.y);
 });
 
 Entropy.Input.onStylusUp((_e) => {
     drawTarget = null;
     lastStrokePoint = null;
+    if (mode === "cut") endCutStroke();
     // See stylus_drawing_addon.ts for why this guard exists: Windows also synthesizes legacy
     // mouse-compatibility events for pen input, which would otherwise double-draw.
     usingStylusClearPending = true;
@@ -959,6 +1123,10 @@ Entropy.Input.onMouseDown((button) => {
         mouseDrawing = true;
         const hit = raycastSurfaces(currentMouseX, currentMouseY);
         if (hit) beginStroke(hit, 1.0, 0, 0);
+    } else if (mode === "cut") {
+        mouseCutting = true;
+        const hit = raycastSurfaces(currentMouseX, currentMouseY);
+        if (hit) beginCut(hit);
     } else {
         const hit = raycastSurfaces(currentMouseX, currentMouseY);
         if (hit) {
@@ -971,8 +1139,9 @@ Entropy.Input.onMouseDown((button) => {
 Entropy.Input.onMouseMove((x, y) => {
     currentMouseX = x;
     currentMouseY = y;
-    if (usingStylus || mode !== "draw" || !mouseDrawing) return;
-    continueStroke(x, y, 1.0, 0, 0);
+    if (usingStylus) return;
+    if (mode === "draw" && mouseDrawing) continueStroke(x, y, 1.0, 0, 0);
+    else if (mode === "cut" && mouseCutting) continueCut(x, y);
 });
 
 Entropy.Input.onMouseUp((button) => {
@@ -980,6 +1149,10 @@ Entropy.Input.onMouseUp((button) => {
     mouseDrawing = false;
     drawTarget = null;
     lastStrokePoint = null;
+    if (mouseCutting) {
+        mouseCutting = false;
+        endCutStroke();
+    }
 });
 
 // --- Move mode: translate + rotate gizmo. Both handle sets are shown and draggable at once
@@ -1033,13 +1206,20 @@ function syncGizmoRotationFromSurface(s: Surface): void {
 
 function setMode(next: Mode): void {
     mode = next;
-    if (mode === "draw" && activeGizmoId) {
+    if (mode !== "move" && activeGizmoId) {
         Entropy.Gizmo.hide(activeGizmoId);
         activeGizmoId = null;
         lastGizmoSurfaceId = null;
     } else if (mode === "move") {
         lastGizmoSurfaceId = null; // force syncGizmoToSelection to (re)create it next tick
     }
+    // Abandon any in-flight stroke/cut rather than letting it resume oddly after a mode switch.
+    drawTarget = null;
+    lastStrokePoint = null;
+    mouseDrawing = false;
+    cutTarget = null;
+    cutPath = [];
+    mouseCutting = false;
 }
 
 function deleteSurface(s: Surface): void {
@@ -1299,6 +1479,12 @@ fn point_light_diffuse(world_pos: vec3<f32>, n: vec3<f32>, light_pos: vec3<f32>,
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let sampled = textureSample(surface_texture, surface_sampler, in.tex_coords);
+    // The Cut tool (canvas_surface_addon.ts's floodFillCutAlpha) zeroes alpha inside a closed
+    // shape once it's drawn - discard turns that into a real hole (whatever's behind the surface
+    // shows through, depth-correct) rather than a blended/see-through-tinted color.
+    if (sampled.a < 0.5) {
+        discard;
+    }
     let n = normalize(in.normal);
     var lighting = vec3<f32>(AMBIENT, AMBIENT, AMBIENT);
     lighting += point_light_diffuse(in.world_pos, n, LIGHT1_POS, LIGHT1_COLOR, LIGHT1_INTENSITY);
@@ -1380,6 +1566,11 @@ function renderUI(): void {
         id: "mode_move",
         onClick: () => setMode("move")
     });
+    Entropy.UI.Widget.button(uiWindowId, {
+        text: (mode === "cut" ? "> " : "  ") + "Cut",
+        id: "mode_cut",
+        onClick: () => setMode("cut")
+    });
     Entropy.UI.Widget.separator(uiWindowId);
 
     // Cycling button, not a dropdown - the same call this codebase's other demos already made
@@ -1452,6 +1643,17 @@ function renderUI(): void {
             onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
         });
         Entropy.UI.Widget.label(uiWindowId, { text: `pressure: ${lastStylusReading.pressure.toFixed(2)}` });
+    } else if (mode === "cut") {
+        Entropy.UI.Widget.label(uiWindowId, { text: "Draw a closed shape on a surface -" });
+        Entropy.UI.Widget.label(uiWindowId, { text: "it cuts a hole through when it closes." });
+        Entropy.UI.Widget.label(uiWindowId, { text: `path points: ${cutPath.length}` });
+        if (cutTarget) {
+            Entropy.UI.Widget.button(uiWindowId, {
+                text: "Cancel Cut",
+                id: "cancel_cut",
+                onClick: () => { cutTarget = null; cutPath = []; mouseCutting = false; }
+            });
+        }
     } else {
         const s = activeSurface();
         if (!s) {
