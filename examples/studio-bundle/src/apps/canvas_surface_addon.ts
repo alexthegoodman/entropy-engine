@@ -27,20 +27,20 @@
 // doesn't exist yet - src/deno/addon_setup.js's own implementation is a stub that always returns
 // null (confirmed by reading it), so relying on it here would silently never work.
 //
-// Position is edited with X/Y/Z sliders, not by dragging Entropy.Gizmo's translate handles, even
-// though Entropy.setGameMode(false) does make the gizmo render and its handles do report a
-// hover/active state on click. Verified interactively (synthetic Win32 drags, screenshots, and a
-// temporary debug println in src/deno/addon_engine.rs's gizmo-interaction block, since reverted):
-// while a drag is held, `interaction.dragging` is correctly `true` the whole time, but
-// `renderer_state.current_mouse_position` - which src/startup.rs's `CursorMoved` handler updates
-// unconditionally - never advances past the click's starting position for the drag's duration, so
-// `transform_gizmo`'s `update()` never sees the cursor move and returns no translation delta. The
-// exact same drag's mouse-move events correctly drive this addon's own drawing (confirmed by the
-// diagonal ink stroke actually painting along the drag path), so this isn't a general input bug -
-// it's specific to whatever separate path feeds the native gizmo interaction outside a full Studio
-// shell. Root cause not found; rotation (yaw/pitch/roll sliders) and drawing are unaffected and
-// fully verified. Flagged as a real engine limitation, not swept under a workaround - see the
-// gizmo-translate-drag-not-registering backlog card.
+// Position can be edited either by dragging Entropy.Gizmo's translate handles (requires
+// Entropy.setGameMode(false), since the gizmo's render pass is gated on !game_mode) or with the
+// X/Y/Z sliders - both drive the same setSurfacePosition() path, including edge snapping. An
+// earlier session briefly concluded the gizmo drag was broken outside Studio; that was a false
+// alarm caused by that session's own coarse synthetic-mouse testing (a handful of large jumps,
+// which Windows coalesces into almost no real CursorMoved events while a button is held) - see
+// the gizmo-translate-drag-false-alarm-corrected card. A real mouse or stylus drag works fine.
+//
+// Surfaces snap together at the edges (and centers) when moved via either the gizmo or the
+// position sliders: setSurfacePosition() compares the moving surface's world-space AABB (from its
+// 4 corners) against every other surface's AABB, per axis independently, and pulls the candidate
+// position onto the nearest edge/center alignment within SNAP_DISTANCE. This is an AABB snap, not
+// a true rotated-edge snap - exact for axis-aligned surfaces (the common case: tiling flat panels
+// into a wall or floor), approximate for tilted ones.
 
 const addonInfo = {
     name: "Canvas Surfaces",
@@ -146,6 +146,7 @@ interface Surface {
     id: string;
     meshId: string;
     textureId: string;
+    name: string;
     position: Vec3;
     yaw: number;
     pitch: number;
@@ -191,9 +192,84 @@ function pushSurfaceTransform(s: Surface): void {
     Entropy.Mesh.updateVertices(s.meshId, [0, 1, 2, 3], positions);
 }
 
-let surfaceCount = 0;
+// --- Edge/center snapping -----------------------------------------------------------------------
 
-function spawnSurface(position: Vec3, yaw: number): Surface {
+const SNAP_DISTANCE = 0.2; // world units
+
+interface AABB { min: Vec3; max: Vec3; }
+
+function surfaceAABB(s: Surface): AABB {
+    const corners = CORNERS.map(([lx, ly]) => worldCorner(s, lx, ly));
+    const min: Vec3 = [Infinity, Infinity, Infinity];
+    const max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const c of corners) {
+        for (let axis = 0; axis < 3; axis++) {
+            min[axis] = Math.min(min[axis], c[axis]);
+            max[axis] = Math.max(max[axis], c[axis]);
+        }
+    }
+    return { min, max };
+}
+
+// Snaps `candidate` onto nearby surfaces' edges/centers, one axis at a time. Rotation is held
+// fixed during a move, so a surface's AABB translates rigidly with its position - the candidate
+// AABB on each axis is just the current AABB shifted by (candidate - s.position) on that axis.
+function snapPosition(s: Surface, candidate: Vec3): Vec3 {
+    const current = surfaceAABB(s);
+    const others = surfaces.filter(o => o !== s).map(surfaceAABB);
+    if (others.length === 0) return candidate;
+
+    const snapped: Vec3 = [...candidate];
+    for (let axis = 0; axis < 3; axis++) {
+        const shift = candidate[axis] - s.position[axis];
+        const candMin = current.min[axis] + shift;
+        const candMax = current.max[axis] + shift;
+        const candCenter = (candMin + candMax) / 2;
+
+        let bestDelta = 0;
+        let bestDist = SNAP_DISTANCE;
+        for (const o of others) {
+            const oMin = o.min[axis], oMax = o.max[axis];
+            const oCenter = (oMin + oMax) / 2;
+            const candidates = [oMin - candMax, oMax - candMin, oCenter - candCenter];
+            for (const delta of candidates) {
+                const dist = Math.abs(delta);
+                if (dist < bestDist) {
+                    bestDist = dist;
+                    bestDelta = delta;
+                }
+            }
+        }
+        snapped[axis] = candidate[axis] + bestDelta;
+    }
+    return snapped;
+}
+
+function setSurfacePosition(s: Surface, candidate: Vec3, snap: boolean): void {
+    s.position = snap ? snapPosition(s, candidate) : candidate;
+    pushSurfaceTransform(s);
+    if (activeGizmoId && activeSurfaceId === s.id) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
+}
+
+function createSurfaceMesh(s: Surface): void {
+    Entropy.Model.createMesh({
+        id: s.meshId,
+        position: [0, 0, 0], // baked directly into world-space vertices below, not this transform
+        vertexData: surfaceVertexData(s),
+        indexData: QUAD_INDICES,
+        pipelineId,
+        bindings: [
+            { group: 2, binding: 0, resource: { type: "Texture", value: { id: s.textureId } } },
+            { group: 2, binding: 1, resource: { type: "Sampler" } },
+        ],
+    });
+}
+
+let surfaceCount = 0;
+let pendingWidth = DEFAULT_HALF_SIZE * 2;
+let pendingHeight = DEFAULT_HALF_SIZE * 2;
+
+function spawnSurface(position: Vec3, yaw: number, halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE): Surface {
     surfaceCount++;
     const id = `canvas_surface_${Entropy.generateUUID()}`;
     const canvas = new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
@@ -204,37 +280,51 @@ function spawnSurface(position: Vec3, yaw: number): Surface {
         id,
         meshId: id,
         textureId,
+        name: `Surface ${surfaceCount}`,
         position,
         yaw,
         pitch: 0,
         roll: 0,
-        halfW: DEFAULT_HALF_SIZE,
-        halfH: DEFAULT_HALF_SIZE,
+        halfW,
+        halfH,
         canvas,
         dirty: false,
         visible: true,
     };
 
-    Entropy.Model.createMesh({
-        id: s.meshId,
-        position: [0, 0, 0], // baked directly into world-space vertices below, not this transform
-        vertexData: surfaceVertexData(s),
-        indexData: QUAD_INDICES,
-        pipelineId,
-        bindings: [
-            { group: 2, binding: 0, resource: { type: "Texture", value: { id: textureId } } },
-            { group: 2, binding: 1, resource: { type: "Sampler" } },
-        ],
-    });
+    createSurfaceMesh(s);
 
     surfaces.push(s);
     activeSurfaceId = s.id;
-    Entropy.println(`[canvas-surfaces] spawned surface #${surfaceCount} (${id}) at [${position.map(n => n.toFixed(2))}]`);
+    Entropy.println(`[canvas-surfaces] spawned ${s.name} (${id}) at [${position.map(n => n.toFixed(2))}]`);
     return s;
 }
 
 function activeSurface(): Surface | null {
     return surfaces.find(s => s.id === activeSurfaceId) ?? null;
+}
+
+// Hiding/showing has no dedicated op - a plain createMesh mesh has no visibility flag - so it
+// clears and (on show) recreates the mesh with the surface's current geometry/texture binding.
+function setSurfaceVisible(s: Surface, visible: boolean): void {
+    if (s.visible === visible) return;
+    s.visible = visible;
+    if (visible) {
+        createSurfaceMesh(s);
+    } else {
+        Entropy.Model.clearMesh(s.meshId);
+        if (activeSurfaceId === s.id && activeGizmoId) {
+            Entropy.Gizmo.hide(activeGizmoId);
+            activeGizmoId = null;
+            lastGizmoSurfaceId = null;
+        }
+    }
+}
+
+function resizeSurface(s: Surface, halfW: number, halfH: number): void {
+    s.halfW = Math.max(0.1, halfW);
+    s.halfH = Math.max(0.1, halfH);
+    pushSurfaceTransform(s);
 }
 
 // --- Screen -> surface-local paint coordinate ---------------------------------------------------
@@ -433,7 +523,7 @@ Entropy.Input.onMouseDown((button) => {
     } else {
         const hit = raycastSurfaces(currentMouseX, currentMouseY);
         if (hit) {
-            activeSurfaceId = hit.surface.id;
+            selectSurface(hit.surface);
             syncGizmoToSelection();
         }
     }
@@ -476,9 +566,7 @@ function syncGizmoToSelection(): void {
         mode: "translate",
         space: "world",
         onTransform: (delta) => {
-            s.position = addV(s.position, delta);
-            pushSurfaceTransform(s);
-            if (activeGizmoId) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
+            setSurfacePosition(s, addV(s.position, delta), true);
         }
     });
 }
@@ -494,18 +582,28 @@ function setMode(next: Mode): void {
     }
 }
 
-function deleteActiveSurface(): void {
-    const s = activeSurface();
-    if (!s) return;
-    Entropy.Model.clearMesh(s.meshId);
+function deleteSurface(s: Surface): void {
+    if (s.visible) Entropy.Model.clearMesh(s.meshId);
     const idx = surfaces.indexOf(s);
     if (idx >= 0) surfaces.splice(idx, 1);
-    if (activeGizmoId) {
-        Entropy.Gizmo.hide(activeGizmoId);
-        activeGizmoId = null;
+    if (activeSurfaceId === s.id) {
+        if (activeGizmoId) {
+            Entropy.Gizmo.hide(activeGizmoId);
+            activeGizmoId = null;
+        }
+        lastGizmoSurfaceId = null;
+        activeSurfaceId = surfaces.length > 0 ? surfaces[surfaces.length - 1].id : null;
     }
-    lastGizmoSurfaceId = null;
-    activeSurfaceId = surfaces.length > 0 ? surfaces[surfaces.length - 1].id : null;
+}
+
+function deleteActiveSurface(): void {
+    const s = activeSurface();
+    if (s) deleteSurface(s);
+}
+
+function selectSurface(s: Surface): void {
+    activeSurfaceId = s.id;
+    if (mode === "move") lastGizmoSurfaceId = null; // force syncGizmoToSelection to move the gizmo
 }
 
 // --- Setup ---------------------------------------------------------------------------------------
@@ -553,6 +651,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 `;
 
 let uiWindowId: string;
+let layersWindowId: string;
 
 function setupUI(): void {
     uiWindowId = Entropy.UI.createWindow({
@@ -563,11 +662,49 @@ function setupUI(): void {
         y: 20,
         onRender: renderUI
     });
+    layersWindowId = Entropy.UI.createWindow({
+        title: "Surfaces",
+        width: 260,
+        height: 400,
+        x: 340,
+        y: 20,
+        onRender: renderLayersUI
+    });
+}
+
+function renderLayersUI(): void {
+    Entropy.UI.Widget.label(layersWindowId, { text: "Surfaces", bold: true });
+    Entropy.UI.Widget.separator(layersWindowId);
+
+    if (surfaces.length === 0) {
+        Entropy.UI.Widget.label(layersWindowId, { text: "None yet - add one." });
+        return;
+    }
+
+    for (const s of surfaces) {
+        const isActive = s.id === activeSurfaceId;
+        Entropy.UI.Widget.button(layersWindowId, {
+            text: (isActive ? "> " : "  ") + s.name + (s.visible ? "" : " (hidden)"),
+            id: `layer_select_${s.id}`,
+            onClick: () => selectSurface(s)
+        });
+        Entropy.UI.Widget.button(layersWindowId, {
+            text: s.visible ? "  Hide" : "  Show",
+            id: `layer_toggle_${s.id}`,
+            onClick: () => setSurfaceVisible(s, !s.visible)
+        });
+        Entropy.UI.Widget.button(layersWindowId, {
+            text: "  Delete",
+            id: `layer_delete_${s.id}`,
+            onClick: () => deleteSurface(s)
+        });
+        Entropy.UI.Widget.separator(layersWindowId);
+    }
 }
 
 function renderUI(): void {
     Entropy.UI.Widget.label(uiWindowId, { text: "Canvas Surfaces", bold: true });
-    Entropy.UI.Widget.label(uiWindowId, { text: "Shift+drag to orbit the camera" });
+    Entropy.UI.Widget.label(uiWindowId, { text: "Right-drag to orbit the camera" });
     Entropy.UI.Widget.separator(uiWindowId);
 
     Entropy.UI.Widget.button(uiWindowId, {
@@ -582,12 +719,20 @@ function renderUI(): void {
     });
     Entropy.UI.Widget.separator(uiWindowId);
 
+    Entropy.UI.Widget.slider(uiWindowId, {
+        label: "New Width", value: pendingWidth, min: 0.5, max: 8, id: "pending_w_slider",
+        onChange: (v: string) => { pendingWidth = parseFloat(v); }
+    });
+    Entropy.UI.Widget.slider(uiWindowId, {
+        label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
+        onChange: (v: string) => { pendingHeight = parseFloat(v); }
+    });
     Entropy.UI.Widget.button(uiWindowId, {
         text: "+ New Surface",
         id: "new_surface",
         onClick: () => {
             const n = surfaces.length;
-            spawnSurface([(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0);
+            spawnSurface([(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0, pendingWidth / 2, pendingHeight / 2);
         }
     });
 
@@ -610,32 +755,29 @@ function renderUI(): void {
         if (!s) {
             Entropy.UI.Widget.label(uiWindowId, { text: "No surface selected - click one." });
         } else {
-            Entropy.UI.Widget.label(uiWindowId, { text: `Selected: ${s.id.slice(-8)}` });
+            Entropy.UI.Widget.label(uiWindowId, { text: `Selected: ${s.name}` });
             Entropy.UI.Widget.label(uiWindowId, {
                 text: `pos: ${s.position.map(n => n.toFixed(2)).join(", ")}`
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "X", value: s.position[0], min: -8, max: 8, id: "pos_x_slider",
                 onChange: (v: string) => {
-                    s.position[0] = parseFloat(v);
-                    pushSurfaceTransform(s);
-                    if (activeGizmoId) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
+                    const p: Vec3 = [parseFloat(v), s.position[1], s.position[2]];
+                    setSurfacePosition(s, p, true);
                 }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Y", value: s.position[1], min: 0, max: 6, id: "pos_y_slider",
                 onChange: (v: string) => {
-                    s.position[1] = parseFloat(v);
-                    pushSurfaceTransform(s);
-                    if (activeGizmoId) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
+                    const p: Vec3 = [s.position[0], parseFloat(v), s.position[2]];
+                    setSurfacePosition(s, p, true);
                 }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Z", value: s.position[2], min: -8, max: 8, id: "pos_z_slider",
                 onChange: (v: string) => {
-                    s.position[2] = parseFloat(v);
-                    pushSurfaceTransform(s);
-                    if (activeGizmoId) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
+                    const p: Vec3 = [s.position[0], s.position[1], parseFloat(v)];
+                    setSurfacePosition(s, p, true);
                 }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
@@ -649,6 +791,21 @@ function renderUI(): void {
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Roll", value: s.roll, min: -Math.PI, max: Math.PI, id: "roll_slider",
                 onChange: (v: string) => { s.roll = parseFloat(v); pushSurfaceTransform(s); }
+            });
+            Entropy.UI.Widget.slider(uiWindowId, {
+                // Width/height edit the surface's geometry only - the texture keeps its 0..1 UV
+                // mapping and just stretches to fit, so a drastic aspect-ratio change will distort
+                // whatever's already drawn. Acceptable for now, not attempted to fix.
+                label: "Width", value: s.halfW * 2, min: 0.5, max: 8, id: "resize_w_slider",
+                onChange: (v: string) => resizeSurface(s, parseFloat(v) / 2, s.halfH)
+            });
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "Height", value: s.halfH * 2, min: 0.5, max: 8, id: "resize_h_slider",
+                onChange: (v: string) => resizeSurface(s, s.halfW, parseFloat(v) / 2)
+            });
+            Entropy.UI.Widget.button(uiWindowId, {
+                text: s.visible ? "Hide Surface" : "Show Surface", id: "toggle_visible",
+                onClick: () => setSurfaceVisible(s, !s.visible)
             });
             Entropy.UI.Widget.button(uiWindowId, {
                 text: "Delete Surface", id: "delete_surface",
@@ -685,7 +842,10 @@ addon.onInit(() => {
     Entropy.setGameMode(false);
 
     Entropy.Camera.setTransform([0, 1.6, 6], [0, 1.2, 0]);
-    Entropy.Controls.enable("orbit", { target: [0, 1.2, 0] });
+    // trigger:"always" + button:1 (right mouse button) instead of the default shift+left-drag -
+    // easier to hold with a stylus in the drawing hand, and leaves plain left-drag free for
+    // drawing/gizmo use without a modifier key.
+    Entropy.Controls.enable("orbit", { target: [0, 1.2, 0], trigger: "always", button: 1 });
 
     spawnSurface([0, 1.5, 0], 0);
 
