@@ -12,6 +12,15 @@ use crate::entropy_gui::shape::{self, Shape};
 pub(crate) enum DrawTarget {
     Main,
     Overlay,
+    /// Above `Overlay`, not just another name for it: `Window` (see `containers::window`)
+    /// draws its *entire body* - every widget inside it - to `Overlay`, so a popup that
+    /// also targeted `Overlay` while nested inside a `Window` (a `ColorPicker`/`ComboBox`
+    /// popup, a `context_menu`, a tooltip) would only be one earlier entry in that same
+    /// draw list - any sibling widget the window draws *after* it that same frame paints
+    /// on top of it via plain append-order compositing. `Popup` is a third list, merged in
+    /// after `Overlay` in `Context::end_frame`, specifically for floating content that must
+    /// win against an already-Overlay-drawn window's own later content.
+    Popup,
 }
 
 #[derive(Clone)]
@@ -42,6 +51,7 @@ impl Painter {
         let list = match self.target {
             DrawTarget::Main => &mut inner.draw_list,
             DrawTarget::Overlay => &mut inner.overlay_draw_list,
+            DrawTarget::Popup => &mut inner.popup_draw_list,
         };
         list.push(self.clip_rect, texture, vertices, indices);
     }
@@ -91,6 +101,14 @@ impl Painter {
         self.push(DrawTexture::White, v, i);
     }
 
+    /// Pushes a raw pre-tessellated triangle mesh, per-vertex colored, sampling the flat
+    /// white texture - the escape hatch for gradients no flat-fill `Shape` can express (e.g.
+    /// `ColorPicker`'s hue/saturation wheel, a radial conic gradient no `tessellate_*` helper
+    /// here produces).
+    pub fn mesh(&self, vertices: Vec<Vertex>, indices: Vec<u32>) {
+        self.push(DrawTexture::White, vertices, indices);
+    }
+
     /// A rounded version of `image` — samples `texture_id` into a rounded-rect mesh
     /// instead of a plain quad. Used for glass backdrop blur, where the blurred image and
     /// a translucent tint (a plain `rect_filled` layered on top, same `corner_radius`)
@@ -117,7 +135,7 @@ impl Painter {
     pub fn text(&self, pos: Pos2, align: Align2, text: impl ToString, font_id: FontId, color: Color32) -> Rect {
         let text = text.to_string();
         let mut guard = self.ctx.inner_mut();
-        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, .. } = &mut *guard;
+        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, popup_draw_list, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
 
         let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, &text);
@@ -156,6 +174,7 @@ impl Painter {
         let list = match self.target {
             DrawTarget::Main => &mut *draw_list,
             DrawTarget::Overlay => &mut *overlay_draw_list,
+            DrawTarget::Popup => &mut *popup_draw_list,
         };
         list.push(self.clip_rect, DrawTexture::Glyph, vertices, indices);
 
@@ -197,7 +216,7 @@ impl Painter {
         for name in face_names {
             guard.fonts.ensure_named(name);
         }
-        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, .. } = &mut *guard;
+        let ContextInner { fonts, atlas, draw_list, overlay_draw_list, popup_draw_list, .. } = &mut *guard;
         let emoji_idx = face_names.len();
         let symbol_idx = face_names.len() + 1;
         let fallback = fonts.font_for(crate::entropy_gui::geometry::FontFamily::Proportional);
@@ -246,6 +265,7 @@ impl Painter {
         let list = match self.target {
             DrawTarget::Main => &mut *draw_list,
             DrawTarget::Overlay => &mut *overlay_draw_list,
+            DrawTarget::Popup => &mut *popup_draw_list,
         };
         list.push(self.clip_rect, DrawTexture::Glyph, vertices, indices);
     }

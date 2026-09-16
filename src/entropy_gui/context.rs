@@ -143,6 +143,11 @@ pub(crate) struct ContextInner {
     pub(crate) memory: Memory,
     pub(crate) draw_list: DrawList,
     pub(crate) overlay_draw_list: DrawList,
+    /// Merged in after `overlay_draw_list` in `end_frame` - see `painter::DrawTarget::Popup`
+    /// for why this third list exists (a `Window`'s entire body already renders to
+    /// `overlay_draw_list`, so a popup nested inside one needs a layer above *that*, not
+    /// just another entry within it).
+    pub(crate) popup_draw_list: DrawList,
     pub(crate) input: RawInput,
     pub(crate) fonts: FontRegistry,
     pub(crate) atlas: GlyphAtlas,
@@ -150,9 +155,6 @@ pub(crate) struct ContextInner {
     pub(crate) screen_rect: Rect,
     pub(crate) time: f32,
     pub(crate) cursor_icon: CursorIcon,
-    /// Ids whose overlay content (window / popup / context-menu) has already been drawn
-    /// this frame, in draw order — lets `Memory::popup_open` control z-order without a
-    /// separate deferred-closure queue (see module docs).
     pub(crate) frame_count: u64,
     /// True once any widget's `interact()` this frame reported the pointer as hovering its
     /// rect - the generic "is the pointer currently over some GUI element" signal real egui
@@ -173,6 +175,7 @@ impl Default for Context {
             memory: Memory::default(),
             draw_list: DrawList::new(),
             overlay_draw_list: DrawList::new(),
+            popup_draw_list: DrawList::new(),
             input: RawInput::default(),
             fonts: FontRegistry::new(),
             atlas: GlyphAtlas::new(1024),
@@ -263,6 +266,7 @@ impl Context {
         let mut inner = self.0.borrow_mut();
         inner.draw_list.clear();
         inner.overlay_draw_list.clear();
+        inner.popup_draw_list.clear();
         inner.screen_rect = raw_input.screen_rect;
         inner.used_rect = raw_input.screen_rect;
         inner.time += raw_input.dt.max(0.0);
@@ -290,6 +294,8 @@ impl Context {
         let mut inner = self.0.borrow_mut();
         let overlay = std::mem::take(&mut inner.overlay_draw_list);
         inner.draw_list.commands.extend(overlay.commands);
+        let popup = std::mem::take(&mut inner.popup_draw_list);
+        inner.draw_list.commands.extend(popup.commands);
 
         let set = inner
             .atlas

@@ -1,4 +1,6 @@
-//! `Response::on_hover_text` — a tiny floating label drawn into the overlay layer.
+//! `Response::on_hover_text` - a tiny floating label drawn into the `Popup` layer, so it
+//! still floats above a `Window`'s own body when hovered inside one (see
+//! `painter::DrawTarget::Popup`'s doc comment for why `Overlay` alone isn't enough there).
 
 use crate::entropy_gui::color::Color32;
 use crate::entropy_gui::context::Context;
@@ -13,7 +15,7 @@ pub fn show_tooltip(ctx: &Context, anchor_rect: Rect, text: String) {
     let pos = pos2(anchor_rect.min.x, anchor_rect.max.y + 4.0);
     let rect = Rect::from_min_size(pos, size + padding * 2.0);
 
-    let painter = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Overlay);
+    let painter = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Popup);
     painter.rect_filled(rect, style.visuals.window_corner_radius, style.visuals.window_fill);
     painter.rect_stroke(rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
     painter.text(

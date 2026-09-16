@@ -40,10 +40,10 @@ pub fn context_menu(ctx: &Context, id: Id, anchor_rect: Rect, just_secondary_cli
     }
 
     let style = ctx.style();
-    let bg = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Overlay);
+    let bg = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Popup);
     bg.rect_filled(region, style.visuals.window_corner_radius, style.visuals.window_fill);
     bg.rect_stroke(region, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
 
-    let mut ui = Ui::new(ctx.clone(), id.with("context_menu"), region.shrink(4.0), Layout::top_down(Align::Min), region, DrawTarget::Overlay);
+    let mut ui = Ui::new(ctx.clone(), id.with("context_menu"), region.shrink(4.0), Layout::top_down(Align::Min), region, DrawTarget::Popup);
     add_contents(&mut ui);
 }

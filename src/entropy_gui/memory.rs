@@ -31,6 +31,11 @@ pub enum WidgetState {
     /// instance, keyed by its own id - the two widgets share this variant since they never
     /// collide (different id namespaces) and want the exact same pan/zoom shape.
     TimelineView { scroll_x: f32, zoom: f32 },
+    /// A user-typed draft string not yet (or not always) in sync with the caller's own data -
+    /// currently just `ColorPicker`'s hex field, which needs to hold a free-typed string across
+    /// frames without the widget re-deriving and stomping it from the color every single frame.
+    /// See `widgets_color_picker` for why a plain re-derive-every-frame approach doesn't work.
+    TextDraft(String),
 }
 
 /// Which edge (if any) of a `TrackView` clip is being dragged - see `widgets_tracks`.
@@ -55,6 +60,17 @@ pub struct LinkDrag {
 pub struct Memory {
     data: IdMap<WidgetState>,
     pub focused: Option<Id>,
+    /// At most one popup-style overlay (a `ComboBox` dropdown, a `ColorPicker`, a
+    /// right-click `context_menu`) can be open application-wide at a time - opening one
+    /// clears whatever id was here before, which is also what gives these overlays a
+    /// correct z-order for free: since only one is ever open, there's never a second
+    /// popup's draw call to be ambiguously above or below it in the same frame. Before this
+    /// was unified, `ComboBox` (and `ColorPicker` when it was first built) tracked their own
+    /// open/closed state independently per-id via `WidgetState::Open`, which let a dropdown
+    /// and a color picker (or two dropdowns) end up open simultaneously with no defined
+    /// stacking order between their two `Overlay`-layer draw calls - a real bug, not a
+    /// hypothetical one. `CollapsingHeader` is NOT a popup and deliberately keeps its own
+    /// independent per-id `WidgetState::Open` - many sections should stay expanded at once.
     pub popup_open: Option<Id>,
     pub popup_pos: Pos2,
     /// At most one widget can be "the" active drag application-wide at a time — sufficient
@@ -175,5 +191,15 @@ impl Memory {
     }
     pub fn put_doc_editor(&mut self, id: Id, state: crate::entropy_gui::widgets_doc_editor::DocEditorState) {
         self.doc_editors.insert(id, state);
+    }
+
+    pub fn get_text_draft(&self, id: Id) -> Option<String> {
+        match self.data.get(&id) {
+            Some(WidgetState::TextDraft(s)) => Some(s.clone()),
+            _ => None,
+        }
+    }
+    pub fn set_text_draft(&mut self, id: Id, s: String) {
+        self.data.insert(id, WidgetState::TextDraft(s));
     }
 }
