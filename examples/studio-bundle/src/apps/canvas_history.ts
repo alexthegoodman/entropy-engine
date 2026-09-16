@@ -17,6 +17,15 @@ export class CanvasHistory<T> {
     get redoLabel(): string | undefined { return this.future.at(-1)?.label; }
     get inProgress(): boolean { return this.pending !== null; }
 
+    /** Rebase document identity after Save As without losing the artwork's undo history. */
+    remap(map: (state: T) => T): void {
+        for (const entry of [...this.past, ...this.future]) {
+            entry.before = map(entry.before);
+            entry.after = map(entry.after);
+        }
+        if (this.pending) this.pending.before = map(this.pending.before);
+    }
+
     begin(label: string): void {
         this.pending ??= { label, before: this.capture() };
     }

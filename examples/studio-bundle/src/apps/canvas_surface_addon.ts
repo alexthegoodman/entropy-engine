@@ -77,6 +77,11 @@
 // into a wall or floor), approximate for tilted ones.
 
 import { CanvasHistory } from "./canvas_history";
+import { DEFAULT_PAINT_SETTINGS, blendPixel, compositePixel, compositeLayers, pressureResponse, stabilizePoint } from "./canvas_paint";
+import type { PaintLayer, PaintSettings, RGB } from "./canvas_paint";
+import { SceneLibrary } from "./canvas_scene_library";
+import { bytesToBase64, base64ToBytes, validateScene } from "./canvas_scene_format";
+import type { SavedScene, SavedSurface } from "./canvas_scene_format";
 
 const addonInfo = {
     name: "Canvas Surfaces",
@@ -126,8 +131,40 @@ const BRUSHES: Brush[] = [
 
 let brushIndex = 1;
 let sizeMultiplier = 0.25; // default ink brush size, per explicit ask - was 1.0
+let paintSettings: PaintSettings = { ...DEFAULT_PAINT_SETTINGS, color: [...DEFAULT_PAINT_SETTINGS.color] };
+let recentColors: RGB[] = [];
+let savedSwatches: RGB[] = [[18, 20, 32], [224, 88, 44], [52, 105, 148], [90, 120, 65]];
+let preferencesDirty = false;
+let statusMessage = "";
+let pickingColor = false;
+let textInputActive = false;
 function currentBrush(): Brush {
-    return BRUSHES[brushIndex];
+    return { ...BRUSHES[brushIndex], color: paintSettings.color };
+}
+function brushRadius(brush: Brush, pressure: number): number {
+    return (brush.baseRadius + brush.radiusGain * pressureResponse(pressure, paintSettings, "size")) * sizeMultiplier;
+}
+function brushAlpha(brush: Brush, pressure: number): number {
+    return Math.min(1, brush.opacityBase + brush.opacityGain * pressureResponse(pressure, paintSettings, "opacity")) * paintSettings.opacity;
+}
+function rememberColor(): void {
+    const color = [...paintSettings.color] as RGB;
+    recentColors = [color, ...recentColors.filter(c => c.some((n, i) => n !== color[i]))].slice(0, 6);
+    preferencesDirty = true;
+}
+function chooseColor(color: RGB): void {
+    paintSettings.color = [...color];
+    rememberColor();
+}
+function sampleColor(x: number, y: number): void {
+    const hit = raycastSurfaces(x, y);
+    if (!hit) return;
+    const px = Math.max(0, Math.min(CANVAS_RES - 1, Math.floor(hit.px)));
+    const py = Math.max(0, Math.min(CANVAS_RES - 1, Math.floor(hit.py)));
+    const i = (py * CANVAS_RES + px) * 4;
+    chooseColor([hit.surface.canvas[i], hit.surface.canvas[i + 1], hit.surface.canvas[i + 2]]);
+    pickingColor = false;
+    statusMessage = "Color sampled";
 }
 
 function tiltVector(tiltX: number, tiltY: number): { angle: number; magnitude: number } {
@@ -481,7 +518,10 @@ interface Surface {
     radius: number; // cylinder/sphere only
     bend: number; // -1..1, plane only
     bendAxis: BendAxis; // plane only
-    canvas: Uint8Array;
+    canvas: Uint8Array; // derived composite, never stored in history
+    layers: PaintLayer[];
+    activeLayerId: string;
+    cutMask: Uint8Array;
     dirty: boolean;
     visible: boolean;
     // Cached world-space patches - rebuilt by pushSurfaceTransform/createSurfaceMesh on every
@@ -496,8 +536,8 @@ let pipelineId: string;
 
 // Snapshots share unchanged canvases. Paint gestures copy only their target canvas before
 // writing; moving a surface therefore costs metadata, not another 2.3 MB bitmap.
-type SurfaceState = Omit<Surface, "worldPatches" | "dirty">;
-interface SceneState { surfaces: SurfaceState[]; activeId: string | null; }
+type SurfaceState = Omit<Surface, "worldPatches" | "dirty" | "canvas">;
+interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; }
 let historyReady = false;
 let restoringHistory = false;
 let pointerHeld = false;
@@ -506,18 +546,25 @@ let gestureCanvases = new Set<string>();
 
 function captureScene(): SceneState {
     return {
-        activeId: activeSurfaceId,
-        surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, ...s }) => ({ ...s, position: [...s.position] })),
+        activeId: activeSurfaceId, sceneId: currentSceneId, sceneName,
+        surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, canvas: _canvas, ...s }) => ({
+            ...s, position: [...s.position], layers: s.layers.map(layer => ({ ...layer })),
+        })),
     };
 }
 
 function sameScene(a: SceneState, b: SceneState): boolean {
     // Selection alone is not an edit. Keep it in snapshots to restore a deleted selection.
-    return a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
+    return a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
         const other = b.surfaces[i];
-        const { canvas, ...meta } = s;
-        const { canvas: otherCanvas, ...otherMeta } = other;
-        return canvas === otherCanvas && JSON.stringify(meta) === JSON.stringify(otherMeta);
+        const { layers, cutMask, activeLayerId: _active, ...meta } = s;
+        const { layers: otherLayers, cutMask: otherMask, activeLayerId: _otherActive, ...otherMeta } = other;
+        return cutMask === otherMask && JSON.stringify(meta) === JSON.stringify(otherMeta) &&
+            layers.length === otherLayers.length && layers.every((layer, index) => {
+                const { pixels, ...properties } = layer;
+                const { pixels: otherPixels, ...otherProperties } = otherLayers[index];
+                return pixels === otherPixels && JSON.stringify(properties) === JSON.stringify(otherProperties);
+            });
     });
 }
 
@@ -533,7 +580,9 @@ function restoreScene(state: SceneState): void {
     surfaces.length = 0;
     for (const saved of state.surfaces) {
         const existing = old.get(saved.id);
-        const s: Surface = { ...saved, position: [...saved.position], dirty: true, worldPatches: [] };
+        const s: Surface = { ...saved, position: [...saved.position], layers: saved.layers.map(layer => ({ ...layer })),
+            canvas: new Uint8Array(CANVAS_RES * CANVAS_RES * 4), dirty: true, worldPatches: [] };
+        composeSurface(s);
         // Recreate geometry only when needed. Clear/create ordering is supported by the engine;
         // updateVertices in the same tick as createMesh is not.
         if (existing?.visible) Entropy.Model.clearMesh(existing.meshId);
@@ -543,32 +592,53 @@ function restoreScene(state: SceneState): void {
         surfaces.push(s);
     }
     activeSurfaceId = state.activeId;
+    currentSceneId = state.sceneId;
+    sceneName = state.sceneName;
     previewSurfaceId = null;
     restoringHistory = false;
 }
 
 const history = new CanvasHistory(captureScene, restoreScene, sameScene, states => {
-    const canvases = new Set(states.flatMap(state => state.surfaces.map(s => s.canvas)));
+    const canvases = new Set(states.flatMap(state => state.surfaces.flatMap(s => [s.cutMask, ...s.layers.map(layer => layer.pixels)])));
     return [...canvases].reduce((bytes, canvas) => bytes + canvas.byteLength, 0);
 });
 
 function beginEdit(label: string): void {
-    if (!historyReady || restoringHistory) return;
+    if (!historyReady || restoringHistory || practiceSurface) return;
     if (!history.inProgress) gestureCanvases.clear();
     history.begin(label);
 }
 
+function editableLayer(s: Surface): PaintLayer | null {
+    const layer = s.layers.find(layer => layer.id === s.activeLayerId);
+    return layer && layer.visible && !layer.locked ? layer : null;
+}
+function composeSurface(s: Surface): void {
+    compositeLayers(s.canvas, s.layers, s.cutMask, BACKGROUND);
+    s.dirty = true;
+}
 function editCanvas(s: Surface, label: string): void {
     beginEdit(label);
-    if (!gestureCanvases.has(s.id)) {
-        s.canvas = s.canvas.slice();
-        gestureCanvases.add(s.id);
+    const layer = editableLayer(s);
+    if (layer && !gestureCanvases.has(`${s.id}:${layer.id}`)) {
+        layer.pixels = layer.pixels.slice();
+        gestureCanvases.add(`${s.id}:${layer.id}`);
     }
+}
+function newPaintLayer(name: string): PaintLayer {
+    return { id: Entropy.generateUUID(), name, visible: true, locked: false, opacity: 1, pixels: new Uint8Array(CANVAS_RES * CANVAS_RES * 4) };
+}
+function changeLayer(s: Surface, label: string, change: () => void): void {
+    beginEdit(label);
+    change();
+    composeSurface(s);
 }
 
 function resetGesture(): void {
+    if (cutTarget) composeSurface(cutTarget);
     drawTarget = null;
     lastStrokePoint = null;
+    rawStrokePoint = null;
     mouseDrawing = false;
     cutTarget = null;
     cutPath = [];
@@ -576,17 +646,9 @@ function resetGesture(): void {
     gestureCanvases.clear();
 }
 
-function undo(): void { resetGesture(); history.undo(); }
-function redo(): void { resetGesture(); history.redo(); }
+function undo(): void { if (practiceSurface) return; resetGesture(); history.undo(); }
+function redo(): void { if (practiceSurface) return; resetGesture(); history.redo(); }
 
-function clearCanvasBuffer(canvas: Uint8Array): void {
-    for (let i = 0; i < canvas.length; i += 4) {
-        canvas[i] = BACKGROUND[0];
-        canvas[i + 1] = BACKGROUND[1];
-        canvas[i + 2] = BACKGROUND[2];
-        canvas[i + 3] = 255;
-    }
-}
 
 function surfaceMeshData(s: Surface): { vertexData: number[]; indexData: number[] } {
     const worldPatches = buildSurfaceWorldPatches(s);
@@ -736,13 +798,22 @@ let pendingKind: ShapeKind = "plane";
 function spawnSurface(
     position: Vec3, yaw: number, kind: ShapeKind = "plane",
     halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS,
-    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean }
+    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean; layers?: PaintLayer[]; activeLayerId?: string; cutMask?: Uint8Array }
 ): Surface {
     beginEdit("New surface");
     surfaceCount++;
     const id = `canvas_surface_${Entropy.generateUUID()}`;
-    const canvas = restore?.canvas ?? new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
-    if (!restore?.canvas) clearCanvasBuffer(canvas);
+    const canvas = new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
+    const layers = restore?.layers ?? [newPaintLayer(restore?.canvas ? "Imported artwork" : "Ink")];
+    const cutMask = restore?.cutMask ?? new Uint8Array(CANVAS_RES * CANVAS_RES).fill(255);
+    if (restore?.canvas) {
+        layers[0].pixels.set(restore.canvas);
+        for (let i = 0; i < cutMask.length; i++) {
+            cutMask[i] = restore.canvas[i * 4 + 3];
+            layers[0].pixels[i * 4 + 3] = 255;
+        }
+    }
+    compositeLayers(canvas, layers, cutMask, BACKGROUND);
     const textureId = Entropy.Texture.create(CANVAS_RES, CANVAS_RES, canvas);
 
     const s: Surface = {
@@ -762,7 +833,7 @@ function spawnSurface(
         radius,
         bend: restore?.bend ?? 0,
         bendAxis: restore?.bendAxis ?? "y",
-        canvas,
+        canvas, layers, cutMask, activeLayerId: restore?.activeLayerId ?? layers[0].id,
         dirty: false,
         visible: restore?.visible ?? true,
         worldPatches: [],
@@ -779,7 +850,7 @@ function spawnSurface(
 }
 
 function activeSurface(): Surface | null {
-    return surfaces.find(s => s.id === activeSurfaceId) ?? null;
+    return practiceSurface ?? surfaces.find(s => s.id === activeSurfaceId) ?? null;
 }
 
 // Hiding/showing has no dedicated op - a plain createMesh mesh has no visibility flag - so it
@@ -912,7 +983,7 @@ function raycastSurfaces(screenX: number, screenY: number): SurfaceHit | null {
     const ray = Entropy.Camera.screenToWorldRay(screenX, screenY);
     let best: SurfaceHit | null = null;
 
-    for (const s of surfaces) {
+    for (const s of practiceSurface ? [practiceSurface] : surfaces) {
         if (!s.visible) continue;
         const hit = raycastSurfaceMesh(s, ray.origin, ray.direction);
         if (hit && (!best || hit.t < best.t)) best = hit;
@@ -925,6 +996,9 @@ function raycastSurfaces(screenX: number, screenY: number): SurfaceHit | null {
 function stamp(s: Surface, brush: Brush, cx: number, cy: number, radius: number, alpha: number, angle: number, elongation: number): void {
     if (radius <= 0 || alpha <= 0) return;
     const canvas = s.canvas;
+    const layer = editableLayer(s);
+    const isGuide = brush === CUT_GUIDE_BRUSH;
+    if (!isGuide && !layer) return;
 
     const majorR = radius * (1 + elongation * 0.9);
     const minorR = radius * (1 - elongation * 0.55);
@@ -956,9 +1030,14 @@ function stamp(s: Surface, brush: Brush, cx: number, cy: number, radius: number,
             if (a <= 0.002) continue;
 
             const i = (y * CANVAS_RES + x) * 4;
-            canvas[i] = r * a + canvas[i] * (1 - a);
-            canvas[i + 1] = g * a + canvas[i + 1] * (1 - a);
-            canvas[i + 2] = b * a + canvas[i + 2] * (1 - a);
+            if (isGuide) {
+                canvas[i] = r * a + canvas[i] * (1 - a);
+                canvas[i + 1] = g * a + canvas[i + 1] * (1 - a);
+                canvas[i + 2] = b * a + canvas[i + 2] * (1 - a);
+            } else if (layer) {
+                blendPixel(layer.pixels, i, brush.color, a, brush.isEraser);
+                compositePixel(canvas, s.layers, s.cutMask, BACKGROUND, i);
+            }
         }
     }
     s.dirty = true;
@@ -975,8 +1054,8 @@ interface StrokePoint {
 function paintSegment(s: Surface, from: StrokePoint, to: StrokePoint): void {
     const brush = currentBrush();
     const dist = Math.hypot(to.px - from.px, to.py - from.py);
-    const approxRadius = brush.baseRadius + brush.radiusGain * Math.max(from.pressure, to.pressure);
-    const step = Math.max(0.25, approxRadius * sizeMultiplier * brush.spacingFactor);
+    const approxRadius = brushRadius(brush, Math.max(from.pressure, to.pressure));
+    const step = Math.max(0.25, approxRadius * brush.spacingFactor);
     const steps = Math.max(1, Math.ceil(dist / step));
 
     for (let i = 1; i <= steps; i++) {
@@ -987,8 +1066,8 @@ function paintSegment(s: Surface, from: StrokePoint, to: StrokePoint): void {
         const tiltX = from.tiltX + (to.tiltX - from.tiltX) * t;
         const tiltY = from.tiltY + (to.tiltY - from.tiltY) * t;
 
-        const radius = (brush.baseRadius + brush.radiusGain * pressure) * sizeMultiplier;
-        const alpha = Math.min(1, brush.opacityBase + brush.opacityGain * pressure);
+        const radius = brushRadius(brush, pressure);
+        const alpha = brushAlpha(brush, pressure);
         const { angle, magnitude } = tiltVector(tiltX, tiltY);
         stamp(s, brush, px, py, radius, alpha, angle, brush.tiltElongation * magnitude);
     }
@@ -1068,6 +1147,7 @@ function floodFillCutAlpha(s: Surface, path: CutPoint[]): void {
             const xStart = Math.max(0, Math.round(xs[i]));
             const xEnd = Math.min(CANVAS_RES - 1, Math.round(xs[i + 1]));
             for (let x = xStart; x <= xEnd; x++) {
+                s.cutMask[y * CANVAS_RES + x] = 0;
                 canvas[(y * CANVAS_RES + x) * 4 + 3] = 0;
             }
         }
@@ -1080,13 +1160,15 @@ function finishCut(s: Surface, path: CutPoint[]): void {
     const first = path[0], last = path[path.length - 1];
     if (Math.hypot(last.px - first.px, last.py - first.py) > 0.75) paintCutGuideSegment(s, last, first);
     floodFillCutAlpha(s, path);
+    composeSurface(s);
     Entropy.println(`[canvas-surfaces] cut a ${path.length}-point hole into ${s.name}`);
 }
 
 function beginCut(hit: SurfaceHit): void {
-    editCanvas(hit.surface, "Cut");
+    beginEdit("Cut");
+    hit.surface.cutMask = hit.surface.cutMask.slice();
     cutTarget = hit.surface;
-    activeSurfaceId = hit.surface.id;
+    if (!practiceSurface) activeSurfaceId = hit.surface.id;
     cutPath = [{ px: hit.px, py: hit.py }];
     stamp(hit.surface, CUT_GUIDE_BRUSH, hit.px, hit.py, CUT_GUIDE_BRUSH.baseRadius, 1, 0, 0);
 }
@@ -1115,6 +1197,7 @@ function continueCut(x: number, y: number): void {
 // it with a straight implicit segment (see finishCut) rather than discarding the whole shape.
 function endCutStroke(): void {
     if (cutTarget && cutPath.length >= 3) finishCut(cutTarget, cutPath);
+    else if (cutTarget) composeSurface(cutTarget);
     cutTarget = null;
     cutPath = [];
 }
@@ -1128,6 +1211,7 @@ let mode: Mode = "draw";
 
 let drawTarget: Surface | null = null;
 let lastStrokePoint: StrokePoint | null = null;
+let rawStrokePoint: StrokePoint | null = null;
 let usingStylus = false;
 let usingStylusClearPending = false;
 let mouseDrawing = false;
@@ -1145,7 +1229,7 @@ Entropy.Input.onMouseDown((button) => {
         pointerHeld = true;
     }
     if (button !== 1) return;
-    history.commit();
+    if (cutTarget) history.cancel(); else history.commit();
     orbitButtonDown = true;
     // End whatever stroke was mid-flight cleanly rather than leaving a stale drawTarget/
     // lastStrokePoint around - resuming from those once orbiting stops would otherwise draw a
@@ -1165,14 +1249,17 @@ Entropy.Input.onMouseUp((button) => {
 let lastStylusReading = { pressure: 0, tiltX: 0 as number | null, tiltY: 0 as number | null };
 
 function beginStroke(hit: SurfaceHit, pressure: number, tiltX: number, tiltY: number): void {
+    if (!editableLayer(hit.surface)) { statusMessage = "Choose a visible, unlocked paint layer."; return; }
+    if (!currentBrush().isEraser) rememberColor();
     editCanvas(hit.surface, currentBrush().isEraser ? "Erase" : "Stroke");
     drawTarget = hit.surface;
-    activeSurfaceId = hit.surface.id;
+    if (!practiceSurface) activeSurfaceId = hit.surface.id;
     lastStrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
+    rawStrokePoint = lastStrokePoint;
     stamp(
         hit.surface, currentBrush(), hit.px, hit.py,
-        (currentBrush().baseRadius + currentBrush().radiusGain * pressure) * sizeMultiplier,
-        Math.min(1, currentBrush().opacityBase + currentBrush().opacityGain * pressure),
+        brushRadius(currentBrush(), pressure),
+        brushAlpha(currentBrush(), pressure),
         tiltVector(tiltX, tiltY).angle, currentBrush().tiltElongation * tiltVector(tiltX, tiltY).magnitude
     );
 }
@@ -1182,10 +1269,18 @@ function continueStroke(x: number, y: number, pressure: number, tiltX: number, t
     const ray = Entropy.Camera.screenToWorldRay(x, y);
     const hit = raycastSurfaceMesh(drawTarget, ray.origin, ray.direction);
     // A missed region must break interpolation, otherwise returning draws a stray bridge.
-    if (!hit || Entropy.Input.isPointerOverUI()) { lastStrokePoint = null; return; }
-    const point: StrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
+    if (!hit || Entropy.Input.isPointerOverUI()) { lastStrokePoint = null; rawStrokePoint = null; return; }
+    rawStrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
+    const point: StrokePoint = { ...rawStrokePoint, ...stabilizePoint(lastStrokePoint ?? rawStrokePoint, rawStrokePoint, paintSettings.stabilization * 32) };
+    if (lastStrokePoint && point.px === lastStrokePoint.px && point.py === lastStrokePoint.py) return;
     paintSegment(drawTarget, lastStrokePoint ?? point, point);
     lastStrokePoint = point;
+}
+
+function finishStroke(): void {
+    if (drawTarget && lastStrokePoint && rawStrokePoint && paintSettings.stabilization > 0)
+        paintSegment(drawTarget, lastStrokePoint, rawStrokePoint);
+    rawStrokePoint = null;
 }
 
 Entropy.Input.onStylusDown((e) => {
@@ -1197,7 +1292,9 @@ Entropy.Input.onStylusDown((e) => {
     usingStylus = true;
     usingStylusClearPending = false;
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
-    if (orbitButtonDown || Entropy.Input.isPointerOverUI()) return;
+    textInputActive = Entropy.Input.isPointerOverUI();
+    if (orbitButtonDown || textInputActive) return;
+    if (pickingColor) { sampleColor(e.x, e.y); return; }
     if (mode === "draw") {
         const hit = raycastSurfaces(e.x, e.y);
         if (hit) beginStroke(hit, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
@@ -1218,6 +1315,7 @@ Entropy.Input.onStylusMove((e) => {
 });
 
 Entropy.Input.onStylusUp((_e) => {
+    finishStroke();
     penHeld = false;
     drawTarget = null;
     lastStrokePoint = null;
@@ -1236,7 +1334,9 @@ Entropy.Input.onMouseDown((button, x, y) => {
     currentMouseX = x;
     currentMouseY = y;
     pointerKnown = true;
-    if (button !== 0 || usingStylus || Entropy.Input.isPointerOverUI()) return;
+    if (button === 0) textInputActive = Entropy.Input.isPointerOverUI();
+    if (button !== 0 || usingStylus || textInputActive) return;
+    if (pickingColor) { sampleColor(x, y); return; }
 
     if (mode === "draw") {
         mouseDrawing = true;
@@ -1266,6 +1366,7 @@ Entropy.Input.onMouseMove((x, y) => {
 
 Entropy.Input.onMouseUp((button) => {
     if (button !== 0 || usingStylus) return;
+    finishStroke();
     mouseDrawing = false;
     drawTarget = null;
     lastStrokePoint = null;
@@ -1289,15 +1390,18 @@ function updateBrushPreview(): void {
     }
     const target = hit?.surface;
     if (previewSurfaceId && previewSurfaceId !== target?.id) {
-        const previous = surfaces.find(s => s.id === previewSurfaceId);
+        const previous = (practiceSurface ? [practiceSurface, ...surfaces] : surfaces).find(s => s.id === previewSurfaceId);
         if (previous) Entropy.Buffer.write(previous.previewBufferId, new Float32Array(8));
     }
     previewSurfaceId = target?.id ?? null;
     hoverSurfaceName = target?.name ?? "";
     if (!target || !hit) return;
+    if (drawTarget === target && lastStrokePoint && paintSettings.stabilization > 0) {
+        hit.px = lastStrokePoint.px; hit.py = lastStrokePoint.py;
+    }
     const brush = currentBrush();
     const pressure = penHeld ? lastStylusReading.pressure : 1;
-    const radius = (brush.baseRadius + brush.radiusGain * pressure) * sizeMultiplier;
+    const radius = brushRadius(brush, pressure);
     const tilt = tiltVector(lastStylusReading.tiltX ?? 0, lastStylusReading.tiltY ?? 0);
     const elongation = brush.tiltElongation * (usingStylus ? tilt.magnitude : 0);
     Entropy.Buffer.write(target.previewBufferId, new Float32Array([
@@ -1353,7 +1457,8 @@ function restoreView(): void {
 
 Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
     const k = key.toLowerCase();
-    if (alt) return;
+    if (alt || textInputActive) return;
+    if (ctrl && k === "s") { saveScene(); return; }
     if (ctrl && k === "z") { shift ? redo() : undo(); return; }
     if (ctrl && k === "y") { redo(); return; }
     if (k === "escape" && !ctrl) {
@@ -1421,7 +1526,8 @@ function syncGizmoRotationFromSurface(s: Surface): void {
 }
 
 function setMode(next: Mode): void {
-    history.commit();
+    if (practiceSurface && next !== "draw") togglePractice();
+    if (cutTarget) history.cancel(); else history.commit();
     mode = next;
     if (mode !== "move" && activeGizmoId) {
         Entropy.Gizmo.hide(activeGizmoId);
@@ -1433,6 +1539,7 @@ function setMode(next: Mode): void {
     // Abandon any in-flight stroke/cut rather than letting it resume oddly after a mode switch.
     drawTarget = null;
     lastStrokePoint = null;
+    rawStrokePoint = null;
     mouseDrawing = false;
     cutTarget = null;
     cutPath = [];
@@ -1475,93 +1582,162 @@ function selectSurface(s: Surface): void {
 // for IO.save/load to actually persist anywhere (op_addon_save_data silently no-ops without a
 // dev-controlled data_dir OR a loaded project - neither applies to a standalone EntropyApp like
 // this one) - see that binary's canvas-surface-demo entry.
-const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+let currentSceneId: string | null = Entropy.generateUUID();
+let sceneName = "Untitled scene";
+let selectedSceneId: string | null = null;
+let savedSceneState: SceneState | null = null;
+let libraryReady = false;
+let pendingSceneAction: { label: string; run: () => void } | null = null;
+const sceneLibrary = new SceneLibrary<SavedScene>({
+    loadIndex: () => addon.IO.load(), saveIndex: value => addon.IO.save(value),
+    load: key => addon.GameState.load(key), save: (key, value) => addon.GameState.save(key, value),
+    uuid: () => Entropy.generateUUID(),
+}, validateScene);
 
-function bytesToBase64(bytes: Uint8Array): string {
-    let out = "";
-    for (let i = 0; i < bytes.length; i += 3) {
-        const b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2];
-        out += BASE64_CHARS[b0 >> 2];
-        out += BASE64_CHARS[((b0 & 0x03) << 4) | (b1 === undefined ? 0 : b1 >> 4)];
-        out += b1 === undefined ? "=" : BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 === undefined ? 0 : b2 >> 6)];
-        out += b2 === undefined ? "=" : BASE64_CHARS[b2 & 0x3f];
-    }
-    return out;
+function sceneIsDirty(): boolean {
+    return savedSceneState ? !sameScene(savedSceneState, captureScene()) : true;
 }
-
-function base64ToBytes(b64: string): Uint8Array {
-    const clean = b64.replace(/=+$/, "");
-    const out = new Uint8Array(Math.floor((clean.length * 3) / 4));
-    let outI = 0;
-    for (let i = 0; i < clean.length; i += 4) {
-        const c0 = BASE64_CHARS.indexOf(clean[i]);
-        const c1 = BASE64_CHARS.indexOf(clean[i + 1]);
-        const c2 = clean[i + 2] !== undefined ? BASE64_CHARS.indexOf(clean[i + 2]) : -1;
-        const c3 = clean[i + 3] !== undefined ? BASE64_CHARS.indexOf(clean[i + 3]) : -1;
-        out[outI++] = (c0 << 2) | (c1 >> 4);
-        if (c2 >= 0) out[outI++] = ((c1 & 0x0f) << 4) | (c2 >> 2);
-        if (c3 >= 0) out[outI++] = ((c2 & 0x03) << 6) | c3;
-    }
-    return out.subarray(0, outI);
-}
-
-interface SavedSurface {
-    name: string;
-    kind: ShapeKind;
-    position: Vec3;
-    yaw: number; pitch: number; roll: number;
-    halfW: number; halfH: number; halfD: number; radius: number;
-    bend: number; bendAxis: BendAxis;
-    visible: boolean;
-    canvasBase64: string;
-}
-
-interface SavedScene {
-    version: 1;
-    surfaces: SavedSurface[];
-}
-
-function saveScene(): void {
-    const scene: SavedScene = {
-        version: 1,
+function serializeScene(): SavedScene {
+    return {
+        version: 2,
         surfaces: surfaces.map((s): SavedSurface => ({
-            name: s.name, kind: s.kind, position: s.position,
+            name: s.name, kind: s.kind, position: [...s.position],
             yaw: s.yaw, pitch: s.pitch, roll: s.roll,
             halfW: s.halfW, halfH: s.halfH, halfD: s.halfD, radius: s.radius,
             bend: s.bend, bendAxis: s.bendAxis, visible: s.visible,
-            canvasBase64: bytesToBase64(s.canvas),
+            activeLayerId: s.activeLayerId, cutMaskBase64: bytesToBase64(s.cutMask),
+            layers: s.layers.map(layer => ({
+                id: layer.id, name: layer.name, visible: layer.visible, locked: layer.locked,
+                opacity: layer.opacity, pixelsBase64: bytesToBase64(layer.pixels),
+            })),
         })),
     };
-    addon.IO.save(scene);
-    Entropy.println(`[canvas-surfaces] saved scene (${surfaces.length} surface(s))`);
+}
+function saveScene(asNew = false): boolean {
+    if (!libraryReady) { statusMessage = "Scene library unavailable. Restart after checking storage."; return false; }
+    if (practiceSurface) togglePractice();
+    finishStroke(); resetGesture(); history.commit();
+    try {
+        const entry = sceneLibrary.save(asNew ? null : currentSceneId, sceneName, validateScene(serializeScene()));
+        const previousId = currentSceneId;
+        history.remap(state => state.sceneId === previousId ? { ...state, sceneId: entry.id } : state);
+        currentSceneId = entry.id;
+        sceneName = entry.name;
+        selectedSceneId = entry.id;
+        savedSceneState = captureScene();
+        statusMessage = `Saved: ${entry.name}`;
+        textInputActive = false;
+        return true;
+    } catch (error) {
+        statusMessage = `Save failed: ${error instanceof Error ? error.message : String(error)}`;
+        return false;
+    }
+}
+function requestSceneAction(label: string, run: () => void): void {
+    if (practiceSurface) togglePractice();
+    finishStroke(); resetGesture(); history.commit();
+    textInputActive = false;
+    if (sceneIsDirty()) pendingSceneAction = { label, run };
+    else run();
+}
+function loadScene(): void {
+    if (!selectedSceneId) { statusMessage = "Choose a saved scene below."; return; }
+    const id = selectedSceneId;
+    // Validate and decode before asking to replace the current artwork.
+    try {
+        const scene = sceneLibrary.load(id);
+        const decoded = scene.surfaces.map(saved => ({
+            saved,
+            canvas: scene.version === 1 ? base64ToBytes(saved.canvasBase64!) : undefined,
+            layers: saved.layers?.map(({ pixelsBase64, ...layer }) => ({ ...layer, pixels: base64ToBytes(pixelsBase64) })),
+            cutMask: saved.cutMaskBase64 ? base64ToBytes(saved.cutMaskBase64) : undefined,
+        }));
+        const name = sceneLibrary.entries.find(entry => entry.id === id)!.name;
+        requestSceneAction(`Load ${name}`, () => {
+            beginEdit("Load scene");
+            for (const s of [...surfaces]) deleteSurface(s);
+            for (const { saved, canvas, layers, cutMask } of decoded) {
+                spawnSurface(saved.position, saved.yaw, saved.kind, saved.halfW, saved.halfH, saved.halfD, saved.radius,
+                    { ...saved, canvas, layers, cutMask });
+            }
+            currentSceneId = id; sceneName = name;
+            history.commit();
+            savedSceneState = captureScene();
+            statusMessage = `Loaded: ${name}`;
+            pendingSceneAction = null;
+        });
+    } catch (error) { statusMessage = `Load failed: ${error instanceof Error ? error.message : String(error)}`; }
+}
+function newScene(): void {
+    requestSceneAction("New scene", () => {
+        beginEdit("New scene");
+        for (const s of [...surfaces]) deleteSurface(s);
+        currentSceneId = Entropy.generateUUID(); sceneName = "Untitled scene";
+        spawnSurface([0, 1.5, 0], 0);
+        history.commit();
+        savedSceneState = null;
+        pendingSceneAction = null;
+        statusMessage = "New scene ? choose a name and save.";
+    });
 }
 
-// Replaces the scene as one undoable action. Hidden surfaces are created without a mesh;
-// showing them later creates it, avoiding same-tick create/hide queue ordering problems.
-function loadScene(): void {
-    const scene = addon.IO.load() as SavedScene | null;
-    if (!scene || !scene.surfaces) {
-        Entropy.println("[canvas-surfaces] no saved scene found");
-        return;
+// A disposable drawing surface uses exactly the scene's brush, pressure and smoothing code.
+let practiceSurface: Surface | null = null;
+let practiceView: CameraView | null = null;
+function togglePractice(): void {
+    finishStroke(); resetGesture(); history.commit();
+    if (practiceSurface) {
+        Entropy.Model.clearMesh(practiceSurface.meshId);
+        practiceSurface = null;
+        for (const s of surfaces) if (s.visible) createSurfaceMesh(s);
+        if (practiceView) applyView(practiceView);
+        practiceView = null;
+        statusMessage = "Back to scene";
+    } else {
+        const [position, direction] = Entropy.Camera.getTransform();
+        const distance = Math.max(1, Math.hypot(...subV(position, orbitTarget)));
+        practiceView = { position: [...position], target: addV(position, direction.map(n => n * distance) as Vec3) };
+        const selected = activeSurfaceId;
+        restoringHistory = true;
+        practiceSurface = spawnSurface([0, 1.5, 0], 0);
+        practiceSurface.name = "Practice pad (not saved)";
+        surfaces.pop(); activeSurfaceId = selected;
+        restoringHistory = false;
+        for (const s of surfaces) if (s.visible) Entropy.Model.clearMesh(s.meshId);
+        setMode("draw");
+        applyView({ position: [0, 1.5, 6], target: [0, 1.5, 0] });
+        statusMessage = "Practice pad ? your scene is unchanged.";
     }
+    previewSurfaceId = null;
+    textInputActive = false;
+}
 
-    beginEdit("Load scene");
-
-    if (activeGizmoId) {
-        Entropy.Gizmo.hide(activeGizmoId);
-        activeGizmoId = null;
-        lastGizmoSurfaceId = null;
-    }
-    for (const s of [...surfaces]) deleteSurface(s);
-
-    for (const saved of scene.surfaces) {
-        spawnSurface(
-            saved.position, saved.yaw, saved.kind,
-            saved.halfW, saved.halfH, saved.halfD, saved.radius,
-            { name: saved.name, pitch: saved.pitch, roll: saved.roll, bend: saved.bend, bendAxis: saved.bendAxis, canvas: base64ToBytes(saved.canvasBase64), visible: saved.visible }
-        );
-    }
-    Entropy.println(`[canvas-surfaces] loaded scene (${scene.surfaces.length} surface(s))`);
+function loadPreferences(): void {
+    try {
+        const value = addon.GameState.load("CanvasSurfaces_BrushSettings") as { settings?: Partial<PaintSettings>; swatches?: RGB[]; recent?: RGB[] } | null;
+        if (!value) return;
+        const settings = value.settings ?? {};
+        const number = (key: keyof PaintSettings, min: number, max: number) => {
+            const v = settings[key];
+            if (typeof v === "number" && Number.isFinite(v)) (paintSettings as unknown as Record<string, unknown>)[key] = Math.min(max, Math.max(min, v));
+        };
+        number("opacity", 0.01, 1); number("pressureMin", 0, 0.45); number("pressureMax", 0.55, 1);
+        number("sizeCurve", 0.25, 3); number("opacityCurve", 0.25, 3); number("stabilization", 0, 1);
+        for (const key of ["pressureSize", "pressureOpacity"] as const) if (typeof settings[key] === "boolean") paintSettings[key] = settings[key];
+        const isColor = (color: unknown): color is RGB => Array.isArray(color) && color.length === 3 && color.every(n => Number.isFinite(n) && n >= 0 && n <= 255);
+        if (isColor(settings.color)) paintSettings.color = [...settings.color];
+        if (Array.isArray(value.swatches)) savedSwatches = value.swatches.filter(isColor).slice(0, 8);
+        if (Array.isArray(value.recent)) recentColors = value.recent.filter(isColor).slice(0, 6);
+    } catch { statusMessage = "Brush settings could not be loaded; using defaults."; }
+}
+let lastPreferencesSave = 0;
+function savePreferences(): void {
+    if (!preferencesDirty || pointerHeld || penHeld || Date.now() - lastPreferencesSave < 1000) return;
+    lastPreferencesSave = Date.now();
+    try {
+        addon.GameState.save("CanvasSurfaces_BrushSettings", { settings: paintSettings, swatches: savedSwatches, recent: recentColors });
+        preferencesDirty = false;
+    } catch { statusMessage = "Brush settings could not be saved. Scene artwork is unchanged."; preferencesDirty = false; }
 }
 
 // --- Export GLB ------------------------------------------------------------------------------
@@ -1773,7 +1949,127 @@ function renderLayersUI(): void {
     }
 }
 
+function renderPaintLayers(): void {
+    const s = activeSurface();
+    if (!s) return;
+    Entropy.UI.Widget.label(uiWindowId, { text: `${s.name} ? top layer first` });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        for (const name of ["Sketch", "Ink", "Color"]) Entropy.UI.Widget.button(uiWindowId, {
+            text: `+ ${name}`, id: `paint_add_${name.toLowerCase()}`,
+            onClick: () => {
+                if (s.layers.length >= 16) { statusMessage = "Maximum 16 layers per surface."; return; }
+                changeLayer(s, "Add paint layer", () => {
+                    const layer = newPaintLayer(name); s.layers.push(layer); s.activeLayerId = layer.id;
+                });
+            },
+        });
+    });
+    for (const layer of [...s.layers].reverse()) {
+        Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            Entropy.UI.Widget.button(uiWindowId, { text: `${s.activeLayerId === layer.id ? "> " : ""}${layer.name}`, id: `paint_select_${layer.id}`, onClick: () => { s.activeLayerId = layer.id; } });
+            Entropy.UI.Widget.button(uiWindowId, { text: layer.visible ? "Hide" : "Show", id: `paint_visible_${layer.id}`, onClick: () => changeLayer(s, "Layer visibility", () => { layer.visible = !layer.visible; }) });
+            Entropy.UI.Widget.button(uiWindowId, { text: layer.locked ? "Unlock" : "Lock", id: `paint_lock_${layer.id}`, onClick: () => changeLayer(s, "Layer lock", () => { layer.locked = !layer.locked; }) });
+        });
+    }
+    const layer = s.layers.find(layer => layer.id === s.activeLayerId)!;
+    Entropy.UI.Widget.textInput(uiWindowId, { label: "Layer name", value: layer.name, id: "paint_layer_name", onChange: value => {
+        if (typeof value !== "string") return;
+        changeLayer(s, "Rename layer", () => { layer.name = value.slice(0, 40); });
+    } });
+    Entropy.UI.Widget.slider(uiWindowId, { label: "Layer opacity", value: layer.opacity, min: 0, max: 1, id: "paint_layer_opacity", onChange: value => changeLayer(s, "Layer opacity", () => { layer.opacity = Number(value); }) });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        for (const [label, delta] of [["Up", 1], ["Down", -1]] as const) Entropy.UI.Widget.button(uiWindowId, {
+            text: label, id: `paint_layer_${label.toLowerCase()}`, onClick: () => {
+                const index = s.layers.indexOf(layer), next = index + delta;
+                if (next < 0 || next >= s.layers.length) return;
+                changeLayer(s, "Reorder layers", () => { s.layers.splice(index, 1); s.layers.splice(next, 0, layer); });
+            },
+        });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Delete layer", id: "paint_layer_delete", onClick: () => {
+            if (s.layers.length === 1) { statusMessage = "Keep at least one paint layer."; return; }
+            changeLayer(s, "Delete paint layer", () => { s.layers = s.layers.filter(l => l !== layer); s.activeLayerId = s.layers.at(-1)!.id; });
+        } });
+    });
+}
+
+function renderBrushTuning(): void {
+    Entropy.UI.Widget.button(uiWindowId, { text: practiceSurface ? "Back to scene" : "Open practice pad", id: "practice_toggle", onClick: togglePractice });
+    if (practiceSurface) Entropy.UI.Widget.button(uiWindowId, { text: "Clear practice pad", id: "practice_clear", onClick: () => {
+        practiceSurface!.layers = [newPaintLayer("Ink")];
+        practiceSurface!.activeLayerId = practiceSurface!.layers[0].id;
+        composeSurface(practiceSurface!);
+    } });
+    Entropy.UI.Widget.label(uiWindowId, { text: `Pen pressure: ${lastStylusReading.pressure.toFixed(2)}` });
+    Entropy.UI.Widget.label(uiWindowId, { text: `Size response: ${pressureResponse(lastStylusReading.pressure, paintSettings, "size").toFixed(2)} | Opacity: ${pressureResponse(lastStylusReading.pressure, paintSettings, "opacity").toFixed(2)}` });
+    for (const [label, key] of [["Pressure ? size", "pressureSize"], ["Pressure ? opacity", "pressureOpacity"]] as const)
+        Entropy.UI.Widget.button(uiWindowId, { text: `${label}: ${paintSettings[key] ? "On" : "Off"}`, id: key, onClick: () => { paintSettings[key] = !paintSettings[key]; preferencesDirty = true; } });
+    for (const [label, key, min, max] of [
+        ["Light pressure", "pressureMin", 0, 0.45], ["Firm pressure", "pressureMax", 0.55, 1],
+        ["Size curve", "sizeCurve", 0.25, 3], ["Opacity curve", "opacityCurve", 0.25, 3],
+        ["Stabilization", "stabilization", 0, 1],
+    ] as const) Entropy.UI.Widget.slider(uiWindowId, {
+        label, value: paintSettings[key], min, max, id: `tuning_${key}`,
+        onChange: value => { paintSettings[key] = Number(value); preferencesDirty = true; },
+    });
+    Entropy.UI.Widget.label(uiWindowId, { text: "Curve < 1: softer touch; > 1: firmer" });
+    Entropy.UI.Widget.label(uiWindowId, { text: paintSettings.stabilization === 0 ? "Stabilization off ? direct pen movement" : "Steady stroke; tail finishes on release" });
+    Entropy.UI.Widget.button(uiWindowId, { text: "Reset tablet tuning", id: "tuning_reset", onClick: () => {
+        paintSettings = { ...DEFAULT_PAINT_SETTINGS, color: paintSettings.color, opacity: paintSettings.opacity };
+        preferencesDirty = true;
+    } });
+}
+
+function renderPalette(): void {
+    const colors = (label: string, list: RGB[], prefix: string) => {
+        Entropy.UI.Widget.label(uiWindowId, { text: label });
+        for (let offset = 0; offset < list.length; offset += 3) Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            list.slice(offset, offset + 3).forEach((color, index) => Entropy.UI.Widget.button(uiWindowId, {
+                text: "#" + color.map(n => n.toString(16).padStart(2, "0")).join(""), id: `${prefix}_${offset + index}`,
+                onClick: () => chooseColor(color),
+            }));
+        });
+    };
+    colors("Saved colors", savedSwatches, "swatch");
+    Entropy.UI.Widget.button(uiWindowId, { text: "Save current color", id: "save_swatch", onClick: () => {
+        const color = [...paintSettings.color] as RGB;
+        if (!savedSwatches.some(c => c.every((n, i) => n === color[i]))) savedSwatches = [...savedSwatches, color].slice(-8);
+        preferencesDirty = true;
+    } });
+    colors("Recent colors", recentColors, "recent_color");
+}
+
+function renderSceneLibrary(): void {
+    Entropy.UI.Widget.textInput(uiWindowId, { label: "Scene name", value: sceneName, id: "scene_name", onChange: value => {
+        if (typeof value !== "string") return;
+        beginEdit("Scene name"); sceneName = value.slice(0, 80);
+    } });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        Entropy.UI.Widget.button(uiWindowId, { text: "Save", id: "save_scene", onClick: () => { saveScene(); } });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Save as new", id: "save_scene_as", onClick: () => { saveScene(true); } });
+        Entropy.UI.Widget.button(uiWindowId, { text: "New", id: "new_scene", onClick: newScene });
+    });
+    for (const entry of sceneLibrary.entries) Entropy.UI.Widget.button(uiWindowId, {
+        text: `${entry.id === selectedSceneId ? "> " : ""}${entry.name}`, id: `scene_select_${entry.id}`,
+        onClick: () => { selectedSceneId = entry.id; },
+    });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        Entropy.UI.Widget.button(uiWindowId, { text: "Load selected", id: "load_scene", onClick: loadScene });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Export GLB", id: "export_glb", onClick: exportSceneToGlb });
+    });
+    Entropy.UI.Widget.label(uiWindowId, { text: "Save as new needs a different name." });
+}
+
 function renderUI(): void {
+    Entropy.UI.Widget.label(uiWindowId, { text: practiceSurface ? "PRACTICE ? not saved" : `${sceneName}${sceneIsDirty() ? " *" : ""}`, bold: true });
+    if (statusMessage) Entropy.UI.Widget.label(uiWindowId, { text: statusMessage });
+    if (pendingSceneAction) {
+        Entropy.UI.Widget.label(uiWindowId, { text: `${pendingSceneAction.label}? Unsaved changes.` });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Save & continue", id: "scene_confirm_save", onClick: () => { if (saveScene()) pendingSceneAction?.run(); } });
+        Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            Entropy.UI.Widget.button(uiWindowId, { text: "Discard & continue", id: "scene_confirm_discard", onClick: () => pendingSceneAction?.run() });
+            Entropy.UI.Widget.button(uiWindowId, { text: "Cancel", id: "scene_confirm_cancel", onClick: () => { pendingSceneAction = null; } });
+        });
+    }
     Entropy.UI.Widget.horizontal(uiWindowId, () => {
         Entropy.UI.Widget.button(uiWindowId, { text: "Undo", id: "undo", onClick: undo });
         Entropy.UI.Widget.button(uiWindowId, { text: "Redo", id: "redo", onClick: redo });
@@ -1819,6 +2115,21 @@ function renderUI(): void {
             label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
             onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
         });
+        Entropy.UI.Widget.colorInput(uiWindowId, {
+            label: "Color", color: [...paintSettings.color.map(n => n / 255), paintSettings.opacity],
+            onChange: values => {
+                if (!Array.isArray(values) || values.length !== 4 || !values.every(Number.isFinite)) return;
+                chooseColor(values.slice(0, 3).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255)) as RGB);
+                paintSettings.opacity = Math.max(0.01, Math.min(1, values[3]));
+            },
+        });
+        Entropy.UI.Widget.slider(uiWindowId, { label: "Opacity", value: paintSettings.opacity, min: 0.01, max: 1, id: "brush_opacity", onChange: value => { paintSettings.opacity = Number(value); preferencesDirty = true; } });
+        Entropy.UI.Widget.button(uiWindowId, { text: pickingColor ? "Pick a surface color (cancel)" : "Eyedropper", id: "eyedropper", onClick: () => { pickingColor = !pickingColor; } });
+        const drawingLayer = activeSurface()?.layers.find(layer => layer.id === activeSurface()?.activeLayerId);
+        Entropy.UI.Widget.label(uiWindowId, { text: drawingLayer ? `Layer: ${drawingLayer.name}${drawingLayer.locked ? " (locked)" : !drawingLayer.visible ? " (hidden)" : ""}` : "No paint layer" });
+        Entropy.UI.Widget.collapsingHeader(uiWindowId, "Palette", renderPalette);
+        Entropy.UI.Widget.collapsingHeader(uiWindowId, "Tablet tuning", renderBrushTuning);
+        Entropy.UI.Widget.collapsingHeader(uiWindowId, "Paint layers", renderPaintLayers);
         Entropy.UI.Widget.label(uiWindowId, { text: hoverSurfaceName ? `Painting: ${hoverSurfaceName}` : "Hover a surface to preview the brush" });
     } else if (mode === "cut") {
         Entropy.UI.Widget.label(uiWindowId, { text: "Draw a closed shape on a surface -" });
@@ -1993,16 +2304,10 @@ function renderUI(): void {
         });
 
     });
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scene & export", () => {
-        Entropy.UI.Widget.horizontal(uiWindowId, () => {
-            Entropy.UI.Widget.button(uiWindowId, { text: "Save", id: "save_scene", onClick: saveScene });
-            Entropy.UI.Widget.button(uiWindowId, { text: "Load", id: "load_scene", onClick: loadScene });
-            Entropy.UI.Widget.button(uiWindowId, { text: "Export GLB", id: "export_glb", onClick: exportSceneToGlb });
-        });
-    });
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scenes & export", renderSceneLibrary);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Surfaces", renderLayersUI);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Shortcuts", () => {
-        for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
+        for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Ctrl+S Save scene", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
             Entropy.UI.Widget.label(uiWindowId, { text });
     });
     Entropy.UI.Widget.separator(uiWindowId);
@@ -2119,6 +2424,12 @@ addon.onInit(() => {
 
     spawnSurface([0, 1.5, 0], 0);
 
+    loadPreferences();
+    try {
+        sceneLibrary.read();
+        selectedSceneId = sceneLibrary.entries[0]?.id ?? null;
+        libraryReady = true;
+    } catch (error) { statusMessage = `Scene library: ${error instanceof Error ? error.message : String(error)}`; }
     setupUI();
     historyReady = true;
     Entropy.println("[canvas-surfaces] initialized");
@@ -2130,13 +2441,14 @@ addon.onUpdatePlus("Global", (_time: number) => {
         usingStylus = false;
     }
     if (!pointerHeld && !penHeld) history.commit();
+    savePreferences();
     if (pendingOrbit && --pendingOrbit.frames <= 0) {
         Entropy.Controls.enable("orbit", { target: pendingOrbit.target, trigger: "always", button: 1, invertX: true });
         pendingOrbit = null;
     }
     updateBrushPreview();
     if (mode === "move") syncGizmoToSelection();
-    for (const s of surfaces) {
+    for (const s of practiceSurface ? [...surfaces, practiceSurface] : surfaces) {
         if (s.dirty) {
             Entropy.Texture.update(s.textureId, s.canvas);
             s.dirty = false;
