@@ -76,6 +76,8 @@
 // shapes (the common case: tiling flat panels
 // into a wall or floor), approximate for tilted ones.
 
+import { CanvasHistory } from "./canvas_history";
+
 const addonInfo = {
     name: "Canvas Surfaces",
     version: "1.0.0",
@@ -466,6 +468,7 @@ interface Surface {
     id: string;
     meshId: string;
     textureId: string;
+    previewBufferId: string;
     name: string;
     kind: ShapeKind;
     position: Vec3;
@@ -490,6 +493,91 @@ interface Surface {
 const surfaces: Surface[] = [];
 let activeSurfaceId: string | null = null;
 let pipelineId: string;
+
+// Snapshots share unchanged canvases. Paint gestures copy only their target canvas before
+// writing; moving a surface therefore costs metadata, not another 2.3 MB bitmap.
+type SurfaceState = Omit<Surface, "worldPatches" | "dirty">;
+interface SceneState { surfaces: SurfaceState[]; activeId: string | null; }
+let historyReady = false;
+let restoringHistory = false;
+let pointerHeld = false;
+let penHeld = false;
+let gestureCanvases = new Set<string>();
+
+function captureScene(): SceneState {
+    return {
+        activeId: activeSurfaceId,
+        surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, ...s }) => ({ ...s, position: [...s.position] })),
+    };
+}
+
+function sameScene(a: SceneState, b: SceneState): boolean {
+    // Selection alone is not an edit. Keep it in snapshots to restore a deleted selection.
+    return a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
+        const other = b.surfaces[i];
+        const { canvas, ...meta } = s;
+        const { canvas: otherCanvas, ...otherMeta } = other;
+        return canvas === otherCanvas && JSON.stringify(meta) === JSON.stringify(otherMeta);
+    });
+}
+
+function restoreScene(state: SceneState): void {
+    restoringHistory = true;
+    resetGesture();
+    if (activeGizmoId) Entropy.Gizmo.hide(activeGizmoId);
+    activeGizmoId = null;
+    lastGizmoSurfaceId = null;
+    const old = new Map(surfaces.map(s => [s.id, s]));
+    const wanted = new Set(state.surfaces.map(s => s.id));
+    for (const s of surfaces) if (!wanted.has(s.id) && s.visible) Entropy.Model.clearMesh(s.meshId);
+    surfaces.length = 0;
+    for (const saved of state.surfaces) {
+        const existing = old.get(saved.id);
+        const s: Surface = { ...saved, position: [...saved.position], dirty: true, worldPatches: [] };
+        // Recreate geometry only when needed. Clear/create ordering is supported by the engine;
+        // updateVertices in the same tick as createMesh is not.
+        if (existing?.visible) Entropy.Model.clearMesh(existing.meshId);
+        if (s.visible) createSurfaceMesh(s);
+        else s.worldPatches = buildSurfaceWorldPatches(s);
+        Entropy.Buffer.write(s.previewBufferId, new Float32Array(8));
+        surfaces.push(s);
+    }
+    activeSurfaceId = state.activeId;
+    previewSurfaceId = null;
+    restoringHistory = false;
+}
+
+const history = new CanvasHistory(captureScene, restoreScene, sameScene, states => {
+    const canvases = new Set(states.flatMap(state => state.surfaces.map(s => s.canvas)));
+    return [...canvases].reduce((bytes, canvas) => bytes + canvas.byteLength, 0);
+});
+
+function beginEdit(label: string): void {
+    if (!historyReady || restoringHistory) return;
+    if (!history.inProgress) gestureCanvases.clear();
+    history.begin(label);
+}
+
+function editCanvas(s: Surface, label: string): void {
+    beginEdit(label);
+    if (!gestureCanvases.has(s.id)) {
+        s.canvas = s.canvas.slice();
+        gestureCanvases.add(s.id);
+    }
+}
+
+function resetGesture(): void {
+    drawTarget = null;
+    lastStrokePoint = null;
+    mouseDrawing = false;
+    cutTarget = null;
+    cutPath = [];
+    mouseCutting = false;
+    gestureCanvases.clear();
+}
+
+function undo(): void { resetGesture(); history.undo(); }
+function redo(): void { resetGesture(); history.redo(); }
 
 function clearCanvasBuffer(canvas: Uint8Array): void {
     for (let i = 0; i < canvas.length; i += 4) {
@@ -600,6 +688,7 @@ function snapPosition(s: Surface, candidate: Vec3): Vec3 {
 }
 
 function setSurfacePosition(s: Surface, candidate: Vec3, snap: boolean): void {
+    beginEdit("Move surface");
     s.position = snap ? snapPosition(s, candidate) : candidate;
     pushSurfaceTransform(s);
     if (activeGizmoId && activeSurfaceId === s.id) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
@@ -616,6 +705,7 @@ function createSurfaceMesh(s: Surface): void {
         bindings: [
             { group: 2, binding: 0, resource: { type: "Texture", value: { id: s.textureId } } },
             { group: 2, binding: 1, resource: { type: "Sampler" } },
+            { group: 2, binding: 2, resource: { type: "Buffer", value: { id: s.previewBufferId } } },
         ],
     });
 }
@@ -636,7 +726,7 @@ let pendingKind: ShapeKind = "plane";
 // (UI onChange handlers, gizmo onTransform) already fires many frames after creation, so this
 // never bites normal use - it only matters for a future addon that reshapes a surface immediately
 // after spawning it.
-// `restore` is only ever passed by loadScene() - it seeds the fields a freshly-drawn "+ New
+// `restore` is passed by loadScene() - it seeds the fields a freshly-drawn "+ New
 // Surface" never needs a starting value for (an existing pitch/roll/bend, a previously-painted
 // canvas). Baking all of it into this ONE createSurfaceMesh call (below) rather than creating
 // flat-and-default then following up with a pushSurfaceTransform/setSurfaceBend* call is what
@@ -646,8 +736,9 @@ let pendingKind: ShapeKind = "plane";
 function spawnSurface(
     position: Vec3, yaw: number, kind: ShapeKind = "plane",
     halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS,
-    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array }
+    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean }
 ): Surface {
+    beginEdit("New surface");
     surfaceCount++;
     const id = `canvas_surface_${Entropy.generateUUID()}`;
     const canvas = restore?.canvas ?? new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
@@ -658,6 +749,7 @@ function spawnSurface(
         id,
         meshId: id,
         textureId,
+        previewBufferId: Entropy.Buffer.create({ size: 32, usage: "Uniform" }),
         name: restore?.name ?? `Surface ${surfaceCount}`,
         kind,
         position,
@@ -672,11 +764,13 @@ function spawnSurface(
         bendAxis: restore?.bendAxis ?? "y",
         canvas,
         dirty: false,
-        visible: true,
+        visible: restore?.visible ?? true,
         worldPatches: [],
     };
 
-    createSurfaceMesh(s);
+    Entropy.Buffer.write(s.previewBufferId, new Float32Array(8));
+    if (s.visible) createSurfaceMesh(s);
+    else s.worldPatches = buildSurfaceWorldPatches(s);
 
     surfaces.push(s);
     activeSurfaceId = s.id;
@@ -692,6 +786,7 @@ function activeSurface(): Surface | null {
 // clears and (on show) recreates the mesh with the surface's current geometry/texture binding.
 function setSurfaceVisible(s: Surface, visible: boolean): void {
     if (s.visible === visible) return;
+    beginEdit(visible ? "Show surface" : "Hide surface");
     s.visible = visible;
     if (visible) {
         createSurfaceMesh(s);
@@ -709,6 +804,7 @@ function setSurfaceVisible(s: Surface, visible: boolean): void {
 // actually apply to the selected surface's kind (see renderUI's per-kind slider set), leaving the
 // others untouched.
 function setSurfaceDimensions(s: Surface, dims: Partial<{ halfW: number; halfH: number; halfD: number; radius: number }>): void {
+    beginEdit("Resize surface");
     if (dims.halfW !== undefined) s.halfW = Math.max(0.1, dims.halfW);
     if (dims.halfH !== undefined) s.halfH = Math.max(0.1, dims.halfH);
     if (dims.halfD !== undefined) s.halfD = Math.max(0.1, dims.halfD);
@@ -717,12 +813,14 @@ function setSurfaceDimensions(s: Surface, dims: Partial<{ halfW: number; halfH: 
 }
 
 function setSurfaceBend(s: Surface, bend: number): void {
+    beginEdit("Bend surface");
     s.bend = Math.max(-1, Math.min(1, bend));
     pushSurfaceTransform(s);
 }
 
 function setSurfaceBendAxis(s: Surface, axis: BendAxis): void {
     if (s.bendAxis === axis) return;
+    beginEdit("Bend axis");
     s.bendAxis = axis;
     pushSurfaceTransform(s);
 }
@@ -878,7 +976,7 @@ function paintSegment(s: Surface, from: StrokePoint, to: StrokePoint): void {
     const brush = currentBrush();
     const dist = Math.hypot(to.px - from.px, to.py - from.py);
     const approxRadius = brush.baseRadius + brush.radiusGain * Math.max(from.pressure, to.pressure);
-    const step = Math.max(0.75, approxRadius * brush.spacingFactor);
+    const step = Math.max(0.25, approxRadius * sizeMultiplier * brush.spacingFactor);
     const steps = Math.max(1, Math.ceil(dist / step));
 
     for (let i = 1; i <= steps; i++) {
@@ -986,6 +1084,7 @@ function finishCut(s: Surface, path: CutPoint[]): void {
 }
 
 function beginCut(hit: SurfaceHit): void {
+    editCanvas(hit.surface, "Cut");
     cutTarget = hit.surface;
     activeSurfaceId = hit.surface.id;
     cutPath = [{ px: hit.px, py: hit.py }];
@@ -1041,7 +1140,12 @@ let mouseDrawing = false;
 // this one flag covers either source without needing to know which one is in use.
 let orbitButtonDown = false;
 Entropy.Input.onMouseDown((button) => {
+    if (button === 0) {
+        if (!penHeld) history.commit();
+        pointerHeld = true;
+    }
     if (button !== 1) return;
+    history.commit();
     orbitButtonDown = true;
     // End whatever stroke was mid-flight cleanly rather than leaving a stale drawTarget/
     // lastStrokePoint around - resuming from those once orbiting stops would otherwise draw a
@@ -1053,11 +1157,15 @@ Entropy.Input.onMouseDown((button) => {
     cutTarget = null;
     cutPath = [];
 });
-Entropy.Input.onMouseUp((button) => { if (button === 1) orbitButtonDown = false; });
+Entropy.Input.onMouseUp((button) => {
+    if (button === 0) pointerHeld = false;
+    if (button === 1) orbitButtonDown = false;
+});
 
 let lastStylusReading = { pressure: 0, tiltX: 0 as number | null, tiltY: 0 as number | null };
 
 function beginStroke(hit: SurfaceHit, pressure: number, tiltX: number, tiltY: number): void {
+    editCanvas(hit.surface, currentBrush().isEraser ? "Erase" : "Stroke");
     drawTarget = hit.surface;
     activeSurfaceId = hit.surface.id;
     lastStrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
@@ -1065,24 +1173,27 @@ function beginStroke(hit: SurfaceHit, pressure: number, tiltX: number, tiltY: nu
         hit.surface, currentBrush(), hit.px, hit.py,
         (currentBrush().baseRadius + currentBrush().radiusGain * pressure) * sizeMultiplier,
         Math.min(1, currentBrush().opacityBase + currentBrush().opacityGain * pressure),
-        0, 0
+        tiltVector(tiltX, tiltY).angle, currentBrush().tiltElongation * tiltVector(tiltX, tiltY).magnitude
     );
 }
 
 function continueStroke(x: number, y: number, pressure: number, tiltX: number, tiltY: number): void {
-    if (!drawTarget || !lastStrokePoint) return;
+    if (!drawTarget) return;
     const ray = Entropy.Camera.screenToWorldRay(x, y);
     const hit = raycastSurfaceMesh(drawTarget, ray.origin, ray.direction);
-    // Off the edge of the surface mid-stroke (or the ray missed it entirely, e.g. grazing a bent
-    // surface's back side): skip painting this segment but keep drawTarget/lastStrokePoint alive
-    // so re-entering the surface continues the same stroke rather than starting a fresh one.
-    if (!hit) return;
+    // A missed region must break interpolation, otherwise returning draws a stray bridge.
+    if (!hit || Entropy.Input.isPointerOverUI()) { lastStrokePoint = null; return; }
     const point: StrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
-    paintSegment(drawTarget, lastStrokePoint, point);
+    paintSegment(drawTarget, lastStrokePoint ?? point, point);
     lastStrokePoint = point;
 }
 
 Entropy.Input.onStylusDown((e) => {
+    history.commit();
+    penHeld = true;
+    currentMouseX = e.x;
+    currentMouseY = e.y;
+    pointerKnown = true;
     usingStylus = true;
     usingStylusClearPending = false;
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
@@ -1097,6 +1208,9 @@ Entropy.Input.onStylusDown((e) => {
 });
 
 Entropy.Input.onStylusMove((e) => {
+    currentMouseX = e.x;
+    currentMouseY = e.y;
+    pointerKnown = true;
     lastStylusReading = { pressure: e.pressure, tiltX: e.tiltX, tiltY: e.tiltY };
     if (orbitButtonDown) return;
     if (mode === "draw") continueStroke(e.x, e.y, e.pressure, e.tiltX ?? 0, e.tiltY ?? 0);
@@ -1104,9 +1218,11 @@ Entropy.Input.onStylusMove((e) => {
 });
 
 Entropy.Input.onStylusUp((_e) => {
+    penHeld = false;
     drawTarget = null;
     lastStrokePoint = null;
     if (mode === "cut") endCutStroke();
+    history.commit();
     // See stylus_drawing_addon.ts for why this guard exists: Windows also synthesizes legacy
     // mouse-compatibility events for pen input, which would otherwise double-draw.
     usingStylusClearPending = true;
@@ -1114,9 +1230,12 @@ Entropy.Input.onStylusUp((_e) => {
 
 let currentMouseX = 0;
 let currentMouseY = 0;
+let pointerKnown = false;
 
-Entropy.Input.onMouseDown((button) => {
-    currentMouseX = currentMouseX; // no-op, keeps this handler symmetrical with onMouseMove below
+Entropy.Input.onMouseDown((button, x, y) => {
+    currentMouseX = x;
+    currentMouseY = y;
+    pointerKnown = true;
     if (button !== 0 || usingStylus || Entropy.Input.isPointerOverUI()) return;
 
     if (mode === "draw") {
@@ -1137,6 +1256,7 @@ Entropy.Input.onMouseDown((button) => {
 });
 
 Entropy.Input.onMouseMove((x, y) => {
+    pointerKnown = true;
     currentMouseX = x;
     currentMouseY = y;
     if (usingStylus) return;
@@ -1153,6 +1273,100 @@ Entropy.Input.onMouseUp((button) => {
         mouseCutting = false;
         endCutStroke();
     }
+    history.commit();
+});
+
+// The ring is a shader overlay, never painted into canvas pixels or exported textures.
+let previewSurfaceId: string | null = null;
+let hoverSurfaceName = "";
+function updateBrushPreview(): void {
+    let hit: SurfaceHit | null = null;
+    if (pointerKnown && mode === "draw" && !orbitButtonDown && !Entropy.Input.isPointerOverUI()) {
+        if (drawTarget) {
+            const ray = Entropy.Camera.screenToWorldRay(currentMouseX, currentMouseY);
+            hit = raycastSurfaceMesh(drawTarget, ray.origin, ray.direction);
+        } else hit = raycastSurfaces(currentMouseX, currentMouseY);
+    }
+    const target = hit?.surface;
+    if (previewSurfaceId && previewSurfaceId !== target?.id) {
+        const previous = surfaces.find(s => s.id === previewSurfaceId);
+        if (previous) Entropy.Buffer.write(previous.previewBufferId, new Float32Array(8));
+    }
+    previewSurfaceId = target?.id ?? null;
+    hoverSurfaceName = target?.name ?? "";
+    if (!target || !hit) return;
+    const brush = currentBrush();
+    const pressure = penHeld ? lastStylusReading.pressure : 1;
+    const radius = (brush.baseRadius + brush.radiusGain * pressure) * sizeMultiplier;
+    const tilt = tiltVector(lastStylusReading.tiltX ?? 0, lastStylusReading.tiltY ?? 0);
+    const elongation = brush.tiltElongation * (usingStylus ? tilt.magnitude : 0);
+    Entropy.Buffer.write(target.previewBufferId, new Float32Array([
+        hit.px, hit.py, radius * (1 + elongation * 0.9), radius * (1 - elongation * 0.55),
+        Math.cos(tilt.angle), Math.sin(tilt.angle), 1, 0,
+    ]));
+}
+
+interface CameraView { position: Vec3; target: Vec3; }
+let returnView: CameraView | null = null;
+let orbitTarget: Vec3 = [0, 1.2, 0];
+let pendingOrbit: { target: Vec3; frames: number } | null = null;
+
+function applyView(view: CameraView): void {
+    Entropy.Controls.disable();
+    Entropy.Camera.setTransform(view.position, view.target);
+    orbitTarget = [...view.target];
+    // Engine getTransform lags setTransform: context is sampled before pending transforms
+    // are applied. Re-seed orbit only after both the render camera and context have caught up.
+    pendingOrbit = { target: [...view.target], frames: 3 };
+}
+
+function focusSurface(align: boolean): void {
+    const s = activeSurface();
+    if (!s?.visible) return;
+    const [position, direction] = Entropy.Camera.getTransform();
+    if (!returnView) {
+        const distance = Math.max(0.1, Math.hypot(...subV(position, orbitTarget)));
+        const length = Math.hypot(...direction) || 1;
+        returnView = { position: [...position], target: addV(position, direction.map(n => n / length * distance) as Vec3) };
+    }
+    const bounds = surfaceAABB(s);
+    const target = bounds.min.map((n, i) => (n + bounds.max[i]) / 2) as Vec3;
+    const radius = Math.hypot(...subV(bounds.max, bounds.min)) / 2;
+    const [w, h] = Entropy.Window.getSize();
+    // The engine's perspective vertical FOV is 45 degrees. Reserve space for the left panel.
+    const usableAspect = Math.max(0.25, (w - 360) / Math.max(1, h));
+    const halfFov = Math.min(Math.PI / 8, Math.atan(Math.tan(Math.PI / 8) * usableAspect));
+    const distance = Math.max(1, radius * 1.25 / Math.sin(halfFov));
+    let normal: Vec3 = align ? localToWorldDir([0, 0, 1], s.yaw, s.pitch, s.roll)
+        : direction.map(n => -n) as Vec3;
+    // look-at uses world up: avoid an exactly parallel up/view vector for horizontal planes.
+    if (Math.abs(normal[1]) > 0.9999) normal = [0, Math.sign(normal[1]) * 0.9999, 0.01414];
+    const len = Math.hypot(...normal) || 1;
+    applyView({ position: addV(target, normal.map(n => n / len * distance) as Vec3), target });
+}
+
+function restoreView(): void {
+    if (!returnView) return;
+    applyView(returnView);
+    returnView = null;
+}
+
+Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
+    const k = key.toLowerCase();
+    if (alt) return;
+    if (ctrl && k === "z") { shift ? redo() : undo(); return; }
+    if (ctrl && k === "y") { redo(); return; }
+    if (k === "escape" && !ctrl) {
+        if (cutTarget) { history.cancel(); resetGesture(); }
+        else restoreView();
+        return;
+    }
+    if (ctrl || pointerHeld || penHeld) return;
+    if (k === "f") focusSurface(shift);
+    else if (k === "b") setMode("draw");
+    else if (k === "v") setMode("move");
+    else if (k === "[") sizeMultiplier = Math.max(0.1, sizeMultiplier / 1.2);
+    else if (k === "]") sizeMultiplier = Math.min(3, sizeMultiplier * 1.2);
 });
 
 // --- Move mode: translate + rotate gizmo. Both handle sets are shown and draggable at once
@@ -1173,7 +1387,7 @@ function syncGizmoToSelection(): void {
     }
 
     const s = activeSurface();
-    if (!s || mode !== "move") return;
+    if (!s || !s.visible || mode !== "move") return;
 
     activeGizmoId = Entropy.Gizmo.show({
         position: s.position,
@@ -1184,12 +1398,14 @@ function syncGizmoToSelection(): void {
             setSurfacePosition(s, addV(s.position, delta), true);
         },
         onRotate: (rotation) => {
+            beginEdit("Rotate surface");
             const { yaw, pitch, roll } = quatToEuler(rotation);
             s.yaw = yaw;
             s.pitch = pitch;
             s.roll = roll;
             pushSurfaceTransform(s);
-        }
+        },
+        onComplete: () => history.commit(),
     });
 }
 
@@ -1205,6 +1421,7 @@ function syncGizmoRotationFromSurface(s: Surface): void {
 }
 
 function setMode(next: Mode): void {
+    history.commit();
     mode = next;
     if (mode !== "move" && activeGizmoId) {
         Entropy.Gizmo.hide(activeGizmoId);
@@ -1223,6 +1440,7 @@ function setMode(next: Mode): void {
 }
 
 function deleteSurface(s: Surface): void {
+    beginEdit("Delete surface");
     if (s.visible) Entropy.Model.clearMesh(s.meshId);
     const idx = surfaces.indexOf(s);
     if (idx >= 0) surfaces.splice(idx, 1);
@@ -1318,17 +1536,16 @@ function saveScene(): void {
     Entropy.println(`[canvas-surfaces] saved scene (${surfaces.length} surface(s))`);
 }
 
-// Replaces the whole scene rather than merging - a "Load Scene" click is a deliberate "give me
-// what's on disk" action, not an import/append. Every saved surface is created visible (even
-// one saved hidden) - see the doc comment on spawnSurface's `restore` param for why a
-// same-tick hide isn't attempted here; a human can just click Hide again from the Surfaces
-// panel for the rare saved-hidden case.
+// Replaces the scene as one undoable action. Hidden surfaces are created without a mesh;
+// showing them later creates it, avoiding same-tick create/hide queue ordering problems.
 function loadScene(): void {
     const scene = addon.IO.load() as SavedScene | null;
     if (!scene || !scene.surfaces) {
         Entropy.println("[canvas-surfaces] no saved scene found");
         return;
     }
+
+    beginEdit("Load scene");
 
     if (activeGizmoId) {
         Entropy.Gizmo.hide(activeGizmoId);
@@ -1341,7 +1558,7 @@ function loadScene(): void {
         spawnSurface(
             saved.position, saved.yaw, saved.kind,
             saved.halfW, saved.halfH, saved.halfD, saved.radius,
-            { name: saved.name, pitch: saved.pitch, roll: saved.roll, bend: saved.bend, bendAxis: saved.bendAxis, canvas: base64ToBytes(saved.canvasBase64) }
+            { name: saved.name, pitch: saved.pitch, roll: saved.roll, bend: saved.bend, bendAxis: saved.bendAxis, canvas: base64ToBytes(saved.canvasBase64), visible: saved.visible }
         );
     }
     Entropy.println(`[canvas-surfaces] loaded scene (${scene.surfaces.length} surface(s))`);
@@ -1430,6 +1647,13 @@ var surface_texture: texture_2d<f32>;
 @group(2) @binding(1)
 var surface_sampler: sampler;
 
+struct BrushPreview {
+    center_radius: vec4<f32>,
+    rotation_enabled: vec4<f32>,
+};
+@group(2) @binding(2)
+var<uniform> brush_preview: BrushPreview;
+
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -1489,7 +1713,17 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     var lighting = vec3<f32>(AMBIENT, AMBIENT, AMBIENT);
     lighting += point_light_diffuse(in.world_pos, n, LIGHT1_POS, LIGHT1_COLOR, LIGHT1_INTENSITY);
     lighting += point_light_diffuse(in.world_pos, n, LIGHT2_POS, LIGHT2_COLOR, LIGHT2_INTENSITY);
-    let lit_rgb = sampled.rgb * in.color.rgb * lighting;
+    var lit_rgb = sampled.rgb * in.color.rgb * lighting;
+    let delta = in.tex_coords * 768.0 - brush_preview.center_radius.xy;
+    let c = brush_preview.rotation_enabled.x;
+    let s = brush_preview.rotation_enabled.y;
+    let local = vec2<f32>(c * delta.x + s * delta.y, -s * delta.x + c * delta.y);
+    let ellipse = length(local / max(brush_preview.center_radius.zw, vec2<f32>(0.01)));
+    // Derivatives keep the outline legible at different zooms and on oblique surfaces.
+    let edge = abs(ellipse - 1.0) / max(fwidth(ellipse), 0.0001);
+    let enabled = brush_preview.rotation_enabled.z;
+    lit_rgb = mix(lit_rgb, vec3<f32>(1.0), (1.0 - smoothstep(1.0, 2.5, edge)) * enabled);
+    lit_rgb = mix(lit_rgb, vec3<f32>(0.04), (1.0 - smoothstep(0.0, 1.0, edge)) * enabled);
     return vec4<f32>(lit_rgb, sampled.a * in.color.a);
 }
 `;
@@ -1500,20 +1734,13 @@ let layersWindowId: string;
 function setupUI(): void {
     uiWindowId = Entropy.UI.createWindow({
         title: "Canvas Surfaces",
-        width: 300,
-        height: 640,
-        x: 20,
-        y: 20,
+        width: 310,
+        height: Math.max(420, Entropy.Window.getSize()[1] - 40),
+        x: 16,
+        y: 16,
         onRender: renderUI
     });
-    layersWindowId = Entropy.UI.createWindow({
-        title: "Surfaces",
-        width: 260,
-        height: 400,
-        x: 340,
-        y: 20,
-        onRender: renderLayersUI
-    });
+    layersWindowId = uiWindowId;
 }
 
 function renderLayersUI(): void {
@@ -1547,102 +1774,52 @@ function renderLayersUI(): void {
 }
 
 function renderUI(): void {
-    Entropy.UI.Widget.label(uiWindowId, { text: "Canvas Surfaces", bold: true });
-    Entropy.UI.Widget.label(uiWindowId, { text: "Right-drag to orbit the camera" });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        Entropy.UI.Widget.button(uiWindowId, { text: "Undo", id: "undo", onClick: undo });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Redo", id: "redo", onClick: redo });
+    });
+    Entropy.UI.Widget.label(uiWindowId, { text: history.undoLabel ? `Undo: ${history.undoLabel}` : "No edits to undo" });
+    Entropy.UI.Widget.label(uiWindowId, { text: history.redoLabel ? `Redo: ${history.redoLabel}` : "" });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        Entropy.UI.Widget.button(uiWindowId, {
+            text: (mode === "draw" ? "> " : "  ") + "Draw",
+            id: "mode_draw",
+            onClick: () => setMode("draw")
+        });
+        Entropy.UI.Widget.button(uiWindowId, {
+            text: (mode === "move" ? "> " : "  ") + "Move",
+            id: "mode_move",
+            onClick: () => setMode("move")
+        });
+        Entropy.UI.Widget.button(uiWindowId, {
+            text: (mode === "cut" ? "> " : "  ") + "Cut",
+            id: "mode_cut",
+            onClick: () => setMode("cut")
+        });
+    });
+    Entropy.UI.Widget.horizontal(uiWindowId, () => {
+        Entropy.UI.Widget.button(uiWindowId, { text: "Focus", id: "focus_surface", onClick: () => focusSurface(false) });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Align", id: "align_surface", onClick: () => focusSurface(true) });
+        Entropy.UI.Widget.button(uiWindowId, { text: "Return", id: "return_view", onClick: restoreView });
+    });
     Entropy.UI.Widget.separator(uiWindowId);
-
-    Entropy.UI.Widget.button(uiWindowId, { text: "Save Scene", id: "save_scene", onClick: saveScene });
-    Entropy.UI.Widget.button(uiWindowId, { text: "Load Scene", id: "load_scene", onClick: loadScene });
-    Entropy.UI.Widget.button(uiWindowId, { text: "Export GLB", id: "export_glb", onClick: exportSceneToGlb });
-    Entropy.UI.Widget.separator(uiWindowId);
-
-    Entropy.UI.Widget.button(uiWindowId, {
-        text: (mode === "draw" ? "> " : "  ") + "Draw",
-        id: "mode_draw",
-        onClick: () => setMode("draw")
-    });
-    Entropy.UI.Widget.button(uiWindowId, {
-        text: (mode === "move" ? "> " : "  ") + "Move / Select",
-        id: "mode_move",
-        onClick: () => setMode("move")
-    });
-    Entropy.UI.Widget.button(uiWindowId, {
-        text: (mode === "cut" ? "> " : "  ") + "Cut",
-        id: "mode_cut",
-        onClick: () => setMode("cut")
-    });
-    Entropy.UI.Widget.separator(uiWindowId);
-
-    // Cycling button, not a dropdown - the same call this codebase's other demos already made
-    // (see ml_graph_demo_addon.ts's dataset/activation pickers): this GUI kit's dropdown payload
-    // format wasn't worth depending on for a same-session feature with only 4 fixed choices.
-    Entropy.UI.Widget.button(uiWindowId, {
-        text: `Shape: ${pendingKind}`,
-        id: "pending_kind_cycle",
-        onClick: () => { pendingKind = SHAPE_KINDS[(SHAPE_KINDS.indexOf(pendingKind) + 1) % SHAPE_KINDS.length]; }
-    });
-    if (pendingKind === "plane" || pendingKind === "box") {
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Width", value: pendingWidth, min: 0.5, max: 8, id: "pending_w_slider",
-            onChange: (v: string) => { pendingWidth = parseFloat(v); }
-        });
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
-            onChange: (v: string) => { pendingHeight = parseFloat(v); }
-        });
-    }
-    if (pendingKind === "box") {
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Depth", value: pendingDepth, min: 0.5, max: 8, id: "pending_d_slider",
-            onChange: (v: string) => { pendingDepth = parseFloat(v); }
-        });
-    }
-    if (pendingKind === "cylinder") {
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
-            onChange: (v: string) => { pendingRadius = parseFloat(v); }
-        });
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
-            onChange: (v: string) => { pendingHeight = parseFloat(v); }
-        });
-    }
-    if (pendingKind === "sphere") {
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
-            onChange: (v: string) => { pendingRadius = parseFloat(v); }
-        });
-    }
-    Entropy.UI.Widget.button(uiWindowId, {
-        text: "+ New Surface",
-        id: "new_surface",
-        onClick: () => {
-            // +1: slot 0 of this stagger grid is x=-3.5, but slot 1 is x=0 - the same spot the
-            // very first surface (spawned separately in onInit, not through this grid at all)
-            // already occupies. Starting one slot ahead means the first-ever click always lands
-            // on a genuinely empty spot instead of silently overlapping that surface.
-            const n = surfaces.length + 1;
-            spawnSurface(
-                [(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0, pendingKind,
-                pendingWidth / 2, pendingHeight / 2, pendingDepth / 2, pendingRadius
-            );
-        }
-    });
 
     if (mode === "draw") {
         Entropy.UI.Widget.label(uiWindowId, { text: `Brush: ${currentBrush().name}` });
-        for (let i = 0; i < BRUSHES.length; i++) {
-            Entropy.UI.Widget.button(uiWindowId, {
-                text: (i === brushIndex ? "> " : "  ") + BRUSHES[i].name,
-                id: `brush_btn_${i}`,
-                onClick: () => { brushIndex = i; }
-            });
-        }
+        Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            for (let i = 0; i < BRUSHES.length; i++) {
+                Entropy.UI.Widget.button(uiWindowId, {
+                    text: (i === brushIndex ? "> " : "") + ["Pencil", "Ink", "Air", "Erase"][i],
+                    id: `brush_btn_${i}`,
+                    onClick: () => { brushIndex = i; }
+                });
+            }
+        });
         Entropy.UI.Widget.slider(uiWindowId, {
             label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
             onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
         });
-        Entropy.UI.Widget.label(uiWindowId, { text: `pressure: ${lastStylusReading.pressure.toFixed(2)}` });
+        Entropy.UI.Widget.label(uiWindowId, { text: hoverSurfaceName ? `Painting: ${hoverSurfaceName}` : "Hover a surface to preview the brush" });
     } else if (mode === "cut") {
         Entropy.UI.Widget.label(uiWindowId, { text: "Draw a closed shape on a surface -" });
         Entropy.UI.Widget.label(uiWindowId, { text: "it cuts a hole through when it closes." });
@@ -1651,7 +1828,7 @@ function renderUI(): void {
             Entropy.UI.Widget.button(uiWindowId, {
                 text: "Cancel Cut",
                 id: "cancel_cut",
-                onClick: () => { cutTarget = null; cutPath = []; mouseCutting = false; }
+                onClick: () => { history.cancel(); resetGesture(); }
             });
         }
     } else {
@@ -1686,15 +1863,15 @@ function renderUI(): void {
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Yaw", value: s.yaw, min: -Math.PI, max: Math.PI, id: "yaw_slider",
-                onChange: (v: string) => { s.yaw = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
+                onChange: (v: string) => { beginEdit("Rotate surface"); s.yaw = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Pitch", value: s.pitch, min: -Math.PI / 2, max: Math.PI / 2, id: "pitch_slider",
-                onChange: (v: string) => { s.pitch = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
+                onChange: (v: string) => { beginEdit("Rotate surface"); s.pitch = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             Entropy.UI.Widget.slider(uiWindowId, {
                 label: "Roll", value: s.roll, min: -Math.PI, max: Math.PI, id: "roll_slider",
-                onChange: (v: string) => { s.roll = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
+                onChange: (v: string) => { beginEdit("Rotate surface"); s.roll = parseFloat(v); pushSurfaceTransform(s); syncGizmoRotationFromSurface(s); }
             });
             // Dimension sliders are conditional on the surface's own (fixed-at-creation) kind -
             // a plane/box shares Width/Height, a box adds Depth, cylinder/sphere use Radius
@@ -1758,6 +1935,76 @@ function renderUI(): void {
         }
     }
 
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Add surface", () => {
+        // Cycling button, not a dropdown - the same call this codebase's other demos already made
+        // (see ml_graph_demo_addon.ts's dataset/activation pickers): this GUI kit's dropdown payload
+        // format wasn't worth depending on for a same-session feature with only 4 fixed choices.
+        Entropy.UI.Widget.button(uiWindowId, {
+            text: `Shape: ${pendingKind}`,
+            id: "pending_kind_cycle",
+            onClick: () => { pendingKind = SHAPE_KINDS[(SHAPE_KINDS.indexOf(pendingKind) + 1) % SHAPE_KINDS.length]; }
+        });
+        if (pendingKind === "plane" || pendingKind === "box") {
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Width", value: pendingWidth, min: 0.5, max: 8, id: "pending_w_slider",
+                onChange: (v: string) => { pendingWidth = parseFloat(v); }
+            });
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
+                onChange: (v: string) => { pendingHeight = parseFloat(v); }
+            });
+        }
+        if (pendingKind === "box") {
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Depth", value: pendingDepth, min: 0.5, max: 8, id: "pending_d_slider",
+                onChange: (v: string) => { pendingDepth = parseFloat(v); }
+            });
+        }
+        if (pendingKind === "cylinder") {
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
+                onChange: (v: string) => { pendingRadius = parseFloat(v); }
+            });
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
+                onChange: (v: string) => { pendingHeight = parseFloat(v); }
+            });
+        }
+        if (pendingKind === "sphere") {
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
+                onChange: (v: string) => { pendingRadius = parseFloat(v); }
+            });
+        }
+        Entropy.UI.Widget.button(uiWindowId, {
+            text: "+ New Surface",
+            id: "new_surface",
+            onClick: () => {
+                // +1: slot 0 of this stagger grid is x=-3.5, but slot 1 is x=0 - the same spot the
+                // very first surface (spawned separately in onInit, not through this grid at all)
+                // already occupies. Starting one slot ahead means the first-ever click always lands
+                // on a genuinely empty spot instead of silently overlapping that surface.
+                const n = surfaces.length + 1;
+                spawnSurface(
+                    [(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0, pendingKind,
+                    pendingWidth / 2, pendingHeight / 2, pendingDepth / 2, pendingRadius
+                );
+            }
+        });
+
+    });
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scene & export", () => {
+        Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            Entropy.UI.Widget.button(uiWindowId, { text: "Save", id: "save_scene", onClick: saveScene });
+            Entropy.UI.Widget.button(uiWindowId, { text: "Load", id: "load_scene", onClick: loadScene });
+            Entropy.UI.Widget.button(uiWindowId, { text: "Export GLB", id: "export_glb", onClick: exportSceneToGlb });
+        });
+    });
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Surfaces", renderLayersUI);
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Shortcuts", () => {
+        for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
+            Entropy.UI.Widget.label(uiWindowId, { text });
+    });
     Entropy.UI.Widget.separator(uiWindowId);
     Entropy.UI.Widget.label(uiWindowId, { text: `${surfaces.length} surface(s)` });
 }
@@ -1809,6 +2056,8 @@ function buildGroundGridMesh(): { vertexData: number[]; indexData: number[] } {
 }
 
 function spawnGroundGrid(): void {
+    const previewBufferId = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
+    Entropy.Buffer.write(previewBufferId, new Float32Array(8));
     const gridTextureId = Entropy.Texture.create(1, 1, new Uint8Array([255, 255, 255, 255]));
     const { vertexData, indexData } = buildGroundGridMesh();
     Entropy.Model.createMesh({
@@ -1820,6 +2069,7 @@ function spawnGroundGrid(): void {
         bindings: [
             { group: 2, binding: 0, resource: { type: "Texture", value: { id: gridTextureId } } },
             { group: 2, binding: 1, resource: { type: "Sampler" } },
+            { group: 2, binding: 2, resource: { type: "Buffer", value: { id: previewBufferId } } },
         ],
     });
 }
@@ -1836,6 +2086,7 @@ addon.onInit(() => {
                 entries: [
                     { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
                     { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
+                    { binding: 2, visibility: ["Fragment"], resourceType: "Uniform" },
                 ]
             }
         ]
@@ -1869,6 +2120,7 @@ addon.onInit(() => {
     spawnSurface([0, 1.5, 0], 0);
 
     setupUI();
+    historyReady = true;
     Entropy.println("[canvas-surfaces] initialized");
 });
 
@@ -1877,6 +2129,12 @@ addon.onUpdatePlus("Global", (_time: number) => {
         usingStylusClearPending = false;
         usingStylus = false;
     }
+    if (!pointerHeld && !penHeld) history.commit();
+    if (pendingOrbit && --pendingOrbit.frames <= 0) {
+        Entropy.Controls.enable("orbit", { target: pendingOrbit.target, trigger: "always", button: 1, invertX: true });
+        pendingOrbit = null;
+    }
+    updateBrushPreview();
     if (mode === "move") syncGizmoToSelection();
     for (const s of surfaces) {
         if (s.dirty) {
