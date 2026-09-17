@@ -112,4 +112,12 @@ async fn main() {
     for artifact in result["artifacts"].as_array().expect("artifact array") {
         assert!(std::path::Path::new(artifact.as_str().expect("artifact path")).is_file(), "missing artifact {artifact}");
     }
+    let action_count = result["actions"].as_array().expect("action array").len();
+    let artifact_count = result["artifacts"].as_array().expect("artifact array").len();
+    println!("\n[Live browser BDD]");
+    println!("  ✔ launched real HTML UI demo in test mode");
+    println!("  ✔ {action_count} stable-ID actions completed");
+    println!("  ✔ {artifact_count} composed PNG checkpoints written");
+    println!("  ✔ result JSON: {}", result_path.display());
+    println!("[Summary] 1 live-ui feature (passed)");
 }

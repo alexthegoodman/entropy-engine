@@ -123,12 +123,15 @@ impl BrowserBddDriver {
                 BrowserBddAction::Event { control_id: "browser-url", value: Some("https://example.com") },
                 BrowserBddAction::Wait(1),
                 BrowserBddAction::Event { control_id: "browser-go", value: None },
-                BrowserBddAction::Wait(3),
+                // Network polling happens once per rendered frame. Leave a real settling
+                // window before evidence capture rather than photographing the transient
+                // "Fetching..." state on a fast local render loop.
+                BrowserBddAction::Wait(120),
                 BrowserBddAction::Capture("loading-example"),
                 BrowserBddAction::Wait(3),
                 // This is the rendered HTML canvas' stable control ID, not a coordinate.
                 BrowserBddAction::Link { url: "https://www.iana.org/domains/example" },
-                BrowserBddAction::Wait(4),
+                BrowserBddAction::Wait(120),
                 BrowserBddAction::Event { control_id: "browser-back", value: None },
                 BrowserBddAction::Wait(2),
                 BrowserBddAction::Event { control_id: "browser-forward", value: None },
@@ -142,7 +145,7 @@ impl BrowserBddDriver {
                 BrowserBddAction::Event { control_id: "browser-url", value: Some("https://invalid.example.test") },
                 BrowserBddAction::Wait(1),
                 BrowserBddAction::Event { control_id: "browser-go", value: None },
-                BrowserBddAction::Wait(3),
+                BrowserBddAction::Wait(120),
                 BrowserBddAction::Capture("error"),
                 BrowserBddAction::Wait(3),
                 BrowserBddAction::Finish,
