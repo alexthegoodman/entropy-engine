@@ -7,6 +7,10 @@ edition = "2024"
 name = "game"
 path = "src/bin/game.rs"
 
+[[test]]
+name = "browser_bdd"
+harness = false
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
@@ -118,3 +122,8 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 wasm-timer = "0.2.5"
 js-sys = "0.3.83"
+
+[dev-dependencies]
+# Native Gherkin runner for black-box behavior scenarios. The test binary, rather than libtest,
+# owns execution so readable feature output and screenshot hooks stay available in CI.
+cucumber = "0.23.0"
