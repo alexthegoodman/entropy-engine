@@ -286,6 +286,9 @@ pub struct EntropyPipeline {
     pub window_size_bind_group: Option<wgpu::BindGroup>,
     pub export_editor: Option<Editor>,
     pub frame_buffer: Option<FrameCaptureBuffer>,
+    /// One named capture requested by the deterministic UI test driver. It is consumed only
+    /// after the GUI pass, unlike the scene-only video-export capture path.
+    pub pending_ui_screenshot: Option<(std::path::PathBuf, FrameCaptureBuffer)>,
     #[cfg(target_os = "windows")]
     pub video_export: Option<crate::video_export::exporter::VideoExportState>,
     pub chat: Chat,
@@ -331,6 +334,20 @@ pub struct EntropyPipeline {
 }
 
 impl EntropyPipeline {
+    /// Request one PNG of the fully composed next display frame (scene plus entropy_gui).
+    /// Tests call this before advancing a frame, then wait for the file to exist.
+    pub fn request_ui_screenshot(&mut self, path: impl Into<std::path::PathBuf>) -> Result<(), String> {
+        let gpu = self.gpu_resources.as_ref().ok_or("GPU resources are not initialized")?;
+        let editor = self.export_editor.as_ref().ok_or("editor is not initialized")?;
+        let camera = editor.camera.as_ref().ok_or("camera is not initialized")?;
+        let size = camera.viewport.window_size;
+        if size.width == 0 || size.height == 0 {
+            return Err("cannot capture a zero-sized display frame".to_string());
+        }
+        self.pending_ui_screenshot = Some((path.into(), FrameCaptureBuffer::new(&gpu.device, size.width, size.height)));
+        Ok(())
+    }
+
     pub fn new() -> Self {
         // let mut dock_state = DockState::new(vec![Tab::Viewport, Tab::Projects]);
         // let surface = dock_state.main_surface_mut();
@@ -388,6 +405,7 @@ impl EntropyPipeline {
             window_size_bind_group: None,
             export_editor: None,
             frame_buffer: None,
+            pending_ui_screenshot: None,
             #[cfg(target_os = "windows")]
             video_export: None,
             chat: Chat::new(),
@@ -588,7 +606,7 @@ impl EntropyPipeline {
             sample_count: 1, // used in a multisampled environment
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth24Plus,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             label: Some("Stunts Engine Export Depth Texture"),
             view_formats: &[],
         });
@@ -2187,6 +2205,23 @@ impl EntropyPipeline {
             }
 
             gpu_resources.queue.submit(Some(encoder.finish()));
+        }
+
+        // This must stay after `gui.renderer.render`: `render_addon_frame` captures a scene
+        // before entropy_gui is composited, while browser BDD evidence must include controls,
+        // loading/error labels, and the rendered HTML itself.
+        if let Some((path, capture)) = self.pending_ui_screenshot.take() {
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("UI Test Screenshot Readback"),
+            });
+            capture.capture_frame(&gpu_resources.device, &gpu_resources.queue, &output.texture, &mut encoder);
+            gpu_resources.queue.submit(Some(encoder.finish()));
+            let rgba = pollster::block_on(capture.get_frame_data(&gpu_resources.device));
+            let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all)
+                .and_then(|_| image::save_buffer(&path, &rgba, output.texture.width(), output.texture.height(), image::ColorType::Rgba8).map_err(std::io::Error::other));
+            if let Err(error) = saved {
+                eprintln!("UI test screenshot {} failed: {error}", path.display());
+            }
         }
 
         output.present();

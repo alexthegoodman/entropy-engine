@@ -1134,7 +1134,7 @@ impl WindowState {
             // TEXTURE_BINDING in addition to the usual RENDER_ATTACHMENT: the glass blur
             // pass (see glass_blur.rs) samples straight from this frame's swapchain view
             // as its blur source, rather than an extra copy.
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             format: swapchain_format,
             width: size.width,
             height: size.height,

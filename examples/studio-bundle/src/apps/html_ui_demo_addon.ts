@@ -144,10 +144,12 @@ function renderUI(win: string) {
     Entropy.UI.Widget.horizontal(win, (tid) => {
         Entropy.UI.Widget.button(tid, {
             text: mode === "markup" ? "> Markup Demo" : "Markup Demo",
+            id: "browser-mode-markup",
             onClick: () => { mode = "markup"; }
         });
         Entropy.UI.Widget.button(tid, {
             text: mode === "webpage" ? "> Real Webpage" : "Real Webpage",
+            id: "browser-mode-webpage",
             onClick: () => {
                 mode = "webpage";
                 if (fetchedHtml === null && fetchError === null) navigate(currentUrl);
@@ -162,18 +164,19 @@ function renderUI(win: string) {
     }
 
     Entropy.UI.Widget.horizontal(win, (tid) => {
-        Entropy.UI.Widget.button(tid, { text: "←", onClick: () => goHistory(historyIndex - 1) });
-        Entropy.UI.Widget.button(tid, { text: "→", onClick: () => goHistory(historyIndex + 1) });
+        Entropy.UI.Widget.button(tid, { text: "←", id: "browser-back", onClick: () => goHistory(historyIndex - 1) });
+        Entropy.UI.Widget.button(tid, { text: "→", id: "browser-forward", onClick: () => goHistory(historyIndex + 1) });
         Entropy.UI.Widget.textInput(tid, {
             label: "URL",
+            id: "browser-url",
             value: urlInput,
             onChange: (v) => { urlInput = v; }
         });
         // go
     });
     Entropy.UI.Widget.horizontal(win, (tid) => {
-        Entropy.UI.Widget.button(tid, { text: "Go", onClick: () => navigate(urlInput) });
-        Entropy.UI.Widget.button(tid, { text: "Bookmark", onClick: addBookmark });
+        Entropy.UI.Widget.button(tid, { text: "Go", id: "browser-go", onClick: () => navigate(urlInput) });
+        Entropy.UI.Widget.button(tid, { text: "Bookmark", id: "browser-bookmark", onClick: addBookmark });
         for (const bookmark of bookmarks) {
             Entropy.UI.Widget.button(tid, { text: bookmark, onClick: () => navigate(bookmark) });
         }
