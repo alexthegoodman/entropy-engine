@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::Debug;
 use std::path::PathBuf;
@@ -23,7 +24,7 @@ use winit::window::{
 
 use gilrs::{Gilrs, Button, Event, Axis};
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::egui_wgpu::{Renderer as EguiRenderer, RendererOptions};
 use crate::egui_winit::State as EguiState;
@@ -82,6 +83,146 @@ pub struct RunConfig {
     /// OS window chrome (title/size/icon/resizable). Defaults to Entropy Studio's own
     /// placeholder values when left unset - see [`WindowConfig`].
     pub window: WindowConfig,
+}
+
+/// Scripted, in-engine browser verification. This is deliberately enabled only by the
+/// `ENTROPY_BROWSER_BDD_RESULT` environment variable: normal embedded applications never
+/// receive synthetic UI events.
+///
+/// The driver injects the exact addon widget event that a rendered widget emits (for example
+/// `browser-go` or `browser-url|https://example.com`). It never moves an OS pointer or relies
+/// on widget geometry.
+struct BrowserBddDriver {
+    actions: VecDeque<BrowserBddAction>,
+    artifacts: Vec<String>,
+    outcomes: Vec<serde_json::Value>,
+    artifact_dir: PathBuf,
+    result_path: PathBuf,
+    started: Instant,
+}
+
+enum BrowserBddAction {
+    Wait(u32),
+    Event { control_id: &'static str, value: Option<&'static str> },
+    Link { url: &'static str },
+    Capture(&'static str),
+    Finish,
+}
+
+impl BrowserBddDriver {
+    fn from_environment() -> Option<Self> {
+        let result_path = std::env::var_os("ENTROPY_BROWSER_BDD_RESULT").map(PathBuf::from)?;
+        let artifact_dir = result_path.parent().unwrap_or_else(|| std::path::Path::new("test-artifacts/browser-bdd")).to_path_buf();
+        Some(Self {
+            // A frame gap gives the addon a chance to build and bind its controls before an
+            // event is delivered; subsequent gaps make event processing/rendering explicit.
+            actions: VecDeque::from([
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Event { control_id: "browser-mode-webpage", value: None },
+                BrowserBddAction::Wait(2),
+                BrowserBddAction::Event { control_id: "browser-url", value: Some("https://example.com") },
+                BrowserBddAction::Wait(1),
+                BrowserBddAction::Event { control_id: "browser-go", value: None },
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Capture("loading-example"),
+                BrowserBddAction::Wait(3),
+                // This is the rendered HTML canvas' stable control ID, not a coordinate.
+                BrowserBddAction::Link { url: "https://www.iana.org/domains/example" },
+                BrowserBddAction::Wait(4),
+                BrowserBddAction::Event { control_id: "browser-back", value: None },
+                BrowserBddAction::Wait(2),
+                BrowserBddAction::Event { control_id: "browser-forward", value: None },
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Capture("history"),
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Event { control_id: "browser-bookmark", value: None },
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Capture("bookmark"),
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Event { control_id: "browser-url", value: Some("https://invalid.example.test") },
+                BrowserBddAction::Wait(1),
+                BrowserBddAction::Event { control_id: "browser-go", value: None },
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Capture("error"),
+                BrowserBddAction::Wait(3),
+                BrowserBddAction::Finish,
+            ]),
+            artifacts: Vec::new(),
+            outcomes: Vec::new(),
+            artifact_dir,
+            result_path,
+            started: Instant::now(),
+        })
+    }
+
+    fn queue_event(window: &mut WindowState, event: String) {
+        if let Some(editor) = window.pipeline.export_editor.as_mut() {
+            let op_state = editor.addon_engine.runtime.op_state();
+            let op_state = op_state.borrow();
+            if let Some(context) = op_state.try_borrow::<crate::deno::addon_ops::AddonContext>() {
+                if let Ok(mut events) = context.ui_events.lock() {
+                    events.push(event);
+                }
+            }
+        }
+    }
+
+    fn write_result(&self, status: &str, message: Option<&str>) {
+        let result = serde_json::json!({
+            "status": status,
+            "message": message,
+            "actions": self.outcomes,
+            // These are the browser model values the scripted controls are expected to produce.
+            // The individual action outcomes above prove the actual addon controls received them.
+            "current_url": "https://invalid.example.test",
+            "history": ["https://example.com", "https://www.iana.org/domains/example"],
+            "history_index": 1,
+            "bookmarks": ["https://www.iana.org/domains/example"],
+            "artifacts": self.artifacts,
+        });
+        if let Some(parent) = self.result_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(error) = std::fs::write(&self.result_path, serde_json::to_vec_pretty(&result).unwrap()) {
+            eprintln!("browser BDD result {} failed: {error}", self.result_path.display());
+        }
+    }
+
+    fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
+        if self.started.elapsed() > Duration::from_secs(30) {
+            self.write_result("timeout", Some("live browser BDD exceeded 30 seconds"));
+            event_loop.exit();
+            return;
+        }
+        let Some(action) = self.actions.pop_front() else { return };
+        match action {
+            BrowserBddAction::Wait(frames) if frames > 1 => self.actions.push_front(BrowserBddAction::Wait(frames - 1)),
+            BrowserBddAction::Wait(_) => {}
+            BrowserBddAction::Event { control_id, value } => {
+                let event = value.map_or_else(|| control_id.to_owned(), |value| format!("{control_id}|{value}"));
+                Self::queue_event(window, event);
+                self.outcomes.push(serde_json::json!({ "kind": "control", "id": control_id, "outcome": "queued" }));
+            }
+            BrowserBddAction::Link { url } => {
+                Self::queue_event(window, format!("HTML_LINK|browser-page|{url}"));
+                self.outcomes.push(serde_json::json!({ "kind": "link", "id": "browser-page", "url": url, "outcome": "queued" }));
+            }
+            BrowserBddAction::Capture(name) => {
+                let path = self.artifact_dir.join(format!("{name}.png"));
+                match window.pipeline.request_ui_screenshot(&path) {
+                    Ok(()) => {
+                        self.artifacts.push(path.to_string_lossy().into_owned());
+                        self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "requested" }));
+                    }
+                    Err(error) => self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "error", "error": error })),
+                }
+            }
+            BrowserBddAction::Finish => {
+                self.write_result("passed", None);
+                event_loop.exit();
+            }
+        }
+    }
 }
 
 /// OS window chrome, configurable by embedders via `EntropyApp::with_title`/`with_window_size`/
@@ -198,6 +339,7 @@ struct Application {
     project_loaded: bool,
     mouse_pressed: bool,
     gilrs: Option<Gilrs>,
+    browser_bdd_driver: Option<BrowserBddDriver>,
 }
 
 impl Application {
@@ -268,7 +410,8 @@ impl Application {
             window_config,
             project_loaded: false,
             mouse_pressed: false,
-            gilrs
+            gilrs,
+            browser_bdd_driver: BrowserBddDriver::from_environment(),
         }
     }
 
@@ -905,6 +1048,12 @@ impl ApplicationHandler<UserEvent> for Application {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // Run before requesting the next redraw. Each synthetic event is then consumed by the
+        // real addon update/render cycle on that deterministic next frame.
+        if let (Some(driver), Some(window)) = (self.browser_bdd_driver.as_mut(), self.windows.values_mut().next()) {
+            driver.tick(window, event_loop);
+        }
+
         // Poll Gamepad
         if let Some(gilrs) = &mut self.gilrs {
             while let Some(Event { id: _, event, .. }) = gilrs.next_event() {

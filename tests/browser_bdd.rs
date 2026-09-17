@@ -1,11 +1,11 @@
-//! Fast, deterministic behavioral contract for the HTML browser loop.
+//! Browser BDD entrypoint.
 //!
-//! This is deliberately separate from the native visual-driver suite: these scenarios run
-//! without a window or network, while the visual suite will drive the same public controls and
-//! save real framebuffer checkpoints. Keeping state assertions here makes the common test path
-//! cheap enough to run on every edit.
+//! The feature below remains the fast behavioral contract. After it passes, this binary starts
+//! the real `html-ui-demo` executable in its in-engine test mode. That mode injects stable
+//! control IDs and captures composed frames; it never uses OS input automation.
 
 use cucumber::{given, then, when, World as _};
+use std::process::Command;
 
 #[derive(Debug, Default, cucumber::World)]
 struct BrowserWorld {
@@ -88,4 +88,28 @@ fn browser_shows_fetch_error(world: &mut BrowserWorld) {
 #[tokio::main]
 async fn main() {
     BrowserWorld::run("tests/features/browser_loop.feature").await;
+
+    let artifact_dir = std::env::current_dir()
+        .expect("test working directory")
+        .join("test-artifacts/browser-bdd");
+    let result_path = artifact_dir.join("result.json");
+    let _ = std::fs::remove_file(&result_path);
+
+    let example = std::env::var_os("CARGO_BIN_EXE_example")
+        .expect("Cargo must provide the real example binary to browser_bdd");
+    let status = Command::new(example)
+        .arg("html-ui-demo")
+        .env("ENTROPY_BROWSER_BDD_RESULT", &result_path)
+        .status()
+        .expect("launch the real Entropy HTML browser demo");
+    assert!(status.success(), "the live browser demo must exit cleanly: {status}");
+
+    let result: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&result_path).expect("live browser BDD result JSON"),
+    )
+    .expect("valid live browser BDD result JSON");
+    assert_eq!(result["status"], "passed", "{result:#}");
+    for artifact in result["artifacts"].as_array().expect("artifact array") {
+        assert!(std::path::Path::new(artifact.as_str().expect("artifact path")).is_file(), "missing artifact {artifact}");
+    }
 }
