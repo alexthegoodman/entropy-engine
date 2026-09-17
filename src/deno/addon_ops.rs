@@ -426,7 +426,14 @@ pub enum UiWidget {
     Separator,
     Hyperlink { id: String, text: String, url: String },
     TextInput { id: String, label: String, value: String },
-    LayoutCanvas { id: String, width: f32, height: f32, boxes: Vec<crate::deno::html_layout::LayoutBox> },
+    LayoutCanvas {
+        id: String,
+        width: f32,
+        height: f32,
+        boxes: Vec<crate::deno::html_layout::LayoutBox>,
+        /// When true, links emit an addon event instead of launching the host browser.
+        handle_links: bool,
+    },
     /// A true multi-page document editor - see `entropy_gui::widgets_doc_editor`. Unlike every
     /// other widget above, the document itself is NOT part of this command: it lives entirely
     /// Rust-side (in `entropy_gui::Memory`, keyed by `id`), because round-tripping a
@@ -871,6 +878,9 @@ pub struct AddonContext {
     /// external CSS each time.
     pub html_css_cache: HashMap<String, String>,
     pub html_css_failed: HashSet<String>,
+    /// Text fetches started by `Entropy.Net.fetchText`. The thread owns all blocking HTTP work;
+    /// the addon polls the result from its normal render/update loop.
+    pub net_text_fetches: HashMap<String, std::thread::JoinHandle<Result<String, String>>>,
     pub pending_landscape_texture_updates: Vec<(String, LandscapeTextureUpdate)>,
     pub hidden_addons: HashSet<String>,
     pub buffers: HashMap<String, Arc<wgpu::Buffer>>,
@@ -3253,26 +3263,89 @@ pub fn op_doc_editor_font_names(_state: &mut OpState) -> Vec<String> {
 /// string for none) resolves relative `<img src>`/`<a href>` on a real fetched page. `width`
 /// <= 0 uses html_layout's default viewport width.
 #[op2(fast)]
-pub fn op_ui_render_html(state: &mut OpState, #[string] window_id: String, #[string] html: String, #[string] base_url: String, width: f32) {
+pub fn op_ui_render_html(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] html: String,
+    #[string] base_url: String,
+    width: f32,
+    handle_links: bool,
+    #[string] id: String,
+) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         let base = if base_url.is_empty() { None } else { Some(base_url.as_str()) };
         let (w, h, boxes) = crate::deno::html_layout::build(&html, base, width, ctx);
-        let id = format!("html_canvas_{}", ctx.ui_widgets.get(&window_id).map(|v| v.len()).unwrap_or(0));
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::LayoutCanvas { id, width: w, height: h, boxes });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::LayoutCanvas {
+            id,
+            width: w,
+            height: h,
+            boxes,
+            handle_links,
+        });
     }
 }
 
 /// `Entropy.Net.getText(url)` — a plain blocking GET, for fetching a real webpage's HTML to
-/// feed into `op_ui_render_html`. There is no async op mechanism anywhere in this addon layer
-/// (see the other `op_*` functions in this file), so this blocks the calling frame until the
-/// request finishes; call it once (e.g. from `addon.onInit`) and cache the result, not from a
-/// per-frame render callback. See `crate::deno::net` for why this runs on a plain thread rather
-/// than calling `reqwest::blocking` directly, and for the "never executes what it fetches"
-/// security note that keeps this safe to leave consent-free.
+/// feed into `op_ui_render_html`. This blocks the calling frame until the request finishes;
+/// call it once and cache the result, not from a per-frame callback. New browser-style callers
+/// should prefer `Entropy.Net.fetchText` + `pollText`. See `crate::deno::net` for why these
+/// use a plain thread rather than calling `reqwest::blocking` inside Tokio, and for the
+/// "never executes what it fetches" security boundary.
 #[op2]
 #[string]
 pub fn op_http_get_text(#[string] url: String) -> Result<String, deno_error::JsErrorBox> {
     crate::deno::net::blocking_fetch_text(&url).map_err(deno_error::JsErrorBox::generic)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextFetchStatus {
+    pub done: bool,
+    pub text: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Starts a raw text fetch on a plain thread and returns a job id immediately. Poll with
+/// `Entropy.Net.pollText(id)` from an update/render callback; this does not execute fetched
+/// content or give it any host capability.
+#[op2]
+#[string]
+pub fn op_http_fetch_text(state: &mut OpState, #[string] url: String) -> String {
+    let id = format!("text_fetch_{}", Uuid::new_v4());
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.net_text_fetches.insert(id.clone(), crate::deno::net::start_fetch_text(&url));
+    }
+    id
+}
+
+/// Returns `{done:false}` while a fetch is in flight. A completed job is removed as it is
+/// observed, so callers should retain the returned text/error rather than poll it again.
+#[op2]
+#[serde]
+pub fn op_http_poll_text(state: &mut OpState, #[string] id: String) -> TextFetchStatus {
+    let Some(ctx) = state.try_borrow_mut::<AddonContext>() else {
+        return TextFetchStatus { done: true, text: None, error: Some("addon context unavailable".to_string()) };
+    };
+    let Some(job) = ctx.net_text_fetches.get(&id) else {
+        return TextFetchStatus { done: true, text: None, error: Some("unknown or already-polled fetch id".to_string()) };
+    };
+    if !job.is_finished() {
+        return TextFetchStatus { done: false, text: None, error: None };
+    }
+    match ctx.net_text_fetches.remove(&id).expect("finished fetch was just found").join() {
+        Ok(Ok(text)) => TextFetchStatus { done: true, text: Some(text), error: None },
+        Ok(Err(error)) => TextFetchStatus { done: true, text: None, error: Some(error) },
+        Err(_) => TextFetchStatus { done: true, text: None, error: Some("fetch thread panicked".to_string()) },
+    }
+}
+
+/// Drops an in-flight fetch result when an addon navigates away. Dropping a thread handle does
+/// not force-cancel reqwest, but it does release the addon's completed-result bookkeeping.
+#[op2(fast)]
+pub fn op_http_cancel_text(state: &mut OpState, #[string] id: String) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.net_text_fetches.remove(&id);
+    }
 }
 
 /// `Entropy.UI.setTheme(...)` — stashes the requested theme for `AddonEngine::render_ui`/

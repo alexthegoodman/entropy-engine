@@ -8,12 +8,20 @@
 //! already runs inside a Tokio runtime (see `src/bin/example.rs`'s `#[tokio::main]`), and
 //! `reqwest::blocking` panics if constructed from within one.
 
-pub fn blocking_fetch_text(url: &str) -> Result<String, String> {
+pub fn start_fetch_text(url: &str) -> std::thread::JoinHandle<Result<String, String>> {
     let url = url.to_string();
-    std::thread::spawn(move || reqwest::blocking::get(&url).and_then(|r| r.error_for_status()).and_then(|r| r.text()))
+    std::thread::spawn(move || {
+        reqwest::blocking::get(&url)
+            .and_then(|r| r.error_for_status())
+            .and_then(|r| r.text())
+            .map_err(|e| e.to_string())
+    })
+}
+
+pub fn blocking_fetch_text(url: &str) -> Result<String, String> {
+    start_fetch_text(url)
         .join()
         .map_err(|_| "fetch thread panicked".to_string())?
-        .map_err(|e| e.to_string())
 }
 
 pub fn blocking_fetch_bytes(url: &str) -> Result<Vec<u8>, String> {

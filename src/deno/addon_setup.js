@@ -1092,8 +1092,15 @@ globalThis.Entropy = {
             // trying to mutate it incrementally. `options.baseUrl` resolves relative
             // `<img src>`/`<a href>` - pass the fetched page's own URL for real webpages.
             // `options.width` sets the layout viewport width (default 760px).
+            // With `options.onLinkClick`, links emit their resolved URL to the addon instead of
+            // launching the host browser. This is the safe building block for an in-engine
+            // browser loop; remote scripts remain inert either way.
             html: (windowId, html, options) => {
-                ops.op_ui_render_html(windowId, html || "", options?.baseUrl || "", options?.width || 0);
+                const id = nextWidgetId(windowId, "html", options?.id);
+                ops.op_ui_render_html(windowId, html || "", options?.baseUrl || "", options?.width || 0, !!options?.onLinkClick, id);
+                bindListener('_entropy_event_listeners', id, options?.onLinkClick
+                    ? (event) => options.onLinkClick(event.split("|").slice(2).join("|"))
+                    : null);
             }
         }
     },
@@ -1101,6 +1108,11 @@ globalThis.Entropy = {
     // HTML to feed into `Entropy.UI.Widget.html`. Call it once (e.g. from `addon.onInit`), not
     // from a per-frame render callback - see op_http_get_text's doc comment in addon_ops.rs.
     Net: {
+        // Non-blocking counterpart to getText: start once, then poll from onUpdate/onRender.
+        // It returns only raw text; it never evaluates a fetched page or script.
+        fetchText: (url) => ops.op_http_fetch_text(url),
+        pollText: (id) => ops.op_http_poll_text(id),
+        cancelText: (id) => ops.op_http_cancel_text(id),
         getText: (url) => {
             return ops.op_http_get_text(url);
         }
@@ -1141,7 +1153,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban widget id
                 payload = event; // pass the whole event to the listener

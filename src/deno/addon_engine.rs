@@ -81,7 +81,7 @@ use crate::deno::addon_ops::{
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
-    op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text,
+    op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text, op_http_fetch_text, op_http_poll_text, op_http_cancel_text,
     op_ui_set_theme, op_visual_load, op_window_get_size, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick,
     op_ml_graph_train, op_ml_graph_poll
@@ -221,6 +221,9 @@ extension!(
         op_doc_editor_font_names,
         op_ui_render_html,
         op_http_get_text,
+        op_http_fetch_text,
+        op_http_poll_text,
+        op_http_cancel_text,
         op_ui_set_theme,
         op_addon_save_data,
         op_addon_save_image,
@@ -573,6 +576,7 @@ impl AddonEngine {
             html_image_failed: HashSet::new(),
             html_css_cache: HashMap::new(),
             html_css_failed: HashSet::new(),
+            net_text_fetches: HashMap::new(),
             pending_landscape_texture_updates: Vec::new(),
             hidden_addons: HashSet::new(),
             buffers: HashMap::new(),
@@ -4540,7 +4544,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     });
                 }
-                UiWidget::LayoutCanvas { id: _, width, height, boxes } => {
+                UiWidget::LayoutCanvas { id: canvas_id, width, height, boxes, handle_links } => {
                     // The HTML-as-UI experiment's CSS/taffy layout result (see html_layout.rs):
                     // a flat list of already-absolutely-positioned boxes. Backgrounds/borders/
                     // text are painted directly; interactive leaves go through
@@ -4594,7 +4598,13 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             Some(crate::deno::html_layout::LayoutLeaf::Hyperlink { id: _, text, url }) => {
                                 let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
-                                child.hyperlink_to(text, url.as_str());
+                                if *handle_links {
+                                    if child.link(text).clicked() {
+                                        events_to_push.push(format!("HTML_LINK|{}|{}", canvas_id, url));
+                                    }
+                                } else {
+                                    child.hyperlink_to(text, url.as_str());
+                                }
                             }
                             Some(crate::deno::html_layout::LayoutLeaf::Dropdown { id: drop_id, options, selected_index }) => {
                                 let mut child = ui.child_ui_at(box_rect, egui::Layout::top_down(egui::Align::Min), b.id_salt.as_str());
