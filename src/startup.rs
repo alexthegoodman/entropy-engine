@@ -92,6 +92,11 @@ pub struct RunConfig {
 /// The driver injects the exact addon widget event that a rendered widget emits (for example
 /// `browser-go` or `browser-url|https://example.com`). It never moves an OS pointer or relies
 /// on widget geometry.
+///
+/// The action sequence itself is not hand-written here: `browser_bdd_actions_from_feature`
+/// parses `tests/features/browser_live.feature` (via the `gherkin` crate) at construction time,
+/// so that file is the actual source of what the live run does, not a description of it that
+/// can silently drift from a separately-maintained list.
 struct BrowserBddDriver {
     actions: VecDeque<BrowserBddAction>,
     artifacts: Vec<String>,
@@ -103,10 +108,69 @@ struct BrowserBddDriver {
 
 enum BrowserBddAction {
     Wait(u32),
-    Event { control_id: &'static str, value: Option<&'static str> },
-    Link { url: &'static str },
-    Capture(&'static str),
+    Event { control_id: String, value: Option<String> },
+    Link { control_id: String, url: String },
+    Capture(String),
     Finish,
+}
+
+/// The `.feature` file compiled into the binary. `include_str!` makes cargo track it as a
+/// build dependency - editing the file and rebuilding picks up the change - without needing to
+/// resolve a runtime path relative to whatever directory the process happens to be launched
+/// from.
+const BROWSER_LIVE_FEATURE_SOURCE: &str = include_str!("../tests/features/browser_live.feature");
+
+/// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
+/// "browser-go"`) into a driver action. Returns `None` for steps that are real preconditions
+/// with nothing for the driver to do (the opening "Given ... is running in test mode"). Any
+/// step text that isn't one of the recognized shapes is a bug in the feature file (a typo, or a
+/// new step nobody taught this function) and fails loudly rather than being silently skipped -
+/// the whole point of parsing the file is that it's load-bearing, not decorative.
+fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
+    if text == "the real browser demo is running in test mode" {
+        return None;
+    }
+    // Cucumber-expression-style steps here only ever use double-quoted string arguments, so
+    // pulling out every substring between quotes covers every shape below without a regex.
+    let quoted: Vec<&str> = text.split('"').skip(1).step_by(2).collect();
+
+    if let Some(rest) = text.strip_prefix("I advance ") {
+        let count_str = rest.trim_end_matches(" frames").trim_end_matches(" frame");
+        let count = count_str
+            .parse::<u32>()
+            .unwrap_or_else(|_| panic!("browser_live.feature: not a frame count in {text:?}"));
+        return Some(BrowserBddAction::Wait(count));
+    }
+    if text.starts_with("I set ") && quoted.len() == 2 {
+        return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: Some(quoted[1].to_string()) });
+    }
+    if text.starts_with("I click ") && quoted.len() == 1 {
+        return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: None });
+    }
+    if text.starts_with("I capture ") && quoted.len() == 1 {
+        return Some(BrowserBddAction::Capture(quoted[0].to_string()));
+    }
+    if text.starts_with("I follow the HTML link through ") && quoted.len() == 2 {
+        return Some(BrowserBddAction::Link { control_id: quoted[0].to_string(), url: quoted[1].to_string() });
+    }
+    panic!("browser_live.feature: no driver action recognized for step {text:?}");
+}
+
+/// Parses every scenario's steps, in file order, into the flat action queue the driver ticks
+/// through. Scenario boundaries aren't meaningful to the driver - the whole file is one
+/// continuous run against one long-lived app instance - so they're deliberately flattened here
+/// rather than preserved.
+fn browser_bdd_actions_from_feature() -> VecDeque<BrowserBddAction> {
+    let feature = gherkin::Feature::parse(BROWSER_LIVE_FEATURE_SOURCE, gherkin::GherkinEnv::default())
+        .expect("tests/features/browser_live.feature must be valid Gherkin");
+    let mut actions: VecDeque<BrowserBddAction> = feature
+        .scenarios
+        .iter()
+        .flat_map(|scenario| scenario.steps.iter())
+        .filter_map(|step| browser_bdd_action_from_step(&step.value))
+        .collect();
+    actions.push_back(BrowserBddAction::Finish);
+    actions
 }
 
 impl BrowserBddDriver {
@@ -114,42 +178,7 @@ impl BrowserBddDriver {
         let result_path = std::env::var_os("ENTROPY_BROWSER_BDD_RESULT").map(PathBuf::from)?;
         let artifact_dir = result_path.parent().unwrap_or_else(|| std::path::Path::new("test-artifacts/browser-bdd")).to_path_buf();
         Some(Self {
-            // A frame gap gives the addon a chance to build and bind its controls before an
-            // event is delivered; subsequent gaps make event processing/rendering explicit.
-            actions: VecDeque::from([
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Event { control_id: "browser-mode-webpage", value: None },
-                BrowserBddAction::Wait(2),
-                BrowserBddAction::Event { control_id: "browser-url", value: Some("https://example.com") },
-                BrowserBddAction::Wait(1),
-                BrowserBddAction::Event { control_id: "browser-go", value: None },
-                // Network polling happens once per rendered frame. Leave a real settling
-                // window before evidence capture rather than photographing the transient
-                // "Fetching..." state on a fast local render loop.
-                BrowserBddAction::Wait(120),
-                BrowserBddAction::Capture("loading-example"),
-                BrowserBddAction::Wait(3),
-                // This is the rendered HTML canvas' stable control ID, not a coordinate.
-                BrowserBddAction::Link { url: "https://www.iana.org/domains/example" },
-                BrowserBddAction::Wait(120),
-                BrowserBddAction::Event { control_id: "browser-back", value: None },
-                BrowserBddAction::Wait(2),
-                BrowserBddAction::Event { control_id: "browser-forward", value: None },
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Capture("history"),
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Event { control_id: "browser-bookmark", value: None },
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Capture("bookmark"),
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Event { control_id: "browser-url", value: Some("https://invalid.example.test") },
-                BrowserBddAction::Wait(1),
-                BrowserBddAction::Event { control_id: "browser-go", value: None },
-                BrowserBddAction::Wait(120),
-                BrowserBddAction::Capture("error"),
-                BrowserBddAction::Wait(3),
-                BrowserBddAction::Finish,
-            ]),
+            actions: browser_bdd_actions_from_feature(),
             artifacts: Vec::new(),
             outcomes: Vec::new(),
             artifact_dir,
@@ -202,13 +231,13 @@ impl BrowserBddDriver {
             BrowserBddAction::Wait(frames) if frames > 1 => self.actions.push_front(BrowserBddAction::Wait(frames - 1)),
             BrowserBddAction::Wait(_) => {}
             BrowserBddAction::Event { control_id, value } => {
-                let event = value.map_or_else(|| control_id.to_owned(), |value| format!("{control_id}|{value}"));
+                let event = value.as_ref().map_or_else(|| control_id.clone(), |value| format!("{control_id}|{value}"));
                 Self::queue_event(window, event);
                 self.outcomes.push(serde_json::json!({ "kind": "control", "id": control_id, "outcome": "queued" }));
             }
-            BrowserBddAction::Link { url } => {
-                Self::queue_event(window, format!("HTML_LINK|browser-page|{url}"));
-                self.outcomes.push(serde_json::json!({ "kind": "link", "id": "browser-page", "url": url, "outcome": "queued" }));
+            BrowserBddAction::Link { control_id, url } => {
+                Self::queue_event(window, format!("HTML_LINK|{control_id}|{url}"));
+                self.outcomes.push(serde_json::json!({ "kind": "link", "id": control_id, "url": url, "outcome": "queued" }));
             }
             BrowserBddAction::Capture(name) => {
                 let path = self.artifact_dir.join(format!("{name}.png"));

@@ -49,6 +49,10 @@ tiff = "0.9.1"
 reqwest = { version = "0.12.4", features = ["json", "blocking"] }
 reqwest-graphql = "1.0.0"
 regex = "1"
+# Parses tests/features/browser_live.feature at runtime so BrowserBddDriver's live-tier action
+# sequence (src/startup.rs) is generated from that file instead of duplicated by hand. Same
+# gherkin version cucumber = "0.23.0" (a dev-dependency below) already pulls in transitively.
+gherkin = "0.16"
 gloo-utils = "0.2.0"
 rapier3d = { version = "0.20.0" }
 lazy_static = "1.5.0"
