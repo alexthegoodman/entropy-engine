@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_PAINT_SETTINGS, blendPixel, compositeLayers, pressureResponse, stabilizePoint } from "../src/apps/canvas_paint";
-import type { PaintLayer } from "../src/apps/canvas_paint";
-import { SceneLibrary } from "../src/apps/canvas_scene_library";
-import { base64ToBytes, bytesToBase64, validateScene } from "../src/apps/canvas_scene_format";
+import { DEFAULT_PAINT_SETTINGS, blendPixel, compositeLayers, pressureResponse, stabilizePoint } from "../src/apps/canvas_surfaces/canvas_paint";
+import type { PaintLayer } from "../src/apps/canvas_surfaces/canvas_paint";
+import { SceneLibrary } from "../src/apps/canvas_surfaces/canvas_scene_library";
+import { base64ToBytes, bytesToBase64, validateScene } from "../src/apps/canvas_surfaces/canvas_scene_format";
 
 describe("brush response and compositing", () => {
     it("calibrates and clamps pressure with independent size and opacity curves", () => {

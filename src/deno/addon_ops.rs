@@ -360,6 +360,19 @@ pub struct KanbanColumnConfig {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TreeNodeConfig {
+    pub id: String,
+    pub label: String,
+    pub depth: u32,
+    pub has_children: Option<bool>,
+    pub expanded: Option<bool>,
+    /// `None`/omitted hides the row's checkbox; `Some(value)` shows it at that state.
+    pub marked: Option<bool>,
+    pub selected: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
     Label { text: String, bold: Option<bool> },
@@ -412,7 +425,14 @@ pub enum UiWidget {
         /// (column id, card id) - highlights that card as selected.
         selected: Option<(String, String)>,
     },
-    CollapsingHeader { title: String, id: String },
+    /// A Figma/VS Code-style outliner - see `entropy_gui::widgets_tree`. The caller supplies
+    /// one flat, already depth-computed list every frame; this widget does not derive
+    /// hierarchy from parent ids itself.
+    TreeView {
+        id: String,
+        nodes: Vec<TreeNodeConfig>,
+    },
+    CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
     EndHorizontal,
@@ -3082,15 +3102,28 @@ pub fn op_ui_widget_kanban(
     }
 }
 
-#[op2(fast)]
+#[op2]
+pub fn op_ui_widget_tree_view(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] nodes: Vec<TreeNodeConfig>,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TreeView { id, nodes });
+    }
+}
+
+#[op2]
 pub fn op_ui_widget_collapsing_header(
     state: &mut OpState,
     #[string] window_id: String,
     #[string] title: String,
     #[string] id: String,
+    default_open: Option<bool>,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::CollapsingHeader { title, id });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::CollapsingHeader { title, id, default_open });
     }
 }
 

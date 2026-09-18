@@ -77,7 +77,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -199,6 +199,7 @@ extension!(
         op_ui_widget_keyframe_timeline,
         op_ui_widget_tracks,
         op_ui_widget_kanban,
+        op_ui_widget_tree_view,
         op_ui_widget_collapsing_header,
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
@@ -4338,6 +4339,34 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
+                UiWidget::TreeView { id: tree_id, nodes } => {
+                    let nodes_data: Vec<crate::entropy_gui::TreeNode> = nodes
+                        .iter()
+                        .map(|n| crate::entropy_gui::TreeNode {
+                            id: n.id.clone(),
+                            label: n.label.clone(),
+                            depth: n.depth,
+                            has_children: n.has_children.unwrap_or(false),
+                            expanded: n.expanded.unwrap_or(true),
+                            marked: n.marked,
+                            selected: n.selected.unwrap_or(false),
+                        })
+                        .collect();
+                    let resp = crate::entropy_gui::TreeView::new(tree_id.as_str()).show(ui, &nodes_data);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::TreeEvent::Selected(node) => {
+                                events_to_push.push(format!("TREEVIEW_SELECTED|{}|{}", tree_id, node));
+                            }
+                            crate::entropy_gui::TreeEvent::ToggleExpand(node) => {
+                                events_to_push.push(format!("TREEVIEW_TOGGLE|{}|{}", tree_id, node));
+                            }
+                            crate::entropy_gui::TreeEvent::Marked(node, value) => {
+                                events_to_push.push(format!("TREEVIEW_MARKED|{}|{}|{}", tree_id, node, value));
+                            }
+                        }
+                    }
+                }
                 UiWidget::Snarl { id: snarl_id, graph } => {
                     // Real, interactive editor (pan/zoom/drag/connect) as of this session - see
                     // `entropy_gui::widgets_node_graph`. `SnarlConfig.onConnect`/`onDisconnect`/
@@ -4426,7 +4455,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         resp.active_font_name,
                     ));
                 }
-                UiWidget::CollapsingHeader { title, id } => {
+                UiWidget::CollapsingHeader { title, id, default_open } => {
                     // Find matching EndCollapsingHeader
                     let mut depth = 1;
                     let mut end_idx = i + 1;
@@ -4445,6 +4474,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         let sub_widgets = &widgets[i + 1..end_idx];
                         egui::CollapsingHeader::new(title)
                             .id_source(id)
+                            .default_open(default_open.unwrap_or(false))
                             .show(ui, |ui| {
                                 Self::render_widgets(ui, sub_widgets, events_to_push, context, egui_renderer);
                             });

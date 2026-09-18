@@ -29,6 +29,7 @@ pub mod widgets_kanban;
 pub mod widgets_keyframe_timeline;
 pub mod widgets_node_graph;
 pub mod widgets_tracks;
+pub mod widgets_tree;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -56,6 +57,7 @@ pub use widgets_kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanEvent, Kan
 pub use widgets_keyframe_timeline::{Keyframe, KeyframeRow, KeyframeTimeline, KeyframeTimelineEvent, KeyframeTimelineResponse};
 pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
 pub use widgets_tracks::{Track, TrackClip, TrackView, TrackViewEvent, TrackViewResponse};
+pub use widgets_tree::{TreeEvent, TreeNode, TreeResponse, TreeView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

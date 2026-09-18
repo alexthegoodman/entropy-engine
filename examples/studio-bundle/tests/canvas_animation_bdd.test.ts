@@ -31,6 +31,8 @@ describe("Canvas animation BDD through production addon callbacks", () => {
     let savedData: Map<string, any>;
     let textInputs: Map<string, (value: string) => void>;
     let colorInput: (value: number[]) => void;
+    let treeNodes: any[];
+    let treeCallbacks: { onSelect?: (id: string) => void; onToggleExpand?: (id: string) => void; onMark?: (id: string, value: boolean) => void };
     const emit = (name: string, ...args: any[]) => listeners[name]?.forEach(fn => fn(...args));
     const click = (id: string) => { render(); expect(buttons.has(id)).toBe(true); buttons.get(id)!(); update(); };
     const pixels = () => {
@@ -46,7 +48,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
 
     beforeEach(async () => {
         vi.resetModules();
-        listeners = {}; buttons = new Map(); captions = new Map(); labels = []; sliders = new Map(); textures = new Map(); meshes = new Map(); buffers = new Map(); overUI = false; savedIndex = null; savedData = new Map(); textInputs = new Map();
+        listeners = {}; buttons = new Map(); captions = new Map(); labels = []; sliders = new Map(); textures = new Map(); meshes = new Map(); buffers = new Map(); overUI = false; savedIndex = null; savedData = new Map(); textInputs = new Map(); treeNodes = []; treeCallbacks = {};
         let serial = 0;
         const widget = {
             button: (_id: string, c: any) => { buttons.set(c.id, c.onClick); captions.set(c.id, c.text); },
@@ -55,7 +57,9 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             textInput: (_id: string, c: any) => textInputs.set(c.id, c.onChange),
             colorInput: (_id: string, c: any) => { colorInput = c.onChange; },
             horizontal: (id: string, fn: (id: string) => void) => fn(id),
+            group: (id: string, fn: (id: string) => void) => fn(id),
             collapsingHeader: (id: string, _title: string, fn: (id: string) => void) => fn(id),
+            treeView: (_id: string, c: any) => { treeNodes = c.nodes || []; treeCallbacks = c; },
         };
         api = {
             AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: (time?: number) => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
@@ -68,7 +72,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             Gizmo: { show: vi.fn(() => "gizmo"), hide: vi.fn(), updatePosition: vi.fn(), updateRotation: vi.fn() },
             Camera: { getTransform: () => [[0, 1.6, 6], [0, 0, -1]], setTransform: vi.fn(), screenToWorldRay: (x: number, y: number) => ({ origin: [x, y, 6], direction: [0, 0, -1] }) },
             Controls: { enable: vi.fn(), disable: vi.fn() },
-            UI: { createWindow: (c: any) => { render = () => { buttons.clear(); sliders.clear(); captions.clear(); labels = []; c.onRender(); }; return "tools"; }, Widget: widget },
+            UI: { createWindow: (c: any) => { render = () => { buttons.clear(); sliders.clear(); captions.clear(); labels = []; treeNodes = []; c.onRender(); }; return "tools"; }, Widget: widget },
             Window: { getSize: () => [1400, 900] },
             Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
@@ -91,9 +95,14 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             return (Math.min(...values) + Math.max(...values)) / 2;
         });
     };
-    const selectCaption = (prefix: string, caption: string) => {
-        render(); const entry = [...captions].find(([id, text]) => id.startsWith(prefix) && text.replace(/^> /, "") === caption);
-        expect(entry, caption).toBeDefined(); click(entry![0]);
+    // Node selection lives entirely inside one Widget.treeView call (see
+    // buildHierarchyRows/renderAnimationUI), not as individual per-node buttons - so "clicking"
+    // a tree row here means finding it by label in the widget's last-rendered `nodes` array and
+    // invoking the callback the addon bound to `onSelect`, exactly as a real click would.
+    const selectNodeByLabel = (label: string) => {
+        render(); const node = treeNodes.find(n => n.label === label);
+        expect(node, label).toBeDefined(); expect(treeCallbacks.onSelect, label).toBeDefined();
+        treeCallbacks.onSelect!(node!.id); update();
     };
     const steps: Record<string, () => void> = {
         "a canvas surface is ready": () => { firstSurfaceId = surfaceMeshes()[0]; originalVertices = [...meshes.get(firstSurfaceId).vertexData]; originalPixels = pixels().slice(); },
@@ -142,9 +151,12 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             expect(face.strokes).toHaveLength(3); expect(tracks[1].targetId).toBe(face.strokes[2].id);
         },
         "I select the first stroke": () => { render(); const id = [...buttons.keys()].find(id => id.startsWith("stroke_") && !["stroke_name", "stroke_visible", "stroke_progress"].includes(id)); expect(id).toBeDefined(); click(id!); },
-        "I select the surface": () => click(`node_${firstSurfaceId}`),
-        "I select the inner group": () => selectCaption("node_", "Group: Group 1"),
-        "I select the outer group": () => selectCaption("node_", "Group: Group 2"),
+        "I select the surface": () => {
+            render(); const node = treeNodes.find(n => n.id === firstSurfaceId);
+            expect(node, firstSurfaceId).toBeDefined(); treeCallbacks.onSelect!(firstSurfaceId); update();
+        },
+        "I select the inner group": () => selectNodeByLabel("Group 1"),
+        "I select the outer group": () => selectNodeByLabel("Group 2"),
         "the cycle is rejected": () => { render(); expect(labels.some(label => label.includes("cannot contain themselves"))).toBe(true); },
         "the scene is still saved": () => { render(); expect(labels).toContain("Untitled scene"); expect(labels).not.toContain("Untitled scene *"); },
         "the preview advances to its end": () => { update(10); update(11); update(12); render(); expect(sliders.get("clip_time")!.value).toBe(2); expect(captions.get("clip_play")).toBe("Play"); },

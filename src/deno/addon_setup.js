@@ -988,6 +988,27 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A Figma/VS Code-style outliner: one flat, already depth-computed `nodes` array,
+            // rendered as real indented rows with a native disclosure triangle and a full-row
+            // selection highlight - replaces a hand-stacked list of button()/checkbox() calls
+            // (with indentation faked as literal leading spaces) that a tree like Canvas
+            // Surfaces' "Groups & animation" hierarchy used before this widget existed.
+            treeView: (windowId, config) => {
+                const nodes = config?.nodes || [];
+                const id = nextWidgetId(windowId, "treeview", config?.id);
+
+                ops.op_ui_widget_tree_view(windowId, nodes, id);
+
+                if (config?.onSelect || config?.onToggleExpand || config?.onMark) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "TREEVIEW_SELECTED" && config.onSelect) config.onSelect(parts[2]);
+                        else if (type === "TREEVIEW_TOGGLE" && config.onToggleExpand) config.onToggleExpand(parts[2]);
+                        else if (type === "TREEVIEW_MARKED" && config.onMark) config.onMark(parts[2], parts[3] === "true");
+                    });
+                }
+            },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const id = nextWidgetId(windowId, "snarl", config?.id);
@@ -1008,9 +1029,16 @@ globalThis.Entropy = {
                     });
                 }
             },
-            collapsingHeader: (windowId, title, render) => {
-                const id = nextWidgetId(windowId, "collapsing", null);
-                ops.op_ui_widget_collapsing_header(windowId, title, id);
+            // `id` is optional and, when omitted, falls back to the same frame-counter-derived
+            // auto id every other unlabeled widget uses - stable only as long as nothing earlier
+            // in the same render pass conditionally adds/removes a widget call. Pass an explicit
+            // id for any header a script (BDD or otherwise) needs to open/close by name.
+            // `defaultOpen` only matters the first time this id is ever rendered in a session -
+            // after that, the real open/closed state lives in the widget's own click-driven
+            // memory (entropy_gui::Context, keyed by id), same as every other collapsingHeader.
+            collapsingHeader: (windowId, title, render, id, defaultOpen) => {
+                const widgetId = nextWidgetId(windowId, "collapsing", id || null);
+                ops.op_ui_widget_collapsing_header(windowId, title, widgetId, defaultOpen ?? false);
                 render(windowId);
                 ops.op_ui_widget_end_collapsing_header(windowId);
             },
@@ -1153,9 +1181,9 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
-                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban widget id
+                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

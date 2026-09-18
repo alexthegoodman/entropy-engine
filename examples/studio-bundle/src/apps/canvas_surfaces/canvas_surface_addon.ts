@@ -2103,52 +2103,88 @@ function removeGroup(group: Group): void {
     for (const clip of clips) clip.tracks = clip.tracks.filter(t => t.targetId !== group.id);
     activeGroupId = null; refreshGeometry();
 }
+// Structurally matches addon.d.ts's TreeNodeConfig (that .d.ts's `export interface`s aren't
+// ambiently visible here the way the global `Entropy` var itself is, so this is a local mirror
+// rather than an import - TS only needs the shape to match, not the same named type).
+type HierarchyRow = { id: string; label: string; depth: number; hasChildren: boolean; expanded: boolean; marked: boolean; selected: boolean };
+
+/** Flattens the group/surface forest into the already-depth-computed row list `Widget.treeView`
+ * expects, skipping the contents of any collapsed group entirely (the widget has no hierarchy
+ * or collapsed-state knowledge of its own - see `entropy_gui::widgets_tree`'s doc comment). */
+function buildHierarchyRows(parent: string | null, depth: number, rows: HierarchyRow[]): void {
+    for (const node of [...groups, ...surfaces].filter(n => n.parentId === parent)) {
+        const isGroup = groups.some(g => g.id === node.id);
+        const hasChildren = isGroup && [...groups, ...surfaces].some(n => n.parentId === node.id);
+        rows.push({
+            id: node.id, label: node.name, depth, hasChildren,
+            expanded: !collapsedGroups.has(node.id), marked: markedNodes.has(node.id),
+            selected: selectedNode()?.id === node.id,
+        });
+        if (hasChildren && !collapsedGroups.has(node.id)) buildHierarchyRows(node.id, depth + 1, rows);
+    }
+}
+
 function renderAnimationUI(): void {
     const W = Entropy.UI.Widget;
     const button = (id: string, text: string, onClick: () => void) => W.button(uiWindowId, { id, text, onClick });
     const slider = (id: string, label: string, value: number, min: number, max: number, change: (value: number) => void) => W.slider(uiWindowId, { id, label, value, min, max, onChange: value => { const n = Number(value); if (Number.isFinite(n)) change(Math.max(min, Math.min(max, n))); } });
-    W.label(uiWindowId, { text: preview ? "PREVIEW - return to edit to draw" : "Select or mark parts, then group them." });
-    button("animation_stop", "Return to editing pose", stopPreview);
-    const tree = (parent: string | null, depth: number) => {
-        for (const node of [...groups, ...surfaces].filter(n => n.parentId === parent)) {
-            const isGroup = groups.some(g => g.id === node.id);
-            button(`node_${node.id}`, `${"  ".repeat(depth)}${selectedNode()?.id === node.id ? "> " : ""}${isGroup ? "Group: " : ""}${node.name}`, () => {
-                if (isGroup) { activeGroupId = node.id; selectedStrokeId = null; if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; } }
-                else selectSurface(node as Surface);
-            });
-            button(`mark_${node.id}`, markedNodes.has(node.id) ? "Unmark part" : "Mark part", () => { if (markedNodes.has(node.id)) markedNodes.delete(node.id); else markedNodes.add(node.id); });
-            if (isGroup) {
-                button(`group_expand_${node.id}`, collapsedGroups.has(node.id) ? "Expand group" : "Collapse group", () => { if (collapsedGroups.has(node.id)) collapsedGroups.delete(node.id); else collapsedGroups.add(node.id); });
-                if (!collapsedGroups.has(node.id)) tree(node.id, depth + 1);
-            }
-        }
-    };
-    tree(null, 0);
-    button("group_create", "Group marked / selected", makeGroup);
-    button("animated_example", "Open animated character example", createAnimatedExample);
+
+    W.label(uiWindowId, { text: preview ? "Previewing a clip - Return to Editing Pose before drawing." : "Click a part to select it. Check Mark to build a multi-part group." });
+    button("animation_stop", "Return to Editing Pose", stopPreview);
+
+    W.label(uiWindowId, { text: "Hierarchy", bold: true });
+    const hierarchyRows: HierarchyRow[] = [];
+    buildHierarchyRows(null, 0, hierarchyRows);
+    W.group(uiWindowId, () => {
+        W.treeView(uiWindowId, {
+            id: "hierarchy_tree", nodes: hierarchyRows,
+            onSelect: id => {
+                const isGroup = groups.some(g => g.id === id);
+                if (isGroup) { activeGroupId = id; selectedStrokeId = null; if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; } }
+                else { const surface = surfaces.find(s => s.id === id); if (surface) selectSurface(surface); }
+            },
+            onToggleExpand: id => { if (collapsedGroups.has(id)) collapsedGroups.delete(id); else collapsedGroups.add(id); },
+            onMark: (id, value) => { if (value) markedNodes.add(id); else markedNodes.delete(id); },
+        });
+    });
+    W.horizontal(uiWindowId, () => {
+        button("group_create", "Group Selected", makeGroup);
+        button("animated_example", "Load Example", createAnimatedExample);
+    });
+
     const node = selectedNode();
     if (node) {
-        W.textInput(uiWindowId, { label: "Part name", id: "node_name", value: node.name, onChange: value => { beginEdit("Rename part"); node.name = String(value).slice(0, 80); } });
-        button("parent_choice", `Parent: ${groups.find(g => g.id === parentChoice)?.name ?? "World"}`, () => {
-            const options = [null, ...groups.filter(g => g.id !== node.id).map(g => g.id)]; parentChoice = options[(options.indexOf(parentChoice) + 1) % options.length];
+        W.separator(uiWindowId);
+        W.label(uiWindowId, { text: `Selected: ${node.name} (${activeGroupId ? "Group" : "Part"})`, bold: true });
+        W.textInput(uiWindowId, { label: "Rename", id: "node_name", value: node.name, onChange: value => { beginEdit("Rename part"); node.name = String(value).slice(0, 80); } });
+        W.horizontal(uiWindowId, () => {
+            button("parent_choice", `Parent: ${groups.find(g => g.id === parentChoice)?.name ?? "World"}`, () => {
+                const options = [null, ...groups.filter(g => g.id !== node.id).map(g => g.id)]; parentChoice = options[(options.indexOf(parentChoice) + 1) % options.length];
+            });
+            button("parent_apply", "Attach", () => {
+                try { const frame = reparentFrame(groups, node.id, node.parentId, parentChoice, node.frame); beginEdit("Reparent part"); node.frame = frame; node.parentId = parentChoice; refreshGeometry(); }
+                catch (error) { statusMessage = String(error); }
+            });
         });
-        button("parent_apply", "Attach to chosen parent", () => {
-            try { const frame = reparentFrame(groups, node.id, node.parentId, parentChoice, node.frame); beginEdit("Reparent part"); node.frame = frame; node.parentId = parentChoice; refreshGeometry(); }
-            catch (error) { statusMessage = String(error); }
-        });
-        if (activeGroupId) button("group_remove", "Ungroup (keep parts)", () => removeGroup(node as Group));
+        if (activeGroupId) button("group_remove", "Ungroup (Keep Parts)", () => removeGroup(node as Group));
+
         const transform = "yaw" in node ? surfaceTransform(node) : node;
-        W.collapsingHeader(uiWindowId, "Part transform & pivot", () => {
-        for (const [index, axis] of ["x", "y", "z"].entries()) {
-            slider(`node_pos_${axis}`, `Local ${axis}`, transform.position[index], -20, 20, value => { beginEdit("Move part"); node.position[index] = value; refreshGeometry(); });
-            slider(`node_rotation_${axis}`, `Rotate ${axis} (rad)`, transform.rotation[index], -Math.PI, Math.PI, value => {
+        W.collapsingHeader(uiWindowId, "Transform & Pivot", () => {
+            const axisRow = (title: string, idPrefix: string, min: number, max: number, get: (axis: number) => number, set: (axis: number, value: number) => void) => {
+                W.group(uiWindowId, () => {
+                    W.label(uiWindowId, { text: title, bold: true });
+                    for (const [index, axis] of ["x", "y", "z"].entries()) slider(`${idPrefix}_${axis}`, axis.toUpperCase(), get(index), min, max, value => set(index, value));
+                });
+            };
+            axisRow("Position", "node_pos", -20, 20, index => transform.position[index], (index, value) => { beginEdit("Move part"); node.position[index] = value; refreshGeometry(); });
+            axisRow("Rotation (radians)", "node_rotation", -Math.PI, Math.PI, index => transform.rotation[index], (index, value) => {
                 beginEdit("Rotate part");
                 if ("yaw" in node) { if (index === 0) node.pitch = value; if (index === 1) node.yaw = value; if (index === 2) node.roll = value; }
                 else node.rotation[index] = value;
                 refreshGeometry();
             });
-            slider(`node_scale_${axis}`, `Scale ${axis}`, node.scale[index], 0.05, 5, value => { beginEdit("Scale part"); node.scale[index] = value; refreshGeometry(); });
-            slider(`node_pivot_${axis}`, `Pivot ${axis}`, node.pivot[index], -20, 20, value => {
+            axisRow("Scale", "node_scale", 0.05, 5, index => transform.scale[index], (index, value) => { beginEdit("Scale part"); node.scale[index] = value; refreshGeometry(); });
+            axisRow("Pivot Offset", "node_pivot", -20, 20, index => transform.pivot[index], (index, value) => {
                 beginEdit("Set pivot");
                 const before = transformMatrix("yaw" in node ? surfaceTransform(node) : node);
                 node.pivot[index] = value;
@@ -2156,58 +2192,85 @@ function renderAnimationUI(): void {
                 for (let i = 0; i < 3; i++) node.position[i] += before[i * 4 + 3] - after[i * 4 + 3];
                 refreshGeometry();
             });
-        }
         });
     }
+
     const surface = !activeGroupId ? activeSurface() : null;
-    for (const stroke of surface?.strokes ?? []) button(`stroke_${stroke.id}`, `${selectedStrokeId === stroke.id ? "> " : ""}${stroke.name}`, () => { selectedStrokeId = stroke.id; channelChoice = "progress"; keyValue = stroke.progress; });
+    if (surface && surface.strokes.length) {
+        W.separator(uiWindowId);
+        W.label(uiWindowId, { text: "Strokes", bold: true });
+        W.group(uiWindowId, () => {
+            for (const stroke of surface.strokes) button(`stroke_${stroke.id}`, `${selectedStrokeId === stroke.id ? "> " : ""}${stroke.name}`, () => { selectedStrokeId = stroke.id; channelChoice = "progress"; keyValue = stroke.progress; });
+        });
+    }
     const stroke = surface?.strokes.find(st => st.id === selectedStrokeId);
     if (stroke && surface) {
         const editStroke = (change: Partial<RetainedStroke>) => { beginEdit("Edit stroke"); surface.strokes = surface.strokes.map(st => st.id === stroke.id ? { ...st, ...change } : st); replayArtwork(surface); };
-        W.textInput(uiWindowId, { label: "Stroke name", id: "stroke_name", value: stroke.name, onChange: value => editStroke({ name: String(value).slice(0, 80) }) });
-        button("stroke_visible", stroke.visible ? "Hide stroke" : "Show stroke", () => editStroke({ visible: !stroke.visible }));
-        slider("stroke_progress", "Drawing progress", stroke.progress, 0, 1, value => editStroke({ progress: value }));
+        W.group(uiWindowId, () => {
+            W.textInput(uiWindowId, { label: "Stroke name", id: "stroke_name", value: stroke.name, onChange: value => editStroke({ name: String(value).slice(0, 80) }) });
+            button("stroke_visible", stroke.visible ? "Hide Stroke" : "Show Stroke", () => editStroke({ visible: !stroke.visible }));
+            slider("stroke_progress", "Drawing Progress", stroke.progress, 0, 1, value => editStroke({ progress: value }));
+        });
     }
-    button("clip_create", "New animation clip", () => {
-        beginEdit("New animation"); let number = 1; while (clips.some(c => c.name === `Clip ${number}`)) number++; const clip: Clip = { id: Entropy.generateUUID(), name: `Clip ${number}`, duration: 2, tracks: [] }; clips.push(clip); selectedClipId = clip.id; playhead = 0;
+
+    W.separator(uiWindowId);
+    W.label(uiWindowId, { text: "Clips", bold: true });
+    W.group(uiWindowId, () => {
+        button("clip_create", "+ New Clip", () => {
+            beginEdit("New animation"); let number = 1; while (clips.some(c => c.name === `Clip ${number}`)) number++; const clip: Clip = { id: Entropy.generateUUID(), name: `Clip ${number}`, duration: 2, tracks: [] }; clips.push(clip); selectedClipId = clip.id; playhead = 0;
+        });
+        for (const clip of clips) button(`clip_${clip.id}`, `${clip.id === selectedClipId ? "> " : ""}${clip.name}`, () => { stopPreview(); selectedClipId = clip.id; playhead = 0; });
     });
-    for (const clip of clips) button(`clip_${clip.id}`, `${clip.id === selectedClipId ? "> " : ""}${clip.name}`, () => { stopPreview(); selectedClipId = clip.id; playhead = 0; });
     const clip = currentClip();
     if (!clip) return;
-    W.textInput(uiWindowId, { label: "Clip name", id: "clip_name", value: clip.name, onChange: value => {
-        const name = String(value).trim().slice(0, 80); if (!name || clips.some(c => c !== clip && c.name === name)) return;
-        beginEdit("Rename clip"); clip.name = name;
-    } });
-    slider("clip_duration", "Duration (seconds)", clip.duration, 0.1, 30, value => { beginEdit("Clip duration"); clip.duration = Math.max(value, ...clip.tracks.flatMap(t => t.keys.map(k => k.time))); playhead = Math.min(playhead, clip.duration); });
-    slider("clip_time", "Time (seconds)", playhead, 0, clip.duration, value => { playing = false; previewAt(value); });
-    button("clip_play", playing ? "Pause" : "Play", () => { if (playing) { playing = false; previousTime = null; } else { previewAt(playhead >= clip.duration ? 0 : playhead); playing = true; previousTime = null; } });
-    const targetId = stroke?.id ?? node?.id;
-    W.label(uiWindowId, { text: `Key target: ${stroke?.name ?? node?.name ?? "Select a part"}` });
-    const channels: Channel[] = stroke ? ["progress", "visible"] : ["x", "y", "z", "pitch", "yaw", "roll", "sx", "sy", "sz"];
-    if (!channels.includes(channelChoice)) channelChoice = channels[0];
-    button("key_channel", `Channel: ${channelChoice}`, () => { channelChoice = channels[(channels.indexOf(channelChoice) + 1) % channels.length]; });
-    const bounded = channelChoice === "progress" || channelChoice === "visible";
-    slider("key_value", "Key value", keyValue, bounded ? 0 : channelChoice.startsWith("s") ? 0.05 : -20, bounded ? 1 : 20, value => { keyValue = value; });
-    button("key_add", "Set key at playhead", () => {
-        if (!targetId) return;
-        const time = playhead; beginEdit("Set animation key");
-        setKey(clip, targetId, channelChoice, time, bounded ? Math.max(0, Math.min(1, keyValue)) : channelChoice.startsWith("s") ? Math.max(0.05, keyValue) : keyValue);
-        previewAt(time);
+    W.group(uiWindowId, () => {
+        W.textInput(uiWindowId, { label: "Clip name", id: "clip_name", value: clip.name, onChange: value => {
+            const name = String(value).trim().slice(0, 80); if (!name || clips.some(c => c !== clip && c.name === name)) return;
+            beginEdit("Rename clip"); clip.name = name;
+        } });
+        slider("clip_duration", "Duration (seconds)", clip.duration, 0.1, 30, value => { beginEdit("Clip duration"); clip.duration = Math.max(value, ...clip.tracks.flatMap(t => t.keys.map(k => k.time))); playhead = Math.min(playhead, clip.duration); });
+        button("clip_delete", "Delete Clip", () => { beginEdit("Delete clip"); clips = clips.filter(c => c !== clip); selectedClipId = clips[0]?.id ?? null; });
     });
-    button("key_current", "Key current editing pose", () => {
-        if (!targetId) return;
-        const t = node && ("yaw" in node ? surfaceTransform(node) : node);
-        const values: Partial<Record<Channel, number>> = stroke ? { progress: stroke.progress, visible: stroke.visible ? 1 : 0 } : t ? {
-            x: t.position[0], y: t.position[1], z: t.position[2], pitch: t.rotation[0], yaw: t.rotation[1], roll: t.rotation[2], sx: t.scale[0], sy: t.scale[1], sz: t.scale[2],
-        } : {};
-        const value = values[channelChoice]; if (value === undefined) return;
-        const time = playhead; beginEdit("Key editing pose"); setKey(clip, targetId, channelChoice, time, value); keyValue = value; previewAt(time);
+
+    W.label(uiWindowId, { text: "Playback", bold: true });
+    W.group(uiWindowId, () => {
+        slider("clip_time", "Time (seconds)", playhead, 0, clip.duration, value => { playing = false; previewAt(value); });
+        button("clip_play", playing ? "Pause" : "Play", () => { if (playing) { playing = false; previousTime = null; } else { previewAt(playhead >= clip.duration ? 0 : playhead); playing = true; previousTime = null; } });
     });
-    for (const track of clip.tracks.filter(t => t.targetId === targetId)) for (const key of track.keys) {
-        button(`key_seek_${track.channel}_${key.time}`, `${track.channel} @ ${key.time.toFixed(2)}s = ${key.value.toFixed(2)}`, () => { playing = false; previewAt(key.time); });
-        button(`key_delete_${track.channel}_${key.time}`, "Delete key", () => { beginEdit("Delete key"); track.keys = track.keys.filter(k => k !== key); clip.tracks = clip.tracks.filter(t => t.keys.length); });
-    }
-    button("clip_delete", "Delete clip", () => { beginEdit("Delete clip"); clips = clips.filter(c => c !== clip); selectedClipId = clips[0]?.id ?? null; });
+
+    W.label(uiWindowId, { text: "Keyframes", bold: true });
+    W.group(uiWindowId, () => {
+        const targetId = stroke?.id ?? node?.id;
+        W.label(uiWindowId, { text: `Keying: ${stroke?.name ?? node?.name ?? "Select a part or group above"}` });
+        const channels: Channel[] = stroke ? ["progress", "visible"] : ["x", "y", "z", "pitch", "yaw", "roll", "sx", "sy", "sz"];
+        if (!channels.includes(channelChoice)) channelChoice = channels[0];
+        button("key_channel", `Channel: ${channelChoice}`, () => { channelChoice = channels[(channels.indexOf(channelChoice) + 1) % channels.length]; });
+        const bounded = channelChoice === "progress" || channelChoice === "visible";
+        slider("key_value", "Key Value", keyValue, bounded ? 0 : channelChoice.startsWith("s") ? 0.05 : -20, bounded ? 1 : 20, value => { keyValue = value; });
+        W.horizontal(uiWindowId, () => {
+            button("key_add", "Set Key Here", () => {
+                if (!targetId) return;
+                const time = playhead; beginEdit("Set animation key");
+                setKey(clip, targetId, channelChoice, time, bounded ? Math.max(0, Math.min(1, keyValue)) : channelChoice.startsWith("s") ? Math.max(0.05, keyValue) : keyValue);
+                previewAt(time);
+            });
+            button("key_current", "Key Current Pose", () => {
+                if (!targetId) return;
+                const t = node && ("yaw" in node ? surfaceTransform(node) : node);
+                const values: Partial<Record<Channel, number>> = stroke ? { progress: stroke.progress, visible: stroke.visible ? 1 : 0 } : t ? {
+                    x: t.position[0], y: t.position[1], z: t.position[2], pitch: t.rotation[0], yaw: t.rotation[1], roll: t.rotation[2], sx: t.scale[0], sy: t.scale[1], sz: t.scale[2],
+                } : {};
+                const value = values[channelChoice]; if (value === undefined) return;
+                const time = playhead; beginEdit("Key editing pose"); setKey(clip, targetId, channelChoice, time, value); keyValue = value; previewAt(time);
+            });
+        });
+        for (const track of clip.tracks.filter(t => t.targetId === targetId)) for (const key of track.keys) {
+            W.horizontal(uiWindowId, () => {
+                button(`key_seek_${track.channel}_${key.time}`, `${track.channel} @ ${key.time.toFixed(2)}s = ${key.value.toFixed(2)}`, () => { playing = false; previewAt(key.time); });
+                button(`key_delete_${track.channel}_${key.time}`, "Delete Key", () => { beginEdit("Delete key"); track.keys = track.keys.filter(k => k !== key); clip.tracks = clip.tracks.filter(t => t.keys.length); });
+            });
+        }
+    });
 }
 
 function renderLayersUI(): void {
@@ -2601,7 +2664,10 @@ function renderUI(): void {
         });
 
     });
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Groups & animation", renderAnimationUI);
+    // Open by default (id pinned rather than left to the frame-counter fallback) - this is core
+    // enough workflow that requiring a click to even discover it first defeats the point of the
+    // hierarchy/labelling cleanup this panel just went through.
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Groups & animation", renderAnimationUI, "groups_animation_header", true);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scenes & export", renderSceneLibrary);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Surfaces", renderLayersUI);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Shortcuts", () => {

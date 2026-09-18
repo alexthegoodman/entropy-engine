@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { CanvasHistory } from "../src/apps/canvas_history";
+import { CanvasHistory } from "../src/apps/canvas_surfaces/canvas_history";
 
 describe("bounded gesture history", () => {
     it("groups a drag, ignores no-ops, preserves redo until an actual edit, and branches", () => {
@@ -73,7 +73,9 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             textInput: (_id: string, c: any) => textInputs.set(c.id, c.onChange),
             colorInput: (_id: string, c: any) => { colorInput = c.onChange; },
             horizontal: (id: string, fn: (id: string) => void) => fn(id),
+            group: (id: string, fn: (id: string) => void) => fn(id),
             collapsingHeader: (id: string, _title: string, fn: (id: string) => void) => fn(id),
+            treeView: vi.fn(),
         };
         api = {
             AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: () => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
@@ -92,7 +94,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
         };
         vi.stubGlobal("Entropy", api);
-        await import("../src/apps/canvas_surface_addon");
+        await import("../src/apps/canvas_surfaces/canvas_surface_addon");
         init(); update(); render();
     });
 

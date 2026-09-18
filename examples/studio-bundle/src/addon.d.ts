@@ -419,7 +419,15 @@ export interface ScopedAPI {
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
       kanban: (windowId: string, config: KanbanConfig) => void;
-      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
+      /** A Figma/VS Code-style outliner: real indented rows, a native disclosure triangle,
+       * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
+       * to hand it hierarchy. */
+      treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
+       * one - fine for a header nothing else needs to target, fragile for one a script wants to
+       * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
+       * in a session; the real state afterward is click-driven, same as any other section. */
+      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void, id?: string, defaultOpen?: boolean) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       /** A vertical stack, same shape as `horizontal` - mainly useful inside a `horizontal` row
        * so each cell can hold several stacked widgets (a "column"). */
@@ -895,6 +903,37 @@ export interface KanbanConfig {
   onBackgroundClicked?: () => void;
 }
 
+/** One row of a `Widget.treeView` - already depth-computed; the widget does not derive
+ * hierarchy from parent ids, so a collapsed subtree is just omitted from `nodes` entirely. */
+export interface TreeNodeConfig {
+  /** Unique within this tree. */
+  id: string;
+  label: string;
+  /** 0 for a root row; each level of nesting to draw adds 1. */
+  depth: number;
+  /** Draws a disclosure triangle when true. Leave false/omitted for a leaf row, and for a
+   * group row with nothing currently in it - a triangle that toggles nothing is worse than no
+   * triangle at all. */
+  hasChildren?: boolean;
+  expanded?: boolean;
+  /** Omit to hide this row's checkbox entirely; set true/false to show it at that state (used
+   * for "mark several rows, then act on all of them" flows). */
+  marked?: boolean;
+  selected?: boolean;
+}
+
+export interface TreeViewConfig {
+  id?: string;
+  nodes?: TreeNodeConfig[];
+  /** Fired when a row's label is clicked. */
+  onSelect?: (id: string) => void;
+  /** Fired when a row's disclosure triangle is clicked. Apply this to whatever expanded-set
+   * you own; the widget keeps no collapsed-state memory of its own between frames. */
+  onToggleExpand?: (id: string) => void;
+  /** Fired when a row's checkbox is clicked, carrying its new (post-click) value. */
+  onMark?: (id: string, value: boolean) => void;
+}
+
 export interface DocEditorConfig {
   id?: string;
   /** Page size/margin in px (96 = 1" at 96 DPI). Defaults to US Letter, 1" margins. */
@@ -1175,7 +1214,15 @@ export interface EntropyAPI {
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
       kanban: (windowId: string, config: KanbanConfig) => void;
-      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void) => void;
+      /** A Figma/VS Code-style outliner: real indented rows, a native disclosure triangle,
+       * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
+       * to hand it hierarchy. */
+      treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
+       * one - fine for a header nothing else needs to target, fragile for one a script wants to
+       * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
+       * in a session; the real state afterward is click-driven, same as any other section. */
+      collapsingHeader: (windowId: string, title: string, render: (windowId: string) => void, id?: string, defaultOpen?: boolean) => void;
       horizontal: (windowId: string, render: (windowId: string) => void) => void;
       /** A vertical stack, same shape as `horizontal` - mainly useful inside a `horizontal` row
        * so each cell can hold several stacked widgets (a "column"). */
