@@ -1,3 +1,6 @@
+pub mod vst3;
+pub mod vst3_capture;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -750,6 +753,23 @@ impl AudioEngine {
             .take_duration(std::time::Duration::from_secs_f32(dur));
 
         bus.note_mixer.add(source);
+    }
+
+    /// Adds a long-lived source (a hosted VST3 instrument - see `vst3::Vst3Source`) to an existing
+    /// track bus's note mixer, so it inherits that bus's gain/mute/solo and effect chain. Returns
+    /// false if the track has no bus yet.
+    pub fn add_track_source<S>(&self, track_id: &str, source: S) -> bool
+    where
+        S: Source<Item = f32> + Send + 'static,
+    {
+        let buses = self.track_buses.lock().unwrap();
+        match buses.get(track_id) {
+            Some(bus) => {
+                bus.note_mixer.add(source);
+                true
+            }
+            None => false,
+        }
     }
 
     pub fn play_test_tone(&self) {

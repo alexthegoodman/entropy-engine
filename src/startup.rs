@@ -105,6 +105,12 @@ struct BrowserBddDriver {
     result_path: PathBuf,
     started: Instant,
     canvas: bool,
+    /// The DAW's VST3 run (`ENTROPY_DAW_BDD_RESULT`): also waits on wall-clock time, since a plugin's
+    /// audio is rendered by the real audio thread rather than per app frame, and captures native
+    /// plugin editor windows, which are not part of the composited frame.
+    daw: bool,
+    wait_until: Option<Instant>,
+    editor_captures: Vec<serde_json::Value>,
 }
 
 enum BrowserBddAction {
@@ -112,6 +118,8 @@ enum BrowserBddAction {
     Event { control_id: String, value: Option<String> },
     Link { control_id: String, url: String },
     Capture(String),
+    WaitMs(u64),
+    CaptureEditor(String),
     Finish,
 }
 
@@ -128,7 +136,10 @@ const BROWSER_LIVE_FEATURE_SOURCE: &str = include_str!("../tests/features/browse
 /// new step nobody taught this function) and fails loudly rather than being silently skipped -
 /// the whole point of parsing the file is that it's load-bearing, not decorative.
 fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
-    if text == "the real browser demo is running in test mode" || text == "the real canvas demo is running in test mode" {
+    if text == "the real browser demo is running in test mode"
+        || text == "the real canvas demo is running in test mode"
+        || text == "the real DAW is running in test mode"
+    {
         return None;
     }
     // Cucumber-expression-style steps here only ever use double-quoted string arguments, so
@@ -147,6 +158,16 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
     }
     if text.starts_with("I click ") && quoted.len() == 1 {
         return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: None });
+    }
+    if let Some(rest) = text.strip_prefix("I wait ") {
+        let count = rest
+            .trim_end_matches(" milliseconds")
+            .parse::<u64>()
+            .unwrap_or_else(|_| panic!("feature file: not a millisecond count in {text:?}"));
+        return Some(BrowserBddAction::WaitMs(count));
+    }
+    if text.starts_with("I capture the plugin editor ") && quoted.len() == 1 {
+        return Some(BrowserBddAction::CaptureEditor(quoted[0].to_string()));
     }
     if text.starts_with("I capture ") && quoted.len() == 1 {
         return Some(BrowserBddAction::Capture(quoted[0].to_string()));
@@ -176,13 +197,35 @@ fn browser_bdd_actions_from_feature(source: &str) -> VecDeque<BrowserBddAction> 
 
 impl BrowserBddDriver {
     fn from_environment() -> Option<Self> {
-        let canvas = std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
-        let result_path = std::env::var_os(if canvas { "ENTROPY_CANVAS_BDD_RESULT" } else { "ENTROPY_BROWSER_BDD_RESULT" }).map(PathBuf::from)?;
-        let source = if canvas { include_str!("../tests/features/canvas_live.feature") } else { BROWSER_LIVE_FEATURE_SOURCE };
+        let daw = std::env::var_os("ENTROPY_DAW_BDD_RESULT").is_some();
+        let canvas = !daw && std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
+        let result_path = std::env::var_os(if daw {
+            "ENTROPY_DAW_BDD_RESULT"
+        } else if canvas {
+            "ENTROPY_CANVAS_BDD_RESULT"
+        } else {
+            "ENTROPY_BROWSER_BDD_RESULT"
+        })
+        .map(PathBuf::from)?;
+        let source = if daw {
+            // The restore run reopens the project the first run saved: same driver, second script.
+            if std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() == Ok("restore") {
+                include_str!("../tests/features/vst3_live_restore.feature")
+            } else {
+                include_str!("../tests/features/vst3_live.feature")
+            }
+        } else if canvas {
+            include_str!("../tests/features/canvas_live.feature")
+        } else {
+            BROWSER_LIVE_FEATURE_SOURCE
+        };
         let artifact_dir = result_path.parent().unwrap_or_else(|| std::path::Path::new("test-artifacts/browser-bdd")).to_path_buf();
         Some(Self {
             actions: browser_bdd_actions_from_feature(source),
             canvas,
+            daw,
+            wait_until: None,
+            editor_captures: Vec::new(),
             artifacts: Vec::new(),
             outcomes: Vec::new(),
             artifact_dir,
@@ -216,8 +259,14 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas {
+        if self.canvas || self.daw {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
+        }
+        if self.daw {
+            // What the hosted plugins actually did, read from the audio side's own counters rather
+            // than inferred from the events the driver queued.
+            result["vst3"] = serde_json::json!(crate::audio::vst3::all_stats());
+            result["editor_captures"] = serde_json::json!(self.editor_captures);
         }
         if let Some(parent) = self.result_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -228,13 +277,36 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.canvas { 90 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas { 90 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded 30 seconds"));
             event_loop.exit();
             return;
         }
+        if let Some(deadline) = self.wait_until {
+            if Instant::now() < deadline {
+                return;
+            }
+            self.wait_until = None;
+        }
         let Some(action) = self.actions.pop_front() else { return };
         match action {
+            BrowserBddAction::WaitMs(ms) => self.wait_until = Some(Instant::now() + Duration::from_millis(ms)),
+            BrowserBddAction::CaptureEditor(name) => {
+                let path = self.artifact_dir.join(format!("{name}.png"));
+                let titles = crate::audio::vst3::editor_window_titles();
+                let outcome = match titles.first() {
+                    None => serde_json::json!({ "name": name, "outcome": "error", "error": "no plugin editor is open" }),
+                    Some((track_id, title)) => match crate::audio::vst3_capture::capture_editor_window(title, &path) {
+                        Ok(capture) => {
+                            self.artifacts.push(path.to_string_lossy().into_owned());
+                            serde_json::json!({ "name": name, "outcome": "captured", "trackId": track_id, "window": title, "capture": capture })
+                        }
+                        Err(error) => serde_json::json!({ "name": name, "outcome": "error", "window": title, "error": error }),
+                    },
+                };
+                self.editor_captures.push(outcome.clone());
+                self.outcomes.push(serde_json::json!({ "kind": "editor-capture", "detail": outcome }));
+            }
             BrowserBddAction::Wait(frames) if frames > 1 => self.actions.push_front(BrowserBddAction::Wait(frames - 1)),
             BrowserBddAction::Wait(_) => {}
             BrowserBddAction::Event { control_id, value } => {
@@ -1089,6 +1161,10 @@ impl ApplicationHandler<UserEvent> for Application {
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         // Run before requesting the next redraw. Each synthetic event is then consumed by the
         // real addon update/render cycle on that deterministic next frame.
+        // Keeps hosted plugins' editor windows serviced (deferred resize/DPI work, the user closing
+        // one) even on frames where no addon code touches them.
+        crate::audio::vst3::service_all();
+
         if let (Some(driver), Some(window)) = (self.browser_bdd_driver.as_mut(), self.windows.values_mut().next()) {
             driver.tick(window, event_loop);
         }
@@ -1227,6 +1303,9 @@ impl ApplicationHandler<UserEvent> for Application {
 
     #[cfg(not(any(android_platform, ios_platform)))]
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // Plugins are torn down on this thread, before the audio engine goes away (see
+        // `audio::vst3::unload_all`).
+        crate::audio::vst3::unload_all();
         // We must drop the context here.
         // self.context = None;
     }

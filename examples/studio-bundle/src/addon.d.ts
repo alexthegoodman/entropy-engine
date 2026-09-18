@@ -376,6 +376,7 @@ export interface ScopedAPI {
      * simply drops it from its chain on its next `ensureTrackBus` call. */
     destroy: (effectId: string) => void;
   };
+  Vst3: Vst3API;
   Particles: {
     createHair: (config: {
       id?: string | null;
@@ -757,6 +758,80 @@ export interface ReverbEffectConfig {
   /** Wet/dry mix of the reverberated signal, 0 (off, default)..1. Live-adjustable; changing
    * `roomSize`/`time`/`damping` rebuilds the effect's internal reverb node in place. */
   mix?: number;
+}
+
+/** One installed VST3 plugin, from `Vst3.scan`. */
+interface Vst3PluginInfo {
+  name: string;
+  vendor: string;
+  /** e.g. "Instrument|Synth" or "Fx|Analyzer". */
+  category: string;
+  path: string;
+  isInstrument: boolean;
+  hasGui: boolean;
+  hasMidiInput: boolean;
+  /** True for plugins like MIDI Guitar 3 that emit MIDI; hosting those is not supported yet. */
+  hasMidiOutput: boolean;
+  audioInputs: number;
+  audioOutputs: number;
+}
+
+interface Vst3Ok { ok: boolean; error?: string }
+
+interface Vst3LoadResult extends Vst3Ok {
+  name?: string;
+  vendor?: string;
+  hasEditor?: boolean;
+  parameterCount?: number;
+  /** How long the plugin took to initialise (the calling frame is blocked for this long). */
+  loadMs?: number;
+}
+
+interface Vst3ParameterView {
+  id: number;
+  name: string;
+  /** Normalized 0..1. */
+  value: number;
+  /** The plugin's own display string for the value, e.g. "-6.02dB". */
+  display: string;
+  stepCount: number;
+}
+
+interface Vst3Stats {
+  trackId: string;
+  plugin: string;
+  blocks: number;
+  /** Blocks rendered as silence because the main thread held the plugin lock. */
+  skippedBlocks: number;
+  notesSent: number;
+  lifetimePeak: number;
+  editorOpen: boolean;
+}
+
+/** Hosts real VST3 plugins as a track's instrument. A track's bus must exist first
+ * (`Audio.ensureTrackBus`); the plugin's audio then joins that bus, so its gain/mute/solo and
+ * effect chain apply. Calls report failure as `{ ok: false, error }` rather than throwing. */
+interface Vst3API {
+  /** Installed plugins from the standard VST3 folders. Cached for the session; `refresh` rescans. */
+  scan: (refresh?: boolean) => { plugins: Vst3PluginInfo[]; skipped: string[] };
+  /** `state` is base64 from an earlier `saveState`/`pollState`; omit for the default patch. */
+  load: (trackId: string, config: { path: string; state?: string | null }) => Vst3LoadResult;
+  unload: (trackId: string) => void;
+  /** `channel` is 0-15, `duration` is seconds until the note-off. A note lands on the next 11.6ms block. */
+  noteOn: (trackId: string, config: { note: number; velocity?: number; duration?: number; channel?: number }) => Vst3Ok;
+  allNotesOff: (trackId: string) => void;
+  openEditor: (trackId: string) => Vst3Ok;
+  closeEditor: (trackId: string) => void;
+  /** Base64 state captured when the editor closed or parameter edits settled; null if nothing new. */
+  pollState: (trackId: string) => string | null;
+  /** Base64 state taken right now. */
+  saveState: (trackId: string) => string | null;
+  findParameters: (trackId: string, query?: string, limit?: number) => Vst3Ok & { parameters?: Vst3ParameterView[] };
+  /** `value` is normalized 0..1. Some plugins smooth the change over several blocks. */
+  setParameter: (trackId: string, id: number, value: number) => Vst3Ok;
+  /** Linear peak rendered since the previous call (for a level meter), or null with no instrument. */
+  takePeak: (trackId: string) => number | null;
+  stats: () => Vst3Stats[];
 }
 
 /** Config for `Audio.ensureTrackBus` - creates a track's persistent mixing bus on first call,
@@ -1501,6 +1576,7 @@ export interface EntropyAPI {
     setReverbParams: (effectId: string, config: ReverbEffectConfig) => void;
     destroy: (effectId: string) => void;
   };
+  Vst3: Vst3API;
   println: (msg: unknown) => void;
   generateUUID: () => string;
   onGameStarted: (callback: (gameName: string) => void) => void;

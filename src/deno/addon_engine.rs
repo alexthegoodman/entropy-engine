@@ -35,6 +35,11 @@ use crate::core::gpu_resources::GpuResources;
 use crate::core::addon_pipeline::{GBUFFER_FORMATS, create_addon_pipeline};
 use crate::core::vertex::Vertex;
 use crate::deno::addon_ops::op_yumon_brain_test_infer;
+use crate::deno::vst3_ops::{
+    op_vst3_scan, op_vst3_load, op_vst3_unload, op_vst3_note_on, op_vst3_all_notes_off, op_vst3_open_editor,
+    op_vst3_close_editor, op_vst3_poll_state, op_vst3_save_state, op_vst3_find_parameters, op_vst3_set_parameter,
+    op_vst3_take_peak, op_vst3_stats,
+};
 use crate::deno::addon_ops::{
     AddonContext,
     AddonMetadata,
@@ -260,6 +265,19 @@ extension!(
         op_audio_ensure_track_bus,
         op_audio_remove_track_bus,
         op_audio_play_note_on_track,
+        op_vst3_scan,
+        op_vst3_load,
+        op_vst3_unload,
+        op_vst3_note_on,
+        op_vst3_all_notes_off,
+        op_vst3_open_editor,
+        op_vst3_close_editor,
+        op_vst3_poll_state,
+        op_vst3_save_state,
+        op_vst3_find_parameters,
+        op_vst3_set_parameter,
+        op_vst3_take_peak,
+        op_vst3_stats,
         op_addon_on_project_changed,
         op_addon_set_visibility,
         op_camera_get_transform,

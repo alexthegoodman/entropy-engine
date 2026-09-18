@@ -51,14 +51,17 @@ interface DrumRow {
     name: string;
     voice: string;
     freq: number;
+    // General MIDI drum-map note, used when a drum track's instrument is a VST3 plugin (Maschine's
+    // pads default to C1 = 36 upward, and GM kits everywhere follow the same map).
+    midi: number;
 }
 
 const DRUM_ROWS: DrumRow[] = [
-    { name: "Kick", voice: "kick", freq: 55 },
-    { name: "Snare", voice: "snare", freq: 200 },
-    { name: "Hihat", voice: "hihat", freq: 1000 },
-    { name: "Clap", voice: "clap", freq: 200 },
-    { name: "Tom", voice: "tom", freq: 110 }
+    { name: "Kick", voice: "kick", freq: 55, midi: 36 },
+    { name: "Snare", voice: "snare", freq: 200, midi: 38 },
+    { name: "Hihat", voice: "hihat", freq: 1000, midi: 42 },
+    { name: "Clap", voice: "clap", freq: 200, midi: 39 },
+    { name: "Tom", voice: "tom", freq: 110, midi: 45 }
 ];
 
 // --- Data model ------------------------------------------------------------
@@ -88,10 +91,19 @@ interface VoiceParams {
     reverbMix: number;
 }
 
+// A hosted VST3 plugin standing in for the built-in voice. `state` is the plugin's own saved patch
+// (base64), so a project reopens with the same sound the editor left it on.
+interface Vst3Instrument {
+    path: string;
+    name: string;
+    state?: string;
+}
+
 interface Track {
     id: string;
     name: string;
     kind: "synth" | "drum";
+    instrument?: Vst3Instrument | null;
     rootNote: number;
     scale: string;
     rows: number;
@@ -211,9 +223,84 @@ function syncTrackBus(track: Track) {
 }
 
 function removeTrackBus(track: Track) {
+    addon.Vst3.unload(track.id);
+    delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
     if (track.delayEffectId) addon.AudioEffect.destroy(track.delayEffectId);
     if (track.reverbEffectId) addon.AudioEffect.destroy(track.reverbEffectId);
+}
+
+// --- VST3 instruments (see src/audio/vst3.rs) --------------------------------------------------
+//
+// A track with an `instrument` sends its notes to a hosted plugin instead of the built-in voice.
+// The plugin's audio joins the track's own bus, so gain/mute/solo and the Effects section apply to
+// it unchanged. Runtime status lives here, not on the Track, so it never reaches the saved project.
+
+interface Vst3Runtime {
+    ok: boolean;
+    status: string;
+    peak: number;
+}
+
+const vst3Runtime: Record<string, Vst3Runtime> = {};
+let vst3Catalog: { name: string; vendor: string; path: string; hasGui: boolean }[] = [];
+let vst3ScanStatus = "Not scanned yet";
+
+function vst3Slug(name: string): string {
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function scanVst3Plugins(refresh: boolean) {
+    const result = addon.Vst3.scan(refresh);
+    vst3Catalog = result.plugins.filter((p: any) => p.isInstrument);
+    const others = result.plugins.length - vst3Catalog.length;
+    vst3ScanStatus = `${vst3Catalog.length} instrument${vst3Catalog.length === 1 ? "" : "s"} found`
+        + (others > 0 ? ` (${others} effect/other plugin${others === 1 ? "" : "s"} not listed - MIDI-out effects like MIDI Guitar are not supported yet)` : "")
+        + (result.skipped.length > 0 ? `, ${result.skipped.length} could not be read` : "");
+}
+
+function loadTrackInstrument(track: Track, instrument: Vst3Instrument) {
+    ensureTrackEffects(track);
+    addon.Audio.ensureTrackBus(track.id, {
+        gain: track.gain, muted: track.muted, solo: track.solo,
+        effectIds: [track.delayEffectId!, track.reverbEffectId!]
+    });
+    const result = addon.Vst3.load(track.id, { path: instrument.path, state: instrument.state ?? null });
+    if (result.ok) {
+        track.instrument = instrument;
+        vst3Runtime[track.id] = {
+            ok: true, peak: 0,
+            status: `${result.name} loaded in ${result.loadMs}ms, ${result.parameterCount} parameters` + (result.hasEditor ? "" : ", no editor")
+        };
+    } else {
+        // Keep the choice on the track so a plugin that is only temporarily broken is not forgotten.
+        track.instrument = instrument;
+        vst3Runtime[track.id] = { ok: false, peak: 0, status: `Could not load ${instrument.name}: ${result.error}` };
+    }
+    return result;
+}
+
+function clearTrackInstrument(track: Track) {
+    addon.Vst3.unload(track.id);
+    delete vst3Runtime[track.id];
+    track.instrument = null;
+}
+
+function trackUsesVst3(track: Track): boolean {
+    return !!track.instrument && vst3Runtime[track.id]?.ok === true;
+}
+
+function midiForRow(track: Track, row: number): number {
+    if (track.kind === "drum") return (DRUM_ROWS[row] || DRUM_ROWS[0]).midi;
+    return rowToMidi(row, track.rootNote, track.scale);
+}
+
+function playVst3Note(track: Track, row: number, velocity: number, duration: number) {
+    addon.Vst3.noteOn(track.id, {
+        note: midiForRow(track, row),
+        velocity: Math.max(1, Math.min(127, Math.round(velocity * 127))),
+        duration
+    });
 }
 
 function persist() {
@@ -257,6 +344,11 @@ function triggerStep(stepIndex: number) {
             const { voice, freq } = noteVoiceAndFreq(track, note.row);
             const duration = Math.max(0.03, note.length * sd * 0.95);
 
+            if (trackUsesVst3(track)) {
+                playVst3Note(track, note.row, note.velocity, duration);
+                continue;
+            }
+
             addon.Audio.playNoteOnTrack(track.id, {
                 freq,
                 waveform: voice,
@@ -285,6 +377,8 @@ function buildPatternEvents(): any[] {
     for (const track of project.tracks) {
         if (track.muted) continue;
         if (anySolo && !track.solo) continue;
+        // The offline renderer only knows the built-in voices; a hosted plugin runs live.
+        if (track.instrument) continue;
 
         for (const note of track.notes) {
             const { voice, freq } = noteVoiceAndFreq(track, note.row);
@@ -319,8 +413,10 @@ function buildPatternEvents(): any[] {
 function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
     const events = buildPatternEvents();
     const result = addon.Audio.renderPatternToWav(events, `daw-pattern-${project.bpm}bpm.wav`);
+    const skipped = project.tracks.filter(t => t.instrument).length;
     lastExportStatus = result.success
         ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
+            + (skipped > 0 ? ` (${skipped} VST3 track${skipped === 1 ? "" : "s"} not included - plugins render live only)` : "")
         : `Export failed: ${result.error}`;
     return result;
 }
@@ -401,6 +497,26 @@ function toDisplayRow(track: Track, row: number): number {
     return track.rows - 1 - row;
 }
 
+// Reopens the last saved project. Effect ids are per-session handles into the engine's effect
+// registry, so the saved ones are meaningless now and are cleared for syncTrackBus to recreate.
+function restoreSavedProject() {
+    let saved: any = null;
+    try {
+        saved = addon.IO.load();
+    } catch (e) {
+        Entropy.println("DAW: could not read the saved project: " + e);
+    }
+    if (!saved || !Array.isArray(saved.tracks) || saved.tracks.length === 0) return;
+    for (const t of saved.tracks) {
+        t.delayEffectId = null;
+        t.reverbEffectId = null;
+    }
+    project = saved as DAWProject;
+    if (!project.tracks.some(t => t.id === project.activeTrackId)) {
+        project.activeTrackId = project.tracks[0].id;
+    }
+}
+
 const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise"];
 const SCALE_NAMES = Object.keys(SCALES);
 
@@ -415,15 +531,85 @@ addon.onInit(async () => {
     //     }
     // });
 
+    restoreSavedProject();
+
     // Create the starter tracks' persistent mixing buses (and their effect instances) up front,
     // rather than waiting for the first user interaction to call persist().
     project.tracks.forEach(syncTrackBus);
+
+    // Reload each track's plugin with the patch it was saved on. A plugin that fails to load keeps
+    // its slot on the track (see loadTrackInstrument), so the failure is visible instead of silent.
+    project.tracks.forEach(t => { if (t.instrument) loadTrackInstrument(t, t.instrument); });
+
+    const renderInstrumentPanel = (tabId: string, track: Track) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, `🔌 ${track.name} - Instrument (VST3)`, (tid: string) => {
+            const runtime = vst3Runtime[track.id];
+
+            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.button(tid2, {
+                    text: vst3Catalog.length === 0 ? "Find VST3 plugins" : "Rescan",
+                    id: "vst3_scan",
+                    onClick: () => { scanVst3Plugins(vst3Catalog.length > 0); }
+                });
+                Entropy.UI.Widget.label(tid2, { text: vst3ScanStatus });
+            });
+
+            if (vst3Catalog.length > 0) {
+                Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                    Entropy.UI.Widget.button(tid2, {
+                        text: (!track.instrument ? "● " : "") + "Built-in",
+                        id: "vst3_use_builtin",
+                        onClick: () => { clearTrackInstrument(track); persist(); }
+                    });
+                    vst3Catalog.forEach(plugin => {
+                        Entropy.UI.Widget.button(tid2, {
+                            text: (track.instrument?.path === plugin.path ? "● " : "") + plugin.name,
+                            id: "vst3_use_" + vst3Slug(plugin.name),
+                            onClick: () => {
+                                loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
+                                persist();
+                            }
+                        });
+                    });
+                });
+            }
+
+            if (track.instrument) {
+                Entropy.UI.Widget.label(tid, { text: runtime?.status ?? "Not loaded", bold: true });
+                if (runtime?.ok) {
+                    const db = runtime.peak > 0.00001 ? (20 * Math.log10(runtime.peak)).toFixed(1) + " dB" : "silent";
+                    Entropy.UI.Widget.label(tid, { text: `Output level: ${db}` });
+                    Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                        Entropy.UI.Widget.button(tid2, {
+                            text: "Open Editor",
+                            id: "vst3_open_editor",
+                            onClick: () => {
+                                const r = addon.Vst3.openEditor(track.id);
+                                if (!r.ok) vst3Runtime[track.id].status = `Editor: ${r.error}`;
+                            }
+                        });
+                        Entropy.UI.Widget.button(tid2, {
+                            text: "Close Editor",
+                            id: "vst3_close_editor",
+                            onClick: () => { addon.Vst3.closeEditor(track.id); }
+                        });
+                        Entropy.UI.Widget.button(tid2, {
+                            text: "All Notes Off",
+                            id: "vst3_all_notes_off",
+                            onClick: () => { addon.Vst3.allNotesOff(track.id); }
+                        });
+                    });
+                }
+            }
+        }, "instrument_panel", true);
+    };
 
     const renderDAWUI = (tabId: string) => {
         Entropy.UI.Widget.collapsingHeader(tabId, "🎛 Transport", (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
                     text: transport.playing ? "⏸ Stop" : "▶ Play",
+                    id: "transport_toggle",
                     onClick: () => { transport.playing ? stop() : play(); }
                 });
                 Entropy.UI.Widget.button(tid2, {
@@ -459,6 +645,7 @@ addon.onInit(async () => {
                     Entropy.UI.Widget.group(tid2, (tid3: string) => {
                         Entropy.UI.Widget.button(tid3, {
                             text: (track.id === project.activeTrackId ? "▶ " : "") + track.name,
+                            id: "select_track_" + project.tracks.indexOf(track),
                             onClick: () => { project.activeTrackId = track.id; }
                         });
                         Entropy.UI.Widget.slider(tid3, {
@@ -496,6 +683,7 @@ addon.onInit(async () => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
                     text: "+ Synth Track",
+                    id: "add_synth_track",
                     onClick: () => {
                         const id = Entropy.generateUUID();
                         project.tracks.push({
@@ -509,6 +697,7 @@ addon.onInit(async () => {
                 });
                 Entropy.UI.Widget.button(tid2, {
                     text: "+ Drum Track",
+                    id: "add_drum_track",
                     onClick: () => {
                         const id = Entropy.generateUUID();
                         project.tracks.push({
@@ -521,7 +710,7 @@ addon.onInit(async () => {
                     }
                 });
             });
-        });
+        }, "mixer_panel", true);
 
         const track = getActiveTrack();
         if (!track) {
@@ -529,7 +718,13 @@ addon.onInit(async () => {
             return;
         }
 
+        renderInstrumentPanel(tabId, track);
+
         Entropy.UI.Widget.collapsingHeader(tabId, `🎹 ${track.name} — Voice`, (tid: string) => {
+            if (track.instrument) {
+                Entropy.UI.Widget.label(tid, { text: `${track.instrument.name} is this track's instrument - the built-in oscillator and envelope are bypassed. Gain, mute, solo and Effects still apply.` });
+                return;
+            }
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.group(tid2, (tid3: string) => {
                     Entropy.UI.Widget.label(tid3, { text: "Oscillator", bold: true });
@@ -664,7 +859,12 @@ addon.onInit(async () => {
                     const label = track.kind === "drum" ? DRUM_ROWS[r].name : midiToName(rowToMidi(r, track.rootNote, track.scale));
                     Entropy.UI.Widget.button(tid2, {
                         text: label,
+                        id: "preview_row_" + r,
                         onClick: () => {
+                            if (trackUsesVst3(track)) {
+                                playVst3Note(track, r, 1.0, 0.5);
+                                return;
+                            }
                             addon.Audio.playNoteOnTrack(track.id, {
                                 freq, waveform: voice, duration: 0.5,
                                 cutoff: track.voice.cutoff, resonance: track.voice.resonance,
@@ -716,7 +916,22 @@ addon.onInit(async () => {
         }
     });
 
-    addon.onUpdate(() => {
+    const onFrame = () => {
+        // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The
+        // host snapshots its state when the editor closes or a parameter edit settles, and this
+        // collects it into the project. The peak meter drains here too.
+        for (const track of project.tracks) {
+            const runtime = vst3Runtime[track.id];
+            if (!track.instrument || !runtime?.ok) continue;
+            const state = addon.Vst3.pollState(track.id);
+            if (state) {
+                track.instrument.state = state;
+                persist();
+            }
+            const peak = addon.Vst3.takePeak(track.id);
+            if (typeof peak === "number") runtime.peak = Math.max(peak, runtime.peak * 0.92);
+        }
+
         if (!transport.playing) return;
 
         const sd = stepDuration();
@@ -731,7 +946,14 @@ addon.onInit(async () => {
             transport.lastStep = curStep;
             triggerStep(curStep);
         }
-    });
+    };
+
+    // The engine ticks exactly one addon name per frame: "DAW" while Studio has the DAW workspace
+    // active, but "Global" in a standalone EntropyApp (see render_addon_frame.rs), where a plain
+    // `onUpdate` never fires - which left the transport silent in `example daw`. Registering under
+    // both names cannot double-fire, since only one name is current on any given frame.
+    addon.onUpdate(onFrame);
+    addon.onUpdatePlus("Global", onFrame);
 
     // --- Chat / AI tool integration ---
 
@@ -757,6 +979,7 @@ addon.onInit(async () => {
                 muted: t.muted,
                 solo: t.solo,
                 gain: t.gain,
+                instrument: t.instrument ? { name: t.instrument.name, loaded: vst3Runtime[t.id]?.ok === true } : null,
                 voice: t.voice,
                 rootNote: t.kind === "synth" ? t.rootNote : undefined,
                 scale: t.kind === "synth" ? t.scale : undefined,
@@ -873,6 +1096,44 @@ addon.onInit(async () => {
 
         persist();
         return { success: true, track: { id: track.id, name: track.name, voice: track.voice, gain: track.gain, muted: track.muted, solo: track.solo } };
+    });
+
+    addon.registerTool({
+        name: "daw_list_vst3_plugins",
+        description: "List the VST3 instrument plugins installed on this machine (name, vendor, path). Scans the standard VST3 folders on first use, which can take a couple of seconds. Use a returned name with daw_set_track_instrument.",
+        parameters: { type: "object", properties: { rescan: { type: "boolean" } } }
+    }, (args: any) => {
+        scanVst3Plugins(args.rescan === true || vst3Catalog.length === 0);
+        return { success: true, status: vst3ScanStatus, plugins: vst3Catalog.map(p => ({ name: p.name, vendor: p.vendor, path: p.path })) };
+    });
+
+    addon.registerTool({
+        name: "daw_set_track_instrument",
+        description: "Make a track play a hosted VST3 plugin instead of the built-in synth/drum voice, or go back to the built-in voice with plugin \"builtin\". The plugin starts on its default patch (the human picks sounds in its own editor window). Synth tracks send the row's pitch as a MIDI note; drum tracks send General MIDI drum notes (Kick 36, Snare 38, Hihat 42, Clap 39, Tom 45). Loading can block the app for a second or two.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                plugin: { type: "string", description: "A plugin name from daw_list_vst3_plugins, or \"builtin\"." }
+            },
+            required: ["trackId", "plugin"]
+        }
+    }, (args: any) => {
+        const track = project.tracks.find(t => t.id === args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (args.plugin === "builtin") {
+            clearTrackInstrument(track);
+            persist();
+            return { success: true, instrument: null };
+        }
+        if (vst3Catalog.length === 0) scanVst3Plugins(false);
+        const plugin = vst3Catalog.find(p => p.name.toLowerCase() === String(args.plugin).toLowerCase());
+        if (!plugin) return { success: false, error: "No installed VST3 instrument named " + args.plugin, available: vst3Catalog.map(p => p.name) };
+        const result = loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
+        persist();
+        return result.ok
+            ? { success: true, instrument: plugin.name, status: vst3Runtime[track.id].status }
+            : { success: false, error: result.error };
     });
 
     addon.registerTool({

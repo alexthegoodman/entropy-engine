@@ -112,6 +112,39 @@ const audioAPI = {
     }
 };
 
+// Hosts real VST3 plugins as a track's instrument (see src/audio/vst3.rs). A track's bus must exist
+// first (Audio.ensureTrackBus). Every call returns {ok, error?, ...} instead of throwing: a plugin
+// failing to load is an ordinary runtime condition the addon's UI should surface.
+const vst3API = {
+    // Installed plugins from the standard VST3 folders: {plugins: [{name, vendor, category, path,
+    // isInstrument, hasGui, hasMidiInput, hasMidiOutput, ...}], skipped: string[]}. Cached for the
+    // session (reading Maschine's metadata alone takes ~2s); pass refresh=true to rescan.
+    scan: (refresh) => ops.op_vst3_scan(!!refresh),
+    // state is base64 from a previous saveState/pollState; omit for the plugin's default patch.
+    load: (trackId, config) => ops.op_vst3_load({ trackId, path: config.path, state: config.state ?? null }),
+    unload: (trackId) => ops.op_vst3_unload(trackId),
+    // channel is 0-15; duration is seconds until the note-off. Notes land on the next 11.6ms block.
+    noteOn: (trackId, config) => ops.op_vst3_note_on({
+        trackId,
+        note: config.note,
+        velocity: config.velocity ?? 100,
+        duration: config.duration ?? 0.25,
+        channel: config.channel ?? 0
+    }),
+    allNotesOff: (trackId) => ops.op_vst3_all_notes_off(trackId),
+    openEditor: (trackId) => ops.op_vst3_open_editor(trackId),
+    closeEditor: (trackId) => ops.op_vst3_close_editor(trackId),
+    // Base64 state captured when the editor closed or parameters were edited; null if nothing new.
+    pollState: (trackId) => ops.op_vst3_poll_state(trackId),
+    // Base64 state taken right now.
+    saveState: (trackId) => ops.op_vst3_save_state(trackId),
+    findParameters: (trackId, query, limit) => ops.op_vst3_find_parameters(trackId, query ?? "", limit ?? 20),
+    setParameter: (trackId, id, value) => ops.op_vst3_set_parameter(trackId, id, value),
+    // Linear peak rendered since the previous call (a level meter), or null with no instrument.
+    takePeak: (trackId) => ops.op_vst3_take_peak(trackId),
+    stats: () => ops.op_vst3_stats()
+};
+
 // A shared, reusable effect registry - create an effect once (createDelay/createReverb), then
 // attach it to one or more track buses by id via Entropy.Audio.ensureTrackBus's `effectIds`
 // instead of baking delay/reverb fields into every note/track config. See the doc comment above
@@ -663,6 +696,7 @@ globalThis.Entropy = {
                 Lighting: contextualAPI.Lighting,
                 Audio: audioAPI,
                 AudioEffect: audioEffectAPI,
+                Vst3: vst3API,
                 IO: {
                     save: (data) => {
                         ops.op_println(String("Saving Data: " + metadata.name));
@@ -1450,6 +1484,7 @@ globalThis.Entropy = {
     },
     Audio: audioAPI,
     AudioEffect: audioEffectAPI,
+    Vst3: vst3API,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

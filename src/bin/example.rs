@@ -30,7 +30,13 @@ async fn main() {
                 // dev-controlled-data_dir path in src/deno/addon_ops.rs).
                 .with_data_dir("../cc-manager"),
             Some("daw") => entropy_engine::EntropyApp::new()
-                .with_bundle("examples/studio-bundle/dist/daw.js"),
+                .with_bundle("examples/studio-bundle/dist/daw.js")
+                .with_title("DAW")
+                .with_window_size(1400.0, 900.0)
+                // Without a data_dir a standalone EntropyApp has nowhere for Entropy.IO.save/load
+                // to go, so the DAW project (and any hosted plugin's saved patch) silently never
+                // persisted. ENTROPY_DAW_BDD_DATA lets tests/vst3_live start from a clean folder.
+                .with_data_dir(env::var("ENTROPY_DAW_BDD_DATA").unwrap_or_else(|_| "../daw-data".to_string())),
             Some("doc-editor-demo") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/doc_editor_demo.js")
                 .with_hot_reload(true)
