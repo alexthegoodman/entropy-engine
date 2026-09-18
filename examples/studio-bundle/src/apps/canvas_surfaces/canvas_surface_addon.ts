@@ -3,8 +3,8 @@
 // DCC tool. This is Phase 1 of the epic (see the canvas-surfaces-phase1 card in
 // cc-manager/tasks.json for the full architecture note) - it covers create/position a surface,
 // pressure/tilt stylus drawing on it, detach/relocate, "it's already the real level" (no export
-// step), and viewing from a free camera. Bend/curve and stroke grouping are separate follow-up
-// phases (canvas-surfaces-phase2-bend / -phase3-grouping), deliberately not attempted here.
+// step), and viewing from a free camera. Groups, pivots and named animation clips now live
+// in the addon too; canvas_animation.ts contains the hierarchy and sampling math.
 //
 // Each surface is a subdivided grid mesh (GRID_SEGMENTS x GRID_SEGMENTS quads, phase 1 was a
 // single flat 4-vert quad, the same shape game2d's Sprite uses) - generalized from a 2D
@@ -76,6 +76,8 @@
 // shapes (the common case: tiling flat panels
 // into a wall or floor), approximate for tilted ones.
 
+import { identity, defaultTransform, multiply, inverse, point, normal as transformNormal, transformMatrix, animatedTransform, groupWorld, reparentFrame, sample, setKey } from "./canvas_animation";
+import type { Group, Clip, Channel, Matrix, Transform, RetainedStroke } from "./canvas_animation";
 import { CanvasHistory } from "./canvas_history";
 import { DEFAULT_PAINT_SETTINGS, blendPixel, compositePixel, compositeLayers, pressureResponse, stabilizePoint } from "./canvas_paint";
 import type { PaintLayer, PaintSettings, RGB } from "./canvas_paint";
@@ -179,22 +181,6 @@ function tiltVector(tiltX: number, tiltY: number): { angle: number; magnitude: n
 // world = Ry(yaw) * Rx(pitch) * Rz(roll) * local.
 type Vec3 = [number, number, number];
 
-function rotX([x, y, z]: Vec3, a: number): Vec3 {
-    const c = Math.cos(a), s = Math.sin(a);
-    return [x, y * c - z * s, y * s + z * c];
-}
-function rotY([x, y, z]: Vec3, a: number): Vec3 {
-    const c = Math.cos(a), s = Math.sin(a);
-    return [x * c + z * s, y, -x * s + z * c];
-}
-function rotZ([x, y, z]: Vec3, a: number): Vec3 {
-    const c = Math.cos(a), s = Math.sin(a);
-    return [x * c - y * s, x * s + y * c, z];
-}
-
-function localToWorldDir(v: Vec3, yaw: number, pitch: number, roll: number): Vec3 {
-    return rotY(rotX(rotZ(v, roll), pitch), yaw);
-}
 function addV(a: Vec3, b: Vec3): Vec3 { return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
 function subV(a: Vec3, b: Vec3): Vec3 { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
 function dotV(a: Vec3, b: Vec3): number { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
@@ -203,8 +189,8 @@ function crossV(a: Vec3, b: Vec3): Vec3 {
 }
 
 // Quaternion form of the same yaw/pitch/roll convention above (world = Ry(yaw)*Rx(pitch)*Rz(roll)) -
-// used only to seed/read Entropy.Gizmo's rotate handles (see syncGizmoToSelection). Every other
-// rotation in this file still goes through rotX/rotY/rotZ directly; this is purely a bridge to
+// used only to seed/read Entropy.Gizmo's rotate handles (see syncGizmoToSelection).
+// Rigid transforms use the same Y-X-Z order; this is a bridge to
 // the gizmo's quaternion-based interface. [x, y, z, w] throughout, matching mint::Quaternion's
 // own `From<[T; 4]>` order (confirmed by reading the mint crate's source) and glTF's convention.
 type Quat = [number, number, number, number];
@@ -215,7 +201,7 @@ function axisAngleQuat(axis: Vec3, angle: number): Quat {
 }
 
 // Hamilton product - q = a then b applied on top corresponds to matrix M(a)*M(b), the same
-// composition order as this file's own rotX/rotY/rotZ chaining.
+// composition order as transformMatrix in canvas_animation.ts.
 function quatMul(a: Quat, b: Quat): Quat {
     const [ax, ay, az, aw] = a, [bx, by, bz, bw] = b;
     return [
@@ -480,6 +466,7 @@ interface WorldPatch {
 }
 
 function buildSurfaceWorldPatches(s: Surface): WorldPatch[] {
+    const matrix = surfaceMatrix(s), inverted = inverse(matrix);
     return shapePatches(s).map(patch => {
         const verts: Vec3[][] = [];
         const uv: Array<Array<{ u: number; v: number }>> = [];
@@ -489,9 +476,9 @@ function buildSurfaceWorldPatches(s: Surface): WorldPatch[] {
             const uvRow: Array<{ u: number; v: number }> = [];
             const nRow: Vec3[] = [];
             for (let col = 0; col < patch.cols; col++) {
-                vRow.push(addV(localToWorldDir(patch.localPoint(row, col), s.yaw, s.pitch, s.roll), s.position));
+                vRow.push(point(matrix, patch.localPoint(row, col)));
                 uvRow.push(patch.uvAt(row, col));
-                nRow.push(localToWorldDir(patch.outwardAt(row, col), s.yaw, s.pitch, s.roll));
+                nRow.push(transformNormal(matrix, patch.outwardAt(row, col), inverted));
             }
             verts.push(vRow);
             uv.push(uvRow);
@@ -508,6 +495,8 @@ interface Surface {
     previewBufferId: string;
     name: string;
     kind: ShapeKind;
+    parentId: string | null; frame: Matrix; scale: Vec3; pivot: Vec3;
+    strokes: RetainedStroke[]; bases: Record<string, Uint8Array>;
     position: Vec3;
     yaw: number;
     pitch: number;
@@ -533,11 +522,101 @@ interface Surface {
 const surfaces: Surface[] = [];
 let activeSurfaceId: string | null = null;
 let pipelineId: string;
+let groups: Group[] = [];
+let clips: Clip[] = [];
+let activeGroupId: string | null = null;
+let selectedStrokeId: string | null = null;
+let selectedClipId: string | null = null;
+let preview = false;
+const editingPixels = new Map<string, Uint8Array>();
+const previewArtworkKeys = new Map<string, string>();
+const geometryKeys = new Map<string, string>();
+let playing = false;
+let playhead = 0;
+let previousTime: number | null = null;
+let pendingStroke: { surface: Surface; stroke: RetainedStroke } | null = null;
+let replayLayer: PaintLayer | null = null;
+function currentClip(): Clip | null { return clips.find(c => c.id === selectedClipId) ?? null; }
+function surfaceTransform(s: Surface): Transform { return { position: s.position, rotation: [s.pitch, s.yaw, s.roll], scale: s.scale, pivot: s.pivot }; }
+function surfaceMatrix(s: Surface): Matrix {
+    const clip = preview ? currentClip() : null;
+    return multiply(groupWorld(groups, s.parentId, clip, playhead), multiply(s.frame, transformMatrix(animatedTransform(surfaceTransform(s), s.id, clip, playhead))));
+}
+function refreshGeometry(): void {
+    if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; }
+    for (const s of surfaces) {
+        const key = JSON.stringify([surfaceMatrix(s), s.kind, s.halfW, s.halfH, s.halfD, s.radius, s.bend, s.bendAxis, s.visible]);
+        if (geometryKeys.get(s.id) === key) continue;
+        geometryKeys.set(s.id, key);
+        if (s.visible) { Entropy.Model.clearMesh(s.meshId); createSurfaceMesh(s); }
+        else s.worldPatches = buildSurfaceWorldPatches(s);
+    }
+    lastGizmoSurfaceId = null;
+}
+function replayArtwork(s: Surface): void {
+    for (const layer of s.layers) {
+        if (!s.bases[layer.id]) continue;
+        layer.pixels = s.bases[layer.id].slice();
+        replayLayer = layer;
+        for (const stroke of s.strokes.filter(st => st.layerId === layer.id)) {
+            let progress = stroke.progress, visible = stroke.visible;
+            for (const track of preview ? currentClip()?.tracks ?? [] : []) if (track.targetId === stroke.id) {
+                if (track.channel === "progress") progress = sample(track, playhead);
+                if (track.channel === "visible") visible = sample(track, playhead) >= 0.5;
+            }
+            if (!visible) continue;
+            const count = Math.ceil(Math.max(0, Math.min(1, progress)) * stroke.stamps.length);
+            for (const st of stroke.stamps.slice(0, count)) stamp(s, stroke.brush as Brush, st.x, st.y, st.radius, st.alpha, st.angle, st.elongation);
+        }
+        replayLayer = null;
+    }
+    composeSurface(s);
+}
+function finishRetainedStroke(): void {
+    if (!pendingStroke) return;
+    const { surface, stroke } = pendingStroke;
+    pendingStroke = null;
+    if (stroke.stamps.length) { surface.strokes = [...surface.strokes, stroke]; selectedStrokeId = stroke.id; }
+}
+function stopPreview(): void {
+    if (!preview) return;
+    preview = false; playing = false; previousTime = null;
+    for (const s of surfaces) {
+        let changed = false;
+        for (const layer of s.layers) if (editingPixels.has(layer.id)) {
+            changed ||= layer.pixels !== editingPixels.get(layer.id);
+            layer.pixels = editingPixels.get(layer.id)!;
+        }
+        if (changed) composeSurface(s);
+    }
+    editingPixels.clear(); previewArtworkKeys.clear(); refreshGeometry();
+}
+function previewAt(time: number): void {
+    finishStroke(); resetGesture(); history.commit();
+    if (!preview) for (const s of surfaces) for (const layer of s.layers) editingPixels.set(layer.id, layer.pixels);
+    preview = true; playhead = Math.max(0, Math.min(currentClip()?.duration ?? 1, time));
+    if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; }
+    for (const s of surfaces) {
+        const tracks = (currentClip()?.tracks ?? []).filter(t => s.strokes.some(st => st.id === t.targetId));
+        if (!tracks.length) continue;
+        const key = JSON.stringify(tracks.map(t => [t.targetId, t.channel, sample(t, playhead)]));
+        if (previewArtworkKeys.get(s.id) === key) continue;
+        previewArtworkKeys.set(s.id, key); replayArtwork(s);
+    }
+    refreshGeometry();
+}
+/** Stable clip names are the future interaction entry point. */
+export function playCanvasClip(name: string): boolean {
+    const clip = clips.find(c => c.name === name);
+    if (!clip) return false;
+    stopPreview(); selectedClipId = clip.id; previewAt(0); playing = true; previousTime = null; return true;
+}
+
 
 // Snapshots share unchanged canvases. Paint gestures copy only their target canvas before
 // writing; moving a surface therefore costs metadata, not another 2.3 MB bitmap.
 type SurfaceState = Omit<Surface, "worldPatches" | "dirty" | "canvas">;
-interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; }
+interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; groups: Group[]; clips: Clip[]; activeGroupId: string | null; selectedClipId: string | null; selectedStrokeId: string | null; }
 let historyReady = false;
 let restoringHistory = false;
 let pointerHeld = false;
@@ -546,20 +625,20 @@ let gestureCanvases = new Set<string>();
 
 function captureScene(): SceneState {
     return {
-        activeId: activeSurfaceId, sceneId: currentSceneId, sceneName,
+        activeId: activeSurfaceId, sceneId: currentSceneId, sceneName, groups: JSON.parse(JSON.stringify(groups)), clips: JSON.parse(JSON.stringify(clips)), activeGroupId, selectedClipId, selectedStrokeId,
         surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, canvas: _canvas, ...s }) => ({
-            ...s, position: [...s.position], layers: s.layers.map(layer => ({ ...layer })),
+            ...s, position: [...s.position], scale: [...s.scale], pivot: [...s.pivot], frame: [...s.frame], layers: s.layers.map(layer => ({ ...layer, pixels: editingPixels.get(layer.id) ?? layer.pixels })),
         })),
     };
 }
 
 function sameScene(a: SceneState, b: SceneState): boolean {
     // Selection alone is not an edit. Keep it in snapshots to restore a deleted selection.
-    return a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
+    return JSON.stringify(a.groups) === JSON.stringify(b.groups) && JSON.stringify(a.clips) === JSON.stringify(b.clips) && a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
         const other = b.surfaces[i];
-        const { layers, cutMask, activeLayerId: _active, ...meta } = s;
-        const { layers: otherLayers, cutMask: otherMask, activeLayerId: _otherActive, ...otherMeta } = other;
-        return cutMask === otherMask && JSON.stringify(meta) === JSON.stringify(otherMeta) &&
+        const { layers, bases, strokes, cutMask, activeLayerId: _active, ...meta } = s;
+        const { layers: otherLayers, bases: otherBases, strokes: otherStrokes, cutMask: otherMask, activeLayerId: _otherActive, ...otherMeta } = other;
+        return strokes === otherStrokes && Object.keys(bases).length === Object.keys(otherBases).length && Object.keys(bases).every(id => bases[id] === otherBases[id]) && cutMask === otherMask && JSON.stringify(meta) === JSON.stringify(otherMeta) &&
             layers.length === otherLayers.length && layers.every((layer, index) => {
                 const { pixels, ...properties } = layer;
                 const { pixels: otherPixels, ...otherProperties } = otherLayers[index];
@@ -569,7 +648,10 @@ function sameScene(a: SceneState, b: SceneState): boolean {
 }
 
 function restoreScene(state: SceneState): void {
+    stopPreview();
     restoringHistory = true;
+    geometryKeys.clear();
+    groups = JSON.parse(JSON.stringify(state.groups)); clips = JSON.parse(JSON.stringify(state.clips)); activeGroupId = state.activeGroupId; selectedClipId = state.selectedClipId; selectedStrokeId = state.selectedStrokeId;
     resetGesture();
     if (activeGizmoId) Entropy.Gizmo.hide(activeGizmoId);
     activeGizmoId = null;
@@ -580,7 +662,7 @@ function restoreScene(state: SceneState): void {
     surfaces.length = 0;
     for (const saved of state.surfaces) {
         const existing = old.get(saved.id);
-        const s: Surface = { ...saved, position: [...saved.position], layers: saved.layers.map(layer => ({ ...layer })),
+        const s: Surface = { ...saved, position: [...saved.position], scale: [...saved.scale], pivot: [...saved.pivot], frame: [...saved.frame], layers: saved.layers.map(layer => ({ ...layer })),
             canvas: new Uint8Array(CANVAS_RES * CANVAS_RES * 4), dirty: true, worldPatches: [] };
         composeSurface(s);
         // Recreate geometry only when needed. Clear/create ordering is supported by the engine;
@@ -599,11 +681,13 @@ function restoreScene(state: SceneState): void {
 }
 
 const history = new CanvasHistory(captureScene, restoreScene, sameScene, states => {
-    const canvases = new Set(states.flatMap(state => state.surfaces.flatMap(s => [s.cutMask, ...s.layers.map(layer => layer.pixels)])));
-    return [...canvases].reduce((bytes, canvas) => bytes + canvas.byteLength, 0);
+    const canvases = new Set(states.flatMap(state => state.surfaces.flatMap(s => [s.cutMask, ...Object.values(s.bases), ...s.layers.map(layer => layer.pixels)])));
+    const strokes = new Set(states.flatMap(state => state.surfaces.flatMap(s => s.strokes)));
+    return [...canvases].reduce((bytes, canvas) => bytes + canvas.byteLength, 0) + [...strokes].reduce((bytes, stroke) => bytes + stroke.stamps.length * 64, 0);
 });
 
 function beginEdit(label: string): void {
+    stopPreview();
     if (!historyReady || restoringHistory || practiceSurface) return;
     if (!history.inProgress) gestureCanvases.clear();
     history.begin(label);
@@ -635,6 +719,7 @@ function changeLayer(s: Surface, label: string, change: () => void): void {
 }
 
 function resetGesture(): void {
+    finishRetainedStroke();
     if (cutTarget) composeSurface(cutTarget);
     drawTarget = null;
     lastStrokePoint = null;
@@ -680,6 +765,7 @@ function surfaceMeshData(s: Surface): { vertexData: number[]; indexData: number[
 }
 
 function pushSurfaceTransform(s: Surface): void {
+    geometryKeys.delete(s.id);
     const worldPatches = buildSurfaceWorldPatches(s);
     s.worldPatches = worldPatches;
     const positions: number[] = [];
@@ -751,7 +837,7 @@ function snapPosition(s: Surface, candidate: Vec3): Vec3 {
 
 function setSurfacePosition(s: Surface, candidate: Vec3, snap: boolean): void {
     beginEdit("Move surface");
-    s.position = snap ? snapPosition(s, candidate) : candidate;
+    s.position = snap && !s.parentId && JSON.stringify(s.frame) === JSON.stringify(identity()) ? snapPosition(s, candidate) : candidate;
     pushSurfaceTransform(s);
     if (activeGizmoId && activeSurfaceId === s.id) Entropy.Gizmo.updatePosition(activeGizmoId, s.position);
 }
@@ -798,11 +884,11 @@ let pendingKind: ShapeKind = "plane";
 function spawnSurface(
     position: Vec3, yaw: number, kind: ShapeKind = "plane",
     halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS,
-    restore?: { name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean; layers?: PaintLayer[]; activeLayerId?: string; cutMask?: Uint8Array }
+    restore?: { id?: string; parentId?: string | null; frame?: Matrix; scale?: Vec3; pivot?: Vec3; strokes?: RetainedStroke[]; bases?: Record<string, Uint8Array>; name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean; layers?: PaintLayer[]; activeLayerId?: string; cutMask?: Uint8Array }
 ): Surface {
     beginEdit("New surface");
     surfaceCount++;
-    const id = `canvas_surface_${Entropy.generateUUID()}`;
+    const id = restore?.id ?? `canvas_surface_${Entropy.generateUUID()}`;
     const canvas = new Uint8Array(CANVAS_RES * CANVAS_RES * 4);
     const layers = restore?.layers ?? [newPaintLayer(restore?.canvas ? "Imported artwork" : "Ink")];
     const cutMask = restore?.cutMask ?? new Uint8Array(CANVAS_RES * CANVAS_RES).fill(255);
@@ -818,6 +904,8 @@ function spawnSurface(
 
     const s: Surface = {
         id,
+        parentId: restore?.parentId ?? null, frame: restore?.frame ?? identity(), scale: restore?.scale ?? [1, 1, 1], pivot: restore?.pivot ?? [0, 0, 0],
+        strokes: restore?.strokes ?? [], bases: restore?.bases ?? {},
         meshId: id,
         textureId,
         previewBufferId: Entropy.Buffer.create({ size: 32, usage: "Uniform" }),
@@ -844,6 +932,7 @@ function spawnSurface(
     else s.worldPatches = buildSurfaceWorldPatches(s);
 
     surfaces.push(s);
+    activeGroupId = null; selectedStrokeId = null;
     activeSurfaceId = s.id;
     Entropy.println(`[canvas-surfaces] spawned ${s.name} (${kind}) (${id}) at [${position.map(n => n.toFixed(2))}]`);
     return s;
@@ -996,9 +1085,10 @@ function raycastSurfaces(screenX: number, screenY: number): SurfaceHit | null {
 function stamp(s: Surface, brush: Brush, cx: number, cy: number, radius: number, alpha: number, angle: number, elongation: number): void {
     if (radius <= 0 || alpha <= 0) return;
     const canvas = s.canvas;
-    const layer = editableLayer(s);
+    const layer = replayLayer ?? editableLayer(s);
     const isGuide = brush === CUT_GUIDE_BRUSH;
     if (!isGuide && !layer) return;
+    if (!isGuide && !replayLayer && pendingStroke?.surface === s) pendingStroke.stroke.stamps.push({ x: cx, y: cy, radius, alpha, angle, elongation });
 
     const majorR = radius * (1 + elongation * 0.9);
     const minorR = radius * (1 - elongation * 0.55);
@@ -1036,7 +1126,7 @@ function stamp(s: Surface, brush: Brush, cx: number, cy: number, radius: number,
                 canvas[i + 2] = b * a + canvas[i + 2] * (1 - a);
             } else if (layer) {
                 blendPixel(layer.pixels, i, brush.color, a, brush.isEraser);
-                compositePixel(canvas, s.layers, s.cutMask, BACKGROUND, i);
+                if (!replayLayer) compositePixel(canvas, s.layers, s.cutMask, BACKGROUND, i);
             }
         }
     }
@@ -1165,10 +1255,11 @@ function finishCut(s: Surface, path: CutPoint[]): void {
 }
 
 function beginCut(hit: SurfaceHit): void {
+    if (preview) return;
     beginEdit("Cut");
     hit.surface.cutMask = hit.surface.cutMask.slice();
     cutTarget = hit.surface;
-    if (!practiceSurface) activeSurfaceId = hit.surface.id;
+    if (!practiceSurface) { activeSurfaceId = hit.surface.id; activeGroupId = null; }
     cutPath = [{ px: hit.px, py: hit.py }];
     stamp(hit.surface, CUT_GUIDE_BRUSH, hit.px, hit.py, CUT_GUIDE_BRUSH.baseRadius, 1, 0, 0);
 }
@@ -1249,11 +1340,17 @@ Entropy.Input.onMouseUp((button) => {
 let lastStylusReading = { pressure: 0, tiltX: 0 as number | null, tiltY: 0 as number | null };
 
 function beginStroke(hit: SurfaceHit, pressure: number, tiltX: number, tiltY: number): void {
+    if (preview) return;
+    finishRetainedStroke();
     if (!editableLayer(hit.surface)) { statusMessage = "Choose a visible, unlocked paint layer."; return; }
     if (!currentBrush().isEraser) rememberColor();
     editCanvas(hit.surface, currentBrush().isEraser ? "Erase" : "Stroke");
+    const layer = editableLayer(hit.surface)!;
+    if (!hit.surface.bases[layer.id]) hit.surface.bases = { ...hit.surface.bases, [layer.id]: layer.pixels.slice() };
+    const brush = currentBrush();
+    pendingStroke = { surface: hit.surface, stroke: { id: Entropy.generateUUID(), name: `Stroke ${hit.surface.strokes.length + 1}`, layerId: layer.id, visible: true, progress: 1, brush: { color: [...brush.color], softness: brush.softness, isEraser: brush.isEraser }, stamps: [] } };
     drawTarget = hit.surface;
-    if (!practiceSurface) activeSurfaceId = hit.surface.id;
+    if (!practiceSurface) { activeSurfaceId = hit.surface.id; activeGroupId = null; }
     lastStrokePoint = { px: hit.px, py: hit.py, pressure, tiltX, tiltY };
     rawStrokePoint = lastStrokePoint;
     stamp(
@@ -1281,6 +1378,7 @@ function finishStroke(): void {
     if (drawTarget && lastStrokePoint && rawStrokePoint && paintSettings.stabilization > 0)
         paintSegment(drawTarget, lastStrokePoint, rawStrokePoint);
     rawStrokePoint = null;
+    finishRetainedStroke();
 }
 
 Entropy.Input.onStylusDown((e) => {
@@ -1382,7 +1480,7 @@ let previewSurfaceId: string | null = null;
 let hoverSurfaceName = "";
 function updateBrushPreview(): void {
     let hit: SurfaceHit | null = null;
-    if (pointerKnown && mode === "draw" && !orbitButtonDown && !Entropy.Input.isPointerOverUI()) {
+    if (!preview && pointerKnown && mode === "draw" && !orbitButtonDown && !Entropy.Input.isPointerOverUI()) {
         if (drawTarget) {
             const ray = Entropy.Camera.screenToWorldRay(currentMouseX, currentMouseY);
             hit = raycastSurfaceMesh(drawTarget, ray.origin, ray.direction);
@@ -1441,7 +1539,7 @@ function focusSurface(align: boolean): void {
     const usableAspect = Math.max(0.25, (w - 360) / Math.max(1, h));
     const halfFov = Math.min(Math.PI / 8, Math.atan(Math.tan(Math.PI / 8) * usableAspect));
     const distance = Math.max(1, radius * 1.25 / Math.sin(halfFov));
-    let normal: Vec3 = align ? localToWorldDir([0, 0, 1], s.yaw, s.pitch, s.roll)
+    let normal: Vec3 = align ? transformNormal(surfaceMatrix(s), [0, 0, 1])
         : direction.map(n => -n) as Vec3;
     // look-at uses world up: avoid an exactly parallel up/view vector for horizontal planes.
     if (Math.abs(normal[1]) > 0.9999) normal = [0, Math.sign(normal[1]) * 0.9999, 0.01414];
@@ -1483,6 +1581,7 @@ let activeGizmoId: string | null = null;
 let lastGizmoSurfaceId: string | null = null;
 
 function syncGizmoToSelection(): void {
+    if (preview || activeGroupId) return;
     if (activeSurfaceId === lastGizmoSurfaceId) return;
     lastGizmoSurfaceId = activeSurfaceId;
 
@@ -1492,7 +1591,7 @@ function syncGizmoToSelection(): void {
     }
 
     const s = activeSurface();
-    if (!s || !s.visible || mode !== "move") return;
+    if (!s || !s.visible || mode !== "move" || s.parentId || JSON.stringify(s.frame) !== JSON.stringify(identity())) return;
 
     activeGizmoId = Entropy.Gizmo.show({
         position: s.position,
@@ -1526,6 +1625,7 @@ function syncGizmoRotationFromSurface(s: Surface): void {
 }
 
 function setMode(next: Mode): void {
+    stopPreview(); finishStroke();
     if (practiceSurface && next !== "draw") togglePractice();
     if (cutTarget) history.cancel(); else history.commit();
     mode = next;
@@ -1548,6 +1648,8 @@ function setMode(next: Mode): void {
 
 function deleteSurface(s: Surface): void {
     beginEdit("Delete surface");
+    geometryKeys.delete(s.id); markedNodes.delete(s.id);
+    for (const clip of clips) clip.tracks = clip.tracks.filter(t => t.targetId !== s.id && !s.strokes.some(st => st.id === t.targetId));
     if (s.visible) Entropy.Model.clearMesh(s.meshId);
     const idx = surfaces.indexOf(s);
     if (idx >= 0) surfaces.splice(idx, 1);
@@ -1567,6 +1669,7 @@ function deleteActiveSurface(): void {
 }
 
 function selectSurface(s: Surface): void {
+    activeGroupId = null; selectedStrokeId = null;
     activeSurfaceId = s.id;
     if (mode === "move") lastGizmoSurfaceId = null; // force syncGizmoToSelection to move the gizmo
 }
@@ -1599,8 +1702,9 @@ function sceneIsDirty(): boolean {
 }
 function serializeScene(): SavedScene {
     return {
-        version: 2,
+        version: 3, groups, clips,
         surfaces: surfaces.map((s): SavedSurface => ({
+            id: s.id, parentId: s.parentId, frame: s.frame, scale: s.scale, pivot: s.pivot, strokes: s.strokes,
             name: s.name, kind: s.kind, position: [...s.position],
             yaw: s.yaw, pitch: s.pitch, roll: s.roll,
             halfW: s.halfW, halfH: s.halfH, halfD: s.halfD, radius: s.radius,
@@ -1608,12 +1712,13 @@ function serializeScene(): SavedScene {
             activeLayerId: s.activeLayerId, cutMaskBase64: bytesToBase64(s.cutMask),
             layers: s.layers.map(layer => ({
                 id: layer.id, name: layer.name, visible: layer.visible, locked: layer.locked,
-                opacity: layer.opacity, pixelsBase64: bytesToBase64(layer.pixels),
+                opacity: layer.opacity, basePixelsBase64: s.bases[layer.id] ? bytesToBase64(s.bases[layer.id]) : undefined, pixelsBase64: bytesToBase64(layer.pixels),
             })),
         })),
     };
 }
 function saveScene(asNew = false): boolean {
+    stopPreview();
     if (!libraryReady) { statusMessage = "Scene library unavailable. Restart after checking storage."; return false; }
     if (practiceSurface) togglePractice();
     finishStroke(); resetGesture(); history.commit();
@@ -1634,6 +1739,7 @@ function saveScene(asNew = false): boolean {
     }
 }
 function requestSceneAction(label: string, run: () => void): void {
+    stopPreview();
     if (practiceSurface) togglePractice();
     finishStroke(); resetGesture(); history.commit();
     textInputActive = false;
@@ -1649,16 +1755,18 @@ function loadScene(): void {
         const decoded = scene.surfaces.map(saved => ({
             saved,
             canvas: scene.version === 1 ? base64ToBytes(saved.canvasBase64!) : undefined,
-            layers: saved.layers?.map(({ pixelsBase64, ...layer }) => ({ ...layer, pixels: base64ToBytes(pixelsBase64) })),
+            layers: saved.layers?.map(({ pixelsBase64, basePixelsBase64: _base, ...layer }) => ({ ...layer, pixels: base64ToBytes(pixelsBase64) })),
+            bases: Object.fromEntries((saved.layers ?? []).filter(layer => layer.basePixelsBase64).map(layer => [layer.id, base64ToBytes(layer.basePixelsBase64!)])),
             cutMask: saved.cutMaskBase64 ? base64ToBytes(saved.cutMaskBase64) : undefined,
         }));
         const name = sceneLibrary.entries.find(entry => entry.id === id)!.name;
         requestSceneAction(`Load ${name}`, () => {
             beginEdit("Load scene");
             for (const s of [...surfaces]) deleteSurface(s);
-            for (const { saved, canvas, layers, cutMask } of decoded) {
+            groups = JSON.parse(JSON.stringify(scene.groups ?? [])); clips = JSON.parse(JSON.stringify(scene.clips ?? [])); activeGroupId = null; selectedClipId = clips[0]?.id ?? null; selectedStrokeId = null;
+            for (const { saved, canvas, layers, cutMask, bases } of decoded) {
                 spawnSurface(saved.position, saved.yaw, saved.kind, saved.halfW, saved.halfH, saved.halfD, saved.radius,
-                    { ...saved, canvas, layers, cutMask });
+                    { ...saved, canvas, layers, cutMask, bases });
             }
             currentSceneId = id; sceneName = name;
             history.commit();
@@ -1672,6 +1780,7 @@ function newScene(): void {
     requestSceneAction("New scene", () => {
         beginEdit("New scene");
         for (const s of [...surfaces]) deleteSurface(s);
+        groups = []; clips = []; activeGroupId = null; selectedClipId = null; selectedStrokeId = null;
         currentSceneId = Entropy.generateUUID(); sceneName = "Untitled scene";
         spawnSurface([0, 1.5, 0], 0);
         history.commit();
@@ -1685,6 +1794,7 @@ function newScene(): void {
 let practiceSurface: Surface | null = null;
 let practiceView: CameraView | null = null;
 function togglePractice(): void {
+    stopPreview();
     finishStroke(); resetGesture(); history.commit();
     if (practiceSurface) {
         Entropy.Model.clearMesh(practiceSurface.meshId);
@@ -1747,6 +1857,7 @@ function savePreferences(): void {
 // build path. See src/art_assets/GLBExporter.rs for the actual glTF/GLB assembly on the Rust
 // side (this pipeline has no writer in the `gltf` crate, so it's hand-rolled there).
 function exportSceneToGlb(): void {
+    stopPreview();
     const visible = surfaces.filter(s => s.visible);
     if (visible.length === 0) {
         Entropy.println("[canvas-surfaces] nothing visible to export");
@@ -1919,6 +2030,186 @@ function setupUI(): void {
     layersWindowId = uiWindowId;
 }
 
+/** A small editable creation that exercises the same data used by hand-authored scenes. */
+function createAnimatedExample(): void {
+    requestSceneAction("Open animated character example", () => {
+        beginEdit("Animated character example");
+        for (const s of [...surfaces]) deleteSurface(s);
+        groups = []; clips = []; markedNodes.clear(); selectedStrokeId = null;
+        currentSceneId = Entropy.generateUUID(); sceneName = "Drawn character";
+        const character: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Character", parentId: null, frame: identity(), pivot: [0, 1.5, 0] };
+        const arm: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Waving arm", parentId: character.id, frame: identity(), pivot: [0.65, 2.05, 0] };
+        groups.push(character, arm);
+        const part = (name: string, position: Vec3, halfW: number, halfH: number, color: RGB, parentId = character.id, kind: ShapeKind = "box") => {
+            const surface = spawnSurface(position, 0, kind, halfW, halfH, 0.25, 1, { name, parentId });
+            const pixels = surface.layers[0].pixels;
+            for (let i = 0; i < pixels.length; i += 4) pixels.set([...color, 255], i);
+            composeSurface(surface); return surface;
+        };
+        part("Shirt", [0, 1.6, 0], 0.55, 0.65, [74, 130, 154]);
+        const face = part("Face", [0, 2.65, 0.3], 0.55, 0.5, [250, 228, 193], character.id, "plane");
+        part("Waving hand", [0.8, 1.6, 0], 0.2, 0.55, [250, 228, 193], arm.id);
+        part("Other hand", [-0.8, 1.6, 0], 0.2, 0.55, [250, 228, 193]);
+        part("Left leg", [-0.28, 0.45, 0], 0.22, 0.45, [57, 69, 95]);
+        part("Right leg", [0.28, 0.45, 0], 0.22, 0.45, [57, 69, 95]);
+        const layer = face.layers[0]; face.bases = { [layer.id]: layer.pixels.slice() };
+        const draw = (name: string, points: [number, number][]) => {
+            const stroke: RetainedStroke = { id: Entropy.generateUUID(), name, layerId: layer.id, visible: true, progress: 1, brush: { color: [35, 30, 35], softness: 0.1, isEraser: false }, stamps: points.map(([x, y]) => ({ x, y, radius: 7, alpha: 1, angle: 0, elongation: 0 })) };
+            face.strokes = [...face.strokes, stroke]; return stroke;
+        };
+        for (const x of [255, 510]) draw("Eye", Array.from({ length: 20 }, (_, i) => [x, 255 + i * 2]));
+        const smile = draw("Smile", Array.from({ length: 151 }, (_, i) => { const t = i / 150; return [220 + t * 328, 445 + Math.sin(t * Math.PI) * 100]; }));
+        replayArtwork(face);
+        const clip: Clip = { id: Entropy.generateUUID(), name: "Wave and smile", duration: 2, tracks: [] };
+        for (const [time, value] of [[0, 0], [0.5, 2.3], [1, 1.7], [1.5, 2.3], [2, 0]]) setKey(clip, arm.id, "roll", time, value);
+        setKey(clip, smile.id, "progress", 0, 0); setKey(clip, smile.id, "progress", 1, 1);
+        clips = [clip]; selectedClipId = clip.id; activeGroupId = character.id; activeSurfaceId = face.id; playhead = 0;
+        history.commit(); savedSceneState = null; pendingSceneAction = null;
+        applyView({ position: [0, 2.0, 8], target: [0, 1.7, 0] });
+        statusMessage = "Example ready. Play Wave and smile, or select a part to edit it.";
+    });
+}
+
+let parentChoice: string | null = null;
+let channelChoice: Channel = "roll";
+let keyValue = 0;
+const markedNodes = new Set<string>();
+const collapsedGroups = new Set<string>();
+function selectedNode(): Group | Surface | undefined { return activeGroupId ? groups.find(g => g.id === activeGroupId) : activeSurface() ?? undefined; }
+function parentNode(node: Group | Surface, parent: string | null): void {
+    const frame = reparentFrame(groups, node.id, node.parentId, parent, node.frame);
+    node.frame = frame; node.parentId = parent;
+}
+function makeGroup(): void {
+    beginEdit("Group selection");
+    const nodes = [...groups, ...surfaces].filter(n => markedNodes.size ? markedNodes.has(n.id) : n.id === selectedNode()?.id);
+    // If a parent is selected, its descendants already belong to the new group through it.
+    const roots = nodes.filter(n => {
+        let parent = n.parentId;
+        while (parent) { if (nodes.some(other => other.id === parent)) return false; parent = groups.find(g => g.id === parent)?.parentId ?? null; }
+        return true;
+    });
+    const group: Group = { id: Entropy.generateUUID(), name: `Group ${groups.length + 1}`, parentId: null, frame: identity(), ...defaultTransform() };
+    const centers = roots.map(n => "yaw" in n ? point(surfaceMatrix(n), [0, 0, 0]) : point(groupWorld(groups, n.id), n.pivot));
+    if (centers.length) group.pivot = [0, 1, 2].map(i => centers.reduce((sum, c) => sum + c[i], 0) / centers.length) as Vec3;
+    groups.push(group);
+    for (const node of roots) parentNode(node, group.id);
+    activeGroupId = group.id; markedNodes.clear(); refreshGeometry();
+}
+function removeGroup(group: Group): void {
+    beginEdit("Ungroup");
+    for (const node of [...groups, ...surfaces]) if (node.parentId === group.id) parentNode(node, group.parentId);
+    groups = groups.filter(g => g !== group);
+    for (const clip of clips) clip.tracks = clip.tracks.filter(t => t.targetId !== group.id);
+    activeGroupId = null; refreshGeometry();
+}
+function renderAnimationUI(): void {
+    const W = Entropy.UI.Widget;
+    const button = (id: string, text: string, onClick: () => void) => W.button(uiWindowId, { id, text, onClick });
+    const slider = (id: string, label: string, value: number, min: number, max: number, change: (value: number) => void) => W.slider(uiWindowId, { id, label, value, min, max, onChange: value => { const n = Number(value); if (Number.isFinite(n)) change(Math.max(min, Math.min(max, n))); } });
+    W.label(uiWindowId, { text: preview ? "PREVIEW - return to edit to draw" : "Select or mark parts, then group them." });
+    button("animation_stop", "Return to editing pose", stopPreview);
+    const tree = (parent: string | null, depth: number) => {
+        for (const node of [...groups, ...surfaces].filter(n => n.parentId === parent)) {
+            const isGroup = groups.some(g => g.id === node.id);
+            button(`node_${node.id}`, `${"  ".repeat(depth)}${selectedNode()?.id === node.id ? "> " : ""}${isGroup ? "Group: " : ""}${node.name}`, () => {
+                if (isGroup) { activeGroupId = node.id; selectedStrokeId = null; if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; } }
+                else selectSurface(node as Surface);
+            });
+            button(`mark_${node.id}`, markedNodes.has(node.id) ? "Unmark part" : "Mark part", () => { if (markedNodes.has(node.id)) markedNodes.delete(node.id); else markedNodes.add(node.id); });
+            if (isGroup) {
+                button(`group_expand_${node.id}`, collapsedGroups.has(node.id) ? "Expand group" : "Collapse group", () => { if (collapsedGroups.has(node.id)) collapsedGroups.delete(node.id); else collapsedGroups.add(node.id); });
+                if (!collapsedGroups.has(node.id)) tree(node.id, depth + 1);
+            }
+        }
+    };
+    tree(null, 0);
+    button("group_create", "Group marked / selected", makeGroup);
+    button("animated_example", "Open animated character example", createAnimatedExample);
+    const node = selectedNode();
+    if (node) {
+        W.textInput(uiWindowId, { label: "Part name", id: "node_name", value: node.name, onChange: value => { beginEdit("Rename part"); node.name = String(value).slice(0, 80); } });
+        button("parent_choice", `Parent: ${groups.find(g => g.id === parentChoice)?.name ?? "World"}`, () => {
+            const options = [null, ...groups.filter(g => g.id !== node.id).map(g => g.id)]; parentChoice = options[(options.indexOf(parentChoice) + 1) % options.length];
+        });
+        button("parent_apply", "Attach to chosen parent", () => {
+            try { const frame = reparentFrame(groups, node.id, node.parentId, parentChoice, node.frame); beginEdit("Reparent part"); node.frame = frame; node.parentId = parentChoice; refreshGeometry(); }
+            catch (error) { statusMessage = String(error); }
+        });
+        if (activeGroupId) button("group_remove", "Ungroup (keep parts)", () => removeGroup(node as Group));
+        const transform = "yaw" in node ? surfaceTransform(node) : node;
+        W.collapsingHeader(uiWindowId, "Part transform & pivot", () => {
+        for (const [index, axis] of ["x", "y", "z"].entries()) {
+            slider(`node_pos_${axis}`, `Local ${axis}`, transform.position[index], -20, 20, value => { beginEdit("Move part"); node.position[index] = value; refreshGeometry(); });
+            slider(`node_rotation_${axis}`, `Rotate ${axis} (rad)`, transform.rotation[index], -Math.PI, Math.PI, value => {
+                beginEdit("Rotate part");
+                if ("yaw" in node) { if (index === 0) node.pitch = value; if (index === 1) node.yaw = value; if (index === 2) node.roll = value; }
+                else node.rotation[index] = value;
+                refreshGeometry();
+            });
+            slider(`node_scale_${axis}`, `Scale ${axis}`, node.scale[index], 0.05, 5, value => { beginEdit("Scale part"); node.scale[index] = value; refreshGeometry(); });
+            slider(`node_pivot_${axis}`, `Pivot ${axis}`, node.pivot[index], -20, 20, value => {
+                beginEdit("Set pivot");
+                const before = transformMatrix("yaw" in node ? surfaceTransform(node) : node);
+                node.pivot[index] = value;
+                const after = transformMatrix("yaw" in node ? surfaceTransform(node) : node);
+                for (let i = 0; i < 3; i++) node.position[i] += before[i * 4 + 3] - after[i * 4 + 3];
+                refreshGeometry();
+            });
+        }
+        });
+    }
+    const surface = !activeGroupId ? activeSurface() : null;
+    for (const stroke of surface?.strokes ?? []) button(`stroke_${stroke.id}`, `${selectedStrokeId === stroke.id ? "> " : ""}${stroke.name}`, () => { selectedStrokeId = stroke.id; channelChoice = "progress"; keyValue = stroke.progress; });
+    const stroke = surface?.strokes.find(st => st.id === selectedStrokeId);
+    if (stroke && surface) {
+        const editStroke = (change: Partial<RetainedStroke>) => { beginEdit("Edit stroke"); surface.strokes = surface.strokes.map(st => st.id === stroke.id ? { ...st, ...change } : st); replayArtwork(surface); };
+        W.textInput(uiWindowId, { label: "Stroke name", id: "stroke_name", value: stroke.name, onChange: value => editStroke({ name: String(value).slice(0, 80) }) });
+        button("stroke_visible", stroke.visible ? "Hide stroke" : "Show stroke", () => editStroke({ visible: !stroke.visible }));
+        slider("stroke_progress", "Drawing progress", stroke.progress, 0, 1, value => editStroke({ progress: value }));
+    }
+    button("clip_create", "New animation clip", () => {
+        beginEdit("New animation"); let number = 1; while (clips.some(c => c.name === `Clip ${number}`)) number++; const clip: Clip = { id: Entropy.generateUUID(), name: `Clip ${number}`, duration: 2, tracks: [] }; clips.push(clip); selectedClipId = clip.id; playhead = 0;
+    });
+    for (const clip of clips) button(`clip_${clip.id}`, `${clip.id === selectedClipId ? "> " : ""}${clip.name}`, () => { stopPreview(); selectedClipId = clip.id; playhead = 0; });
+    const clip = currentClip();
+    if (!clip) return;
+    W.textInput(uiWindowId, { label: "Clip name", id: "clip_name", value: clip.name, onChange: value => {
+        const name = String(value).trim().slice(0, 80); if (!name || clips.some(c => c !== clip && c.name === name)) return;
+        beginEdit("Rename clip"); clip.name = name;
+    } });
+    slider("clip_duration", "Duration (seconds)", clip.duration, 0.1, 30, value => { beginEdit("Clip duration"); clip.duration = Math.max(value, ...clip.tracks.flatMap(t => t.keys.map(k => k.time))); playhead = Math.min(playhead, clip.duration); });
+    slider("clip_time", "Time (seconds)", playhead, 0, clip.duration, value => { playing = false; previewAt(value); });
+    button("clip_play", playing ? "Pause" : "Play", () => { if (playing) { playing = false; previousTime = null; } else { previewAt(playhead >= clip.duration ? 0 : playhead); playing = true; previousTime = null; } });
+    const targetId = stroke?.id ?? node?.id;
+    W.label(uiWindowId, { text: `Key target: ${stroke?.name ?? node?.name ?? "Select a part"}` });
+    const channels: Channel[] = stroke ? ["progress", "visible"] : ["x", "y", "z", "pitch", "yaw", "roll", "sx", "sy", "sz"];
+    if (!channels.includes(channelChoice)) channelChoice = channels[0];
+    button("key_channel", `Channel: ${channelChoice}`, () => { channelChoice = channels[(channels.indexOf(channelChoice) + 1) % channels.length]; });
+    const bounded = channelChoice === "progress" || channelChoice === "visible";
+    slider("key_value", "Key value", keyValue, bounded ? 0 : channelChoice.startsWith("s") ? 0.05 : -20, bounded ? 1 : 20, value => { keyValue = value; });
+    button("key_add", "Set key at playhead", () => {
+        if (!targetId) return;
+        const time = playhead; beginEdit("Set animation key");
+        setKey(clip, targetId, channelChoice, time, bounded ? Math.max(0, Math.min(1, keyValue)) : channelChoice.startsWith("s") ? Math.max(0.05, keyValue) : keyValue);
+        previewAt(time);
+    });
+    button("key_current", "Key current editing pose", () => {
+        if (!targetId) return;
+        const t = node && ("yaw" in node ? surfaceTransform(node) : node);
+        const values: Partial<Record<Channel, number>> = stroke ? { progress: stroke.progress, visible: stroke.visible ? 1 : 0 } : t ? {
+            x: t.position[0], y: t.position[1], z: t.position[2], pitch: t.rotation[0], yaw: t.rotation[1], roll: t.rotation[2], sx: t.scale[0], sy: t.scale[1], sz: t.scale[2],
+        } : {};
+        const value = values[channelChoice]; if (value === undefined) return;
+        const time = playhead; beginEdit("Key editing pose"); setKey(clip, targetId, channelChoice, time, value); keyValue = value; previewAt(time);
+    });
+    for (const track of clip.tracks.filter(t => t.targetId === targetId)) for (const key of track.keys) {
+        button(`key_seek_${track.channel}_${key.time}`, `${track.channel} @ ${key.time.toFixed(2)}s = ${key.value.toFixed(2)}`, () => { playing = false; previewAt(key.time); });
+        button(`key_delete_${track.channel}_${key.time}`, "Delete key", () => { beginEdit("Delete key"); track.keys = track.keys.filter(k => k !== key); clip.tracks = clip.tracks.filter(t => t.keys.length); });
+    }
+    button("clip_delete", "Delete clip", () => { beginEdit("Delete clip"); clips = clips.filter(c => c !== clip); selectedClipId = clips[0]?.id ?? null; });
+}
+
 function renderLayersUI(): void {
     Entropy.UI.Widget.label(layersWindowId, { text: "Surfaces", bold: true });
     Entropy.UI.Widget.separator(layersWindowId);
@@ -1987,7 +2278,12 @@ function renderPaintLayers(): void {
         });
         Entropy.UI.Widget.button(uiWindowId, { text: "Delete layer", id: "paint_layer_delete", onClick: () => {
             if (s.layers.length === 1) { statusMessage = "Keep at least one paint layer."; return; }
-            changeLayer(s, "Delete paint layer", () => { s.layers = s.layers.filter(l => l !== layer); s.activeLayerId = s.layers.at(-1)!.id; });
+            changeLayer(s, "Delete paint layer", () => {
+                const removed = s.strokes.filter(st => st.layerId === layer.id).map(st => st.id);
+                s.strokes = s.strokes.filter(st => st.layerId !== layer.id);
+                s.bases = Object.fromEntries(Object.entries(s.bases).filter(([id]) => id !== layer.id));
+                for (const clip of clips) clip.tracks = clip.tracks.filter(t => !removed.includes(t.targetId));
+                s.layers = s.layers.filter(l => l !== layer); s.activeLayerId = s.layers.at(-1)!.id; });
         } });
     });
 }
@@ -1995,6 +2291,7 @@ function renderPaintLayers(): void {
 function renderBrushTuning(): void {
     Entropy.UI.Widget.button(uiWindowId, { text: practiceSurface ? "Back to scene" : "Open practice pad", id: "practice_toggle", onClick: togglePractice });
     if (practiceSurface) Entropy.UI.Widget.button(uiWindowId, { text: "Clear practice pad", id: "practice_clear", onClick: () => {
+        practiceSurface!.strokes = []; practiceSurface!.bases = {};
         practiceSurface!.layers = [newPaintLayer("Ink")];
         practiceSurface!.activeLayerId = practiceSurface!.layers[0].id;
         composeSurface(practiceSurface!);
@@ -2143,9 +2440,9 @@ function renderUI(): void {
             });
         }
     } else {
-        const s = activeSurface();
+        const s = activeGroupId ? null : activeSurface();
         if (!s) {
-            Entropy.UI.Widget.label(uiWindowId, { text: "No surface selected - click one." });
+            Entropy.UI.Widget.label(uiWindowId, { text: activeGroupId ? "Edit this group in Groups & animation." : "No surface selected - click one." });
         } else {
             Entropy.UI.Widget.label(uiWindowId, { text: `Selected: ${s.name} (${s.kind})` });
             Entropy.UI.Widget.label(uiWindowId, {
@@ -2304,6 +2601,7 @@ function renderUI(): void {
         });
 
     });
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Groups & animation", renderAnimationUI);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scenes & export", renderSceneLibrary);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Surfaces", renderLayersUI);
     Entropy.UI.Widget.collapsingHeader(uiWindowId, "Shortcuts", () => {
@@ -2445,6 +2743,12 @@ addon.onUpdatePlus("Global", (_time: number) => {
     if (pendingOrbit && --pendingOrbit.frames <= 0) {
         Entropy.Controls.enable("orbit", { target: pendingOrbit.target, trigger: "always", button: 1, invertX: true });
         pendingOrbit = null;
+    }
+    if (playing && currentClip() && Number.isFinite(_time)) {
+        const delta = previousTime === null ? 0 : Math.max(0, _time - previousTime);
+        previousTime = _time;
+        previewAt(playhead + delta);
+        if (playhead >= currentClip()!.duration) playing = false;
     }
     updateBrushPreview();
     if (mode === "move") syncGizmoToSelection();

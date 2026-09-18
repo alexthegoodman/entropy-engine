@@ -1,0 +1,4 @@
+{
+  "extends": "./tsconfig.json",
+  "include": ["src/addon.d.ts", "src/apps/canvas_surfaces/canvas_*.ts"]
+}

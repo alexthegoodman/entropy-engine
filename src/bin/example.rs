@@ -18,7 +18,7 @@ async fn main() {
                 // EntropyApp has neither a dev data_dir nor a loaded project by default, so
                 // Entropy.IO.save/load (see canvas_surface_addon.ts's Save/Load Scene buttons)
                 // would silently no-op without this.
-                .with_data_dir("../canvas-surfaces-data"),
+                .with_data_dir(env::var("ENTROPY_CANVAS_BDD_DATA").unwrap_or_else(|_| "../canvas-surfaces-data".to_string())),
             Some("cc-manager") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/cc_manager.js")
                 .with_hot_reload(true)

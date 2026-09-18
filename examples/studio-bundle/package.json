@@ -31,8 +31,10 @@
     "build-doc-editor-demo": "npm run ensure-dist && deno bundle src/apps/doc_editor_demo_addon.ts > dist/doc_editor_demo.js",
     "build-ml-graph-demo": "npm run ensure-dist && deno bundle src/apps/ml_graph_demo_addon.ts > dist/ml_graph_demo.js",
     "build-cc-manager": "npm run ensure-dist && deno bundle src/apps/cc_manager_addon.ts > dist/cc_manager.js",
-    "build-canvas-surfaces": "npm run ensure-dist && deno bundle src/apps/canvas_surface_addon.ts > dist/canvas_surfaces.js",
+    "build-canvas-surfaces": "npm run ensure-dist && deno bundle src/apps/canvas_surfaces/canvas_surface_addon.ts > dist/canvas_surfaces.js",
     "test": "vitest",
+    "test:canvas": "vitest run tests/canvas_surfaces.test.ts tests/canvas_paint_storage.test.ts tests/canvas_animation_bdd.test.ts --pool=threads",
+    "typecheck:canvas": "tsc --project tsconfig.canvas.json --noEmit",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

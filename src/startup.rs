@@ -104,6 +104,7 @@ struct BrowserBddDriver {
     artifact_dir: PathBuf,
     result_path: PathBuf,
     started: Instant,
+    canvas: bool,
 }
 
 enum BrowserBddAction {
@@ -127,7 +128,7 @@ const BROWSER_LIVE_FEATURE_SOURCE: &str = include_str!("../tests/features/browse
 /// new step nobody taught this function) and fails loudly rather than being silently skipped -
 /// the whole point of parsing the file is that it's load-bearing, not decorative.
 fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
-    if text == "the real browser demo is running in test mode" {
+    if text == "the real browser demo is running in test mode" || text == "the real canvas demo is running in test mode" {
         return None;
     }
     // Cucumber-expression-style steps here only ever use double-quoted string arguments, so
@@ -160,8 +161,8 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
 /// through. Scenario boundaries aren't meaningful to the driver - the whole file is one
 /// continuous run against one long-lived app instance - so they're deliberately flattened here
 /// rather than preserved.
-fn browser_bdd_actions_from_feature() -> VecDeque<BrowserBddAction> {
-    let feature = gherkin::Feature::parse(BROWSER_LIVE_FEATURE_SOURCE, gherkin::GherkinEnv::default())
+fn browser_bdd_actions_from_feature(source: &str) -> VecDeque<BrowserBddAction> {
+    let feature = gherkin::Feature::parse(source, gherkin::GherkinEnv::default())
         .expect("tests/features/browser_live.feature must be valid Gherkin");
     let mut actions: VecDeque<BrowserBddAction> = feature
         .scenarios
@@ -175,10 +176,13 @@ fn browser_bdd_actions_from_feature() -> VecDeque<BrowserBddAction> {
 
 impl BrowserBddDriver {
     fn from_environment() -> Option<Self> {
-        let result_path = std::env::var_os("ENTROPY_BROWSER_BDD_RESULT").map(PathBuf::from)?;
+        let canvas = std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
+        let result_path = std::env::var_os(if canvas { "ENTROPY_CANVAS_BDD_RESULT" } else { "ENTROPY_BROWSER_BDD_RESULT" }).map(PathBuf::from)?;
+        let source = if canvas { include_str!("../tests/features/canvas_live.feature") } else { BROWSER_LIVE_FEATURE_SOURCE };
         let artifact_dir = result_path.parent().unwrap_or_else(|| std::path::Path::new("test-artifacts/browser-bdd")).to_path_buf();
         Some(Self {
-            actions: browser_bdd_actions_from_feature(),
+            actions: browser_bdd_actions_from_feature(source),
+            canvas,
             artifacts: Vec::new(),
             outcomes: Vec::new(),
             artifact_dir,
@@ -200,7 +204,7 @@ impl BrowserBddDriver {
     }
 
     fn write_result(&self, status: &str, message: Option<&str>) {
-        let result = serde_json::json!({
+        let mut result = serde_json::json!({
             "status": status,
             "message": message,
             "actions": self.outcomes,
@@ -212,6 +216,9 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
+        if self.canvas {
+            for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
+        }
         if let Some(parent) = self.result_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -221,7 +228,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(30) {
+        if self.started.elapsed() > Duration::from_secs(if self.canvas { 90 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded 30 seconds"));
             event_loop.exit();
             return;
