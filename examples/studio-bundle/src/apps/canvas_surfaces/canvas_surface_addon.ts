@@ -2017,6 +2017,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 let uiWindowId: string;
 let layersWindowId: string;
+let keyframeWindowId: string;
 
 function setupUI(): void {
     uiWindowId = Entropy.UI.createWindow({
@@ -2028,6 +2029,18 @@ function setupUI(): void {
         onRender: renderUI
     });
     layersWindowId = uiWindowId;
+    // A second window rather than a widget stuffed into the first - a full-width timeline reads
+    // far better than one squeezed into a 310px sidebar, and it needs to stay visible while the
+    // sidebar's own Keyframes group (still the place to pick a channel and set a precise value)
+    // is scrolled elsewhere.
+    keyframeWindowId = Entropy.UI.createWindow({
+        title: "Keyframes",
+        width: 640,
+        height: 220,
+        x: 342,
+        y: 16,
+        onRender: renderKeyframeTimelineUI
+    });
 }
 
 /** A small editable creation that exercises the same data used by hand-authored scenes. */
@@ -2076,6 +2089,25 @@ let keyValue = 0;
 const markedNodes = new Set<string>();
 const collapsedGroups = new Set<string>();
 function selectedNode(): Group | Surface | undefined { return activeGroupId ? groups.find(g => g.id === activeGroupId) : activeSurface() ?? undefined; }
+function findTargetName(targetId: string): string {
+    const group = groups.find(g => g.id === targetId); if (group) return group.name;
+    const surface = surfaces.find(s => s.id === targetId); if (surface) return surface.name;
+    for (const s of surfaces) { const stroke = s.strokes.find(st => st.id === targetId); if (stroke) return stroke.name; }
+    return "?";
+}
+/** Shared by the hierarchy tree's row click and the keyframe timeline window's row click - a
+ * target id is a group, a surface, or (for a progress/visible track) an individual stroke, and
+ * whichever it is should end up selected the same way regardless of which widget it came from. */
+function selectTreeTarget(id: string): void {
+    const isGroup = groups.some(g => g.id === id);
+    if (isGroup) { activeGroupId = id; selectedStrokeId = null; if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; } return; }
+    const surface = surfaces.find(s => s.id === id);
+    if (surface) { selectSurface(surface); return; }
+    for (const s of surfaces) {
+        const stroke = s.strokes.find(st => st.id === id);
+        if (stroke) { selectSurface(s); selectedStrokeId = stroke.id; channelChoice = "progress"; keyValue = stroke.progress; return; }
+    }
+}
 function parentNode(node: Group | Surface, parent: string | null): void {
     const frame = reparentFrame(groups, node.id, node.parentId, parent, node.frame);
     node.frame = frame; node.parentId = parent;
@@ -2138,11 +2170,7 @@ function renderAnimationUI(): void {
     W.group(uiWindowId, () => {
         W.treeView(uiWindowId, {
             id: "hierarchy_tree", nodes: hierarchyRows,
-            onSelect: id => {
-                const isGroup = groups.some(g => g.id === id);
-                if (isGroup) { activeGroupId = id; selectedStrokeId = null; if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; } }
-                else { const surface = surfaces.find(s => s.id === id); if (surface) selectSurface(surface); }
-            },
+            onSelect: selectTreeTarget,
             onToggleExpand: id => { if (collapsedGroups.has(id)) collapsedGroups.delete(id); else collapsedGroups.add(id); },
             onMark: (id, value) => { if (value) markedNodes.add(id); else markedNodes.delete(id); },
         });
@@ -2264,12 +2292,77 @@ function renderAnimationUI(): void {
                 const time = playhead; beginEdit("Key editing pose"); setKey(clip, targetId, channelChoice, time, value); keyValue = value; previewAt(time);
             });
         });
-        for (const track of clip.tracks.filter(t => t.targetId === targetId)) for (const key of track.keys) {
-            W.horizontal(uiWindowId, () => {
-                button(`key_seek_${track.channel}_${key.time}`, `${track.channel} @ ${key.time.toFixed(2)}s = ${key.value.toFixed(2)}`, () => { playing = false; previewAt(key.time); });
-                button(`key_delete_${track.channel}_${key.time}`, "Delete Key", () => { beginEdit("Delete key"); track.keys = track.keys.filter(k => k !== key); clip.tracks = clip.tracks.filter(t => t.keys.length); });
-            });
-        }
+        W.label(uiWindowId, { text: clip.tracks.length ? "See the Keyframes window for this clip's full timeline." : "No keys yet - set one above to start this clip's timeline." });
+    });
+}
+
+/** `rowId` packs a track's (targetId, channel) into one string `Widget.keyframeTimeline` can
+ * hand back unchanged on every callback - targetIds are UUIDs (never contain "::") and channel
+ * names are a fixed lowercase set, so a plain separator is unambiguous to split back apart. */
+function keyframeRowId(targetId: string, channel: Channel): string { return `${targetId}::${channel}`; }
+function parseKeyframeRowId(rowId: string): [string, Channel] {
+    const sep = rowId.lastIndexOf("::");
+    return [rowId.slice(0, sep), rowId.slice(sep + 2) as Channel];
+}
+
+/** A real dopesheet for the clip currently selected in Groups & animation, in its own window -
+ * every existing track shown as a row, not just whichever part happens to be selected right now.
+ * `entropy_gui::KeyframeTimeline` only knows a keyframe's time, not its value (see the widget's
+ * own `KeyframeConfig`), so precise value entry stays in the sidebar's Keyframes group; this
+ * window is the shared-timeline view and the seek/move/add/delete surface. */
+function renderKeyframeTimelineUI(): void {
+    const W = Entropy.UI.Widget;
+    const clip = currentClip();
+    if (!clip) { W.label(keyframeWindowId, { text: "No clip selected. Create or select one in the Canvas Surfaces window's Groups & animation section." }); return; }
+    if (!clip.tracks.length) { W.label(keyframeWindowId, { text: `${clip.name}: no keyframes yet. Set one in Groups & animation to see it here.` }); return; }
+
+    W.keyframeTimeline(keyframeWindowId, {
+        id: "clip_keyframe_timeline",
+        durationMs: Math.max(1, Math.round(clip.duration * 1000)),
+        playheadMs: Math.round(playhead * 1000),
+        rows: clip.tracks.map(track => ({
+            id: keyframeRowId(track.targetId, track.channel),
+            label: `${findTargetName(track.targetId)} · ${track.channel}`,
+            keyframes: track.keys.map(key => ({ id: String(key.time), timeMs: Math.round(key.time * 1000) })),
+        })),
+        onSeek: timeMs => { playing = false; previewAt(timeMs / 1000); },
+        onKeyframeSelected: (rowId, keyframeId) => {
+            const [targetId, channel] = parseKeyframeRowId(rowId);
+            const track = clip.tracks.find(t => t.targetId === targetId && t.channel === channel);
+            const key = track?.keys.find(k => String(k.time) === keyframeId);
+            playing = false; previewAt(Number(keyframeId)); channelChoice = channel;
+            if (key) keyValue = key.value;
+            selectTreeTarget(targetId);
+        },
+        onKeyframeMoved: (rowId, keyframeId, timeMs) => {
+            const [targetId, channel] = parseKeyframeRowId(rowId);
+            const track = clip.tracks.find(t => t.targetId === targetId && t.channel === channel);
+            const key = track?.keys.find(k => String(k.time) === keyframeId);
+            if (!track || !key) return;
+            beginEdit("Move key");
+            const time = Math.max(0, Math.min(clip.duration, timeMs / 1000)), value = key.value;
+            track.keys = track.keys.filter(k => k !== key);
+            setKey(clip, targetId, channel, time, value);
+            previewAt(playhead);
+        },
+        // Fired on a double-click on a row's timeline - seeds the new key from the track's own
+        // interpolated value at that time, so dropping one mid-clip doesn't introduce a jump.
+        onKeyframeAdd: (rowId, timeMs) => {
+            const [targetId, channel] = parseKeyframeRowId(rowId);
+            const track = clip.tracks.find(t => t.targetId === targetId && t.channel === channel);
+            if (!track) return;
+            const time = Math.max(0, Math.min(clip.duration, timeMs / 1000));
+            beginEdit("Set animation key"); setKey(clip, targetId, channel, time, sample(track, time)); previewAt(time);
+        },
+        onKeyframeDelete: (rowId, keyframeId) => {
+            const [targetId, channel] = parseKeyframeRowId(rowId);
+            const track = clip.tracks.find(t => t.targetId === targetId && t.channel === channel);
+            if (!track) return;
+            beginEdit("Delete key");
+            track.keys = track.keys.filter(k => String(k.time) !== keyframeId);
+            clip.tracks = clip.tracks.filter(t => t.keys.length);
+        },
+        onRowClicked: rowId => selectTreeTarget(parseKeyframeRowId(rowId)[0]),
     });
 }
 
@@ -2461,32 +2554,36 @@ function renderUI(): void {
     Entropy.UI.Widget.separator(uiWindowId);
 
     if (mode === "draw") {
-        Entropy.UI.Widget.label(uiWindowId, { text: `Brush: ${currentBrush().name}` });
-        Entropy.UI.Widget.horizontal(uiWindowId, () => {
-            for (let i = 0; i < BRUSHES.length; i++) {
-                Entropy.UI.Widget.button(uiWindowId, {
-                    text: (i === brushIndex ? "> " : "") + ["Pencil", "Ink", "Air", "Erase"][i],
-                    id: `brush_btn_${i}`,
-                    onClick: () => { brushIndex = i; }
-                });
-            }
-        });
-        Entropy.UI.Widget.slider(uiWindowId, {
-            label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
-            onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
-        });
-        Entropy.UI.Widget.colorInput(uiWindowId, {
-            label: "Color", color: [...paintSettings.color.map(n => n / 255), paintSettings.opacity],
-            onChange: values => {
-                if (!Array.isArray(values) || values.length !== 4 || !values.every(Number.isFinite)) return;
-                chooseColor(values.slice(0, 3).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255)) as RGB);
-                paintSettings.opacity = Math.max(0.01, Math.min(1, values[3]));
-            },
-        });
-        Entropy.UI.Widget.slider(uiWindowId, { label: "Opacity", value: paintSettings.opacity, min: 0.01, max: 1, id: "brush_opacity", onChange: value => { paintSettings.opacity = Number(value); preferencesDirty = true; } });
-        Entropy.UI.Widget.button(uiWindowId, { text: pickingColor ? "Pick a surface color (cancel)" : "Eyedropper", id: "eyedropper", onClick: () => { pickingColor = !pickingColor; } });
-        const drawingLayer = activeSurface()?.layers.find(layer => layer.id === activeSurface()?.activeLayerId);
-        Entropy.UI.Widget.label(uiWindowId, { text: drawingLayer ? `Layer: ${drawingLayer.name}${drawingLayer.locked ? " (locked)" : !drawingLayer.visible ? " (hidden)" : ""}` : "No paint layer" });
+        // Collapsed by default, same as Palette/Tablet tuning/Paint layers below it - this used
+        // to be seven always-visible rows eating the vertical space every other section
+        // (including the hierarchy tree) has to share on a fixed-height panel.
+        Entropy.UI.Widget.collapsingHeader(uiWindowId, `Brush: ${currentBrush().name}`, () => {
+            Entropy.UI.Widget.horizontal(uiWindowId, () => {
+                for (let i = 0; i < BRUSHES.length; i++) {
+                    Entropy.UI.Widget.button(uiWindowId, {
+                        text: (i === brushIndex ? "> " : "") + ["Pencil", "Ink", "Air", "Erase"][i],
+                        id: `brush_btn_${i}`,
+                        onClick: () => { brushIndex = i; }
+                    });
+                }
+            });
+            Entropy.UI.Widget.slider(uiWindowId, {
+                label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
+                onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
+            });
+            Entropy.UI.Widget.colorInput(uiWindowId, {
+                label: "Color", color: [...paintSettings.color.map(n => n / 255), paintSettings.opacity],
+                onChange: values => {
+                    if (!Array.isArray(values) || values.length !== 4 || !values.every(Number.isFinite)) return;
+                    chooseColor(values.slice(0, 3).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255)) as RGB);
+                    paintSettings.opacity = Math.max(0.01, Math.min(1, values[3]));
+                },
+            });
+            Entropy.UI.Widget.slider(uiWindowId, { label: "Opacity", value: paintSettings.opacity, min: 0.01, max: 1, id: "brush_opacity", onChange: value => { paintSettings.opacity = Number(value); preferencesDirty = true; } });
+            Entropy.UI.Widget.button(uiWindowId, { text: pickingColor ? "Pick a surface color (cancel)" : "Eyedropper", id: "eyedropper", onClick: () => { pickingColor = !pickingColor; } });
+            const drawingLayer = activeSurface()?.layers.find(layer => layer.id === activeSurface()?.activeLayerId);
+            Entropy.UI.Widget.label(uiWindowId, { text: drawingLayer ? `Layer: ${drawingLayer.name}${drawingLayer.locked ? " (locked)" : !drawingLayer.visible ? " (hidden)" : ""}` : "No paint layer" });
+        }, "brush_header");
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Palette", renderPalette);
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Tablet tuning", renderBrushTuning);
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Paint layers", renderPaintLayers);

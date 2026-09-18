@@ -65,6 +65,11 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     beforeEach(async () => {
         vi.resetModules();
         listeners = {}; buttons = new Map(); sliders = new Map(); textures = new Map(); meshes = new Map(); buffers = new Map(); overUI = false; savedIndex = null; savedData = new Map(); textInputs = new Map();
+        // render itself must be reset too - setupUI() now creates a second window, and without
+        // this reset the "only bind the first window's onRender" guard below would keep the
+        // PREVIOUS test's stale closure (render is declared outside beforeEach, so it otherwise
+        // survives from one test to the next).
+        render = undefined as unknown as () => void;
         let serial = 0;
         const widget = {
             button: (_id: string, c: any) => buttons.set(c.id, c.onClick),
@@ -88,7 +93,9 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             Gizmo: { show: vi.fn(() => "gizmo"), hide: vi.fn(), updatePosition: vi.fn(), updateRotation: vi.fn() },
             Camera: { getTransform: () => [[0, 1.6, 6], [0, 0, -1]], setTransform: vi.fn(), screenToWorldRay: (x: number, y: number) => ({ origin: [x, y, 6], direction: [0, 0, -1] }) },
             Controls: { enable: vi.fn(), disable: vi.fn() },
-            UI: { createWindow: (c: any) => { render = c.onRender; return "tools"; }, Widget: widget },
+            // setupUI() now creates a second window for the keyframe timeline - only the first
+            // (the main sidebar) is what these tests drive via render()/update().
+            UI: { createWindow: (c: any) => { if (!render) render = c.onRender; return "tools"; }, Widget: widget },
             Window: { getSize: () => [1400, 900] },
             Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
