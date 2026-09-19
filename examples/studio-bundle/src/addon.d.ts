@@ -470,6 +470,14 @@ export interface ScopedAPI {
    * pulling down a real webpage's HTML to feed into `UI.Widget.html`. Call once, e.g. from
    * `addon.onInit`, and cache the result; calling it from a render callback stalls that frame. */
   Net: {
+    /** Starts a raw text fetch without blocking the current frame. Poll the returned id with
+     * `pollText`; fetched text is never executed. */
+    fetchText: (url: string) => string;
+    /** Returns `{ done: false }` while the request is in flight. A completed result is consumed
+     * by this call, so retain its text or error rather than polling the id again. */
+    pollText: (id: string) => { done: boolean; text?: string; error?: string };
+    /** Releases this addon's bookkeeping for a pending text fetch. */
+    cancelText: (id: string) => void;
     getText: (url: string) => string;
   };
   Lighting: {
@@ -1339,6 +1347,14 @@ export interface EntropyAPI {
    * pulling down a real webpage's HTML to feed into `UI.Widget.html`. Call once, e.g. from
    * `addon.onInit`, and cache the result; calling it from a render callback stalls that frame. */
   Net: {
+    /** Starts a raw text fetch without blocking the current frame. Poll the returned id with
+     * `pollText`; fetched text is never executed. */
+    fetchText: (url: string) => string;
+    /** Returns `{ done: false }` while the request is in flight. A completed result is consumed
+     * by this call, so retain its text or error rather than polling the id again. */
+    pollText: (id: string) => { done: boolean; text?: string; error?: string };
+    /** Releases this addon's bookkeeping for a pending text fetch. */
+    cancelText: (id: string) => void;
     getText: (url: string) => string;
   };
   Composer?: {
