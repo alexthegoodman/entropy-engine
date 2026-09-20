@@ -28,8 +28,11 @@ function parseFeature(file: string): Scenario[] {
         const line = raw.trim();
         if (!line || line.startsWith("#") || line.startsWith("Feature:")) continue;
         if (line.startsWith("Scenario:")) { scenarios.push({ name: line.slice(9).trim(), steps: [] }); continue; }
+        // Prose under `Feature:` (before the first scenario) is a description, not a step. Anything
+        // unrecognised inside a scenario still fails loudly.
+        if (!scenarios.length) continue;
         const step = /^(Given|When|Then|And|But) (.+)$/.exec(line);
-        if (!step || !scenarios.length) throw new Error(`Unsupported Gherkin: ${line}`);
+        if (!step) throw new Error(`Unsupported Gherkin: ${line}`);
         scenarios.at(-1)!.steps.push(step[2]);
     }
     return scenarios;
@@ -52,6 +55,7 @@ function createWorld(initialSaved?: unknown) {
     let uuid = 0;
     let init: (() => Promise<void> | void) | undefined;
     let tabRender: (() => void) | undefined;
+    const windowRenders: (() => void)[] = [];
     const updates: (() => void)[] = [];
     const w = {
         clock: 1_000_000,
@@ -61,6 +65,13 @@ function createWorld(initialSaved?: unknown) {
         textInputs: new Map<string, any>(),
         numerics: new Map<string, any>(),
         dropdowns: new Map<string, any>(),
+        checkboxes: new Map<string, any>(),
+        // The analysis widgets, by id, exactly as the addon declared them this frame.
+        spectra: new Map<string, any>(),
+        scopes: new Map<string, any>(),
+        meters: new Map<string, any>(),
+        // What `Audio.analyze` answers per source; a source with no entry does not exist.
+        analysis: new Map<string, any>(),
         piano: null as any,
         arrangement: null as any,
         labels: [] as string[],
@@ -77,7 +88,11 @@ function createWorld(initialSaved?: unknown) {
         horizontal: wrap, vertical: wrap, group: wrap,
         button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); },
         label: (_win: string, c: any) => { w.labels.push(c.text); },
-        slider: () => {}, checkbox: () => {}, separator: () => {},
+        slider: () => {}, separator: () => {},
+        checkbox: (_win: string, c: any) => { w.checkboxes.set(c.id ?? c.label, c); },
+        spectrum: (_win: string, c: any) => { w.spectra.set(c.id, c); },
+        oscilloscope: (_win: string, c: any) => { w.scopes.set(c.id, c); },
+        levelMeter: (_win: string, c: any) => { w.meters.set(c.id, c); },
         numericInput: (_win: string, c: any) => { w.numerics.set(c.id ?? c.label, c); },
         textInput: (_win: string, c: any) => { w.textInputs.set(c.id ?? c.label, c); },
         dropdown: (_win: string, c: any) => { w.dropdowns.set(c.id ?? c.label, c); },
@@ -102,6 +117,7 @@ function createWorld(initialSaved?: unknown) {
             removeTrackBus: (id: string) => { w.buses.delete(id); },
             playNoteOnTrack: (id: string, cfg: any) => { w.played.push({ id, cfg }); },
             renderPatternToWav: (events: any[], _name: string) => { w.exports.push(events); return { success: true, path: "test.wav", durationSeconds: 1 }; },
+            analyze: (source: string) => w.analysis.get(source) ?? null,
         },
         AudioEffect: {
             createDelay: () => `delay-${++uuid}`, createReverb: () => `reverb-${++uuid}`,
@@ -118,14 +134,17 @@ function createWorld(initialSaved?: unknown) {
         println: () => {},
         generateUUID: () => `uuid-${++uuid}`,
         Addon: { register: () => addonApi },
-        UI: { Widget: widgets },
+        UI: { Widget: widgets, createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); return `window-${windowRenders.length}`; } },
+        Window: { getSize: () => [1400, 900] },
         Composer: undefined,
     };
 
     const render = () => {
         w.buttons.clear(); w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
+        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
+        windowRenders.forEach(fn => fn());
     };
     const advance = (ms: number) => {
         for (let left = ms; left > 0; left -= 50) {
@@ -312,6 +331,86 @@ describe("The DAW arranges tracks on a 16-channel timeline (production addon cal
                 [/^I call the tool "(.+)" with (\{.*\})$/, (name, json) => callTool(name, toolArgs(json, false))],
                 [/^I call the tool "(.+)" for that track with (\{.*\})$/, (name, json) => callTool(name, toolArgs(json, true))],
                 [/^the tool result skipped (\d+) clips?$/, n => expect(w.lastToolResult.skipped).toHaveLength(+n)],
+            ];
+
+            for (const text of scenario.steps) {
+                const step = steps.find(([re]) => re.test(text));
+                if (!step) throw new Error(`No step definition for: ${text}`);
+                const match = step[0].exec(text)!;
+                await step[1](...match.slice(1));
+            }
+        });
+    }
+});
+
+describe("The DAW shows what it is playing (production addon callbacks)", () => {
+    afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); delete (globalThis as any).Entropy; });
+
+    for (const scenario of parseFeature("daw_analyzer")) {
+        it(scenario.name, async () => {
+            vi.resetModules();
+            const world = createWorld();
+            const w = world.w;
+            vi.spyOn(Date, "now").mockImplementation(() => w.clock);
+
+            const listening = (source: string) => {
+                expect(w.spectra.get("analyzer_spectrum")?.source, "spectrum source").toBe(source);
+                expect(w.scopes.get("analyzer_scope")?.source, "scope source").toBe(source);
+                expect(w.meters.get("analyzer_meter")?.source, "meter source").toBe(source);
+            };
+            const laneColour = (name: string) => (w.arrangement.tracks as any[]).find(t => t.label === name)?.color;
+            const hears = (source: string, peak: number, rms: number, hz: number, brightness: number) =>
+                w.analysis.set(source, { peakL: peak, peakR: peak, rmsL: rms, rmsR: rms, peakHz: hz, peakDb: peak, centroidHz: brightness, framesWritten: 100000, windowFrames: 4096 });
+            const choose = (i: string, id: string) => { world.render(); w.dropdowns.get(id).onChange(i); world.render(); };
+            const call = (name: string, json: string) => { world.render(); w.lastToolResult = w.tools.get(name)!(JSON.parse(json)); world.render(); };
+
+            const steps: [RegExp, (...args: string[]) => void | Promise<void>][] = [
+                [/^the DAW is open with its starter song$/, async () => { await world.open(); }],
+                [/^the spectrum, the oscilloscope and the meter are all reading "(.+)"$/, source => { world.render(); listening(source); }],
+                [/^the spectrum is not tinted with a track colour$/, () => expect(w.spectra.get("analyzer_spectrum").color).toBeUndefined()],
+                [/^the spectrum is tinted with the colour of "(.+)"$/, name => {
+                    expect(w.spectra.get("analyzer_spectrum").color).toEqual(laneColour(name));
+                    expect(laneColour(name)).toBeDefined();
+                }],
+                [/^the oscilloscope is tinted with the colour of "(.+)"$/, name => expect(w.scopes.get("analyzer_scope").color).toEqual(laneColour(name))],
+                [/^I choose option (\d+) of "(.+)"$/, (i, id) => choose(i, id)],
+                [/^I untick "(.+)"$/, label => { world.render(); w.checkboxes.get(label).onChange(false); world.render(); }],
+                [/^the oscilloscope is in (\w+) mode$/, mode => { world.render(); expect(w.scopes.get("analyzer_scope").mode).toBe(mode); }],
+                [/^the oscilloscope is zoomed in$/, () => expect(w.scopes.get("analyzer_scope").gain).toBeGreaterThan(1)],
+                [/^the analyzer lives in a window of its own, not in the tab$/, () => {
+                    world.render();
+                    expect(w.spectra.size).toBe(1);
+                    expect(w.meters.has("analyzer_meter")).toBe(true);
+                }],
+                [/^the spectrum uses an FFT of (\d+) in the "(.+)" style$/, (fft, style) => {
+                    const c = w.spectra.get("analyzer_spectrum");
+                    expect([c.fftSize, c.style]).toEqual([+fft, style]);
+                }],
+                [/^the stereo oscilloscope has its trigger off$/, () => expect(w.scopes.get("analyzer_scope").trigger).toBe(false)],
+                [/^I call the tool "(.+)" with (\{.*\})$/, (name, json) => call(name, json)],
+                [/^I advance (\d+) milliseconds$/, ms => world.advance(+ms)],
+                [/^there are meters for (.+)$/, list => {
+                    const wanted = [...list.matchAll(/"([^"]+)"/g)].map(m => m[1]);
+                    world.render();
+                    for (const id of wanted) {
+                        const meter = w.meters.get("meter_" + id);
+                        expect(meter, `a meter for ${id}`).toBeDefined();
+                        expect(meter.source).toBe(id);
+                    }
+                }],
+                [/^the engine hears a peak of (-?[\d.]+) dBFS and RMS of (-?[\d.]+) dBFS at ([\d.]+) Hz with brightness (\d+) Hz on "(.+)"$/, (peak, rms, hz, b, source) =>
+                    hears(source, +peak, +rms, +hz, +b)],
+                [/^the engine hears silence on "(.+)"$/, source => hears(source, -120, -120, 0, 0)],
+                [/^I see a label containing "(.+)"$/, text => { world.render(); expect(w.labels.some(l => l.includes(text)), `${text} in ${w.labels.join(" | ")}`).toBe(true); }],
+                [/^I see the label "(.+)"$/, text => { world.render(); expect(w.labels).toContain(text); }],
+                [/^the tool result says the master's strongest note is "(.+)"$/, note => expect(w.lastToolResult.master.strongestNote).toBe(note)],
+                [/^the tool result lists (\d+) tracks$/, n => expect(w.lastToolResult.tracks).toHaveLength(+n)],
+                [/^the tool result says "(.+)" has its strongest frequency at ([\d.]+) Hz$/, (name, hz) =>
+                    expect(w.lastToolResult.tracks.find((t: any) => t.name === name).strongestHz).toBe(+hz)],
+                [/^the saved project does not mention the analyzer$/, () => {
+                    const text = JSON.stringify(w.saved);
+                    expect(text).not.toMatch(/analyzer|fftSize/i);
+                }],
             ];
 
             for (const text of scenario.steps) {

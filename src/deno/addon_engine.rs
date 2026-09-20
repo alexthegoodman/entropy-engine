@@ -82,7 +82,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -206,6 +206,10 @@ extension!(
         op_ui_widget_tracks,
         op_ui_widget_kanban,
         op_ui_widget_tree_view,
+        op_ui_widget_oscilloscope,
+        op_ui_widget_spectrum,
+        op_ui_widget_level_meter,
+        op_audio_analyze,
         op_ui_widget_collapsing_header,
         op_ui_widget_end_collapsing_header,
         op_ui_widget_start_horizontal,
@@ -579,6 +583,7 @@ impl AddonEngine {
             active_tab: None,
             ui_widgets: HashMap::new(),
             ui_frame_labels: Vec::new(),
+            ui_frame_labels_from_tabs: false,
             pending_theme: None,
             ui_events: Arc::new(Mutex::new(Vec::new())),
             doc_editor_commands: HashMap::new(),
@@ -3658,7 +3663,10 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 // Only rewrite the list when there are windows to read it from: a tabbed addon has
                 // none, and `render_tabs` owns the list for it (clearing here every frame would wipe
                 // what the tab path just recorded).
-                if !sorted_windows.is_empty() {
+                // When the tab pass already filled it this frame (an app with a tab AND a window,
+                // like the DAW with its Analyzer), keep those labels and add the windows' to them.
+                let tab_labels_present = std::mem::take(&mut context.ui_frame_labels_from_tabs);
+                if !sorted_windows.is_empty() && !tab_labels_present {
                     context.ui_frame_labels.clear();
                 }
                 for (id, config) in &sorted_windows {
@@ -3826,6 +3834,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     .as_ref()
                     .map(|w| w.iter().filter_map(|widget| if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }).collect())
                     .unwrap_or_default();
+                context.ui_frame_labels_from_tabs = true;
                 egui::CentralPanel::default().show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if let Some(widgets) = widgets {
@@ -4451,6 +4460,77 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
+                UiWidget::Oscilloscope { id: scope_id, config } => {
+                    use crate::entropy_gui::{widgets_analysis::ACCENT, Oscilloscope, ScopeMode, ScopeOptions};
+                    let sr = crate::audio::analysis::ENGINE_SAMPLE_RATE as f32;
+                    // The screen spans `window_ms`; twice that is copied so the trigger has history to search.
+                    let window = ((config.window_ms.unwrap_or(23.0).clamp(5.0, 90.0) / 1000.0) * sr).round() as usize;
+                    let (left, right) = context
+                        .audio_engine
+                        .snapshot(&config.source, window * 2)
+                        .map(|s| (s.left, s.right))
+                        .unwrap_or_default();
+                    let mode = match config.mode.as_deref() {
+                        Some("stereo") => ScopeMode::Stereo,
+                        Some("xy") => ScopeMode::Xy,
+                        _ => ScopeMode::Mono,
+                    };
+                    let opts = ScopeOptions {
+                        mode,
+                        height: config.height.unwrap_or(180.0),
+                        window_frames: window,
+                        trigger: config.trigger.unwrap_or(true),
+                        trigger_level: config.trigger_level.unwrap_or(0.0),
+                        color: config.color.map(analysis_color).unwrap_or(ACCENT),
+                        persistence: config.persistence.unwrap_or(0.12),
+                        sample_rate: sr,
+                        gain: config.gain.unwrap_or(1.0),
+                        width: config.width,
+                    };
+                    Oscilloscope::new(scope_id.as_str()).options(opts).show(ui, &left, &right);
+                }
+                UiWidget::Spectrum { id: spectrum_id, config } => {
+                    use crate::entropy_gui::{widgets_analysis::ACCENT, SpectrumOptions, SpectrumStyle, SpectrumView};
+                    let fft = config.fft_size.unwrap_or(4096) as usize;
+                    let (bins, sr) = context
+                        .audio_engine
+                        .spectrum(&config.source, fft)
+                        .map(|s| (s.bins_db, s.sample_rate))
+                        .unwrap_or_else(|| (Vec::new(), crate::audio::analysis::ENGINE_SAMPLE_RATE as f32));
+                    let d = SpectrumOptions::default();
+                    let opts = SpectrumOptions {
+                        style: if config.style.as_deref() == Some("bars") { SpectrumStyle::Bars } else { SpectrumStyle::Filled },
+                        height: config.height.unwrap_or(d.height),
+                        min_db: config.min_db.unwrap_or(d.min_db),
+                        max_db: config.max_db.unwrap_or(d.max_db),
+                        min_hz: config.min_hz.unwrap_or(d.min_hz),
+                        max_hz: config.max_hz.unwrap_or(d.max_hz),
+                        bands_per_octave: config.bands_per_octave.unwrap_or(d.bands_per_octave),
+                        peak_hold: config.peak_hold.unwrap_or(d.peak_hold),
+                        tilt_db_per_octave: config.tilt_db_per_octave.unwrap_or(d.tilt_db_per_octave),
+                        fall_db_per_s: config.fall_db_per_s.unwrap_or(d.fall_db_per_s),
+                        color: config.color.map(analysis_color).unwrap_or(ACCENT),
+                        width: config.width,
+                        ..d
+                    };
+                    SpectrumView::new(spectrum_id.as_str()).options(opts).show(ui, &bins, sr);
+                }
+                UiWidget::LevelMeter { id: meter_id, config } => {
+                    use crate::entropy_gui::{LevelMeter, MeterOptions, MeterReading};
+                    let reading = context
+                        .audio_engine
+                        .levels(&config.source, meter_id)
+                        .map(|l| MeterReading { peak: l.peak, rms: l.rms })
+                        .unwrap_or_default();
+                    let d = MeterOptions::default();
+                    let opts = MeterOptions {
+                        width: config.width.unwrap_or(d.width),
+                        height: config.height.unwrap_or(d.height),
+                        show_scale: config.show_scale.unwrap_or(d.show_scale),
+                        ..d
+                    };
+                    LevelMeter::new(meter_id.as_str()).options(opts).show(ui, reading);
+                }
                 UiWidget::Snarl { id: snarl_id, graph } => {
                     // Real, interactive editor (pan/zoom/drag/connect) as of this session - see
                     // `entropy_gui::widgets_node_graph`. `SnarlConfig.onConnect`/`onDisconnect`/
@@ -4847,4 +4927,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             }
         }
     }
+}
+
+
+/// `[r, g, b, a]` in 0..1, as addon configs spell a colour, to the GUI's `Color32`.
+fn analysis_color(c: [f32; 4]) -> crate::entropy_gui::color::Color32 {
+    let byte = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    crate::entropy_gui::color::Color32::from_rgba_unmultiplied(byte(c[0]), byte(c[1]), byte(c[2]), byte(c[3]))
 }

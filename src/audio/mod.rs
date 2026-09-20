@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod vst3;
 pub mod vst3_capture;
 
@@ -7,6 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
+use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
 
 // A wrapper to make a type-erased fundsp graph compatible with rodio::Source. The graph is
 // always exactly stereo (2 outputs) - see `build_note_node` - so this no longer needs to be
@@ -575,6 +577,13 @@ struct TrackBusSource {
     muted: Arc<AtomicBool>,
     solo: Arc<AtomicBool>,
     any_solo: Arc<AtomicBool>,
+    /// What this track sounds like after its effects, gain, mute and solo: the same frames the
+    /// master bus sums, so a scope on a muted track goes flat rather than showing a signal you
+    /// cannot hear. See `analysis::AudioTap`.
+    tap: Arc<AudioTap>,
+    /// Cleared when the track is removed. The bus now lives inside the master mixer rather than
+    /// owning a `Sink`, so ending the source is how a deleted track stops making sound.
+    alive: Arc<AtomicBool>,
     sample_rate: f32,
     buf: [f32; 2],
     buf_idx: u8,
@@ -585,6 +594,9 @@ impl Iterator for TrackBusSource {
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.buf_idx == 0 {
+            if !self.alive.load(Ordering::Relaxed) {
+                return None;
+            }
             let dry = [
                 self.mixer_source.next().unwrap_or(0.0),
                 self.mixer_source.next().unwrap_or(0.0),
@@ -606,6 +618,7 @@ impl Iterator for TrackBusSource {
             let gain = if active { f32::from_bits(self.gain.load(Ordering::Relaxed)) } else { 0.0 };
 
             self.buf = [x[0] * gain, x[1] * gain];
+            self.tap.push(self.buf[0], self.buf[1]);
         }
         let sample = self.buf[self.buf_idx as usize];
         self.buf_idx = (self.buf_idx + 1) % 2;
@@ -621,36 +634,99 @@ impl Source for TrackBusSource {
 }
 
 /// The main-thread-facing handle for one track's persistent mixing bus - see `TrackBusSource`
-/// for the audio-thread side sharing these same `Arc`s. `_sink` is never read again after
-/// creation; it's kept alive purely so dropping this `TrackBus` (on `remove_track_bus`) also
-/// drops the `Sink`, which is how a deleted track's bus actually stops making sound - a
-/// never-ending source like `TrackBusSource` can't be dropped by any other means (unlike the old
-/// per-note sinks, this one is never `.detach()`ed).
+/// for the audio-thread side sharing these same `Arc`s. Dropping this `TrackBus` (on
+/// `remove_track_bus`) clears `alive`, which ends the bus's source and lets the master mixer drop
+/// it: a never-ending source can't be stopped any other way now that the bus is no longer wrapped
+/// in a `Sink` of its own.
 struct TrackBus {
     note_mixer: rodio::mixer::Mixer,
-    _sink: Sink,
+    alive: Arc<AtomicBool>,
     gain: Arc<AtomicU32>,
     muted: Arc<AtomicBool>,
     solo: Arc<AtomicBool>,
     effects: Arc<Mutex<Vec<Arc<EffectHandle>>>>,
+    tap: Arc<AudioTap>,
 }
+
+impl Drop for TrackBus {
+    fn drop(&mut self) {
+        self.alive.store(false, Ordering::Relaxed);
+    }
+}
+
+/// The master bus: sums every track bus and is the one thing appended to the output stream. It
+/// exists so there is a single place that hears the whole mix (an analyzer on "master" needs the
+/// real sum, and summing per-track taps after the fact would only line up to within a callback
+/// buffer), and it is where a future master effect chain or limiter would go. Like
+/// `TrackBusSource` it never ends: an empty `MixerSource` reads as silence.
+struct MasterBusSource {
+    mixer_source: rodio::mixer::MixerSource,
+    tap: Arc<AudioTap>,
+    buf: [f32; 2],
+    buf_idx: u8,
+}
+
+impl Iterator for MasterBusSource {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buf_idx == 0 {
+            self.buf = [
+                self.mixer_source.next().unwrap_or(0.0),
+                self.mixer_source.next().unwrap_or(0.0),
+            ];
+            self.tap.push(self.buf[0], self.buf[1]);
+        }
+        let sample = self.buf[self.buf_idx as usize];
+        self.buf_idx = (self.buf_idx + 1) % 2;
+        Some(sample)
+    }
+}
+
+impl Source for MasterBusSource {
+    fn current_span_len(&self) -> Option<usize> { None }
+    fn channels(&self) -> u16 { 2 }
+    fn sample_rate(&self) -> u32 { ENGINE_SAMPLE_RATE }
+    fn total_duration(&self) -> Option<std::time::Duration> { None }
+}
+
+/// Name of the tap that hears the whole mix, as `Entropy.Audio` and the analyzer widgets spell it.
+pub const MASTER_SOURCE: &str = "master";
 
 pub struct AudioEngine {
     stream_handle: OutputStream,
     effects: Mutex<HashMap<String, Arc<EffectHandle>>>,
     track_buses: Mutex<HashMap<String, TrackBus>>,
     any_solo: Arc<AtomicBool>,
+    master_mixer: rodio::mixer::Mixer,
+    _master_sink: Sink,
+    master_tap: Arc<AudioTap>,
+    /// FFT plans and window tables, reused across frames. Only the UI thread calls into it.
+    analyzer: Mutex<SpectrumAnalyzer>,
+    /// Where each meter widget last read up to, so a peak is measured since the last frame
+    /// rather than over a fixed trailing window. Keyed by the reader's own id.
+    meter_cursors: Mutex<HashMap<String, u64>>,
 }
 
 impl AudioEngine {
     pub fn new() -> Self {
         let stream_handle = OutputStreamBuilder::open_default_stream().expect("Failed to create audio stream");
 
+        let (master_mixer, mixer_source) = rodio::mixer::mixer(2, ENGINE_SAMPLE_RATE);
+        let master_tap = Arc::new(AudioTap::new());
+        let master_sink = Sink::connect_new(stream_handle.mixer());
+        master_sink.append(MasterBusSource { mixer_source, tap: master_tap.clone(), buf: [0.0; 2], buf_idx: 0 });
+
         AudioEngine {
             stream_handle,
             effects: Mutex::new(HashMap::new()),
             track_buses: Mutex::new(HashMap::new()),
             any_solo: Arc::new(AtomicBool::new(false)),
+            master_mixer,
+            _master_sink: master_sink,
+            master_tap,
+            analyzer: Mutex::new(SpectrumAnalyzer::new()),
+            meter_cursors: Mutex::new(HashMap::new()),
         }
     }
 
@@ -699,6 +775,8 @@ impl AudioEngine {
             let muted_a = Arc::new(AtomicBool::new(muted));
             let solo_a = Arc::new(AtomicBool::new(solo));
             let effects_a = Arc::new(Mutex::new(resolved));
+            let tap = Arc::new(AudioTap::new());
+            let alive = Arc::new(AtomicBool::new(true));
 
             let source = TrackBusSource {
                 mixer_source,
@@ -707,21 +785,23 @@ impl AudioEngine {
                 muted: muted_a.clone(),
                 solo: solo_a.clone(),
                 any_solo: self.any_solo.clone(),
+                tap: tap.clone(),
+                alive: alive.clone(),
                 sample_rate,
                 buf: [0.0; 2],
                 buf_idx: 0,
             };
 
-            let sink = Sink::connect_new(self.stream_handle.mixer());
-            sink.append(source);
+            self.master_mixer.add(source);
 
             buses.insert(track_id.to_string(), TrackBus {
                 note_mixer,
-                _sink: sink,
+                alive,
                 gain: gain_a,
                 muted: muted_a,
                 solo: solo_a,
                 effects: effects_a,
+                tap,
             });
         }
 
@@ -770,6 +850,66 @@ impl AudioEngine {
             }
             None => false,
         }
+    }
+
+    // --- Analysis (oscilloscope, spectrum and level meters) ---
+
+    /// The tap for `source`: `"master"` for the whole mix, or a track id for that track's bus.
+    pub fn tap(&self, source: &str) -> Option<Arc<AudioTap>> {
+        if source == MASTER_SOURCE {
+            return Some(self.master_tap.clone());
+        }
+        self.track_buses.lock().unwrap().get(source).map(|b| b.tap.clone())
+    }
+
+    /// The last `frames` frames `source` produced, oldest first. `None` when there is no such
+    /// source (a deleted track, a stale id): a widget draws an empty trace for that.
+    pub fn snapshot(&self, source: &str, frames: usize) -> Option<TapSnapshot> {
+        self.tap(source).map(|t| t.snapshot(frames))
+    }
+
+    /// Spectrum of the last `fft_size` frames of `source`.
+    pub fn spectrum(&self, source: &str, fft_size: usize) -> Option<Spectrum> {
+        let snap = self.snapshot(source, fft_size)?;
+        Some(self.analyzer.lock().unwrap().analyze(&snap.left, &snap.right, fft_size, ENGINE_SAMPLE_RATE as f32))
+    }
+
+    /// Levels and spectrum headline numbers for the last `fft_size` frames of `source`, with no
+    /// widget involved: for tests, AI tools and addons that want to read the mix back.
+    pub fn analyze(&self, source: &str, fft_size: usize) -> Option<AudioSummary> {
+        let tap = self.tap(source)?;
+        let snap = tap.snapshot(fft_size);
+        let levels = Levels::of(&snap.left, &snap.right);
+        let spec = self.analyzer.lock().unwrap().analyze(&snap.left, &snap.right, fft_size, ENGINE_SAMPLE_RATE as f32);
+        Some(AudioSummary {
+            peak_l: to_db(levels.peak[0]),
+            peak_r: to_db(levels.peak[1]),
+            rms_l: to_db(levels.rms[0]),
+            rms_r: to_db(levels.rms[1]),
+            peak_hz: spec.peak_hz,
+            peak_db: spec.peak_db,
+            centroid_hz: spec.centroid_hz,
+            frames_written: tap.frames_written(),
+            window_frames: snap.len(),
+        })
+    }
+
+    /// Peak and RMS of `source` since the last call with the same `reader` key. The key is the
+    /// calling widget's own id, so two meters on one source do not steal each other's peaks.
+    pub fn levels(&self, source: &str, reader: &str) -> Option<Levels> {
+        let tap = self.tap(source)?;
+        let key = format!("{reader}|{source}");
+        let mut cursors = self.meter_cursors.lock().unwrap();
+        let cursor = cursors.get(&key).copied();
+        // A first read looks back one 60 Hz UI frame; after that it is exactly "since last time".
+        let (levels, next) = tap.levels_since(cursor, ENGINE_SAMPLE_RATE as usize / 60);
+        cursors.insert(key, next);
+        Some(levels)
+    }
+
+    /// Ids of every track that currently has a bus, for a source picker.
+    pub fn track_ids(&self) -> Vec<String> {
+        self.track_buses.lock().unwrap().keys().cloned().collect()
     }
 
     pub fn play_test_tone(&self) {

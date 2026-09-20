@@ -22,6 +22,14 @@ harness = false
 name = "vst3_bdd"
 harness = false
 
+[[test]]
+name = "audio_analysis_bdd"
+harness = false
+
+[[test]]
+name = "audio_widgets_bdd"
+harness = false
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
@@ -77,6 +85,9 @@ exr = "1.74.0"
 gilrs = "0.11.1"
 rodio = "0.21.1"
 fundsp = "0.23.0"
+# Windowed real FFT for the DAW's spectrum analyzer (src/audio/analysis.rs). Already in the tree
+# via fundsp; naming it here lets the analyzer plan its own transforms.
+realfft = "3.5"
 hound = "3.5"
 ordered-float = "5.1.0"
 burn = { version = "0.20", features = ["ndarray", "autodiff"] }

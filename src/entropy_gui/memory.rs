@@ -116,9 +116,24 @@ pub struct Memory {
     /// would mean cloning an entire (potentially huge) document every frame. `take_doc_editor`/
     /// `put_doc_editor` move it in and out instead - see `widgets_doc_editor` module docs.
     doc_editors: IdMap<crate::entropy_gui::widgets_doc_editor::DocEditorState>,
+    /// Per-widget animation state that only the widget itself understands (an analyzer's smoothed
+    /// levels, a scope's phosphor trails). Type-erased so a widget can keep whatever shape it
+    /// needs without a new variant here, and moved out and back in like `doc_editors` rather than
+    /// cloned, since a scope's trails are hundreds of points. See `take_view_state`.
+    view_states: IdMap<Box<dyn std::any::Any>>,
 }
 
 impl Memory {
+    /// Removes and returns this widget's state of type `T`, or `T::default()` the first time (or if
+    /// the id was last used by a widget with a different state type). Pair with `put_view_state`.
+    pub fn take_view_state<T: std::any::Any + Default>(&mut self, id: Id) -> T {
+        self.view_states.remove(&id).and_then(|b| b.downcast::<T>().ok()).map(|b| *b).unwrap_or_default()
+    }
+
+    pub fn put_view_state<T: std::any::Any>(&mut self, id: Id, state: T) {
+        self.view_states.insert(id, Box::new(state));
+    }
+
     pub fn get_scroll(&self, id: Id) -> Vec2 {
         match self.data.get(&id) {
             Some(WidgetState::ScrollOffset(v)) => *v,

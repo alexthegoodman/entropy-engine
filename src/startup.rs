@@ -111,6 +111,16 @@ struct BrowserBddDriver {
     daw: bool,
     wait_until: Option<Instant>,
     editor_captures: Vec<serde_json::Value>,
+    /// What the audio engine's own analysis taps reported when a `I record the analysis` step ran,
+    /// by name. Read straight from the audio side (levels, strongest frequency, brightness), not
+    /// inferred from a screenshot, so a scenario can assert on the audio itself.
+    analyses: serde_json::Map<String, serde_json::Value>,
+    /// Measurements in progress: (name, source, highest linear peak seen so far, frames covered).
+    /// A single analysis reads one 93 ms window, and a drum track spends most of its time between
+    /// hits, so "was this track audible while the song played" has to be asked over the whole
+    /// interval. Polled every driver tick through the same since-last-read reader a meter uses.
+    measuring: Vec<(String, String, f32, u64)>,
+    measurements: serde_json::Map<String, serde_json::Value>,
 }
 
 enum BrowserBddAction {
@@ -122,6 +132,11 @@ enum BrowserBddAction {
     Capture(String),
     WaitMs(u64),
     CaptureEditor(String),
+    /// `I record the analysis "name" of "source"`: source is "master" or a track id.
+    RecordAnalysis { name: String, source: String },
+    /// `I start measuring "name" of "source"` ... `I record the measurement "name"`.
+    StartMeasuring { name: String, source: String },
+    RecordMeasurement { name: String },
     Finish,
 }
 
@@ -182,6 +197,15 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
             .unwrap_or_else(|_| panic!("feature file: not a millisecond count in {text:?}"));
         return Some(BrowserBddAction::WaitMs(count));
     }
+    if text.starts_with("I start measuring ") && quoted.len() == 2 {
+        return Some(BrowserBddAction::StartMeasuring { name: quoted[0].to_string(), source: quoted[1].to_string() });
+    }
+    if text.starts_with("I record the measurement ") && quoted.len() == 1 {
+        return Some(BrowserBddAction::RecordMeasurement { name: quoted[0].to_string() });
+    }
+    if text.starts_with("I record the analysis ") && quoted.len() == 2 {
+        return Some(BrowserBddAction::RecordAnalysis { name: quoted[0].to_string(), source: quoted[1].to_string() });
+    }
     if text.starts_with("I capture the plugin editor ") && quoted.len() == 1 {
         return Some(BrowserBddAction::CaptureEditor(quoted[0].to_string()));
     }
@@ -228,6 +252,7 @@ impl BrowserBddDriver {
             match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
                 Ok("restore") => include_str!("../tests/features/vst3_live_restore.feature"),
                 Ok("arrangement") => include_str!("../tests/features/daw_arrangement_live.feature"),
+                Ok("analyzer") => include_str!("../tests/features/daw_analyzer_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
@@ -244,6 +269,9 @@ impl BrowserBddDriver {
             daw,
             wait_until: None,
             editor_captures: Vec::new(),
+            analyses: serde_json::Map::new(),
+            measuring: Vec::new(),
+            measurements: serde_json::Map::new(),
             artifacts: Vec::new(),
             outcomes: Vec::new(),
             artifact_dir,
@@ -285,6 +313,8 @@ impl BrowserBddDriver {
             // than inferred from the events the driver queued.
             result["vst3"] = serde_json::json!(crate::audio::vst3::all_stats());
             result["editor_captures"] = serde_json::json!(self.editor_captures);
+            result["analysis"] = serde_json::Value::Object(self.analyses.clone());
+            result["measurements"] = serde_json::Value::Object(self.measurements.clone());
         }
         if let Some(parent) = self.result_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -299,6 +329,20 @@ impl BrowserBddDriver {
             self.write_result("timeout", Some("live browser BDD exceeded 30 seconds"));
             event_loop.exit();
             return;
+        }
+        // Keep every open measurement's running peak up to date, including while a wait is pending.
+        if !self.measuring.is_empty() {
+            if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                let state = editor.addon_engine.runtime.op_state();
+                let state = state.borrow();
+                let engine = &state.borrow::<crate::deno::addon_ops::AddonContext>().audio_engine;
+                for (name, source, peak, frames) in self.measuring.iter_mut() {
+                    if let Some(levels) = engine.levels(source, &format!("bdd|{name}")) {
+                        *peak = peak.max(levels.peak[0]).max(levels.peak[1]);
+                        *frames += levels.frames as u64;
+                    }
+                }
+            }
         }
         if let Some(deadline) = self.wait_until {
             if Instant::now() < deadline {
@@ -352,6 +396,45 @@ impl BrowserBddDriver {
                 };
                 self.editor_captures.push(outcome.clone());
                 self.outcomes.push(serde_json::json!({ "kind": "editor-capture", "detail": outcome }));
+            }
+            BrowserBddAction::StartMeasuring { name, source } => {
+                self.measuring.push((name.clone(), source.clone(), 0.0, 0));
+                self.outcomes.push(serde_json::json!({ "kind": "measure-start", "name": name, "source": source }));
+            }
+            BrowserBddAction::RecordMeasurement { name } => {
+                match self.measuring.iter().position(|(n, ..)| *n == name) {
+                    Some(i) => {
+                        let (_, source, peak, frames) = self.measuring.remove(i);
+                        self.measurements.insert(name.clone(), serde_json::json!({
+                            "source": source,
+                            "peakDb": crate::audio::analysis::to_db(peak),
+                            "framesCovered": frames,
+                        }));
+                        self.outcomes.push(serde_json::json!({ "kind": "measure-record", "name": name }));
+                    }
+                    None => {
+                        self.write_result("failed", Some(&format!("no measurement named {name:?} was started")));
+                        event_loop.exit();
+                    }
+                }
+            }
+            BrowserBddAction::RecordAnalysis { name, source } => {
+                let summary = window.pipeline.export_editor.as_mut().and_then(|editor| {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let state = state.borrow();
+                    state.borrow::<crate::deno::addon_ops::AddonContext>().audio_engine.analyze(&source, 4096)
+                });
+                match summary {
+                    Some(summary) => {
+                        self.analyses.insert(name.clone(), serde_json::to_value(&summary).unwrap());
+                        self.outcomes.push(serde_json::json!({ "kind": "analysis", "name": name, "source": source, "outcome": "recorded" }));
+                    }
+                    None => {
+                        self.outcomes.push(serde_json::json!({ "kind": "analysis", "name": name, "source": source, "outcome": "no such source" }));
+                        self.write_result("failed", Some(&format!("no audio source {source:?} to analyse")));
+                        event_loop.exit();
+                    }
+                }
             }
             BrowserBddAction::Wait(frames) if frames > 1 => self.actions.push_front(BrowserBddAction::Wait(frames - 1)),
             BrowserBddAction::Wait(_) => {}

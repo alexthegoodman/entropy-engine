@@ -408,9 +408,67 @@ pub struct TreeNodeConfig {
     pub selected: Option<bool>,
 }
 
+/// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct OscilloscopeConfig {
+    pub source: String,
+    /// "mono" (default), "stereo" or "xy".
+    pub mode: Option<String>,
+    pub height: Option<f32>,
+    /// How much time the screen spans, 5-90 ms.
+    pub window_ms: Option<f32>,
+    pub trigger: Option<bool>,
+    pub trigger_level: Option<f32>,
+    /// [r, g, b, a] in 0..1.
+    pub color: Option<[f32; 4]>,
+    /// Seconds of afterglow; 0 turns it off.
+    pub persistence: Option<f32>,
+    pub gain: Option<f32>,
+    /// Fixed width in points; omit to fill the row.
+    pub width: Option<f32>,
+}
+
+/// `Widget.spectrum` - see `entropy_gui::SpectrumView`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectrumConfig {
+    pub source: String,
+    /// 1024, 2048, 4096 (default) or 8192.
+    pub fft_size: Option<u32>,
+    /// "filled" (default) or "bars".
+    pub style: Option<String>,
+    pub height: Option<f32>,
+    pub min_db: Option<f32>,
+    pub max_db: Option<f32>,
+    pub min_hz: Option<f32>,
+    pub max_hz: Option<f32>,
+    pub bands_per_octave: Option<u32>,
+    pub peak_hold: Option<bool>,
+    pub tilt_db_per_octave: Option<f32>,
+    pub fall_db_per_s: Option<f32>,
+    pub color: Option<[f32; 4]>,
+    pub width: Option<f32>,
+}
+
+/// `Widget.levelMeter` - see `entropy_gui::LevelMeter`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct LevelMeterConfig {
+    pub source: String,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+    pub show_scale: Option<bool>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
 pub enum UiWidget {
+    /// Signal analysis widgets. The audio behind `source` is read Rust-side when the widget is
+    /// drawn, so no samples ever cross into JS.
+    Oscilloscope { id: String, config: OscilloscopeConfig },
+    Spectrum { id: String, config: SpectrumConfig },
+    LevelMeter { id: String, config: LevelMeterConfig },
     Label { text: String, bold: Option<bool> },
     Button { text: String, id: String, label: String },
     ColorInput { id: String, label: String, color: [f32; 4] },
@@ -900,6 +958,11 @@ pub struct AddonContext {
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
     /// Visible top-level labels from the last rendered frame, for live BDD assertions.
     pub ui_frame_labels: Vec<String>,
+    /// True when `render_tabs` filled `ui_frame_labels` earlier in this same frame, so the window
+    /// pass (`render_ui`) must add its labels to the list instead of replacing it. An embedded
+    /// app draws tabs first and windows on top; before an app had both, the window pass could
+    /// assume the list was its own to rewrite.
+    pub ui_frame_labels_from_tabs: bool,
     /// Set by `op_ui_set_theme`, applied (and left in place, not drained) by `AddonEngine::
     /// render_ui`/`render_tabs` each frame - see those functions for why it isn't cleared here.
     pub pending_theme: Option<crate::entropy_gui::style::ThemeDescriptor>,
@@ -3154,6 +3217,51 @@ pub fn op_ui_widget_kanban(
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Kanban { id, columns, selected });
     }
+}
+
+#[op2]
+pub fn op_ui_widget_oscilloscope(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: OscilloscopeConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Oscilloscope { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_spectrum(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: SpectrumConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Spectrum { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_level_meter(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: LevelMeterConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::LevelMeter { id, config });
+    }
+}
+
+/// `Entropy.Audio.analyze(source, fftSize)`: levels and spectrum headline numbers for a source
+/// ("master" or a track id), or null if there is no such source. See `AudioEngine::analyze`.
+#[op2]
+#[serde]
+pub fn op_audio_analyze(state: &mut OpState, #[string] source: String, #[smi] fft_size: u32) -> Option<crate::audio::analysis::AudioSummary> {
+    let ctx = state.try_borrow::<AddonContext>()?;
+    ctx.audio_engine.analyze(&source, fft_size as usize)
 }
 
 #[op2]

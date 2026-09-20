@@ -3079,6 +3079,7 @@ dependencies = [
  "rand 0.8.5",
  "rapier3d",
  "raw-window-handle",
+ "realfft",
  "regex",
  "reqwest 0.12.24",
  "reqwest-graphql",

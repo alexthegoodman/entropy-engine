@@ -139,11 +139,18 @@ impl Painter {
         let face_set = fonts.shaping_set(font_id.family);
 
         let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, &text);
-        let (ox, oy) = match align {
-            Align2::LEFT_TOP => (pos.x, pos.y),
-            Align2::LEFT_CENTER => (pos.x, pos.y - shaped.height / 2.0),
-            Align2::CENTER_CENTER => (pos.x - shaped.width / 2.0, pos.y - shaped.height / 2.0),
-            _ => (pos.x, pos.y),
+        // Every horizontal x vertical combination is honoured. This used to match only the
+        // three constants that existed (LEFT_TOP/LEFT_CENTER/CENTER_CENTER) and put anything else
+        // at top-left of `pos`, which silently mis-placed right-aligned and bottom-aligned text.
+        let ox = match align.0 {
+            crate::entropy_gui::geometry::Align::Min => pos.x,
+            crate::entropy_gui::geometry::Align::Center => pos.x - shaped.width / 2.0,
+            crate::entropy_gui::geometry::Align::Max => pos.x - shaped.width,
+        };
+        let oy = match align.1 {
+            crate::entropy_gui::geometry::Align::Min => pos.y,
+            crate::entropy_gui::geometry::Align::Center => pos.y - shaped.height / 2.0,
+            crate::entropy_gui::geometry::Align::Max => pos.y - shaped.height,
         };
 
         let mut vertices = Vec::with_capacity(shaped.glyphs.len() * 4);

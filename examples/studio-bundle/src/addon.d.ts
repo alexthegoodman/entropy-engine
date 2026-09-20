@@ -357,6 +357,12 @@ export interface ScopedAPI {
     /** Triggers one note on an already-created track bus (see `ensureTrackBus`). The bus's own
      * `effectIds` chain handles FX now, so there are no delay/reverb fields here. */
     playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+    /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
+     * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
+     * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
+     * spectral centroid. `framesWritten` proves the audio thread is running. Returns null when
+     * the source does not exist. The analyzer widgets are drawn from the same taps. */
+    analyze: (source?: string, fftSize?: number) => AudioAnalysis | null;
   };
   /** A shared, reusable effect registry - create an effect once, then attach it to one or more
    * track buses by id via `Audio.ensureTrackBus`'s `effectIds`, instead of baking delay/reverb
@@ -424,6 +430,12 @@ export interface ScopedAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A triggered oscilloscope over `source` (`"master"` or a track id). */
+      oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
+      /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
+      spectrum: (windowId: string, config: SpectrumConfig) => void;
+      /** A stereo peak/RMS meter with peak hold and a click-to-clear clip latch. */
+      levelMeter: (windowId: string, config: LevelMeterConfig) => void;
       /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
        * one - fine for a header nothing else needs to target, fragile for one a script wants to
        * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
@@ -1061,6 +1073,78 @@ export interface TreeViewConfig {
   onMark?: (id: string, value: boolean) => void;
 }
 
+/** What `Audio.analyze` returns. */
+export interface AudioAnalysis {
+  peakL: number;
+  peakR: number;
+  rmsL: number;
+  rmsR: number;
+  peakHz: number;
+  peakDb: number;
+  centroidHz: number;
+  framesWritten: number;
+  windowFrames: number;
+}
+
+/** Config for `Widget.oscilloscope`. The audio behind `source` is read Rust-side when the widget
+ * is drawn, so no samples ever cross into JS. */
+export interface OscilloscopeConfig {
+  id?: string;
+  /** `"master"` (default) or a track id. */
+  source?: string;
+  /** `"mono"` (default: the mid signal), `"stereo"` (left and right overlaid), or `"xy"` (a
+   * goniometer: mono is a vertical line, out-of-phase is horizontal). */
+  mode?: "mono" | "stereo" | "xy";
+  height?: number;
+  /** Time across the screen, 5-90 ms (default 23). */
+  windowMs?: number;
+  /** Lock each frame to a rising crossing so a steady tone holds still (default true). */
+  trigger?: boolean;
+  triggerLevel?: number;
+  /** [r, g, b, a] in 0..1. */
+  color?: [number, number, number, number];
+  /** Seconds of afterglow (default 0.12); 0 turns it off. */
+  persistence?: number;
+  /** Vertical zoom: 1 puts full scale at the graticule edge. */
+  gain?: number;
+  /** Fixed width in points; omit to fill the row (set it to put widgets side by side). */
+  width?: number;
+}
+
+/** Config for `Widget.spectrum`. */
+export interface SpectrumConfig {
+  id?: string;
+  source?: string;
+  /** 1024, 2048, 4096 (default) or 8192. Larger resolves the bass better and reacts slower. */
+  fftSize?: number;
+  style?: "filled" | "bars";
+  height?: number;
+  minDb?: number;
+  maxDb?: number;
+  minHz?: number;
+  maxHz?: number;
+  /** For `style: "bars"`, log bands per octave (default 3). */
+  bandsPerOctave?: number;
+  peakHold?: boolean;
+  /** Display tilt about 1 kHz; 4.5 makes pink noise look flat, 0 (default) is honest. */
+  tiltDbPerOctave?: number;
+  /** How fast a falling level drops on screen, dB per second (default 48). */
+  fallDbPerS?: number;
+  color?: [number, number, number, number];
+  /** Fixed width in points; omit to fill the row. */
+  width?: number;
+}
+
+/** Config for `Widget.levelMeter`. */
+export interface LevelMeterConfig {
+  id?: string;
+  source?: string;
+  width?: number;
+  height?: number;
+  /** Draw dB tick labels beside the bars. */
+  showScale?: boolean;
+}
+
 export interface DocEditorConfig {
   id?: string;
   /** Page size/margin in px (96 = 1" at 96 DPI). Defaults to US Letter, 1" margins. */
@@ -1352,6 +1436,12 @@ export interface EntropyAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A triggered oscilloscope over `source` (`"master"` or a track id). */
+      oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
+      /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
+      spectrum: (windowId: string, config: SpectrumConfig) => void;
+      /** A stereo peak/RMS meter with peak hold and a click-to-clear clip latch. */
+      levelMeter: (windowId: string, config: LevelMeterConfig) => void;
       /** `id` gives this header a stable id (otherwise it falls back to a frame-counter-derived
        * one - fine for a header nothing else needs to target, fragile for one a script wants to
        * open by name). `defaultOpen` only takes effect the first time this id is ever rendered
@@ -1633,6 +1723,12 @@ export interface EntropyAPI {
     removeTrackBus: (trackId: string) => void;
     /** Triggers one note on an already-created track bus (see `ensureTrackBus`). */
     playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+    /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
+     * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
+     * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
+     * spectral centroid. `framesWritten` proves the audio thread is running. Returns null when
+     * the source does not exist. The analyzer widgets are drawn from the same taps. */
+    analyze: (source?: string, fftSize?: number) => AudioAnalysis | null;
   };
   /** A shared, reusable effect registry - see the scoped `Entropy.Addon.register()` API's
    * `AudioEffect` for the full doc comment (identical surface, top-level here). */

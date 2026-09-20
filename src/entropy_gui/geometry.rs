@@ -199,6 +199,12 @@ impl Align2 {
     pub const LEFT_CENTER: Align2 = Align2(Align::Min, Align::Center);
     pub const CENTER_CENTER: Align2 = Align2(Align::Center, Align::Center);
     pub const CENTER: Align2 = Align2::CENTER_CENTER;
+    pub const RIGHT_TOP: Align2 = Align2(Align::Max, Align::Min);
+    pub const RIGHT_CENTER: Align2 = Align2(Align::Max, Align::Center);
+    pub const RIGHT_BOTTOM: Align2 = Align2(Align::Max, Align::Max);
+    pub const LEFT_BOTTOM: Align2 = Align2(Align::Min, Align::Max);
+    pub const CENTER_TOP: Align2 = Align2(Align::Center, Align::Min);
+    pub const CENTER_BOTTOM: Align2 = Align2(Align::Center, Align::Max);
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

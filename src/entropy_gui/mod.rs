@@ -22,6 +22,7 @@ pub mod style;
 pub mod text_layout;
 pub mod ui;
 pub mod widgets;
+pub mod widgets_analysis;
 pub mod widgets_code_editor;
 pub mod widgets_color_picker;
 pub mod widgets_doc_editor;
@@ -51,6 +52,7 @@ pub use style::{Selection, Style, ThemeDescriptor, Visuals, WidgetVisuals, Widge
 pub use ui::{InnerResponse, Ui};
 pub use context::InputState;
 pub use widgets::{Button, CollapsingHeader, ComboBox, DragValue, ScrollArea, Slider};
+pub use widgets_analysis::{LevelMeter, MeterOptions, MeterReading, MeterResponse, Oscilloscope, ScopeMode, ScopeOptions, ScopeResponse, SpectrumHover, SpectrumOptions, SpectrumResponse, SpectrumStyle, SpectrumView};
 pub use widgets_color_picker::ColorPicker;
 pub use widgets_doc_editor::{DocEditor, DocEditorCommand, DocEditorResponse, DocEditorState, PageConfig, PageEntry, PageLayout};
 pub use widgets_kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanEvent, KanbanResponse};

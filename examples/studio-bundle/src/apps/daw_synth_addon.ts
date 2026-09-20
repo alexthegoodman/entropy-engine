@@ -642,6 +642,19 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
 let selectedClipId: string | null = null;
 let arrangementStatus = "";
 
+// What the Analyzer section is looking at. UI-only: it is not part of the saved project, since
+// which track you happen to be listening to is not something a song is made of.
+const analyzer = {
+    /** "master" or a track id; both are names the audio engine's analysis taps answer to. */
+    source: "master" as string,
+    fftSize: 4096,
+    style: "filled" as "filled" | "bars",
+    scope: "stereo" as "stereo" | "mono" | "xy",
+    trigger: true
+};
+const SCOPE_MODES = ["stereo", "mono", "xy"] as const;
+const FFT_SIZES = [1024, 2048, 4096, 8192];
+
 function selectedClip(): ArrClip | undefined {
     return selectedClipId ? project.arrangement.find(c => c.id === selectedClipId) : undefined;
 }
@@ -1185,6 +1198,82 @@ addon.onInit(async () => {
         }, "arrangement_panel", true);
     };
 
+    // Oscilloscope, spectrum, goniometer and a level meter over one source: the whole mix or a
+    // single track. All four read the audio engine's analysis taps Rust-side when they are drawn;
+    // no samples come through JS. Only `Audio.analyze` (the readout line) does, as a handful of numbers.
+    const analyzerReadout = (): string => {
+        const a = addon.Audio.analyze(analyzer.source, analyzer.fftSize);
+        if (!a) return "No such source.";
+        const peak = Math.max(a.peakL, a.peakR);
+        if (peak < -90) return "Silent.";
+        const rms = Math.max(a.rmsL, a.rmsR);
+        const note = a.peakHz > 0 ? ` (${midiToName(Math.round(69 + 12 * Math.log2(a.peakHz / 440)))})` : "";
+        const hz = a.peakHz >= 1000 ? `${(a.peakHz / 1000).toFixed(2)} kHz` : `${a.peakHz.toFixed(1)} Hz`;
+        return `Peak ${peak.toFixed(1)} dBFS   RMS ${rms.toFixed(1)} dBFS   Strongest ${hz}${note}   Brightness ${Math.round(a.centroidHz)} Hz`;
+    };
+
+    // A floating window rather than a section of the tab: the arrangement is 16 lanes tall, so a
+    // section under it is off screen exactly when you want to glance at a level, and one above it
+    // pushes the thing you are editing down the page. A window can be dragged out of the way.
+    const renderAnalyzer = (win: string) => {
+        const sources = ["master", ...project.tracks.map(t => t.id)];
+        if (!sources.includes(analyzer.source)) analyzer.source = "master";
+        const sourceTrack = findTrack(analyzer.source);
+        const color = sourceTrack ? trackRgba(sourceTrack) : undefined;
+
+        Entropy.UI.Widget.horizontal(win, (row: string) => {
+            Entropy.UI.Widget.dropdown(row, {
+                label: "Source",
+                id: "analyzer_source",
+                options: ["Master", ...project.tracks.map(t => t.name)],
+                selectedIndex: Math.max(0, sources.indexOf(analyzer.source)),
+                onChange: (idx: string) => { analyzer.source = sources[parseInt(idx, 10)] ?? "master"; }
+            });
+            Entropy.UI.Widget.dropdown(row, {
+                label: "FFT",
+                id: "analyzer_fft",
+                options: FFT_SIZES.map(String),
+                selectedIndex: Math.max(0, FFT_SIZES.indexOf(analyzer.fftSize)),
+                onChange: (idx: string) => { analyzer.fftSize = FFT_SIZES[parseInt(idx, 10)] ?? 4096; }
+            });
+            Entropy.UI.Widget.dropdown(row, {
+                label: "Style",
+                id: "analyzer_style",
+                options: ["Filled", "Bars"],
+                selectedIndex: analyzer.style === "bars" ? 1 : 0,
+                onChange: (idx: string) => { analyzer.style = idx === "1" ? "bars" : "filled"; }
+            });
+            Entropy.UI.Widget.dropdown(row, {
+                label: "Scope",
+                id: "analyzer_scope_mode",
+                options: ["Stereo", "Mono", "XY"],
+                selectedIndex: Math.max(0, SCOPE_MODES.indexOf(analyzer.scope)),
+                onChange: (idx: string) => { analyzer.scope = SCOPE_MODES[parseInt(idx, 10)] ?? "stereo"; }
+            });
+            Entropy.UI.Widget.checkbox(row, {
+                label: "Trigger",
+                value: analyzer.trigger,
+                onChange: (v: any) => { analyzer.trigger = v === true || v === "true"; }
+            });
+        });
+
+        Entropy.UI.Widget.horizontal(win, (row: string) => {
+            Entropy.UI.Widget.spectrum(row, {
+                id: "analyzer_spectrum", source: analyzer.source, fftSize: analyzer.fftSize,
+                style: analyzer.style, height: 200, width: 380, color
+            });
+            Entropy.UI.Widget.oscilloscope(row, {
+                id: "analyzer_scope", source: analyzer.source, mode: analyzer.scope,
+                trigger: analyzer.trigger, height: 200, width: 220, color,
+                gain: analyzer.scope === "xy" ? 2 : 1
+            });
+            Entropy.UI.Widget.levelMeter(row, {
+                id: "analyzer_meter", source: analyzer.source, width: 44, height: 200, showScale: true
+            });
+        });
+        Entropy.UI.Widget.label(win, { text: analyzerReadout() });
+    };
+
     const renderDAWUI = (tabId: string) => {
         renderTransportBar(tabId);
         renderArrangement(tabId);
@@ -1193,6 +1282,10 @@ addon.onInit(async () => {
         // console instead of a flat vertical list of rows.
         Entropy.UI.Widget.collapsingHeader(tabId, "🎚 Mixer", (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
+                Entropy.UI.Widget.group(tid2, (tid3: string) => {
+                    Entropy.UI.Widget.label(tid3, { text: "Master", bold: true });
+                    Entropy.UI.Widget.levelMeter(tid3, { id: "meter_master", source: "master", width: 34, height: 84, showScale: true });
+                });
                 project.tracks.forEach(track => {
                     Entropy.UI.Widget.group(tid2, (tid3: string) => {
                         Entropy.UI.Widget.button(tid3, {
@@ -1200,6 +1293,7 @@ addon.onInit(async () => {
                             id: "select_track_" + project.tracks.indexOf(track),
                             onClick: () => { project.activeTrackId = track.id; }
                         });
+                        Entropy.UI.Widget.levelMeter(tid3, { id: "meter_" + track.id, source: track.id, width: 34, height: 44 });
                         Entropy.UI.Widget.slider(tid3, {
                             label: "Gain",
                             value: track.gain, min: 0, max: 1,
@@ -1482,6 +1576,18 @@ addon.onInit(async () => {
         }
     });
 
+    // The analyzer floats over the tab, bottom-right by default; drag it wherever suits. The engine
+    // draws tabs first and windows on top of them.
+    const [screenW, screenH] = Entropy.Window.getSize();
+    const analyzerWindow: string = Entropy.UI.createWindow({
+        title: "Analyzer",
+        width: 720,
+        height: 330,
+        x: Math.max(16, screenW - 736),
+        y: Math.max(16, screenH - 346),
+        onRender: () => renderAnalyzer(analyzerWindow)
+    });
+
     const onFrame = () => {
         // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The
         // host snapshots its state when the editor closes or a parameter edit settles, and this
@@ -1526,6 +1632,31 @@ addon.onInit(async () => {
     // --- Chat / AI tool integration ---
 
     Entropy.println("DAW Addon Register Tools...");
+
+    addon.registerTool({
+        name: "daw_analyze_mix",
+        description: "Listen to what the DAW is playing right now, without hearing it: returns peak and RMS level in dBFS, the strongest frequency (Hz and nearest note), and the spectral centroid (a brightness measure) for the master mix and for every track, measured over the last ~90 ms of audio. Call it while the song is playing (start it with daw_set_transport) to check a balance, find a track that is too loud or silent, or confirm a bass sits low and a lead sits high. Silence reads -120 dBFS. framesWritten increasing between two calls proves the audio engine is running.",
+        parameters: { type: "object", properties: {} }
+    }, () => {
+        const read = (source: string) => {
+            const a = addon.Audio.analyze(source, 4096);
+            if (!a) return null;
+            const round = (v: number, d = 1) => Math.round(v * 10 ** d) / 10 ** d;
+            return {
+                peakDb: round(Math.max(a.peakL, a.peakR)),
+                rmsDb: round(Math.max(a.rmsL, a.rmsR)),
+                strongestHz: round(a.peakHz),
+                strongestNote: a.peakHz > 0 ? midiToName(Math.round(69 + 12 * Math.log2(a.peakHz / 440))) : null,
+                brightnessHz: Math.round(a.centroidHz),
+                framesWritten: a.framesWritten
+            };
+        };
+        return {
+            playing: transport.playing,
+            master: read("master"),
+            tracks: project.tracks.map(t => ({ id: t.id, name: t.name, muted: t.muted, solo: t.solo, ...read(t.id) }))
+        };
+    });
 
     addon.registerTool({
         name: "daw_get_state",

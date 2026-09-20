@@ -93,6 +93,12 @@ const audioAPI = {
     removeTrackBus: (trackId) => {
         ops.op_audio_remove_track_bus(trackId);
     },
+    // Reads a source back without drawing anything: `source` is "master" (the whole mix) or a
+    // track id. Returns {peakL, peakR, rmsL, rmsR (dBFS, -120 = silence), peakHz, peakDb,
+    // centroidHz, framesWritten, windowFrames}, or null if there is no such source. This is what
+    // the analyzer widgets compute from, so it lets an addon or an AI tool check what a mix
+    // actually contains.
+    analyze: (source, fftSize) => ops.op_audio_analyze(source || "master", fftSize || 4096),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -1032,6 +1038,20 @@ globalThis.Entropy = {
             // selection highlight - replaces a hand-stacked list of button()/checkbox() calls
             // (with indentation faked as literal leading spaces) that a tree like Canvas
             // Surfaces' "Groups & animation" hierarchy used before this widget existed.
+            // Signal analysis widgets. `source` is "master" (the whole mix) or a track id; the audio
+            // is read Rust-side when the widget is drawn, so no samples cross into JS.
+            oscilloscope: (windowId, config) => {
+                const id = nextWidgetId(windowId, "scope", config?.id);
+                ops.op_ui_widget_oscilloscope(windowId, { source: "master", ...(config || {}) }, id);
+            },
+            spectrum: (windowId, config) => {
+                const id = nextWidgetId(windowId, "spectrum", config?.id);
+                ops.op_ui_widget_spectrum(windowId, { source: "master", ...(config || {}) }, id);
+            },
+            levelMeter: (windowId, config) => {
+                const id = nextWidgetId(windowId, "levelmeter", config?.id);
+                ops.op_ui_widget_level_meter(windowId, { source: "master", ...(config || {}) }, id);
+            },
             treeView: (windowId, config) => {
                 const nodes = config?.nodes || [];
                 const id = nextWidgetId(windowId, "treeview", config?.id);
