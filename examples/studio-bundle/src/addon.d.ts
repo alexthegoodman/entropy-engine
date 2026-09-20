@@ -691,6 +691,8 @@ export interface NumericInputConfig {
     label: string;
     value: number;
     onChange?: (value: string) => void;
+    /** Stable id for scripted/BDD control; defaults to one derived from the label and draw order. */
+    id?: string;
 }
 
 export interface SynthConfig {
@@ -928,12 +930,48 @@ export interface TrackClipConfig {
   /// Normalized (0-1) amplitude peaks - an addon-computed waveform for an audio clip.
   /// Omitted for a video or other non-audio clip.
   peaks?: number[];
+  /// Length of one repeat of the clip's content, in ms. `notes` tile at this period.
+  loopMs?: number;
+  /// Miniature note preview: `[start, len, y]` triples, each 0-1 within one loop.
+  notes?: [number, number, number][];
 }
 
 export interface TrackConfig {
   id: string;
   label: string;
   clips: TrackClipConfig[];
+  /// Dimmer second header line, e.g. an instrument name.
+  sublabel?: string;
+  /// [r, g, b, a] in 0-1 - the header's accent strip.
+  color?: [number, number, number, number];
+  muted?: boolean;
+  solo?: boolean;
+  /// Draw mute/solo pills in the header (see `onTrackMute`/`onTrackSolo`).
+  controls?: boolean;
+  /// An unused lane shown so the arrangement always has room: dimmed, no pills.
+  placeholder?: boolean;
+}
+
+export interface TracksOptions {
+  laneHeight?: number;
+  labelWidth?: number;
+  /// Grid that move / trim / draw snap to, in ms. 0 or omitted disables snapping.
+  snapMs?: number;
+  /// > 0 switches the ruler and gridlines from seconds to bars and beats.
+  barMs?: number;
+  beatMs?: number;
+  /// Zoom so the whole `durationMs` fits the first time the view appears.
+  fitOnOpen?: boolean;
+  /// Only zoom on Ctrl+wheel, leaving a plain wheel for a surrounding scroll panel.
+  zoomNeedsCtrl?: boolean;
+  /// Dragging empty lane space draws a new clip (see `onClipCreate`).
+  allowDraw?: boolean;
+  activeTrack?: string;
+  laneNumbers?: boolean;
+  minClipMs?: number;
+  followPlayhead?: boolean;
+  /// Width in px to leave free on the right (e.g. for a scroll panel's scrollbar).
+  rightGutter?: number;
 }
 
 export interface TracksConfig {
@@ -942,12 +980,18 @@ export interface TracksConfig {
   playheadMs?: number;
   tracks?: TrackConfig[];
   selected?: { track: string; clip: string };
+  options?: TracksOptions;
   onSeek?: (timeMs: number) => void;
   onClipMoved?: (track: string, clip: string, startMs: number) => void;
   onClipResized?: (track: string, clip: string, startMs: number, durationMs: number) => void;
   onClipSelected?: (track: string, clip: string) => void;
   onClipDelete?: (track: string, clip: string) => void;
+  onClipDuplicate?: (track: string, clip: string) => void;
+  /// A drag on empty lane space finished (needs `options.allowDraw`); already snapped.
+  onClipCreate?: (track: string, startMs: number, durationMs: number) => void;
   onTrackClicked?: (track: string) => void;
+  onTrackMute?: (track: string) => void;
+  onTrackSolo?: (track: string) => void;
   onBackgroundClicked?: () => void;
 }
 
@@ -1063,6 +1107,9 @@ export interface TextInputConfig {
   value?: string;
   onChange?: (value: string) => void;
   id?: string;
+  /// Fixed field width in px. Omitted, the field fills the rest of its row. Setting it also keys
+  /// the field's keyboard focus by `id` rather than by draw order.
+  width?: number;
 }
 
 export interface BindingEntry {

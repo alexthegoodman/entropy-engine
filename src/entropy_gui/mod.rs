@@ -56,7 +56,7 @@ pub use widgets_doc_editor::{DocEditor, DocEditorCommand, DocEditorResponse, Doc
 pub use widgets_kanban::{KanbanBoard, KanbanCard, KanbanColumn, KanbanEvent, KanbanResponse};
 pub use widgets_keyframe_timeline::{Keyframe, KeyframeRow, KeyframeTimeline, KeyframeTimelineEvent, KeyframeTimelineResponse};
 pub use widgets_node_graph::{GraphLink, GraphNode, GraphPin, NodeGraphEditor, NodeGraphEvent, NodeGraphResponse};
-pub use widgets_tracks::{Track, TrackClip, TrackView, TrackViewEvent, TrackViewResponse};
+pub use widgets_tracks::{MiniNote, Track, TrackClip, TrackView, TrackViewEvent, TrackViewOptions, TrackViewResponse};
 pub use widgets_tree::{TreeEvent, TreeNode, TreeResponse, TreeView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support

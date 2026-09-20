@@ -987,9 +987,9 @@ globalThis.Entropy = {
                 const selected = config?.selected ? [config.selected.track, config.selected.clip] : null;
                 const id = nextWidgetId(windowId, "tracks", config?.id);
 
-                ops.op_ui_widget_tracks(windowId, durationMs, playheadMs, tracks, selected, id);
+                ops.op_ui_widget_tracks(windowId, durationMs, playheadMs, tracks, selected, id, config?.options ?? null);
 
-                if (config?.onSeek || config?.onClipMoved || config?.onClipResized || config?.onClipSelected || config?.onClipDelete || config?.onTrackClicked || config?.onBackgroundClicked) {
+                if (config?.onSeek || config?.onClipMoved || config?.onClipResized || config?.onClipSelected || config?.onClipDelete || config?.onClipDuplicate || config?.onClipCreate || config?.onTrackClicked || config?.onTrackMute || config?.onTrackSolo || config?.onBackgroundClicked) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
@@ -998,6 +998,10 @@ globalThis.Entropy = {
                         else if (type === "TRACKS_CLIP_RESIZED" && config.onClipResized) config.onClipResized(parts[2], parts[3], parseInt(parts[4], 10), parseInt(parts[5], 10));
                         else if (type === "TRACKS_CLIP_SELECTED" && config.onClipSelected) config.onClipSelected(parts[2], parts[3]);
                         else if (type === "TRACKS_CLIP_DELETE" && config.onClipDelete) config.onClipDelete(parts[2], parts[3]);
+                        else if (type === "TRACKS_CLIP_DUPLICATE" && config.onClipDuplicate) config.onClipDuplicate(parts[2], parts[3]);
+                        else if (type === "TRACKS_CLIP_CREATE" && config.onClipCreate) config.onClipCreate(parts[2], parseInt(parts[3], 10), parseInt(parts[4], 10));
+                        else if (type === "TRACKS_TRACK_MUTE" && config.onTrackMute) config.onTrackMute(parts[2]);
+                        else if (type === "TRACKS_TRACK_SOLO" && config.onTrackSolo) config.onTrackSolo(parts[2]);
                         else if (type === "TRACKS_TRACK_CLICKED" && config.onTrackClicked) config.onTrackClicked(parts[2]);
                         else if (type === "TRACKS_BG_CLICKED" && config.onBackgroundClicked) config.onBackgroundClicked();
                     });
@@ -1094,7 +1098,7 @@ globalThis.Entropy = {
                 const value = config?.value || "";
                 const id = nextWidgetId(windowId, label, config?.id);
 
-                ops.op_ui_widget_text_input(windowId, label, value, id);
+                ops.op_ui_widget_text_input(windowId, label, value, id, config?.width ?? 0);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
             // A true multi-page document editor (see `entropy_gui::widgets_doc_editor`). Only

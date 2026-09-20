@@ -37,11 +37,20 @@ fn last_line(s: &str) -> &str {
     s.rsplit('\n').next().unwrap_or(s)
 }
 
-fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool) -> Response {
-    let id = ui.next_auto_id("text_edit");
+fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool, fixed: Option<(f32, crate::entropy_gui::id::Id)>) -> Response {
+    // A fixed width keeps a field compact inside a row (the default fills the whole row), and a
+    // caller-supplied id keeps focus attached to this field even when widgets before it come and
+    // go - the auto id below is derived from how many widgets were drawn first.
+    let id = match fixed {
+        Some((_, id)) => id,
+        None => ui.next_auto_id("text_edit"),
+    };
     let font = FontId::proportional(DEFAULT_FONT_SIZE);
     let padding = vec2(6.0, 4.0);
-    let width = ui.available_width().max(60.0);
+    let width = match fixed {
+        Some((w, _)) => w,
+        None => ui.available_width().max(60.0),
+    };
     let height = if multiline { ui.available_size().y.max(60.0) } else { ui.style().spacing.interact_size.y };
     let (rect, response) = ui.allocate_response(vec2(width, height), Sense::click());
 
@@ -147,9 +156,13 @@ fn text_edit_impl(ui: &mut Ui, text: &mut String, multiline: bool) -> Response {
 
 impl Ui {
     pub fn text_edit_singleline(&mut self, text: &mut String) -> Response {
-        text_edit_impl(self, text, false)
+        text_edit_impl(self, text, false, None)
+    }
+    /// A single-line field of exactly `width` px whose focus is keyed by `id`.
+    pub fn text_edit_singleline_sized(&mut self, text: &mut String, width: f32, id: crate::entropy_gui::id::Id) -> Response {
+        text_edit_impl(self, text, false, Some((width, id)))
     }
     pub fn text_edit_multiline(&mut self, text: &mut String) -> Response {
-        text_edit_impl(self, text, true)
+        text_edit_impl(self, text, true, None)
     }
 }

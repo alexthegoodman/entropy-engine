@@ -3655,7 +3655,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let mut sorted_windows: Vec<_> = context.ui_windows.iter().map(|(id, (config, _))| (id.clone(), config.clone())).collect();
                 sorted_windows.sort_by(|a, b| a.0.cmp(&b.0));
 
-                context.ui_frame_labels.clear();
+                // Only rewrite the list when there are windows to read it from: a tabbed addon has
+                // none, and `render_tabs` owns the list for it (clearing here every frame would wipe
+                // what the tab path just recorded).
+                if !sorted_windows.is_empty() {
+                    context.ui_frame_labels.clear();
+                }
                 for (id, config) in &sorted_windows {
                     if !config.visible { continue; }
                     if let Some(widgets) = context.ui_widgets.get(id) {
@@ -3813,6 +3818,14 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
                 let widgets = context.ui_widgets.remove(&active_id);
+                // The BDD driver's "I see the label" reads this. `render_ui` fills it for windowed
+                // addons; a tabbed addon (the DAW) draws through here instead, so it needs the same.
+                // These are the labels the addon emitted this frame, including any inside a
+                // collapsed header - the addon still declares them, the widget just doesn't paint.
+                context.ui_frame_labels = widgets
+                    .as_ref()
+                    .map(|w| w.iter().filter_map(|widget| if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }).collect())
+                    .unwrap_or_default();
                 egui::CentralPanel::default().show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         if let Some(widgets) = widgets {
@@ -4279,11 +4292,17 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::Tracks { id: tracks_id, duration_ms, playhead_ms, tracks, selected } => {
+                UiWidget::Tracks { id: tracks_id, duration_ms, playhead_ms, tracks, selected, options } => {
                     let tracks_data: Vec<crate::entropy_gui::Track> = tracks
                         .iter()
                         .map(|t| {
                             let mut track = crate::entropy_gui::Track::new(t.id.clone(), t.label.clone());
+                            track.sublabel = t.sublabel.clone().unwrap_or_default();
+                            track.color = t.color.map(egui::Color32::from_rgba_f32);
+                            track.muted = t.muted.unwrap_or(false);
+                            track.solo = t.solo.unwrap_or(false);
+                            track.controls = t.controls.unwrap_or(false);
+                            track.placeholder = t.placeholder.unwrap_or(false);
                             track.clips = t
                                 .clips
                                 .iter()
@@ -4291,6 +4310,12 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                     let color = c.color.map(egui::Color32::from_rgba_f32).unwrap_or(egui::Color32::from_rgb(80, 120, 200));
                                     let mut clip = crate::entropy_gui::TrackClip::new(c.id.clone(), c.label.clone(), c.start_ms, c.duration_ms, color);
                                     clip.peaks = c.peaks.clone().unwrap_or_default();
+                                    clip.loop_ms = c.loop_ms.unwrap_or(0);
+                                    clip.notes = c
+                                        .notes
+                                        .as_ref()
+                                        .map(|notes| notes.iter().map(|n| crate::entropy_gui::MiniNote { start: n[0], len: n[1], y: n[2] }).collect())
+                                        .unwrap_or_default();
                                     clip
                                 })
                                 .collect();
@@ -4298,8 +4323,23 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         })
                         .collect();
                     let selected_ref = selected.as_ref().map(|(t, c)| (t.as_str(), c.as_str()));
+                    let view_options = crate::entropy_gui::TrackViewOptions {
+                        lane_h: options.lane_height.unwrap_or(0.0),
+                        label_w: options.label_width.unwrap_or(0.0),
+                        snap_ms: options.snap_ms.unwrap_or(0),
+                        bar_ms: options.bar_ms.unwrap_or(0),
+                        beat_ms: options.beat_ms.unwrap_or(0),
+                        fit_on_open: options.fit_on_open.unwrap_or(false),
+                        zoom_needs_ctrl: options.zoom_needs_ctrl.unwrap_or(false),
+                        allow_draw: options.allow_draw.unwrap_or(false),
+                        active_track: options.active_track.clone(),
+                        lane_numbers: options.lane_numbers.unwrap_or(false),
+                        min_clip_ms: options.min_clip_ms.unwrap_or(0),
+                        follow_playhead: options.follow_playhead.unwrap_or(false),
+                        right_gutter: options.right_gutter.unwrap_or(0.0),
+                    };
 
-                    let resp = crate::entropy_gui::TrackView::new(tracks_id.as_str()).show(ui, &tracks_data, *duration_ms, *playhead_ms, selected_ref);
+                    let resp = crate::entropy_gui::TrackView::new(tracks_id.as_str()).options(view_options).show(ui, &tracks_data, *duration_ms, *playhead_ms, selected_ref);
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::TrackViewEvent::Seek(t) => {
@@ -4317,8 +4357,20 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             crate::entropy_gui::TrackViewEvent::ClipDeleteRequested { track, clip } => {
                                 events_to_push.push(format!("TRACKS_CLIP_DELETE|{}|{}|{}", tracks_id, track, clip));
                             }
+                            crate::entropy_gui::TrackViewEvent::ClipDuplicateRequested { track, clip } => {
+                                events_to_push.push(format!("TRACKS_CLIP_DUPLICATE|{}|{}|{}", tracks_id, track, clip));
+                            }
+                            crate::entropy_gui::TrackViewEvent::ClipCreateRequested { track, start_ms, duration_ms } => {
+                                events_to_push.push(format!("TRACKS_CLIP_CREATE|{}|{}|{}|{}", tracks_id, track, start_ms, duration_ms));
+                            }
                             crate::entropy_gui::TrackViewEvent::TrackClicked(track) => {
                                 events_to_push.push(format!("TRACKS_TRACK_CLICKED|{}|{}", tracks_id, track));
+                            }
+                            crate::entropy_gui::TrackViewEvent::TrackMuteToggled(track) => {
+                                events_to_push.push(format!("TRACKS_TRACK_MUTE|{}|{}", tracks_id, track));
+                            }
+                            crate::entropy_gui::TrackViewEvent::TrackSoloToggled(track) => {
+                                events_to_push.push(format!("TRACKS_TRACK_SOLO|{}|{}", tracks_id, track));
                             }
                             crate::entropy_gui::TrackViewEvent::BackgroundClicked => {
                                 events_to_push.push(format!("TRACKS_BG_CLICKED|{}", tracks_id));
@@ -4594,13 +4646,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 UiWidget::Hyperlink { id: _, text, url } => {
                     ui.hyperlink_to(text, url.as_str());
                 }
-                UiWidget::TextInput { id: input_id, label, value } => {
+                UiWidget::TextInput { id: input_id, label, value, width } => {
                     ui.horizontal(|ui| {
                         if !label.is_empty() {
                             ui.label(label);
                         }
                         let mut current_value = value.clone();
-                        if ui.text_edit_singleline(&mut current_value).changed() {
+                        let response = if *width > 0.0 {
+                            ui.text_edit_singleline_sized(&mut current_value, *width, egui::Id::new(("addon_text_input", input_id.as_str())))
+                        } else {
+                            ui.text_edit_singleline(&mut current_value)
+                        };
+                        if response.changed() {
                             let payload = format!("{}|{}", input_id, current_value);
                             events_to_push.push(payload);
                         }

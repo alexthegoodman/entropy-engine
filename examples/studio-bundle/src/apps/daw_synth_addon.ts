@@ -1,12 +1,44 @@
 // DAW Synth Addon
-// A multi-track piano roll / beat editor with a built-in polyphonic synth + drum kit,
-// hooked up to the built-in chat via registerTool so beats, basslines, riffs and synth
-// configs can be composed by the AI as well as by hand.
+// A multi-track piano roll / beat editor with a built-in polyphonic synth + drum kit and a
+// 16-channel arrangement view, hooked up to the built-in chat via registerTool so beats,
+// basslines, riffs, synth configs and whole arrangements can be composed by the AI as well as
+// by hand.
+//
+// The arrangement maths (clips, snapping, what plays on a given step, migration of older
+// saves) lives in daw_arrangement.ts so it can be tested without a window; this file wires it
+// to the engine and the UI.
+
+import type { ArrClip, NoteCell, Pattern, SnapMode } from "./daw_arrangement";
+import {
+    activePattern,
+    barSteps,
+    clipsOfTrack,
+    createClip,
+    deleteClip,
+    duplicateClip,
+    expandArrangement,
+    laneTracks,
+    laneCount,
+    migrateProject,
+    miniNotes,
+    moveClip,
+    msToStep,
+    nextFreeChannel,
+    nextPatternName,
+    pianoRollPlayhead,
+    pruneArrangement,
+    resizeClip,
+    snapUnitSteps,
+    songSteps,
+    stepMs,
+    stepToMs,
+    triggersAt,
+} from "./daw_arrangement";
 
 const addon = Entropy.Addon.register({
     name: "DAW",
-    version: "2.0.0",
-    description: "Piano Roll / Beat Editor with built-in synth + drum kit",
+    version: "3.0.0",
+    description: "Arrangement view, piano roll and beat editor with built-in synth + drum kit",
     author: ["Entropy"],
     category: "Audio Creation",
     capabilities: {
@@ -66,13 +98,6 @@ const DRUM_ROWS: DrumRow[] = [
 
 // --- Data model ------------------------------------------------------------
 
-interface NoteCell {
-    row: number;
-    step: number;
-    length: number;
-    velocity: number;
-}
-
 interface VoiceParams {
     waveform: string; // sine|square|saw|triangle|noise (synth tracks)
     cutoff: number;
@@ -111,7 +136,13 @@ interface Track {
     gain: number;
     muted: boolean;
     solo: boolean;
-    notes: NoteCell[];
+    // The arrangement lane this track sits on (0-based). Lanes are a fixed grid of at least 16.
+    channel: number;
+    // Index into TRACK_PALETTE, fixed at creation so a track keeps its colour when others go away.
+    colorIndex: number;
+    // Every pattern this track owns, and the one the piano roll is editing.
+    patterns: Pattern[];
+    activePatternId: string;
     // Lazily created the first time this track's bus is synced (see ensureTrackEffects) - ids
     // into the engine's shared Entropy.AudioEffect registry, one delay + one reverb per track,
     // reused by every note that plays through this track's persistent mixing bus instead of
@@ -122,8 +153,11 @@ interface Track {
 
 interface DAWProject {
     bpm: number;
-    steps: number;
     stepsPerBeat: number;
+    // Length of the arrangement, in bars (a bar is four beats).
+    songBars: number;
+    snap: SnapMode;
+    arrangement: ArrClip[];
     tracks: Track[];
     activeTrackId: string | null;
 }
@@ -142,49 +176,145 @@ function defaultDrumVoice(): VoiceParams {
     };
 }
 
+// Twelve hues spread around the wheel and tuned to sit together on the dark arrangement canvas.
+const TRACK_PALETTE: [number, number, number][] = [
+    [236, 96, 122], [242, 156, 74], [232, 200, 78], [118, 202, 120], [66, 196, 178], [84, 160, 238],
+    [140, 128, 242], [200, 122, 232], [234, 122, 182], [110, 190, 222], [168, 210, 108], [240, 132, 98]
+];
+
+function trackRgba(track: Track): [number, number, number, number] {
+    const [r, g, b] = TRACK_PALETTE[((track.colorIndex % TRACK_PALETTE.length) + TRACK_PALETTE.length) % TRACK_PALETTE.length];
+    return [r / 255, g / 255, b / 255, 1];
+}
+
+const newId = () => Entropy.generateUUID();
+
+function newPattern(name: string, steps: number, notes: NoteCell[] = [], id?: string): Pattern {
+    return { id: id ?? newId(), name, steps, notes };
+}
+
+const n = (row: number, step: number, length = 1, velocity = 0.85): NoteCell => ({ row, step, length, velocity });
+
+// The starter song uses fixed ids so a scripted run (and a person reading DAW.json) can name
+// a track, pattern or clip without first looking it up.
 function makeStarterProject(): DAWProject {
-    const drumId = Entropy.generateUUID();
-    const bassId = Entropy.generateUUID();
+    const bar = 16;
 
     const drums: Track = {
-        id: drumId, name: "Drums", kind: "drum",
+        id: "trk-drums", name: "Drums", kind: "drum", channel: 0, colorIndex: 0,
         rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
         voice: defaultDrumVoice(), gain: 0.55, muted: false, solo: false,
-        notes: [
-            { row: 0, step: 0, length: 1, velocity: 1.0 },
-            { row: 0, step: 8, length: 1, velocity: 1.0 },
-            { row: 1, step: 4, length: 1, velocity: 0.95 },
-            { row: 1, step: 12, length: 1, velocity: 0.95 },
-            { row: 2, step: 0, length: 1, velocity: 0.7 },
-            { row: 2, step: 2, length: 1, velocity: 0.6 },
-            { row: 2, step: 4, length: 1, velocity: 0.7 },
-            { row: 2, step: 6, length: 1, velocity: 0.6 },
-            { row: 2, step: 8, length: 1, velocity: 0.7 },
-            { row: 2, step: 10, length: 1, velocity: 0.6 },
-            { row: 2, step: 12, length: 1, velocity: 0.7 },
-            { row: 2, step: 14, length: 1, velocity: 0.6 }
-        ]
+        patterns: [
+            newPattern("Groove", bar, [
+                n(0, 0, 1, 1.0), n(0, 8, 1, 1.0),
+                n(1, 4, 1, 0.95), n(1, 12, 1, 0.95),
+                n(2, 0, 1, 0.7), n(2, 2, 1, 0.6), n(2, 4, 1, 0.7), n(2, 6, 1, 0.6),
+                n(2, 8, 1, 0.7), n(2, 10, 1, 0.6), n(2, 12, 1, 0.7), n(2, 14, 1, 0.6)
+            ], "pat-drums-groove"),
+            newPattern("Fill", bar, [
+                n(0, 0, 1, 1.0), n(0, 8, 1, 1.0),
+                n(1, 4, 1, 0.9),
+                n(2, 0, 1, 0.7), n(2, 2, 1, 0.6), n(2, 4, 1, 0.7), n(2, 6, 1, 0.6),
+                n(4, 10, 1, 0.8), n(4, 11, 1, 0.85),
+                n(1, 12, 1, 0.7), n(1, 13, 1, 0.78), n(1, 14, 1, 0.88), n(1, 15, 1, 1.0)
+            ], "pat-drums-fill")
+        ],
+        activePatternId: "pat-drums-groove"
     };
 
     const bass: Track = {
-        id: bassId, name: "Bass", kind: "synth",
+        id: "trk-bass", name: "Bass", kind: "synth", channel: 1, colorIndex: 1,
         rootNote: 36, scale: "pentatonic_minor", rows: 10,
         voice: defaultSynthVoice("saw"), gain: 0.3, muted: false, solo: false,
-        notes: [
-            { row: 0, step: 0, length: 2, velocity: 0.9 },
-            { row: 0, step: 4, length: 2, velocity: 0.8 },
-            { row: 2, step: 8, length: 2, velocity: 0.9 },
-            { row: 1, step: 12, length: 2, velocity: 0.8 }
-        ]
+        patterns: [
+            newPattern("Root", bar, [n(0, 0, 2, 0.9), n(0, 4, 2, 0.8), n(2, 8, 2, 0.9), n(1, 12, 2, 0.8)], "pat-bass-root"),
+            newPattern("Walk", bar, [
+                n(0, 0, 2, 0.9), n(0, 2, 1, 0.7), n(3, 4, 2, 0.85), n(2, 8, 2, 0.9),
+                n(1, 10, 1, 0.75), n(0, 12, 2, 0.9), n(1, 14, 1, 0.8)
+            ], "pat-bass-walk")
+        ],
+        activePatternId: "pat-bass-root"
     };
 
-    return { bpm: 96, steps: 16, stepsPerBeat: 4, tracks: [drums, bass], activeTrackId: drumId };
+    const lead: Track = {
+        id: "trk-lead", name: "Lead", kind: "synth", channel: 2, colorIndex: 4,
+        rootNote: 60, scale: "pentatonic_minor", rows: 10,
+        voice: defaultSynthVoice("square"), gain: 0.18, muted: false, solo: false,
+        patterns: [
+            newPattern("Melody", bar * 2, [
+                n(4, 0, 2, 0.85), n(2, 3, 1, 0.7), n(3, 4, 2, 0.8), n(4, 8, 1, 0.85), n(5, 10, 2, 0.9),
+                n(3, 12, 1, 0.7), n(4, 16, 2, 0.85), n(6, 19, 1, 0.8), n(5, 20, 2, 0.85),
+                n(3, 24, 1, 0.7), n(2, 26, 2, 0.8), n(0, 28, 4, 0.9)
+            ], "pat-lead-melody")
+        ],
+        activePatternId: "pat-lead-melody"
+    };
+
+    const pad: Track = {
+        id: "trk-pad", name: "Pad", kind: "synth", channel: 3, colorIndex: 6,
+        rootNote: 48, scale: "pentatonic_minor", rows: 10,
+        voice: defaultSynthVoice("triangle"), gain: 0.16, muted: false, solo: false,
+        patterns: [
+            newPattern("Chords", bar, [
+                n(0, 0, 8, 0.6), n(2, 0, 8, 0.55), n(4, 0, 8, 0.55),
+                n(1, 8, 8, 0.6), n(3, 8, 8, 0.55), n(5, 8, 8, 0.55)
+            ], "pat-pad-chords")
+        ],
+        activePatternId: "pat-pad-chords"
+    };
+
+    const clip = (trackId: string, patternId: string, startBar: number, bars: number): ArrClip => ({
+        id: `clip-${trackId.slice(4)}-${startBar}`, trackId, patternId, startStep: startBar * bar, lengthSteps: bars * bar
+    });
+
+    const arrangement: ArrClip[] = [
+        clip("trk-drums", "pat-drums-groove", 0, 3), clip("trk-drums", "pat-drums-fill", 3, 1),
+        clip("trk-drums", "pat-drums-groove", 4, 3), clip("trk-drums", "pat-drums-fill", 7, 1),
+        clip("trk-drums", "pat-drums-groove", 8, 7), clip("trk-drums", "pat-drums-fill", 15, 1),
+        clip("trk-bass", "pat-bass-root", 2, 6), clip("trk-bass", "pat-bass-walk", 8, 8),
+        clip("trk-lead", "pat-lead-melody", 4, 4), clip("trk-lead", "pat-lead-melody", 10, 6),
+        clip("trk-pad", "pat-pad-chords", 6, 10)
+    ];
+
+    return { bpm: 96, stepsPerBeat: 4, songBars: 16, snap: "bar", arrangement, tracks: [drums, bass, lead, pad], activeTrackId: "trk-drums" };
 }
 
 let project: DAWProject = makeStarterProject();
 
 function getActiveTrack(): Track | undefined {
     return project.tracks.find(t => t.id === project.activeTrackId) || project.tracks[0];
+}
+
+function findTrack(id: string): Track | undefined {
+    return project.tracks.find(t => t.id === id);
+}
+
+function newTrack(kind: "synth" | "drum", channel: number, name?: string): Track {
+    const pattern = newPattern("Pattern 1", barSteps(project.stepsPerBeat));
+    const colorIndex = project.tracks.reduce((m, t) => Math.max(m, t.colorIndex), -1) + 1;
+    const base = {
+        id: Entropy.generateUUID(), channel, colorIndex, muted: false, solo: false,
+        patterns: [pattern], activePatternId: pattern.id
+    };
+    if (kind === "drum") {
+        return {
+            ...base, name: name ?? `Drums ${project.tracks.length + 1}`, kind: "drum",
+            rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
+            voice: defaultDrumVoice(), gain: 0.5
+        };
+    }
+    return {
+        ...base, name: name ?? `Synth ${project.tracks.length + 1}`, kind: "synth",
+        rootNote: 60, scale: "pentatonic_minor", rows: 10,
+        voice: defaultSynthVoice("saw"), gain: 0.25
+    };
+}
+
+function addTrack(kind: "synth" | "drum", channel?: number, name?: string): Track {
+    const track = newTrack(kind, channel ?? nextFreeChannel(project.tracks), name);
+    project.tracks.push(track);
+    project.activeTrackId = track.id;
+    return track;
 }
 
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
@@ -228,6 +358,16 @@ function removeTrackBus(track: Track) {
     addon.Audio.removeTrackBus(track.id);
     if (track.delayEffectId) addon.AudioEffect.destroy(track.delayEffectId);
     if (track.reverbEffectId) addon.AudioEffect.destroy(track.reverbEffectId);
+}
+
+function removeTrack(track: Track) {
+    removeTrackBus(track);
+    project.tracks = project.tracks.filter(t => t.id !== track.id);
+    project.arrangement = project.arrangement.filter(c => c.trackId !== track.id);
+    if (selectedClipId && !project.arrangement.some(c => c.id === selectedClipId)) selectedClipId = null;
+    if (project.activeTrackId === track.id) {
+        project.activeTrackId = project.tracks[0]?.id ?? null;
+    }
 }
 
 // --- VST3 instruments (see src/audio/vst3.rs) --------------------------------------------------
@@ -308,17 +448,44 @@ function persist() {
     project.tracks.forEach(syncTrackBus);
 }
 
+// A clip drag reports a new position every frame. Writing the project (which can carry a
+// plugin's whole saved patch) that often is wasteful, so drags only mark it dirty and the frame
+// loop writes it once the pointer has been still for a moment.
+const SAVE_DEBOUNCE_MS = 250;
+let saveDueAt = 0;
+
+function scheduleSave() {
+    saveDueAt = Date.now() + SAVE_DEBOUNCE_MS;
+}
+
+function flushSaveIfDue() {
+    if (saveDueAt && Date.now() >= saveDueAt) {
+        saveDueAt = 0;
+        addon.IO.save(project);
+    }
+}
+
 // --- Transport / sequencer --------------------------------------------------
+
+type TransportMode = "song" | "pattern";
 
 const transport = {
     playing: false,
+    // Wall-clock second the current run's step 0 would have started at (shifted on seek/BPM change).
     startedAt: 0,
-    lastStep: -1,
-    playheadFrac: -1
+    // Last absolute (never-wrapped) step that has been triggered.
+    lastAbsStep: -1,
+    // Where the playhead is, in steps, while stopped and (updated each frame) while playing.
+    cursorStep: 0,
+    mode: "song" as TransportMode
 };
 
 function stepDuration(): number {
-    return 60 / Math.max(1, project.bpm) / Math.max(1, project.stepsPerBeat);
+    return stepMs(project.bpm, project.stepsPerBeat) / 1000;
+}
+
+function nowSeconds(): number {
+    return Date.now() / 1000;
 }
 
 function noteVoiceAndFreq(track: Track, row: number): { voice: string; freq: number } {
@@ -334,77 +501,126 @@ function noteVoiceAndFreq(track: Track, row: number): { voice: string; freq: num
 // a note is already ringing takes effect immediately instead of only affecting the *next*
 // trigger. Track gain is likewise applied continuously by the bus, so only the note's own
 // velocity is passed through here.
-function triggerStep(stepIndex: number) {
+function triggerStep(absStep: number) {
     const sd = stepDuration();
+    const triggers = transport.mode === "pattern"
+        ? triggersAt(project, absStep, project.activeTrackId)
+        : triggersAt(project, absStep % songSteps(project));
 
-    for (const track of project.tracks) {
-        for (const note of track.notes) {
-            if (note.step !== stepIndex) continue;
+    for (const { track, note } of triggers) {
+        const { voice, freq } = noteVoiceAndFreq(track as Track, note.row);
+        const duration = Math.max(0.03, note.length * sd * 0.95);
 
-            const { voice, freq } = noteVoiceAndFreq(track, note.row);
-            const duration = Math.max(0.03, note.length * sd * 0.95);
-
-            if (trackUsesVst3(track)) {
-                playVst3Note(track, note.row, note.velocity, duration);
-                continue;
-            }
-
-            addon.Audio.playNoteOnTrack(track.id, {
-                freq,
-                waveform: voice,
-                duration,
-                cutoff: track.voice.cutoff,
-                resonance: track.voice.resonance,
-                gain: note.velocity,
-                attack: track.voice.attack,
-                decay: track.voice.decay,
-                sustain: track.voice.sustain,
-                release: track.voice.release
-            });
+        if (trackUsesVst3(track as Track)) {
+            playVst3Note(track as Track, note.row, note.velocity, duration);
+            continue;
         }
+
+        const t = track as Track;
+        addon.Audio.playNoteOnTrack(t.id, {
+            freq,
+            waveform: voice,
+            duration,
+            cutoff: t.voice.cutoff,
+            resonance: t.voice.resonance,
+            gain: note.velocity,
+            attack: t.voice.attack,
+            decay: t.voice.decay,
+            sustain: t.voice.sustain,
+            release: t.voice.release
+        });
     }
+}
+
+// The song position in steps right now (fractional), whether playing or parked.
+function currentStepFloat(): number {
+    if (!transport.playing) return transport.cursorStep;
+    return (nowSeconds() - transport.startedAt) / stepDuration();
+}
+
+function transportLength(): number {
+    if (transport.mode === "pattern") {
+        const t = getActiveTrack();
+        const pat = t ? activePattern(t) : undefined;
+        return Math.max(1, pat?.steps ?? 1);
+    }
+    return songSteps(project);
+}
+
+function play() {
+    transport.playing = true;
+    transport.startedAt = nowSeconds() - transport.cursorStep * stepDuration();
+    // ceil so a cursor parked exactly on a step plays that step, one parked mid-step waits for the next.
+    transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
+}
+
+function stop() {
+    if (transport.playing) transport.cursorStep = currentStepFloat() % transportLength();
+    transport.playing = false;
+}
+
+function seekToStep(step: number) {
+    const total = songSteps(project);
+    transport.cursorStep = Math.max(0, Math.min(total - 0.001, step));
+    if (transport.playing) {
+        transport.startedAt = nowSeconds() - transport.cursorStep * stepDuration();
+        transport.lastAbsStep = Math.ceil(transport.cursorStep) - 1;
+    }
+}
+
+function rewind() {
+    seekToStep(0);
+}
+
+// Changing tempo mid-run would jump the playhead (its position is elapsed time over step
+// duration), so the run is re-anchored to where it currently is.
+const BPM_MIN = 20;
+const BPM_MAX = 300;
+
+function setBpm(bpm: number) {
+    const clamped = Math.max(BPM_MIN, Math.min(BPM_MAX, bpm));
+    if (clamped === project.bpm) return;
+    const pos = currentStepFloat();
+    project.bpm = clamped;
+    if (transport.playing) transport.startedAt = nowSeconds() - pos * stepDuration();
 }
 
 // --- Offline WAV export -----------------------------------------------------
 
 let lastExportStatus: string | null = null;
 
+// Renders the arrangement: every clip's pattern tiled across the clip, notes cut where the clip ends.
 function buildPatternEvents(): any[] {
-    const anySolo = project.tracks.some(t => t.solo);
     const sd = stepDuration();
     const events: any[] = [];
 
-    for (const track of project.tracks) {
-        if (track.muted) continue;
-        if (anySolo && !track.solo) continue;
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
         // The offline renderer only knows the built-in voices; a hosted plugin runs live.
         if (track.instrument) continue;
+        const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
+        const duration = Math.max(0.03, placed.lengthSteps * sd * 0.95);
 
-        for (const note of track.notes) {
-            const { voice, freq } = noteVoiceAndFreq(track, note.row);
-            const duration = Math.max(0.03, note.length * sd * 0.95);
-
-            events.push({
-                startTime: note.step * sd,
-                freq,
-                waveform: voice,
-                duration,
-                cutoff: track.voice.cutoff,
-                resonance: track.voice.resonance,
-                gain: track.gain * note.velocity,
-                attack: track.voice.attack,
-                decay: track.voice.decay,
-                sustain: track.voice.sustain,
-                release: track.voice.release,
-                delayTime: track.voice.delayTime,
-                delayFeedback: track.voice.delayFeedback,
-                delayMix: track.voice.delayMix,
-                reverbRoomSize: track.voice.reverbRoomSize,
-                reverbTime: track.voice.reverbTime,
-                reverbDamping: track.voice.reverbDamping,
-                reverbMix: track.voice.reverbMix
-            });
-        }
+        events.push({
+            startTime: placed.startStep * sd,
+            freq,
+            waveform: voice,
+            duration,
+            cutoff: track.voice.cutoff,
+            resonance: track.voice.resonance,
+            gain: track.gain * placed.note.velocity,
+            attack: track.voice.attack,
+            decay: track.voice.decay,
+            sustain: track.voice.sustain,
+            release: track.voice.release,
+            delayTime: track.voice.delayTime,
+            delayFeedback: track.voice.delayFeedback,
+            delayMix: track.voice.delayMix,
+            reverbRoomSize: track.voice.reverbRoomSize,
+            reverbTime: track.voice.reverbTime,
+            reverbDamping: track.voice.reverbDamping,
+            reverbMix: track.voice.reverbMix
+        });
     }
 
     return events;
@@ -412,7 +628,7 @@ function buildPatternEvents(): any[] {
 
 function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
     const events = buildPatternEvents();
-    const result = addon.Audio.renderPatternToWav(events, `daw-pattern-${project.bpm}bpm.wav`);
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`);
     const skipped = project.tracks.filter(t => t.instrument).length;
     lastExportStatus = result.success
         ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
@@ -421,16 +637,141 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     return result;
 }
 
-function play() {
-    transport.playing = true;
-    transport.startedAt = Date.now() / 1000;
-    transport.lastStep = -1;
+// --- Arrangement editing -----------------------------------------------------
+
+let selectedClipId: string | null = null;
+let arrangementStatus = "";
+
+function selectedClip(): ArrClip | undefined {
+    return selectedClipId ? project.arrangement.find(c => c.id === selectedClipId) : undefined;
 }
 
-function stop() {
-    transport.playing = false;
-    transport.playheadFrac = -1;
-    transport.lastStep = -1;
+// A pattern that no clip plays is silent, which reads as "the editor is broken" to someone who has
+// just painted notes. So the first notes written to a track that has no clips at all also give it
+// one clip spanning the song - the same "loops for as long as the song runs" the DAW used to have.
+function ensureTrackHasClip(track: Track) {
+    if (project.arrangement.some(c => c.trackId === track.id)) return;
+    createClip(project.arrangement, {
+        trackId: track.id, patternId: activePattern(track).id, startStep: 0, lengthSteps: songSteps(project)
+    }, songSteps(project), newId);
+}
+
+function selectClip(clip: ArrClip | undefined) {
+    selectedClipId = clip?.id ?? null;
+    if (!clip) return;
+    const track = findTrack(clip.trackId);
+    if (!track) return;
+    project.activeTrackId = track.id;
+    // Editing follows the selection: the piano roll shows the pattern the clip plays.
+    track.activePatternId = clip.patternId;
+}
+
+// Lane ids for empty channels are `empty:<channel>`. Touching one gives the channel a synth track,
+// so any of the 16 lanes can be started by clicking or drawing on it.
+function trackForLane(laneId: string, kind: "synth" | "drum" = "synth"): Track | undefined {
+    if (!laneId.startsWith("empty:")) return findTrack(laneId);
+    const channel = parseInt(laneId.slice("empty:".length), 10);
+    if (!Number.isFinite(channel) || project.tracks.some(t => t.channel === channel)) return undefined;
+    return addTrack(kind, channel);
+}
+
+function onArrangementSeek(ms: number) {
+    seekToStep(msToStep(ms, project.bpm, project.stepsPerBeat));
+}
+
+function onArrangementClipSelected(trackId: string, clipId: string) {
+    const clip = project.arrangement.find(c => c.id === clipId && c.trackId === trackId);
+    selectClip(clip);
+}
+
+function onArrangementClipMoved(_trackId: string, clipId: string, startMs: number) {
+    moveClip(project.arrangement, clipId, msToStep(startMs, project.bpm, project.stepsPerBeat), songSteps(project));
+    scheduleSave();
+}
+
+function onArrangementClipResized(_trackId: string, clipId: string, startMs: number, durationMs: number) {
+    const start = msToStep(startMs, project.bpm, project.stepsPerBeat);
+    const len = Math.max(1, msToStep(durationMs, project.bpm, project.stepsPerBeat));
+    resizeClip(project.arrangement, clipId, start, len, songSteps(project));
+    scheduleSave();
+}
+
+function onArrangementClipDelete(_trackId: string, clipId: string) {
+    deleteClip(project.arrangement, clipId);
+    if (selectedClipId === clipId) selectedClipId = null;
+    persist();
+}
+
+function onArrangementClipDuplicate(_trackId: string, clipId: string) {
+    const copy = duplicateClip(project.arrangement, clipId, songSteps(project), newId);
+    if (copy) {
+        selectClip(copy);
+        arrangementStatus = "";
+    } else {
+        arrangementStatus = "No room after that clip for a copy.";
+    }
+    persist();
+}
+
+function onArrangementClipCreate(laneId: string, startMs: number, durationMs: number) {
+    const track = trackForLane(laneId);
+    if (!track) return;
+    const start = msToStep(startMs, project.bpm, project.stepsPerBeat);
+    const len = Math.max(1, msToStep(durationMs, project.bpm, project.stepsPerBeat));
+    const clip = createClip(project.arrangement, {
+        trackId: track.id, patternId: activePattern(track).id, startStep: start, lengthSteps: len
+    }, songSteps(project), newId);
+    if (clip) {
+        selectClip(clip);
+        arrangementStatus = "";
+    } else {
+        arrangementStatus = "That spot is already taken by another clip on this channel.";
+    }
+    persist();
+}
+
+function onArrangementTrackClicked(laneId: string) {
+    const track = trackForLane(laneId);
+    if (track) {
+        project.activeTrackId = track.id;
+        persist();
+    }
+}
+
+function onArrangementTrackMute(trackId: string) {
+    const t = findTrack(trackId);
+    if (!t) return;
+    t.muted = !t.muted;
+    persist();
+}
+
+function onArrangementTrackSolo(trackId: string) {
+    const t = findTrack(trackId);
+    if (!t) return;
+    t.solo = !t.solo;
+    persist();
+}
+
+function onArrangementBackground() {
+    selectedClipId = null;
+}
+
+function setSnap(mode: SnapMode) {
+    project.snap = mode;
+    addon.IO.save(project);
+}
+
+function setSongBars(bars: number) {
+    project.songBars = Math.max(1, Math.min(256, Math.round(bars)));
+    pruneArrangement(project);
+    if (selectedClipId && !project.arrangement.some(c => c.id === selectedClipId)) selectedClipId = null;
+    persist();
+}
+
+function instrumentSummary(track: Track): string {
+    if (track.instrument) return track.instrument.name;
+    // Short on purpose: the header has room for about 16 characters beside the M/S pills.
+    return track.kind === "drum" ? "Drum kit" : `${track.voice.waveform[0].toUpperCase()}${track.voice.waveform.slice(1)} synth`;
 }
 
 // --- Grid paint interaction --------------------------------------------------
@@ -438,27 +779,28 @@ function stop() {
 let dragMode: "add" | "erase" | null = null;
 let lastCellKey: string | null = null;
 
-function findNoteIndexAt(track: Track, row: number, step: number): number {
-    return track.notes.findIndex(n => n.row === row && step >= n.step && step < n.step + n.length);
+function findNoteIndexAt(pattern: Pattern, row: number, step: number): number {
+    return pattern.notes.findIndex(n => n.row === row && step >= n.step && step < n.step + n.length);
 }
 
-function applyCell(track: Track, row: number, step: number) {
-    const idx = findNoteIndexAt(track, row, step);
+function applyCell(pattern: Pattern, row: number, step: number) {
+    const idx = findNoteIndexAt(pattern, row, step);
     if (dragMode === "add") {
         if (idx === -1) {
-            track.notes.push({ row, step, length: 1, velocity: 0.85 });
+            pattern.notes.push({ row, step, length: 1, velocity: 0.85 });
         }
     } else if (dragMode === "erase") {
-        if (idx !== -1) track.notes.splice(idx, 1);
+        if (idx !== -1) pattern.notes.splice(idx, 1);
     }
 }
 
 function handleNoteDown(row: number, step: number) {
     const track = getActiveTrack();
     if (!track) return;
-    dragMode = findNoteIndexAt(track, row, step) >= 0 ? "erase" : "add";
+    const pattern = activePattern(track);
+    dragMode = findNoteIndexAt(pattern, row, step) >= 0 ? "erase" : "add";
     lastCellKey = `${row}:${step}`;
-    applyCell(track, row, step);
+    applyCell(pattern, row, step);
 }
 
 function handleNoteDrag(row: number, step: number) {
@@ -467,13 +809,45 @@ function handleNoteDrag(row: number, step: number) {
     lastCellKey = key;
     const track = getActiveTrack();
     if (!track) return;
-    applyCell(track, row, step);
+    applyCell(activePattern(track), row, step);
 }
 
 function handleNoteUp(_row: number, _step: number) {
     dragMode = null;
     lastCellKey = null;
+    const track = getActiveTrack();
+    if (track) ensureTrackHasClip(track);
     persist();
+}
+
+// --- Pattern management --------------------------------------------------------
+
+const PATTERN_LENGTH_BARS = [0.5, 1, 2, 4];
+const PATTERN_LENGTH_LABELS = ["1/2 bar", "1 bar", "2 bars", "4 bars"];
+
+function patternLengthIndex(pattern: Pattern): number {
+    const bars = pattern.steps / barSteps(project.stepsPerBeat);
+    let best = 0;
+    PATTERN_LENGTH_BARS.forEach((b, i) => {
+        if (Math.abs(b - bars) < Math.abs(PATTERN_LENGTH_BARS[best] - bars)) best = i;
+    });
+    return best;
+}
+
+function addPattern(track: Track, name?: string, steps?: number, notes: NoteCell[] = []): Pattern {
+    const pattern = newPattern(name ?? nextPatternName(track), steps ?? barSteps(project.stepsPerBeat), notes);
+    track.patterns.push(pattern);
+    track.activePatternId = pattern.id;
+    return pattern;
+}
+
+function duplicatePattern(track: Track): Pattern {
+    const src = activePattern(track);
+    const copy = addPattern(track, `${src.name} copy`, src.steps, src.notes.map(n => ({ ...n })));
+    // A variation is only useful where it plays, so a selected clip of this track switches to it.
+    const clip = selectedClip();
+    if (clip && clip.trackId === track.id) clip.patternId = copy.id;
+    return copy;
 }
 
 // --- UI ----------------------------------------------------------------------
@@ -499,6 +873,7 @@ function toDisplayRow(track: Track, row: number): number {
 
 // Reopens the last saved project. Effect ids are per-session handles into the engine's effect
 // registry, so the saved ones are meaningless now and are cleared for syncTrackBus to recreate.
+// A project saved before the arrangement existed is migrated in place (see migrateProject).
 function restoreSavedProject() {
     let saved: any = null;
     try {
@@ -511,14 +886,63 @@ function restoreSavedProject() {
         t.delayEffectId = null;
         t.reverbEffectId = null;
     }
+    const legacy = !Array.isArray(saved.arrangement);
+    migrateProject(saved, newId);
     project = saved as DAWProject;
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
         project.activeTrackId = project.tracks[0].id;
     }
+    // Write the upgraded project back so the file on disk is in the new format from the first open,
+    // not only after the next edit.
+    if (legacy) addon.IO.save(project);
 }
 
 const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise"];
 const SCALE_NAMES = Object.keys(SCALES);
+const SNAP_MODES: SnapMode[] = ["bar", "beat", "step"];
+const SNAP_LABELS = ["Bar", "Beat", "Step"];
+const TRANSPORT_MODES: TransportMode[] = ["song", "pattern"];
+
+// What the BPM box shows. It is a draft rather than a mirror of project.bpm: typing "1" on the
+// way to "140" must not be clamped to 20 under the user's fingers, so the box keeps what was
+// typed and only follows project.bpm when something other than typing changed it.
+let bpmDraft = String(project.bpm);
+let bpmDraftFor = project.bpm;
+
+function syncBpmDraft() {
+    if (bpmDraftFor !== project.bpm) {
+        bpmDraft = String(project.bpm);
+        bpmDraftFor = project.bpm;
+    }
+}
+
+function commitBpmText(text: string) {
+    bpmDraft = text;
+    const value = parseFloat(text);
+    if (Number.isFinite(value) && value >= BPM_MIN && value <= BPM_MAX) {
+        setBpm(value);
+        bpmDraftFor = project.bpm;
+        persist();
+    }
+}
+
+function nudgeBpm(delta: number) {
+    setBpm(project.bpm + delta);
+    persist();
+}
+
+function positionReadout(): string {
+    const step = currentStepFloat();
+    const total = transportLength();
+    const wrapped = transport.playing ? ((step % total) + total) % total : step;
+    const spb = project.stepsPerBeat;
+    const bar = Math.floor(wrapped / barSteps(spb)) + 1;
+    const beat = Math.floor((wrapped % barSteps(spb)) / spb) + 1;
+    const seconds = wrapped * stepDuration();
+    const mm = Math.floor(seconds / 60);
+    const ss = (seconds % 60).toFixed(1).padStart(4, "0");
+    return `Bar ${bar}  Beat ${beat}   ${mm}:${ss}`;
+}
 
 addon.onInit(async () => {
     Entropy.println("DAW Addon Initializing...");
@@ -532,6 +956,8 @@ addon.onInit(async () => {
     // });
 
     restoreSavedProject();
+    bpmDraft = String(project.bpm);
+    bpmDraftFor = project.bpm;
 
     // Create the starter tracks' persistent mixing buses (and their effect instances) up front,
     // rather than waiting for the first user interaction to call persist().
@@ -604,8 +1030,10 @@ addon.onInit(async () => {
         }, "instrument_panel", true);
     };
 
-    const renderDAWUI = (tabId: string) => {
-        Entropy.UI.Widget.collapsingHeader(tabId, "🎛 Transport", (tid: string) => {
+    // The transport bar: everything you reach for while the song is running, in one row.
+    const renderTransportBar = (tabId: string) => {
+        syncBpmDraft();
+        Entropy.UI.Widget.group(tabId, (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
                     text: transport.playing ? "⏸ Stop" : "▶ Play",
@@ -613,29 +1041,153 @@ addon.onInit(async () => {
                     onClick: () => { transport.playing ? stop() : play(); }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: "⬇ Export Pattern to WAV",
+                    text: "⏮ Rewind",
+                    id: "transport_rewind",
+                    onClick: () => { rewind(); }
+                });
+                Entropy.UI.Widget.textInput(tid2, {
+                    label: "BPM",
+                    id: "bpm_input",
+                    value: bpmDraft,
+                    width: 64,
+                    onChange: (v: string) => { commitBpmText(v); }
+                });
+                Entropy.UI.Widget.button(tid2, { text: "-", id: "bpm_down", onClick: () => { nudgeBpm(-1); } });
+                Entropy.UI.Widget.button(tid2, { text: "+", id: "bpm_up", onClick: () => { nudgeBpm(1); } });
+                Entropy.UI.Widget.label(tid2, { text: positionReadout(), bold: true });
+                Entropy.UI.Widget.dropdown(tid2, {
+                    label: "Play",
+                    id: "transport_mode",
+                    options: ["Song", "Pattern loop"],
+                    selectedIndex: TRANSPORT_MODES.indexOf(transport.mode),
+                    onChange: (idx: string) => {
+                        const wasPlaying = transport.playing;
+                        if (wasPlaying) stop();
+                        transport.mode = TRANSPORT_MODES[parseInt(idx, 10)] ?? "song";
+                        transport.cursorStep = 0;
+                        if (wasPlaying) play();
+                    }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: "⬇ Export Song to WAV",
+                    id: "export_wav",
                     onClick: () => { exportPatternToWav(); }
                 });
             });
+            const bpmValue = parseFloat(bpmDraft);
+            if (!(bpmValue >= BPM_MIN && bpmValue <= BPM_MAX)) {
+                Entropy.UI.Widget.label(tid, { text: `BPM must be between ${BPM_MIN} and ${BPM_MAX}.` });
+            }
             if (lastExportStatus) {
                 Entropy.UI.Widget.label(tid, { text: lastExportStatus });
             }
+        });
+    };
+
+    const arrangementTracks = () => laneTracks(project.tracks).map((track, channel) => {
+        if (!track) {
+            return { id: `empty:${channel}`, label: `Channel ${channel + 1}`, placeholder: true, clips: [] };
+        }
+        const patternById = new Map(track.patterns.map(p => [p.id, p]));
+        return {
+            id: track.id,
+            label: track.name,
+            sublabel: instrumentSummary(track),
+            color: trackRgba(track),
+            muted: track.muted,
+            solo: track.solo,
+            controls: true,
+            clips: clipsOfTrack(project.arrangement, track.id).map(c => {
+                const pattern = patternById.get(c.patternId) ?? track.patterns[0];
+                return {
+                    id: c.id,
+                    label: pattern.name,
+                    startMs: stepToMs(c.startStep, project.bpm, project.stepsPerBeat),
+                    durationMs: Math.max(1, stepToMs(c.lengthSteps, project.bpm, project.stepsPerBeat)),
+                    color: trackRgba(track),
+                    loopMs: Math.max(1, stepToMs(pattern.steps, project.bpm, project.stepsPerBeat)),
+                    notes: miniNotes(track, pattern)
+                };
+            })
+        };
+    });
+
+    const renderArrangement = (tabId: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, "🎼 Arrangement", (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.numericInput(tid2, {
-                    label: "BPM",
-                    value: project.bpm,
-                    onChange: (v: string) => { project.bpm = Math.max(20, Math.min(300, parseFloat(v) || project.bpm)); persist(); }
+                Entropy.UI.Widget.dropdown(tid2, {
+                    label: "Snap",
+                    id: "arr_snap",
+                    options: SNAP_LABELS,
+                    selectedIndex: Math.max(0, SNAP_MODES.indexOf(project.snap)),
+                    onChange: (idx: string) => { setSnap(SNAP_MODES[parseInt(idx, 10)] ?? "bar"); }
                 });
                 Entropy.UI.Widget.numericInput(tid2, {
-                    label: "Pattern Steps",
-                    value: project.steps,
-                    onChange: (v: string) => {
-                        project.steps = Math.max(1, Math.round(parseFloat(v)) || project.steps);
-                        persist();
-                    }
+                    label: "Song bars",
+                    id: "arr_bars",
+                    value: project.songBars,
+                    onChange: (v: string) => { setSongBars(parseFloat(v) || project.songBars); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: "+ Synth Track",
+                    id: "add_synth_track",
+                    onClick: () => { addTrack("synth"); persist(); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: "+ Drum Track",
+                    id: "add_drum_track",
+                    onClick: () => { addTrack("drum"); persist(); }
                 });
             });
-        });
+
+            const bar = barSteps(project.stepsPerBeat);
+            const sm = stepMs(project.bpm, project.stepsPerBeat);
+            const selected = selectedClip();
+            Entropy.UI.Widget.tracks(tid, {
+                id: "arrangement",
+                durationMs: stepToMs(songSteps(project), project.bpm, project.stepsPerBeat),
+                playheadMs: Math.round(currentStepFloat() % Math.max(1, songSteps(project)) * sm),
+                tracks: arrangementTracks(),
+                selected: selected ? { track: selected.trackId, clip: selected.id } : undefined,
+                options: {
+                    laneHeight: 34,
+                    labelWidth: 176,
+                    snapMs: Math.max(1, Math.round(snapUnitSteps(project.snap, project.stepsPerBeat) * sm)),
+                    barMs: Math.max(1, Math.round(bar * sm)),
+                    beatMs: Math.max(1, Math.round(project.stepsPerBeat * sm)),
+                    fitOnOpen: true,
+                    zoomNeedsCtrl: true,
+                    allowDraw: true,
+                    laneNumbers: true,
+                    activeTrack: project.activeTrackId ?? undefined,
+                    followPlayhead: transport.playing,
+                    rightGutter: 16
+                },
+                onSeek: onArrangementSeek,
+                onClipSelected: onArrangementClipSelected,
+                onClipMoved: onArrangementClipMoved,
+                onClipResized: onArrangementClipResized,
+                onClipDelete: onArrangementClipDelete,
+                onClipDuplicate: onArrangementClipDuplicate,
+                onClipCreate: onArrangementClipCreate,
+                onTrackClicked: onArrangementTrackClicked,
+                onTrackMute: onArrangementTrackMute,
+                onTrackSolo: onArrangementTrackSolo,
+                onBackgroundClicked: onArrangementBackground
+            });
+
+            const t = selected ? findTrack(selected.trackId) : undefined;
+            const pat = t?.patterns.find(p => p.id === selected?.patternId);
+            const hint = selected && t && pat
+                ? `${t.name} - ${pat.name}: bar ${Math.floor(selected.startStep / bar) + 1} for ${(selected.lengthSteps / bar).toFixed(selected.lengthSteps % bar === 0 ? 0 : 2)} bar(s)`
+                : "Drag on an empty lane to draw a clip. Drag a clip to move it, drag its edges to resize, right-click for Duplicate or Delete. Hold Alt to skip snapping, Ctrl+wheel to zoom.";
+            Entropy.UI.Widget.label(tid, { text: arrangementStatus || hint });
+        }, "arrangement_panel", true);
+    };
+
+    const renderDAWUI = (tabId: string) => {
+        renderTransportBar(tabId);
+        renderArrangement(tabId);
 
         // Mixer: one channel-strip group per track, laid out side by side like a real mixing
         // console instead of a flat vertical list of rows.
@@ -668,46 +1220,11 @@ addon.onInit(async () => {
                         Entropy.UI.Widget.button(tid3, {
                             text: "🗑 Delete",
                             onClick: () => {
-                                removeTrackBus(track);
-                                project.tracks = project.tracks.filter(t => t.id !== track.id);
-                                if (project.activeTrackId === track.id) {
-                                    project.activeTrackId = project.tracks[0]?.id ?? null;
-                                }
+                                removeTrack(track);
                                 persist();
                             }
                         });
                     });
-                });
-            });
-
-            Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                Entropy.UI.Widget.button(tid2, {
-                    text: "+ Synth Track",
-                    id: "add_synth_track",
-                    onClick: () => {
-                        const id = Entropy.generateUUID();
-                        project.tracks.push({
-                            id, name: `Synth ${project.tracks.length + 1}`, kind: "synth",
-                            rootNote: 60, scale: "pentatonic_minor", rows: 10,
-                            voice: defaultSynthVoice("saw"), gain: 0.25, muted: false, solo: false, notes: []
-                        });
-                        project.activeTrackId = id;
-                        persist();
-                    }
-                });
-                Entropy.UI.Widget.button(tid2, {
-                    text: "+ Drum Track",
-                    id: "add_drum_track",
-                    onClick: () => {
-                        const id = Entropy.generateUUID();
-                        project.tracks.push({
-                            id, name: `Drums ${project.tracks.length + 1}`, kind: "drum",
-                            rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
-                            voice: defaultDrumVoice(), gain: 0.5, muted: false, solo: false, notes: []
-                        });
-                        project.activeTrackId = id;
-                        persist();
-                    }
                 });
             });
         }, "mixer_panel", true);
@@ -877,9 +1394,58 @@ addon.onInit(async () => {
             });
         });
 
-        Entropy.UI.Widget.label(tabId, { text: "Piano Roll (click/drag to paint, click a note to erase)" });
+        // The pattern the piano roll below is editing: pick, add, duplicate, resize, or send it
+        // to the clip that is selected in the arrangement.
+        const pattern = activePattern(track);
+        Entropy.UI.Widget.label(tabId, { text: `Piano Roll - ${track.name} / ${pattern.name} (click/drag to paint, click a note to erase)`, bold: true });
+        Entropy.UI.Widget.horizontal(tabId, (tid: string) => {
+            Entropy.UI.Widget.dropdown(tid, {
+                label: "Pattern",
+                id: "pattern_select",
+                options: track.patterns.map(p => p.name),
+                selectedIndex: Math.max(0, track.patterns.findIndex(p => p.id === pattern.id)),
+                onChange: (idx: string) => {
+                    const chosen = track.patterns[parseInt(idx, 10)];
+                    if (chosen) track.activePatternId = chosen.id;
+                }
+            });
+            Entropy.UI.Widget.button(tid, {
+                text: "+ New Pattern",
+                id: "pattern_new",
+                onClick: () => { addPattern(track); persist(); }
+            });
+            Entropy.UI.Widget.button(tid, {
+                text: "Duplicate Pattern",
+                id: "pattern_duplicate",
+                onClick: () => { duplicatePattern(track); persist(); }
+            });
+            Entropy.UI.Widget.button(tid, {
+                text: "Use In Selected Clip",
+                id: "pattern_assign",
+                onClick: () => {
+                    const clip = selectedClip();
+                    if (clip && clip.trackId === track.id) {
+                        clip.patternId = activePattern(track).id;
+                        persist();
+                    }
+                }
+            });
+            Entropy.UI.Widget.dropdown(tid, {
+                label: "Length",
+                id: "pattern_length",
+                options: PATTERN_LENGTH_LABELS,
+                selectedIndex: patternLengthIndex(pattern),
+                onChange: (idx: string) => {
+                    const bars = PATTERN_LENGTH_BARS[parseInt(idx, 10)];
+                    if (bars) {
+                        activePattern(track).steps = Math.max(1, Math.round(bars * barSteps(project.stepsPerBeat)));
+                        persist();
+                    }
+                }
+            });
+        });
 
-        const displayCells = track.notes.map(n => ({
+        const displayCells = pattern.notes.map(n => ({
             row: toDisplayRow(track, n.row),
             step: n.step,
             length: n.length,
@@ -889,11 +1455,11 @@ addon.onInit(async () => {
         Entropy.UI.Widget.pianoRoll(tabId, {
             id: "daw_pianoroll_" + track.id,
             rows: track.rows,
-            steps: project.steps,
+            steps: pattern.steps,
             stepsPerBeat: project.stepsPerBeat,
             rowLabels: rowLabelsFor(track),
             cells: displayCells,
-            playhead: transport.playing ? transport.playheadFrac : -1,
+            playhead: transport.playing ? pianoRollPlayhead(project, track, currentStepFloat(), transport.mode) : -1,
             onNoteDown: (displayRow: number, step: number) => handleNoteDown(toDisplayRow(track, displayRow), step),
             onNoteDrag: (displayRow: number, step: number) => handleNoteDrag(toDisplayRow(track, displayRow), step),
             onNoteUp: (displayRow: number, step: number) => handleNoteUp(toDisplayRow(track, displayRow), step)
@@ -932,20 +1498,22 @@ addon.onInit(async () => {
             if (typeof peak === "number") runtime.peak = Math.max(peak, runtime.peak * 0.92);
         }
 
+        flushSaveIfDue();
+
         if (!transport.playing) return;
 
-        const sd = stepDuration();
-        const elapsed = Date.now() / 1000 - transport.startedAt;
-        const totalSteps = Math.max(1, project.steps);
-        const stepFloat = elapsed / sd;
-        const curStep = Math.floor(stepFloat) % totalSteps;
+        const stepFloat = currentStepFloat();
+        const absStep = Math.floor(stepFloat);
+        const total = transportLength();
+        transport.cursorStep = ((stepFloat % total) + total) % total;
 
-        transport.playheadFrac = (stepFloat % totalSteps) / totalSteps;
-
-        if (curStep !== transport.lastStep) {
-            transport.lastStep = curStep;
-            triggerStep(curStep);
-        }
+        // Trigger every step that has passed since the last frame, not just the newest, so a slow
+        // frame cannot swallow a note. After a long stall (a plugin loading, say) skip ahead
+        // rather than fire the whole backlog at once.
+        let from = transport.lastAbsStep + 1;
+        if (absStep - from > 32) from = absStep;
+        for (let s = from; s <= absStep; s++) triggerStep(s);
+        transport.lastAbsStep = Math.max(transport.lastAbsStep, absStep);
     };
 
     // The engine ticks exactly one addon name per frame: "DAW" while Studio has the DAW workspace
@@ -961,14 +1529,18 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_get_state",
-        description: "Get the current DAW project: BPM, pattern length (steps), and every track (id, name, kind, mute/solo, gain, voice params, scale/rootNote for synth tracks, and note count). Call this before editing so you know track ids and row semantics.",
+        description: "Get the current DAW project: BPM, song length in bars, and every track (id, name, kind, channel, mute/solo, gain, voice params, scale/rootNote for synth tracks, its patterns) plus the arrangement (which pattern plays where, in bars). Call this before editing so you know track ids, pattern ids and row semantics.",
         parameters: { type: "object", properties: {} }
     }, () => {
+        const bar = barSteps(project.stepsPerBeat);
         return {
             bpm: project.bpm,
-            steps: project.steps,
+            songBars: project.songBars,
             stepsPerBeat: project.stepsPerBeat,
+            stepsPerBar: bar,
+            channels: laneCount(project.tracks),
             playing: transport.playing,
+            mode: transport.mode,
             activeTrackId: project.activeTrackId,
             drumRowLayout: DRUM_ROWS.map((d, i) => ({ row: i, name: d.name })),
             availableScales: SCALE_NAMES,
@@ -976,6 +1548,7 @@ addon.onInit(async () => {
                 id: t.id,
                 name: t.name,
                 kind: t.kind,
+                channel: t.channel,
                 muted: t.muted,
                 solo: t.solo,
                 gain: t.gain,
@@ -987,19 +1560,25 @@ addon.onInit(async () => {
                 rowNotes: t.kind === "synth"
                     ? Array.from({ length: t.rows }, (_, r) => midiToName(rowToMidi(r, t.rootNote, t.scale)))
                     : DRUM_ROWS.map(d => d.name),
-                noteCount: t.notes.length
+                activePatternId: t.activePatternId,
+                patterns: t.patterns.map(p => ({ id: p.id, name: p.name, steps: p.steps, noteCount: p.notes.length }))
+            })),
+            arrangement: project.arrangement.map(c => ({
+                id: c.id, trackId: c.trackId, patternId: c.patternId,
+                startBar: c.startStep / bar, bars: c.lengthSteps / bar
             }))
         };
     });
 
     addon.registerTool({
         name: "daw_create_track",
-        description: "Create a new DAW track. kind \"drum\" gives a 5-row kit (row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom). kind \"synth\" gives a pitched track spanning multiple octaves of the chosen scale (row 0 = root note, increasing row = higher pitch). Returns the new track id plus its row layout so you can write patterns with daw_set_notes.",
+        description: "Create a new DAW track on the lowest free channel (or a chosen one). kind \"drum\" gives a 5-row kit (row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom). kind \"synth\" gives a pitched track spanning multiple octaves of the chosen scale (row 0 = root note, increasing row = higher pitch). It starts with one empty pattern and no clips; writing notes with daw_set_notes gives it a clip automatically. Returns the new track id plus its row layout so you can write patterns.",
         parameters: {
             type: "object",
             properties: {
                 name: { type: "string" },
                 kind: { type: "string", enum: ["synth", "drum"] },
+                channel: { type: "number", description: "0-based arrangement lane. Defaults to the lowest free one." },
                 waveform: { type: "string", enum: WAVEFORMS, description: "Synth tracks only." },
                 scale: { type: "string", enum: SCALE_NAMES, description: "Synth tracks only. Defaults to pentatonic_minor." },
                 rootNote: { type: "number", description: "MIDI note number for row 0 (e.g. 60 = C4, 36 = C2 for bass). Synth tracks only." },
@@ -1009,18 +1588,14 @@ addon.onInit(async () => {
             required: ["name", "kind"]
         }
     }, (args: any) => {
-        const id = Entropy.generateUUID();
+        const channel = typeof args.channel === "number" && args.channel >= 0 && !project.tracks.some(t => t.channel === Math.round(args.channel))
+            ? Math.round(args.channel) : undefined;
 
         if (args.kind === "drum") {
-            const track: Track = {
-                id, name: args.name, kind: "drum",
-                rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
-                voice: defaultDrumVoice(), gain: args.gain ?? 0.5, muted: false, solo: false, notes: []
-            };
-            project.tracks.push(track);
-            project.activeTrackId = id;
+            const track = addTrack("drum", channel, args.name);
+            if (typeof args.gain === "number") track.gain = args.gain;
             persist();
-            return { success: true, id, kind: "drum", rows: DRUM_ROWS.length, rowLayout: DRUM_ROWS.map((d, i) => ({ row: i, name: d.name })) };
+            return { success: true, id: track.id, kind: "drum", channel: track.channel, rows: DRUM_ROWS.length, patternId: track.activePatternId, rowLayout: DRUM_ROWS.map((d, i) => ({ row: i, name: d.name })) };
         }
 
         const scale = (args.scale && SCALES[args.scale]) ? args.scale : "pentatonic_minor";
@@ -1028,17 +1603,16 @@ addon.onInit(async () => {
         const rows = SCALES[scale].length * octaves;
         const rootNote = typeof args.rootNote === "number" ? args.rootNote : 60;
 
-        const track: Track = {
-            id, name: args.name, kind: "synth",
-            rootNote, scale, rows,
-            voice: defaultSynthVoice(args.waveform || "saw"), gain: args.gain ?? 0.25, muted: false, solo: false, notes: []
-        };
-        project.tracks.push(track);
-        project.activeTrackId = id;
+        const track = addTrack("synth", channel, args.name);
+        track.scale = scale;
+        track.rows = rows;
+        track.rootNote = rootNote;
+        track.voice = defaultSynthVoice(args.waveform || "saw");
+        if (typeof args.gain === "number") track.gain = args.gain;
         persist();
 
         return {
-            success: true, id, kind: "synth", scale, rootNote, rows,
+            success: true, id: track.id, kind: "synth", channel: track.channel, scale, rootNote, rows, patternId: track.activePatternId,
             rowNotes: Array.from({ length: rows }, (_, r) => midiToName(rowToMidi(r, rootNote, scale)))
         };
     });
@@ -1138,31 +1712,28 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_delete_track",
-        description: "Delete a DAW track by id.",
+        description: "Delete a DAW track by id, along with its patterns and every clip that plays them.",
         parameters: { type: "object", properties: { trackId: { type: "string" } }, required: ["trackId"] }
     }, (args: any) => {
         const before = project.tracks.length;
         const removed = project.tracks.find(t => t.id === args.trackId);
-        if (removed) removeTrackBus(removed);
-        project.tracks = project.tracks.filter(t => t.id !== args.trackId);
-        if (project.activeTrackId === args.trackId) {
-            project.activeTrackId = project.tracks[0]?.id ?? null;
-        }
+        if (removed) removeTrack(removed);
         persist();
         return { success: project.tracks.length < before };
     });
 
     addon.registerTool({
         name: "daw_set_notes",
-        description: `Write a note/beat pattern into a track. Provide notes either as an explicit list or as compact ASCII row patterns (or both):
+        description: `Write a note/beat pattern into one of a track's patterns (its active one unless patternId is given). Provide notes either as an explicit list or as compact ASCII row patterns (or both):
 - "notes": [{row, step, length, velocity}] — row/step/length are integers (length in steps, default 1), velocity is 0-1 (default 0.85).
 - "rows": [{row, pattern}] — one character per step, e.g. {row: 0, pattern: "X...X...X...X..."}. Characters: '.' or '-' = empty, 'x' = medium hit (0.75), 'X' = accent (1.0), digits 1-9 = velocity n/9.
-Row meaning depends on track kind (see daw_get_state): drum tracks use row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom; synth tracks use row = scale degree (0 = root note, increasing = higher pitch). Step 0 is the start of the pattern; the pattern repeats every "steps" from daw_get_state.
-Default mode replaces the track's whole pattern; pass mode:"add" to layer new notes onto the existing ones instead.`,
+Row meaning depends on track kind (see daw_get_state): drum tracks use row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom; synth tracks use row = scale degree (0 = root note, increasing = higher pitch). Step 0 is the start of the pattern; a pattern repeats for as long as the clip that plays it lasts. A track with no clips yet gets one spanning the whole song, so the notes are audible straight away.
+Default mode replaces the pattern's notes; pass mode:"add" to layer new notes onto the existing ones instead.`,
         parameters: {
             type: "object",
             properties: {
                 trackId: { type: "string" },
+                patternId: { type: "string", description: "Defaults to the track's active pattern." },
                 mode: { type: "string", enum: ["replace", "add"] },
                 notes: {
                     type: "array",
@@ -1194,6 +1765,8 @@ Default mode replaces the track's whole pattern; pass mode:"add" to layer new no
     }, (args: any) => {
         const track = project.tracks.find(t => t.id === args.trackId);
         if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        const pattern = args.patternId ? track.patterns.find(p => p.id === args.patternId) : activePattern(track);
+        if (!pattern) return { success: false, error: "Pattern not found: " + args.patternId };
 
         const newNotes: NoteCell[] = [];
 
@@ -1210,9 +1783,9 @@ Default mode replaces the track's whole pattern; pass mode:"add" to layer new no
 
         if (Array.isArray(args.rows)) {
             for (const r of args.rows) {
-                const pattern: string = r.pattern || "";
-                for (let step = 0; step < pattern.length; step++) {
-                    const c = pattern[step];
+                const text: string = r.pattern || "";
+                for (let step = 0; step < text.length; step++) {
+                    const c = text[step];
                     let velocity = 0;
                     if (c === "x") velocity = 0.75;
                     else if (c === "X") velocity = 1.0;
@@ -1223,40 +1796,126 @@ Default mode replaces the track's whole pattern; pass mode:"add" to layer new no
         }
 
         if (args.mode === "add") {
-            track.notes.push(...newNotes);
+            pattern.notes.push(...newNotes);
         } else {
-            track.notes = newNotes;
+            pattern.notes = newNotes;
         }
 
+        // Notes past the end of a pattern never play; widen it to a whole number of bars so they do.
+        const furthest = pattern.notes.reduce((m, n) => Math.max(m, n.step + n.length), 0);
+        if (furthest > pattern.steps) {
+            const bar = barSteps(project.stepsPerBeat);
+            pattern.steps = Math.ceil(furthest / bar) * bar;
+        }
+
+        if (!args.patternId || args.patternId === track.activePatternId) ensureTrackHasClip(track);
         persist();
-        return { success: true, trackId: track.id, noteCount: track.notes.length };
+        return { success: true, trackId: track.id, patternId: pattern.id, patternSteps: pattern.steps, noteCount: pattern.notes.length };
+    });
+
+    addon.registerTool({
+        name: "daw_new_pattern",
+        description: "Add another pattern to a track (it becomes the track's active pattern), optionally copying an existing one. Write its notes with daw_set_notes, then place it in the arrangement with daw_place_clips.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                name: { type: "string" },
+                bars: { type: "number", description: "Pattern length in bars (0.5, 1, 2 or 4). Default 1." },
+                copyFrom: { type: "string", description: "Pattern id on the same track to copy the notes from." }
+            },
+            required: ["trackId"]
+        }
+    }, (args: any) => {
+        const track = project.tracks.find(t => t.id === args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        const src = args.copyFrom ? track.patterns.find(p => p.id === args.copyFrom) : undefined;
+        if (args.copyFrom && !src) return { success: false, error: "Pattern not found: " + args.copyFrom };
+        const bars = typeof args.bars === "number" && args.bars > 0 ? args.bars : (src ? src.steps / barSteps(project.stepsPerBeat) : 1);
+        const steps = Math.max(1, Math.round(bars * barSteps(project.stepsPerBeat)));
+        const pattern = addPattern(track, typeof args.name === "string" ? args.name : undefined, steps, src ? src.notes.map(n => ({ ...n })) : []);
+        persist();
+        return { success: true, trackId: track.id, patternId: pattern.id, name: pattern.name, steps: pattern.steps };
+    });
+
+    addon.registerTool({
+        name: "daw_place_clips",
+        description: "Arrange a track: place clips (a pattern looped over a span of bars) on the track's lane. Positions are in bars from the start of the song (bar 0 is the first bar). A clip that would overlap another clip on the same track is skipped and reported. mode \"replace\" clears the track's existing clips first, \"add\" (default) keeps them.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                mode: { type: "string", enum: ["replace", "add"] },
+                clips: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            patternId: { type: "string", description: "Defaults to the track's active pattern." },
+                            startBar: { type: "number" },
+                            bars: { type: "number" }
+                        },
+                        required: ["startBar", "bars"]
+                    }
+                }
+            },
+            required: ["trackId", "clips"]
+        }
+    }, (args: any) => {
+        const track = project.tracks.find(t => t.id === args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        const bar = barSteps(project.stepsPerBeat);
+        if (args.mode === "replace") project.arrangement = project.arrangement.filter(c => c.trackId !== track.id);
+        const placed: string[] = [];
+        const skipped: any[] = [];
+        for (const spec of Array.isArray(args.clips) ? args.clips : []) {
+            const patternId = spec.patternId ?? track.activePatternId;
+            if (!track.patterns.some(p => p.id === patternId)) { skipped.push({ ...spec, reason: "unknown pattern" }); continue; }
+            const clip = createClip(project.arrangement, {
+                trackId: track.id, patternId, startStep: Math.round(spec.startBar * bar), lengthSteps: Math.max(1, Math.round(spec.bars * bar))
+            }, songSteps(project), newId);
+            if (clip) placed.push(clip.id); else skipped.push({ ...spec, reason: "outside the song or overlapping another clip" });
+        }
+        persist();
+        return { success: true, placed, skipped, clipCount: clipsOfTrack(project.arrangement, track.id).length };
     });
 
     addon.registerTool({
         name: "daw_set_transport",
-        description: "Change BPM and/or pattern length, and optionally start or stop playback so the user can hear the current pattern immediately.",
+        description: "Change BPM, song length (bars), the active pattern's length, or the transport mode, and optionally start or stop playback so the user can hear the result immediately. mode \"song\" plays the whole arrangement; \"pattern\" loops just the active track's active pattern.",
         parameters: {
             type: "object",
             properties: {
                 bpm: { type: "number" },
-                steps: { type: "number", description: "Pattern length in steps. Common values: 16, 32, 64." },
+                songBars: { type: "number", description: "Length of the arrangement in bars." },
+                steps: { type: "number", description: "Length in steps of the active track's active pattern. Common values: 16, 32, 64." },
                 stepsPerBeat: { type: "number" },
+                mode: { type: "string", enum: ["song", "pattern"] },
                 playing: { type: "boolean" }
             }
         }
     }, (args: any) => {
-        if (typeof args.bpm === "number") project.bpm = Math.max(20, Math.min(300, args.bpm));
-        if (typeof args.steps === "number") project.steps = Math.max(1, Math.round(args.steps));
+        if (typeof args.bpm === "number") setBpm(args.bpm);
+        if (typeof args.songBars === "number") setSongBars(args.songBars);
+        if (typeof args.steps === "number") {
+            const t = getActiveTrack();
+            if (t) activePattern(t).steps = Math.max(1, Math.round(args.steps));
+        }
         if (typeof args.stepsPerBeat === "number") project.stepsPerBeat = Math.max(1, Math.round(args.stepsPerBeat));
+        if (args.mode === "song" || args.mode === "pattern") { transport.mode = args.mode; transport.cursorStep = 0; }
         if (args.playing === true) play();
         else if (args.playing === false) stop();
         persist();
-        return { success: true, bpm: project.bpm, steps: project.steps, stepsPerBeat: project.stepsPerBeat, playing: transport.playing };
+        const t = getActiveTrack();
+        return {
+            success: true, bpm: project.bpm, songBars: project.songBars, stepsPerBeat: project.stepsPerBeat,
+            activePatternSteps: t ? activePattern(t).steps : null, mode: transport.mode, playing: transport.playing
+        };
     });
 
     addon.registerTool({
         name: "daw_export_wav",
-        description: "Render the current pattern (all unmuted tracks, one loop, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, so this only completes when a human picks a location - it is not silent/headless.",
+        description: "Render the whole arrangement (all unmuted tracks, respecting solo/gain/velocity) to a WAV file. Opens a native save dialog on the host machine, so this only completes when a human picks a location - it is not silent/headless.",
         parameters: { type: "object", properties: {} }
     }, () => {
         return exportPatternToWav();

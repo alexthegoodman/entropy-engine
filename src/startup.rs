@@ -167,6 +167,11 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
     if text.starts_with("I set ") && quoted.len() == 2 {
         return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: Some(quoted[1].to_string()) });
     }
+    // A widget-level event a widget would push itself (a TrackView clip edit, a piano-roll note...),
+    // passed to the addon exactly as written: `TRACKS_CLIP_CREATE|arrangement|empty:8|3750|3750`.
+    if text.starts_with("I send the widget event ") && quoted.len() == 1 {
+        return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: None });
+    }
     if text.starts_with("I click ") && quoted.len() == 1 {
         return Some(BrowserBddAction::Event { control_id: quoted[0].to_string(), value: None });
     }
@@ -220,10 +225,10 @@ impl BrowserBddDriver {
         .map(PathBuf::from)?;
         let source = if daw {
             // The restore run reopens the project the first run saved: same driver, second script.
-            if std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() == Ok("restore") {
-                include_str!("../tests/features/vst3_live_restore.feature")
-            } else {
-                include_str!("../tests/features/vst3_live.feature")
+            match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
+                Ok("restore") => include_str!("../tests/features/vst3_live_restore.feature"),
+                Ok("arrangement") => include_str!("../tests/features/daw_arrangement_live.feature"),
+                _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
             if std::env::var("ENTROPY_CANVAS_BDD_FEATURE").as_deref() == Ok("logic") {

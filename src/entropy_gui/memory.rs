@@ -31,6 +31,9 @@ pub enum WidgetState {
     /// instance, keyed by its own id - the two widgets share this variant since they never
     /// collide (different id namespaces) and want the exact same pan/zoom shape.
     TimelineView { scroll_x: f32, zoom: f32 },
+    /// A single remembered number for a widget (e.g. the bar length a `TrackView` was last drawn
+    /// with, so a tempo change can rescale zoom instead of changing how much of the song fits).
+    Scalar(f32),
     /// A user-typed draft string not yet (or not always) in sync with the caller's own data -
     /// currently just `ColorPicker`'s hex field, which needs to hold a free-typed string across
     /// frames without the widget re-deriving and stomping it from the color every single frame.
@@ -93,6 +96,14 @@ pub struct Memory {
     /// Live (kind, start_ms, duration_ms) override for a `TrackView` clip being moved or
     /// resized, keyed by the clip's own interact id - same rationale as `keyframe_drag`.
     pub clip_drag: Option<(Id, ClipDragKind, i32, i32)>,
+    /// Where a `TrackView` clip drag began: (clip interact id, pointer x at press, the clip's
+    /// start_ms, its duration_ms). Snapping needs the un-snapped position measured from the
+    /// press rather than an accumulated per-frame delta - rounding a small delta every frame
+    /// would swallow it and the clip would never leave its snap point.
+    pub clip_drag_origin: Option<(Id, f32, i32, i32)>,
+    /// A clip being drawn into an empty `TrackView` lane: (lane interact id, anchor_ms, current
+    /// end ms), both already snapped. Drawn as a ghost until release turns it into an event.
+    pub lane_draw: Option<(Id, i32, i32)>,
     /// Set while a `KanbanBoard` card is being dragged: (board id, source column id, card
     /// id). The card's live position isn't stored here - it's read straight from the
     /// pointer each frame - only its identity, so the widget knows which card to draw as a
@@ -177,6 +188,20 @@ impl Memory {
             Some(WidgetState::TimelineView { scroll_x, zoom }) => (*scroll_x, *zoom),
             _ => (0.0, 5.0),
         }
+    }
+    /// Whether this view has ever been stored - lets a widget fit its content to the available
+    /// width the first time it appears, then leave zoom alone afterward.
+    pub fn get_scalar(&self, id: Id) -> Option<f32> {
+        match self.data.get(&id) {
+            Some(WidgetState::Scalar(v)) => Some(*v),
+            _ => None,
+        }
+    }
+    pub fn set_scalar(&mut self, id: Id, v: f32) {
+        self.data.insert(id, WidgetState::Scalar(v));
+    }
+    pub fn has_timeline_view(&self, id: Id) -> bool {
+        matches!(self.data.get(&id), Some(WidgetState::TimelineView { .. }))
     }
     pub fn set_timeline_view(&mut self, id: Id, scroll_x: f32, zoom: f32) {
         self.data.insert(id, WidgetState::TimelineView { scroll_x, zoom });

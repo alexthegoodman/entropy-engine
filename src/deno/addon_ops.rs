@@ -332,6 +332,10 @@ pub struct TrackClipConfig {
     /// Normalized (0..1) amplitude peaks - an addon-computed waveform for an audio clip.
     /// Omitted/empty for a video or other non-audio clip.
     pub peaks: Option<Vec<f32>>,
+    /// Length of one repeat of the clip's content; the mini notes tile at this period.
+    pub loop_ms: Option<i32>,
+    /// Miniature note preview as `[start, len, y]` triples, each 0..1 within one loop.
+    pub notes: Option<Vec<[f32; 3]>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -340,6 +344,35 @@ pub struct TrackConfig {
     pub id: String,
     pub label: String,
     pub clips: Vec<TrackClipConfig>,
+    /// Dimmer second header line (e.g. an instrument name).
+    pub sublabel: Option<String>,
+    /// [r, g, b, a] in 0..1 - the header's accent strip.
+    pub color: Option<[f32; 4]>,
+    pub muted: Option<bool>,
+    pub solo: Option<bool>,
+    /// Show mute/solo pills in the header.
+    pub controls: Option<bool>,
+    /// An unused lane shown so the arrangement always has room.
+    pub placeholder: Option<bool>,
+}
+
+/// Optional look-and-feel/behavior for `Widget.tracks` - see `entropy_gui::TrackViewOptions`.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct TracksOptionsConfig {
+    pub lane_height: Option<f32>,
+    pub label_width: Option<f32>,
+    pub snap_ms: Option<i32>,
+    pub bar_ms: Option<i32>,
+    pub beat_ms: Option<i32>,
+    pub fit_on_open: Option<bool>,
+    pub zoom_needs_ctrl: Option<bool>,
+    pub allow_draw: Option<bool>,
+    pub active_track: Option<String>,
+    pub lane_numbers: Option<bool>,
+    pub min_clip_ms: Option<i32>,
+    pub follow_playhead: Option<bool>,
+    pub right_gutter: Option<f32>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -421,6 +454,7 @@ pub enum UiWidget {
         tracks: Vec<TrackConfig>,
         /// (track id, clip id) - highlights that clip as selected.
         selected: Option<(String, String)>,
+        options: TracksOptionsConfig,
     },
     Kanban {
         id: String,
@@ -448,7 +482,7 @@ pub enum UiWidget {
     EndGroup,
     Separator,
     Hyperlink { id: String, text: String, url: String },
-    TextInput { id: String, label: String, value: String },
+    TextInput { id: String, label: String, value: String, width: f32 },
     LayoutCanvas {
         id: String,
         width: f32,
@@ -3095,6 +3129,7 @@ pub fn op_ui_widget_tracks(
     #[serde] tracks: Vec<TrackConfig>,
     #[serde] selected: Option<(String, String)>,
     #[string] id: String,
+    #[serde] options: Option<TracksOptionsConfig>,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Tracks {
@@ -3103,6 +3138,7 @@ pub fn op_ui_widget_tracks(
             playhead_ms,
             tracks,
             selected,
+            options: options.unwrap_or_default(),
         });
     }
 }
@@ -3221,9 +3257,10 @@ pub fn op_ui_widget_text_input(
     #[string] label: String,
     #[string] value: String,
     #[string] id: String,
+    width: f32,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TextInput { id, label, value, width });
     }
 }
 

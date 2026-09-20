@@ -15,6 +15,10 @@ name = "browser_bdd"
 harness = false
 
 [[test]]
+name = "track_view_bdd"
+harness = false
+
+[[test]]
 name = "vst3_bdd"
 harness = false
 
