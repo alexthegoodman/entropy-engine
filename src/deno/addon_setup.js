@@ -17,6 +17,18 @@ globalThis.registered_npcs = [];
 // Namespaces below take no addon-name/context argument at the ops layer, so
 // the scoped and global surfaces are identical - build them once and share
 // the same object.
+// Only the fields that were given are sent, so the engine's own defaults (gain 1, whole sample,
+// no pitch shift, one-shot) apply to the rest.
+function sampleParams(c) {
+    const out = {};
+    if (c && typeof c.gain === "number") out.gain = c.gain;
+    if (c && typeof c.semitones === "number") out.semitones = c.semitones;
+    if (c && typeof c.start === "number") out.start = c.start;
+    if (c && typeof c.end === "number") out.end = c.end;
+    if (c && typeof c.hold === "number") out.hold = c.hold;
+    return out;
+}
+
 const audioAPI = {
     playSynth: (config) => {
         ops.op_audio_play_synth({
@@ -55,7 +67,7 @@ const audioAPI = {
     },
     // Renders a whole list of pre-scheduled note events offline to a WAV file (opens a native
     // save dialog engine-side); see `op_audio_render_pattern_wav` for the shape of `events`.
-    renderPatternToWav: (events, suggestedName) => {
+    renderPatternToWav: (events, suggestedName, sampleEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -75,7 +87,11 @@ const audioAPI = {
             reverbTime: e.reverbTime ?? 1.0,
             reverbDamping: e.reverbDamping ?? 0.5,
             reverbMix: e.reverbMix ?? 0.0
-        })), suggestedName || "pattern.wav");
+        })), suggestedName || "pattern.wav", (sampleEvents || []).map(e => ({
+            startTime: e.startTime || 0.0,
+            path: e.path,
+            params: sampleParams(e)
+        })));
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -99,6 +115,17 @@ const audioAPI = {
     // the analyzer widgets compute from, so it lets an addon or an AI tool check what a mix
     // actually contains.
     analyze: (source, fftSize) => ops.op_audio_analyze(source || "master", fftSize || 4096),
+    // --- Samples (see src/audio/samples.rs) ---
+    // Decodes a file (or finds it in memory) and describes it: {ok, error?, seconds, fullSeconds,
+    // truncated, sourceRate, channels, peak, waveform}. Only the first 12 s of a file are decoded.
+    // Call it when a sample is assigned so the first hit does not wait on the decode.
+    loadSample: (path, bins) => ops.op_audio_load_sample(path, bins || 96),
+    // A drum-rack hit: plays `path` on a track bus. config: {gain, semitones, start, end, hold}.
+    // Returns {ok, error?}.
+    playSampleOnTrack: (trackId, path, config) => ops.op_audio_play_sample_on_track(trackId, path, sampleParams(config)),
+    // Auditions a file through the shared preview bus, cutting off the previous audition.
+    previewSample: (path, config) => ops.op_audio_preview_sample(path, sampleParams(config)),
+    stopPreview: () => ops.op_audio_stop_preview(),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -714,6 +741,14 @@ globalThis.Entropy = {
                     listModels: () => {
                         return ops.op_io_list_models();
                     },
+                    // The user's Music folder (null if the OS has none). Also allows listDir under it.
+                    musicDir: () => ops.op_io_music_dir() || null,
+                    // A native folder dialog; the chosen folder becomes readable by listDir. Null if cancelled.
+                    pickSampleFolder: () => ops.op_io_pick_sample_folder() || null,
+                    // Folders first, then audio files, directly inside `path`: {ok, error?, entries:
+                    // [{name, path, isDir, size, audioCount, dirCount}]}. Read-only, and refused
+                    // outside the Music folder and folders chosen with pickSampleFolder.
+                    listDir: (path) => ops.op_io_list_dir(path),
                     pickAndImportModel: () => {
                         return ops.op_io_pick_and_import_model();
                     },
@@ -1052,18 +1087,37 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "levelmeter", config?.id);
                 ops.op_ui_widget_level_meter(windowId, { source: "master", ...(config || {}) }, id);
             },
+            // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
+            // ring and a caller-driven glow. Events go through the same id-keyed listener path as
+            // treeView.
+            padGrid: (windowId, config) => {
+                const id = nextWidgetId(windowId, "padgrid", config?.id);
+                ops.op_ui_widget_pad_grid(windowId, { pads: [], ...(config || {}) }, id);
+
+                if (config?.onPadClick || config?.onPadClear || config?.onAdd) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "PADGRID_CLICKED" && config.onPadClick) config.onPadClick(parts[2]);
+                        else if (type === "PADGRID_CLEARED" && config.onPadClear) config.onPadClear(parts[2]);
+                        else if (type === "PADGRID_ADD" && config.onAdd) config.onAdd();
+                    });
+                }
+            },
             treeView: (windowId, config) => {
                 const nodes = config?.nodes || [];
                 const id = nextWidgetId(windowId, "treeview", config?.id);
 
-                ops.op_ui_widget_tree_view(windowId, nodes, id);
+                ops.op_ui_widget_tree_view(windowId, nodes, id, config?.maxHeight || 0, config?.width || 0);
 
                 if (config?.onSelect || config?.onToggleExpand || config?.onMark) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
-                        if (type === "TREEVIEW_SELECTED" && config.onSelect) config.onSelect(parts[2]);
-                        else if (type === "TREEVIEW_TOGGLE" && config.onToggleExpand) config.onToggleExpand(parts[2]);
+                        // The node id is the rest of the string, so an id with a "|" in it (a file path on a
+                        // platform that allows one) still arrives whole.
+                        if (type === "TREEVIEW_SELECTED" && config.onSelect) config.onSelect(parts.slice(2).join("|"));
+                        else if (type === "TREEVIEW_TOGGLE" && config.onToggleExpand) config.onToggleExpand(parts.slice(2).join("|"));
                         else if (type === "TREEVIEW_MARKED" && config.onMark) config.onMark(parts[2], parts[3] === "true");
                     });
                 }
@@ -1242,9 +1296,9 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
-                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView widget id
+                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

@@ -121,6 +121,11 @@ pub struct Memory {
     /// needs without a new variant here, and moved out and back in like `doc_editors` rather than
     /// cloned, since a scope's trails are hundreds of points. See `take_view_state`.
     view_states: IdMap<Box<dyn std::any::Any>>,
+    /// Scroll areas whose content overflowed this frame, as (id, region area, region). The next
+    /// frame reads them as `prev_scroll_regions` so that, with scroll areas nested, the wheel goes
+    /// to the innermost one under the pointer instead of scrolling both.
+    scroll_regions: Vec<(Id, f32, Rect)>,
+    prev_scroll_regions: Vec<(Id, f32, Rect)>,
 }
 
 impl Memory {
@@ -132,6 +137,23 @@ impl Memory {
 
     pub fn put_view_state<T: std::any::Any>(&mut self, id: Id, state: T) {
         self.view_states.insert(id, Box::new(state));
+    }
+
+    /// Called once per frame before anything is drawn.
+    pub fn begin_scroll_frame(&mut self) {
+        self.prev_scroll_regions = std::mem::take(&mut self.scroll_regions);
+    }
+
+    /// Records that scroll area `id` can scroll (its content overflows `region`) this frame.
+    pub fn note_scrollable(&mut self, id: Id, region: Rect) {
+        self.scroll_regions.push((id, region.width() * region.height(), region));
+    }
+
+    /// True if a smaller scrollable area than `id`'s own (`region`) sat under `pointer` last frame,
+    /// which then owns the wheel.
+    pub fn scroll_owned_by_inner(&self, id: Id, region: Rect, pointer: Pos2) -> bool {
+        let area = region.width() * region.height();
+        self.prev_scroll_regions.iter().any(|(rid, a, r)| *rid != id && *a < area && r.contains(pointer))
     }
 
     pub fn get_scroll(&self, id: Id) -> Vec2 {

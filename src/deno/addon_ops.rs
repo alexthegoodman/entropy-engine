@@ -406,6 +406,42 @@ pub struct TreeNodeConfig {
     /// `None`/omitted hides the row's checkbox; `Some(value)` shows it at that state.
     pub marked: Option<bool>,
     pub selected: Option<bool>,
+    /// A short glyph drawn before the label.
+    pub icon: Option<String>,
+    /// Dim right-aligned text on the row.
+    pub detail: Option<String>,
+}
+
+/// One pad of `Widget.padGrid` - see `entropy_gui::PadGrid`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PadConfig {
+    pub id: String,
+    pub label: String,
+    pub sublabel: Option<String>,
+    pub hint: Option<String>,
+    /// [r, g, b, a] in 0..1.
+    pub color: Option<[f32; 4]>,
+    /// "empty" (default), "synth", "sample" or "missing".
+    pub kind: Option<String>,
+    /// Peak envelope, 0..1 per bin.
+    pub waveform: Option<Vec<f32>>,
+    /// [start, end] as fractions of the waveform.
+    pub trim: Option<[f32; 2]>,
+    pub selected: Option<bool>,
+    /// 0..1, how lit the pad is right now.
+    pub glow: Option<f32>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PadGridConfig {
+    pub pads: Vec<PadConfig>,
+    pub columns: Option<u32>,
+    pub pad_width: Option<f32>,
+    pub pad_height: Option<f32>,
+    /// Draw a "+ Add pad" tile after the last pad.
+    pub add_tile: Option<bool>,
 }
 
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
@@ -526,7 +562,13 @@ pub enum UiWidget {
     TreeView {
         id: String,
         nodes: Vec<TreeNodeConfig>,
+        /// Cap the tree at this height and scroll the rows inside it.
+        max_height: Option<f32>,
+        /// Fixed width in points; omit to fill the row.
+        width: Option<f32>,
     },
+    /// A drum-machine pad bank - see `entropy_gui::widgets_pads`.
+    PadGrid { id: String, config: PadGridConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -2289,6 +2331,16 @@ pub struct NoteEventConfig {
     pub reverb_mix: f64,
 }
 
+/// One drum-rack pad hit in an offline render: where it starts and what it plays.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleEventConfig {
+    pub start_time: f64,
+    pub path: String,
+    #[serde(default)]
+    pub params: SampleParamsConfig,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GlbMeshExportConfig {
@@ -2391,6 +2443,7 @@ pub fn op_audio_render_pattern_wav(
     state: &mut OpState,
     #[serde] events: Vec<NoteEventConfig>,
     #[string] suggested_name: String,
+    #[serde] sample_events: Vec<SampleEventConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2441,7 +2494,12 @@ pub fn op_audio_render_pattern_wav(
         })
         .collect();
 
-    match crate::audio::render_pattern_to_wav(&note_events, 44100, &output_path) {
+    let sample_hits: Vec<crate::audio::samples::SampleEvent> = sample_events
+        .into_iter()
+        .map(|e| crate::audio::samples::SampleEvent { start_time: e.start_time, path: e.path, params: e.params.to_params() })
+        .collect();
+
+    match crate::audio::render_events_to_wav(&note_events, &sample_hits, 44100, &output_path) {
         Ok(duration_seconds) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
@@ -2454,6 +2512,161 @@ pub fn op_audio_render_pattern_wav(
             duration_seconds: 0.0,
             error: Some(e),
         },
+    }
+}
+
+// --- Drum rack samples (see src/audio/samples.rs) ---------------------------------------------
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleParamsConfig {
+    pub gain: Option<f64>,
+    pub semitones: Option<f64>,
+    pub start: Option<f64>,
+    pub end: Option<f64>,
+    /// Seconds to play before fading out; omit to play the whole trimmed region.
+    pub hold: Option<f64>,
+}
+
+impl SampleParamsConfig {
+    fn to_params(&self) -> crate::audio::samples::SampleParams {
+        let d = crate::audio::samples::SampleParams::default();
+        crate::audio::samples::SampleParams {
+            gain: self.gain.map(|v| v as f32).unwrap_or(d.gain),
+            semitones: self.semitones.map(|v| v as f32).unwrap_or(d.semitones),
+            start: self.start.map(|v| v as f32).unwrap_or(d.start),
+            end: self.end.map(|v| v as f32).unwrap_or(d.end),
+            hold: self.hold.map(|v| v as f32),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleResult {
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
+impl SampleResult {
+    fn from(r: Result<(), String>) -> Self {
+        match r {
+            Ok(()) => SampleResult { ok: true, error: None },
+            Err(e) => SampleResult { ok: false, error: Some(e) },
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SampleInfo {
+    pub ok: bool,
+    pub error: Option<String>,
+    /// Length of what was decoded, in seconds.
+    pub seconds: f64,
+    /// Length of the whole file when known; larger than `seconds` when `truncated`.
+    pub full_seconds: Option<f64>,
+    pub truncated: bool,
+    pub source_rate: u32,
+    pub channels: u16,
+    /// Loudest sample, linear 0..1+.
+    pub peak: f32,
+    /// Peak envelope scaled to 0..1, `bins` values, for a thumbnail.
+    pub waveform: Vec<f32>,
+}
+
+/// `Entropy.Audio.loadSample(path, bins)`: decodes (or finds in memory) a sample and describes it.
+/// Call it when a sample is assigned so the first hit does not wait on a decode.
+#[op2]
+#[serde]
+pub fn op_audio_load_sample(state: &mut OpState, #[string] path: String, #[smi] bins: u32) -> SampleInfo {
+    if state.try_borrow::<AddonContext>().is_none() {
+        return SampleInfo { error: Some("Context not available".into()), ..Default::default() };
+    }
+    match crate::audio::samples::load(&path) {
+        Ok(s) => SampleInfo {
+            ok: true,
+            error: None,
+            seconds: s.seconds(),
+            full_seconds: s.full_seconds,
+            truncated: s.truncated,
+            source_rate: s.source_rate,
+            channels: s.source_channels,
+            peak: s.peak(),
+            waveform: s.waveform(bins.clamp(1, 512) as usize),
+        },
+        Err(e) => SampleInfo { error: Some(e), ..Default::default() },
+    }
+}
+
+#[op2]
+#[serde]
+pub fn op_audio_play_sample_on_track(
+    state: &mut OpState,
+    #[string] track_id: String,
+    #[string] path: String,
+    #[serde] params: SampleParamsConfig,
+) -> SampleResult {
+    let Some(ctx) = state.try_borrow::<AddonContext>() else {
+        return SampleResult { ok: false, error: Some("Context not available".into()) };
+    };
+    SampleResult::from(ctx.audio_engine.play_sample_on_track(&track_id, &path, params.to_params()))
+}
+
+#[op2]
+#[serde]
+pub fn op_audio_preview_sample(state: &mut OpState, #[string] path: String, #[serde] params: SampleParamsConfig) -> SampleResult {
+    let Some(ctx) = state.try_borrow::<AddonContext>() else {
+        return SampleResult { ok: false, error: Some("Context not available".into()) };
+    };
+    SampleResult::from(ctx.audio_engine.preview_sample(&path, params.to_params()))
+}
+
+#[op2(fast)]
+pub fn op_audio_stop_preview(state: &mut OpState) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        ctx.audio_engine.stop_preview();
+    }
+}
+
+/// The user's Music folder (also made readable by `listDir`), or "" if the OS has none.
+#[op2]
+#[string]
+pub fn op_io_music_dir(_state: &mut OpState) -> String {
+    let Some(dir) = crate::audio::samples::music_dir() else { return String::new() };
+    if crate::audio::samples::allow_root(&dir).is_err() {
+        return String::new();
+    }
+    dir.to_string_lossy().into_owned()
+}
+
+/// Opens a native folder dialog; the chosen folder becomes readable by `listDir`. "" if cancelled.
+#[op2]
+#[string]
+pub fn op_io_pick_sample_folder(_state: &mut OpState) -> String {
+    let Some(dir) = rfd::FileDialog::new().set_title("Choose a folder of samples").pick_folder() else { return String::new() };
+    if crate::audio::samples::allow_root(&dir).is_err() {
+        return String::new();
+    }
+    dir.to_string_lossy().into_owned()
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ListDirResult {
+    pub ok: bool,
+    pub error: Option<String>,
+    pub entries: Vec<crate::audio::samples::DirEntryInfo>,
+}
+
+/// `Entropy.IO.listDir(path)`: folders and audio files directly inside `path`, read-only, and only
+/// under the Music folder or a folder picked with `pickSampleFolder`.
+#[op2]
+#[serde]
+pub fn op_io_list_dir(_state: &mut OpState, #[string] path: String) -> ListDirResult {
+    match crate::audio::samples::list_dir(std::path::Path::new(&path)) {
+        Ok(entries) => ListDirResult { ok: true, error: None, entries },
+        Err(e) => ListDirResult { ok: false, error: Some(e), entries: Vec::new() },
     }
 }
 
@@ -3270,9 +3483,26 @@ pub fn op_ui_widget_tree_view(
     #[string] window_id: String,
     #[serde] nodes: Vec<TreeNodeConfig>,
     #[string] id: String,
+    max_height: f64,
+    width: f64,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TreeView { id, nodes });
+        // 0 means "unset": a plain number is easier to pass across the op boundary than an option.
+        let max_height = if max_height > 0.0 { Some(max_height as f32) } else { None };
+        let width = if width > 0.0 { Some(width as f32) } else { None };
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TreeView { id, nodes, max_height, width });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_pad_grid(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: PadGridConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PadGrid { id, config });
     }
 }
 

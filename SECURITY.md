@@ -35,3 +35,7 @@ Confirm Scripts.* and IO.load are hard-scoped to the calling addon's own directo
 Confirm Video.export's outputPath is sandboxed the same way IO.save is.
 Extend the validate-or-fallback (error-scope) pattern from setPointLightShader to Pipeline.createCompute/general shader compilation, if it isn't already uniform.
 Add basic size/rate caps on Buffer.create and dispatch loops as a DoS guard, lowest priority of the five.
+
+## Sample browsing (added with the DAW drum rack)
+
+IO.listDir(path) reads folder names, so it is fenced: it answers only for the user's Music folder and for folders the user picked in a native dialog this session (IO.musicDir / IO.pickSampleFolder register them), resolves `..` and symlinks before checking, skips hidden entries, and lists only folders and audio files. Audio.loadSample / playSampleOnTrack / previewSample decode only files with an audio extension and never hand raw file bytes to the addon (it gets levels and a peak envelope). An addon can therefore learn which audio files exist under those roots; it cannot read other files or walk the disk. Two things still worth knowing: a saved project can name a sample path outside those roots (decoding is not root-fenced, only extension-fenced), and the allowed roots are process-wide, not per addon.

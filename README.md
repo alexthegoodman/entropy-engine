@@ -231,7 +231,8 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.spectrum` | Draws a log-frequency spectrum from the master mix or a track, with filled or bar styles, peak hold, hover readout, configurable FFT size, range, tilt, and fall speed. |
 | `Widget.levelMeter` | Draws a stereo peak and RMS meter with peak hold and a click-to-clear clip latch for the master mix or a track. |
 | `Widget.kanban` | A kanban board with columns, movable cards, selection, deletion, and add-card callbacks. Your addon owns the board data. |
-| `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes. Your addon supplies the visible rows and owns expanded state. |
+| `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes, icons and right-aligned detail text per row. `maxHeight` scrolls the rows inside a capped box, `width` fixes its width. Your addon supplies the visible rows and owns expanded state. |
+| `Widget.padGrid` | A drum-machine pad bank: rounded pads with a name, waveform thumbnail (trim range dimmed), colour accent, selection ring, and a `glow` you drive to pulse a pad when it is hit. Kinds: `empty`, `synth`, `sample`, `missing`. Callbacks: `onPadClick`, `onPadClear` (right-click), `onAdd`. |
 | `Widget.docEditor` + `docEditorToggleBold/Italic`, `docEditorSetFontFamily/Size/Color`, `docEditorSetPaginated`, `docEditorLoadSample`, `docEditorFontNames` | A multi-page word processor that can be paginated or continuous, with mixed bold, italic, font, size, and color per run. The document text stays on the Rust side; build the toolbar from ordinary widgets and drive formatting with the `docEditor*` calls. |
 | `Widget.html(windowId, html, options)` | Renders an HTML string with `<style>` and inline CSS as laid-out UI with block/flex layout, inherited text color, and images. JavaScript is never executed. |
 | `Widget.collapsingHeader` / `horizontal` / `vertical` / `group` / `separator` | Layout helpers for expandable sections, rows, stacks, framed groups, and dividers. |
@@ -268,9 +269,12 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Audio.playSynth(config)` | Plays a synthesized waveform (sine/square/saw/noise) with a frequency, duration, filter cutoff, and gain for quick one-shot sound effects without audio files. |
 | `Audio.playNote(config)` | Like `playSynth`, but with a full ADSR envelope (attack/decay/sustain/release), resonance, and named drum voices (kick/snare/hihat/clap/tom) for music and rhythm tools such as the piano-roll widget. |
 | `Audio.playTestTone()` | Plays a fixed test tone, useful for confirming audio output is wired up at all. |
-| `Audio.renderPatternToWav(events, suggestedName?)` | Renders scheduled note events to a WAV file without live playback, then opens a native save dialog. |
+| `Audio.renderPatternToWav(events, suggestedName?, sampleEvents?)` | Renders scheduled note events, and optional sample hits (`{startTime, path, gain, semitones, start, end, hold}`), to a WAV file without live playback, then opens a native save dialog. |
 | `Audio.ensureTrackBus(trackId, config)` / `removeTrackBus(trackId)` | Creates or updates a persistent track bus with gain, mute, solo, and an ordered effect chain, or tears it down. Bus changes apply to notes already ringing. |
 | `Audio.playNoteOnTrack(trackId, config)` | Plays a note through an existing track bus so its gain, mute, solo, and effects apply. |
+| `Audio.loadSample(path, bins?)` | Decodes a wav/flac/mp3/ogg/m4a file (first 12 seconds only) into memory and returns `{ok, seconds, fullSeconds, truncated, sourceRate, channels, peak, waveform}`. Call it when a sample is assigned so the first hit does not wait on the decode. |
+| `Audio.playSampleOnTrack(trackId, path, config?)` | Plays a sample through an existing track bus. `config`: `gain`, `semitones` (pitch by playback rate), `start`/`end` (fractions of the file), `hold` (seconds before fading out; omit for a one-shot). Returns `{ok, error?}`. |
+| `Audio.previewSample(path, config?)` / `stopPreview()` | Auditions a file on a shared preview bus (`"sample-preview"` for `analyze`), cutting off the previous audition. |
 | `Audio.analyze(source?, fftSize?)` | Returns peak, RMS, spectrum peak, spectral centroid, and audio-thread progress for `"master"` or a track id. Returns `null` for an unknown source. |
 | `AudioEffect.createDelay` / `createReverb` / `setDelayParams` / `setReverbParams` / `destroy` | Creates reusable delay and reverb effects, updates them live, and attaches them to track buses by id. |
 
@@ -320,6 +324,7 @@ There's no built-in "project" concept. Addons own their save data under the dire
 | `IO.save(data)` / `IO.load()` | Saves/loads one JSON file per addon, named after your addon automatically. |
 | `IO.saveImage(filename, width, height, data)` | Writes raw pixel data out as an image file. |
 | `IO.listModels()` / `pickAndImportModel()` | Lists available model files, or opens a native file picker to import a new one. |
+| `IO.musicDir()` / `pickSampleFolder()` / `listDir(path)` | Read-only sample browsing: the user's Music folder (or `null`), a native folder picker, and the folders and audio files directly inside a folder. `listDir` is refused outside the Music folder and folders picked with `pickSampleFolder`. |
 | `GameState.save(key, data)` / `GameState.load(key)` | Shared state under any key you choose, readable by any addon in the bundle, for data that needs to cross addon boundaries. |
 | `Scripts.list()` / `read(filename)` / `write(filename, content)` | Reads/writes plain text files (scripts, configs, logs) in your addon's data directory. |
 

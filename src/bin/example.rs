@@ -32,7 +32,9 @@ async fn main() {
             Some("daw") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/daw.js")
                 .with_title("DAW")
-                .with_window_size(1400.0, 900.0)
+                // Wide enough for the drum rack's three columns (sample browser, pads, pad editor)
+                // side by side above the piano roll.
+                .with_window_size(1800.0, 1000.0)
                 // Without a data_dir a standalone EntropyApp has nowhere for Entropy.IO.save/load
                 // to go, so the DAW project (and any hosted plugin's saved patch) silently never
                 // persisted. ENTROPY_DAW_BDD_DATA lets tests/vst3_live start from a clean folder.

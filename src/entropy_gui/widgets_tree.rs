@@ -13,10 +13,11 @@
 //! way a flat button stack never did.
 
 use crate::entropy_gui::color::{Color32, Stroke};
-use crate::entropy_gui::geometry::{pos2, vec2, Align2, FontId, Rect, StrokeKind};
+use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, FontId, Layout, Rect, StrokeKind};
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::response::Sense;
 use crate::entropy_gui::ui::{interact, Ui};
+use crate::entropy_gui::widgets::ScrollArea;
 
 const ROW_H: f32 = 22.0;
 const INDENT: f32 = 16.0;
@@ -39,11 +40,25 @@ pub struct TreeNode {
     /// `None` hides this row's checkbox entirely; `Some(value)` shows it at that state.
     pub marked: Option<bool>,
     pub selected: bool,
+    /// A short glyph drawn before the label (a folder or file marker). Empty for none.
+    pub icon: String,
+    /// Dim right-aligned text on the row, such as a count or a duration. Empty for none.
+    pub detail: String,
 }
 
 impl TreeNode {
     pub fn new(id: impl Into<String>, label: impl Into<String>, depth: u32) -> Self {
-        Self { id: id.into(), label: label.into(), depth, has_children: false, expanded: true, marked: None, selected: false }
+        Self {
+            id: id.into(),
+            label: label.into(),
+            depth,
+            has_children: false,
+            expanded: true,
+            marked: None,
+            selected: false,
+            icon: String::new(),
+            detail: String::new(),
+        }
     }
 }
 
@@ -64,21 +79,51 @@ pub struct TreeResponse {
 
 pub struct TreeView {
     id: Id,
+    max_height: Option<f32>,
+    width: Option<f32>,
 }
 
 impl TreeView {
     pub fn new(id_salt: impl std::hash::Hash) -> Self {
-        Self { id: Id::new("tree_view").with(id_salt) }
+        Self { id: Id::new("tree_view").with(id_salt), max_height: None, width: None }
+    }
+
+    /// Caps the tree at this many points tall and scrolls the rows inside it. Without it the tree
+    /// is exactly as tall as its rows, which is right for a short outline and wrong for a folder
+    /// listing with hundreds of entries.
+    pub fn max_height(mut self, height: f32) -> Self {
+        self.max_height = Some(height.max(ROW_H));
+        self
+    }
+
+    /// A fixed width in points instead of filling the row, so a tree can sit beside other widgets.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = Some(width.max(80.0));
+        self
     }
 
     pub fn show(self, ui: &mut Ui, nodes: &[TreeNode]) -> TreeResponse {
-        let ctx = ui.ctx().clone();
         let tree_id = self.id;
+        let width = self.width.unwrap_or_else(|| ui.available_size().x.max(120.0));
+        let Some(cap) = self.max_height else {
+            return Self::rows(tree_id, ui, nodes, width);
+        };
+        // A bounded box: the rows scroll inside a child region of the capped size. It shrinks to
+        // fit when there are fewer rows than the cap so a short listing does not leave a gap.
+        let height = (ROW_H * nodes.len() as f32).min(cap).max(ROW_H);
+        let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+        let mut child = ui.child_ui_at(rect, Layout::top_down(Align::Min), (tree_id, "scroll"));
+        ScrollArea::vertical().show(&mut child, |inner| Self::rows(tree_id, inner, nodes, width))
+            .inner
+    }
+
+    fn rows(tree_id: Id, ui: &mut Ui, nodes: &[TreeNode], width: f32) -> TreeResponse {
+        let ctx = ui.ctx().clone();
         let mut events = Vec::new();
         let visuals = ui.visuals();
         let label_font = FontId::proportional(LABEL_SIZE);
+        let detail_font = FontId::proportional(LABEL_SIZE - 1.5);
 
-        let width = ui.available_size().x.max(120.0);
         let height = (ROW_H * nodes.len() as f32).max(1.0);
         let (bg_response, painter) = ui.allocate_painter(vec2(width, height), Sense::hover());
         let origin = bg_response.rect.min;
@@ -114,7 +159,15 @@ impl TreeView {
             let label_rect = Rect::from_min_max(pos2(x, row_rect.min.y), pos2(label_max_x.max(x), row_rect.max.y));
             let label_resp = interact(&ctx, label_rect, tree_id.with(("select", &node.id)), Sense::click());
             let text_color = if node.selected { Color32::WHITE } else { Color32::from_gray(215) };
-            painter.text(pos2(label_rect.min.x, label_rect.center().y), Align2::LEFT_CENTER, &node.label, label_font, text_color);
+            let mut text_x = label_rect.min.x;
+            if !node.icon.is_empty() {
+                painter.text(pos2(text_x, label_rect.center().y), Align2::LEFT_CENTER, &node.icon, label_font, Color32::from_gray(150));
+                text_x += 18.0;
+            }
+            if !node.detail.is_empty() {
+                painter.text(pos2(label_rect.max.x, label_rect.center().y), Align2::RIGHT_CENTER, &node.detail, detail_font, Color32::from_gray(130));
+            }
+            painter.text(pos2(text_x, label_rect.center().y), Align2::LEFT_CENTER, &node.label, label_font, text_color);
             if label_resp.clicked() {
                 events.push(TreeEvent::Selected(node.id.clone()));
             }

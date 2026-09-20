@@ -34,6 +34,28 @@ import {
     stepToMs,
     triggersAt,
 } from "./daw_arrangement";
+import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
+import {
+    MAX_PADS,
+    addPad,
+    assignSample,
+    browserRows,
+    clearSample,
+    defaultRack,
+    editSample,
+    ensureRack,
+    formatSeconds,
+    isListedFile,
+    newBrowser,
+    padAt,
+    padHit,
+    padPaletteIndex,
+    padStatus,
+    refreshBrowser,
+    setRoot,
+    stem,
+    toggleFolder,
+} from "./daw_rack";
 
 const addon = Entropy.Addon.register({
     name: "DAW",
@@ -79,22 +101,8 @@ function rowToMidi(row: number, rootNote: number, scale: string): number {
     return rootNote + octave * 12 + degree;
 }
 
-interface DrumRow {
-    name: string;
-    voice: string;
-    freq: number;
-    // General MIDI drum-map note, used when a drum track's instrument is a VST3 plugin (Maschine's
-    // pads default to C1 = 36 upward, and GM kits everywhere follow the same map).
-    midi: number;
-}
-
-const DRUM_ROWS: DrumRow[] = [
-    { name: "Kick", voice: "kick", freq: 55, midi: 36 },
-    { name: "Snare", voice: "snare", freq: 200, midi: 38 },
-    { name: "Hihat", voice: "hihat", freq: 1000, midi: 42 },
-    { name: "Clap", voice: "clap", freq: 200, midi: 39 },
-    { name: "Tom", voice: "tom", freq: 110, midi: 45 }
-];
+// A drum track's rows are the pads of its rack (daw_rack.ts): five built-in voices to begin with,
+// each replaceable by a sample from the browser, and up to MAX_PADS in all.
 
 // --- Data model ------------------------------------------------------------
 
@@ -129,6 +137,8 @@ interface Track {
     name: string;
     kind: "synth" | "drum";
     instrument?: Vst3Instrument | null;
+    // Drum tracks only: the pads, one per piano-roll row. `rows` always equals rack.length.
+    rack?: DrumPad[];
     rootNote: number;
     scale: string;
     rows: number;
@@ -202,7 +212,7 @@ function makeStarterProject(): DAWProject {
 
     const drums: Track = {
         id: "trk-drums", name: "Drums", kind: "drum", channel: 0, colorIndex: 0,
-        rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
+        rootNote: 60, scale: "chromatic", rows: 5, rack: defaultRack(),
         voice: defaultDrumVoice(), gain: 0.55, muted: false, solo: false,
         patterns: [
             newPattern("Groove", bar, [
@@ -299,7 +309,7 @@ function newTrack(kind: "synth" | "drum", channel: number, name?: string): Track
     if (kind === "drum") {
         return {
             ...base, name: name ?? `Drums ${project.tracks.length + 1}`, kind: "drum",
-            rootNote: 60, scale: "chromatic", rows: DRUM_ROWS.length,
+            rootNote: 60, scale: "chromatic", rows: 5, rack: defaultRack(),
             voice: defaultDrumVoice(), gain: 0.5
         };
     }
@@ -431,7 +441,7 @@ function trackUsesVst3(track: Track): boolean {
 }
 
 function midiForRow(track: Track, row: number): number {
-    if (track.kind === "drum") return (DRUM_ROWS[row] || DRUM_ROWS[0]).midi;
+    if (track.kind === "drum") return (padAt(track, row) ?? padAt(track, 0))?.midi ?? 36;
     return rowToMidi(row, track.rootNote, track.scale);
 }
 
@@ -490,11 +500,361 @@ function nowSeconds(): number {
 
 function noteVoiceAndFreq(track: Track, row: number): { voice: string; freq: number } {
     if (track.kind === "drum") {
-        const d = DRUM_ROWS[row] || DRUM_ROWS[0];
-        return { voice: d.voice, freq: d.freq };
+        const d = padAt(track, row);
+        return { voice: d?.voice ?? "", freq: d?.freq ?? 200 };
     }
     return { voice: track.voice.waveform, freq: midiToFreq(rowToMidi(row, track.rootNote, track.scale)) };
 }
+
+// --- Drum rack ---------------------------------------------------------------------------------
+//
+// A drum track's rows are the pads of its rack (see daw_rack.ts). The browser on the left of the
+// rack panel lists the Music folder (or any folder the user picks); clicking a file auditions it
+// and arms it, and the next click on a pad puts it there. The decoded sample lives in the audio
+// engine, keyed by path; what is saved with the project is only the path and the pad's settings.
+
+// Runtime only, never saved: what the engine decoded for each path, the paths that could not be
+// read, and when each pad was last hit (for its glow).
+const sampleInfo: Record<string, SampleInfo> = {};
+const sampleMissing: Record<string, string> = {};
+const padHits: Record<string, number> = {};
+
+const WAVE_BINS = 64;
+const GLOW_MS = 260;
+const AUDITION_GAIN = 0.9;
+
+const rackUi = {
+    browser: newBrowser(),
+    /** The pad shown in the editor next to the grid. */
+    selectedPad: 0,
+    /** A file was just picked in the browser: the next pad click puts it on that pad. */
+    armed: false,
+    status: "",
+    browserReady: false,
+};
+
+const isSampleMissing = (path: string) => path in sampleMissing;
+
+const listDir = (path: string): ListDirResult => addon.IO.listDir(path);
+
+function loadSampleInfo(path: string): SampleInfo | null {
+    const info = addon.Audio.loadSample(path, WAVE_BINS);
+    if (info.ok) {
+        sampleInfo[path] = info;
+        delete sampleMissing[path];
+        return info;
+    }
+    delete sampleInfo[path];
+    sampleMissing[path] = info.error ?? "could not be read";
+    return null;
+}
+
+// Decodes every sample a saved rack refers to, so the first hit never waits on a decode and a
+// moved or deleted file shows up as a red pad the moment the project opens.
+function verifyRacks() {
+    for (const t of project.tracks) {
+        if (t.kind !== "drum") continue;
+        for (const pad of ensureRack(t)) if (pad.sample) loadSampleInfo(pad.sample.path);
+    }
+}
+
+function padGlow(track: Track, row: number): number {
+    const at = padHits[`${track.id}:${row}`];
+    if (!at) return 0;
+    const age = Date.now() - at;
+    return age >= GLOW_MS ? 0 : Math.pow(1 - age / GLOW_MS, 2);
+}
+
+// Plays one hit of a pad: its sample if it has one, otherwise the built-in voice. Used by the
+// sequencer, the pad grid and the Preview buttons alike, so what you click is what the song plays.
+function playPad(track: Track, row: number, velocity: number, duration: number) {
+    const pad = padAt(track, row);
+    if (!pad) return;
+    const hit = padHit(pad, velocity, duration, isSampleMissing);
+    if (!hit) return;
+    padHits[`${track.id}:${row}`] = Date.now();
+    if (hit.type === "sample") {
+        const r = addon.Audio.playSampleOnTrack(track.id, hit.path, {
+            gain: hit.gain, semitones: hit.semitones, start: hit.start, end: hit.end, hold: hit.hold
+        });
+        if (!r.ok) sampleMissing[hit.path] = r.error ?? "could not be played";
+        return;
+    }
+    addon.Audio.playNoteOnTrack(track.id, {
+        freq: hit.freq, waveform: hit.voice, duration,
+        cutoff: track.voice.cutoff, resonance: track.voice.resonance, gain: velocity,
+        attack: track.voice.attack, decay: track.voice.decay, sustain: track.voice.sustain, release: track.voice.release
+    });
+}
+
+function ensureBrowserRoot() {
+    if (rackUi.browserReady) return;
+    rackUi.browserReady = true;
+    const music = addon.IO.musicDir();
+    if (music) setRoot(rackUi.browser, music, listDir);
+    else rackUi.status = "No Music folder was found. Use Folder... to choose one.";
+}
+
+function openMusicFolder() {
+    const music = addon.IO.musicDir();
+    if (!music) { rackUi.status = "No Music folder was found. Use Folder... to choose one."; return; }
+    setRoot(rackUi.browser, music, listDir);
+    rackUi.armed = false;
+    rackUi.status = "";
+}
+
+function pickSampleFolder() {
+    const dir = addon.IO.pickSampleFolder();
+    if (!dir) return;
+    setRoot(rackUi.browser, dir, listDir);
+    rackUi.armed = false;
+    rackUi.status = "";
+}
+
+function refreshRack() {
+    refreshBrowser(rackUi.browser, listDir);
+    for (const path of Object.keys(sampleMissing)) delete sampleMissing[path];
+    verifyRacks();
+    rackUi.status = "Folders and samples read again.";
+}
+
+// A click on a tree row: a folder opens or closes, a file is auditioned and armed for the next pad.
+function onBrowserSelect(path: string) {
+    const b = rackUi.browser;
+    if (isListedFile(b, path)) {
+        b.selected = path;
+        rackUi.armed = true;
+        const info = loadSampleInfo(path);
+        if (!info) { rackUi.armed = false; rackUi.status = `${stem(path)}: ${sampleMissing[path]}`; return; }
+        rackUi.status = "";
+        addon.Audio.previewSample(path, { gain: AUDITION_GAIN });
+    } else {
+        toggleFolder(b, path, listDir);
+    }
+}
+
+function onBrowserToggle(path: string) {
+    toggleFolder(rackUi.browser, path, listDir);
+}
+
+function onPadClick(track: Track, row: number) {
+    const rack = ensureRack(track);
+    if (row < 0 || row >= rack.length) return;
+    rackUi.selectedPad = row;
+    const file = rackUi.browser.selected;
+    if (rackUi.armed && file) {
+        const info = loadSampleInfo(file);
+        if (!info) {
+            rackUi.status = `Could not load ${stem(file)}: ${sampleMissing[file]}`;
+        } else {
+            addon.Audio.stopPreview();
+            const pad = assignSample(track, row, { path: file })!;
+            rackUi.armed = false;
+            // A pad that just took the file's name would read "kick is on kick".
+            rackUi.status = (pad.name === pad.sample!.name ? `${pad.sample!.name} is on pad ${row + 1}.` : `${pad.sample!.name} is on ${pad.name}.`)
+                + (info.truncated ? ` Only the first ${formatSeconds(info.seconds)} of the file is used.` : "");
+            persist();
+        }
+    }
+    playPad(track, row, 1, 0.5);
+}
+
+function onPadClear(track: Track, row: number) {
+    const pad = clearSample(track, row);
+    if (!pad) return;
+    rackUi.status = `${pad.name} is back to ${pad.voice ? "its built-in voice" : "empty"}.`;
+    persist();
+}
+
+function onPadAdd(track: Track) {
+    const pad = addPad(track);
+    if (!pad) { rackUi.status = `A rack holds ${MAX_PADS} pads.`; return; }
+    rackUi.selectedPad = track.rack!.length - 1;
+    persist();
+}
+
+const PAD_ID_ROW = (id: string) => parseInt(id, 10);
+
+function padConfig(track: Track, pad: DrumPad, row: number) {
+    const status = padStatus(pad, isSampleMissing);
+    const info = pad.sample ? sampleInfo[pad.sample.path] : undefined;
+    const [r, g, b] = TRACK_PALETTE[padPaletteIndex(track.colorIndex, row, TRACK_PALETTE.length)];
+    return {
+        id: String(row),
+        label: pad.name || `Pad ${row + 1}`,
+        sublabel: pad.sample ? pad.sample.name : "",
+        hint: midiToName(pad.midi),
+        color: [r / 255, g / 255, b / 255, 1] as [number, number, number, number],
+        kind: status,
+        waveform: info?.waveform,
+        trim: pad.sample ? [pad.sample.start, pad.sample.end] as [number, number] : undefined,
+        selected: row === rackUi.selectedPad,
+        glow: padGlow(track, row)
+    };
+}
+
+function sampleDetails(info: SampleInfo): string {
+    const length = info.truncated && info.fullSeconds
+        ? `${formatSeconds(info.seconds)} of ${formatSeconds(info.fullSeconds)}`
+        : formatSeconds(info.seconds);
+    const peak = info.peak > 0.00001 ? `${(20 * Math.log10(info.peak)).toFixed(1)} dBFS` : "silent";
+    return `${length}  |  ${(info.sourceRate / 1000).toFixed(1)} kHz ${info.channels === 1 ? "mono" : "stereo"}  |  peak ${peak}`;
+}
+
+function renderSampleBrowser(win: string) {
+    const W = Entropy.UI.Widget;
+    const b = rackUi.browser;
+    ensureBrowserRoot();
+
+    W.group(win, (g: string) => {
+        W.label(g, { text: "Sample Browser", bold: true });
+        W.horizontal(g, (h: string) => {
+            W.button(h, { text: "♪ Music", id: "browser_music", onClick: openMusicFolder });
+            W.button(h, { text: "Folder...", id: "browser_pick", onClick: pickSampleFolder });
+            W.button(h, { text: "Refresh", id: "browser_refresh", onClick: refreshRack });
+        });
+        W.textInput(g, {
+            label: "Filter", id: "browser_filter", value: b.filter, width: 236,
+            onChange: (v: string) => { b.filter = v; }
+        });
+
+        if (!b.root) {
+            W.label(g, { text: "Choose Music or a folder of samples to begin." });
+            return;
+        }
+
+        W.treeView(g, {
+            id: "sample_tree", width: 330, maxHeight: 300,
+            nodes: browserRows(b).map(r => ({
+                id: r.id, label: r.label, depth: r.depth, hasChildren: r.hasChildren,
+                expanded: r.expanded, selected: r.selected, icon: r.icon, detail: r.detail
+            })),
+            onSelect: onBrowserSelect,
+            onToggleExpand: onBrowserToggle
+        });
+
+        const picked = b.selected && isListedFile(b, b.selected) ? b.selected : null;
+        const info = picked ? sampleInfo[picked] : undefined;
+        if (picked && info) {
+            W.padGrid(g, {
+                id: "browser_preview", columns: 1, padWidth: 330, padHeight: 76,
+                pads: [{
+                    id: "0", label: stem(picked), kind: "sample", waveform: info.waveform,
+                    color: [0.42, 0.72, 0.98, 1], hint: rackUi.armed ? "ARMED" : "", selected: rackUi.armed
+                }],
+                onPadClick: () => { addon.Audio.previewSample(picked, { gain: AUDITION_GAIN }); }
+            });
+            W.label(g, { text: sampleDetails(info) });
+            W.horizontal(g, (h: string) => {
+                W.button(h, { text: "Play", id: "browser_play", onClick: () => { addon.Audio.previewSample(picked, { gain: AUDITION_GAIN }); } });
+                W.button(h, { text: "Stop", id: "browser_stop", onClick: () => { addon.Audio.stopPreview(); } });
+            });
+        } else {
+            W.label(g, { text: "Click a file to hear it." });
+        }
+    });
+}
+
+function renderPadBank(win: string, track: Track) {
+    const W = Entropy.UI.Widget;
+    const rack = ensureRack(track);
+    W.group(win, (g: string) => {
+        W.label(g, { text: `Pads  ${rack.length}/${MAX_PADS}`, bold: true });
+        W.padGrid(g, {
+            id: `rack_pads_${track.id}`, columns: 4, padWidth: 128, padHeight: 84, addTile: rack.length < MAX_PADS,
+            pads: rack.map((pad, row) => padConfig(track, pad, row)),
+            onPadClick: (id: string) => onPadClick(track, PAD_ID_ROW(id)),
+            onPadClear: (id: string) => onPadClear(track, PAD_ID_ROW(id)),
+            onAdd: () => onPadAdd(track)
+        });
+        const armed = rackUi.armed && rackUi.browser.selected ? stem(rackUi.browser.selected) : null;
+        W.label(g, {
+            text: rackUi.status
+                || (armed ? `Click a pad to put ${armed} on it.` : "Click a pad to hear it. Right-click a pad to take its sample off.")
+        });
+    });
+}
+
+function renderPadEditor(win: string, track: Track) {
+    const W = Entropy.UI.Widget;
+    const rack = ensureRack(track);
+    const row = Math.min(rackUi.selectedPad, rack.length - 1);
+    const pad = rack[row];
+    if (!pad) return;
+    const missing = pad.sample ? isSampleMissing(pad.sample.path) : false;
+
+    W.group(win, (g: string) => {
+        W.label(g, { text: `Pad ${row + 1}`, bold: true });
+        W.textInput(g, {
+            label: "Name", id: "pad_name", value: pad.name, width: 200,
+            onChange: (v: string) => { pad.name = v.slice(0, 24); scheduleSave(); }
+        });
+
+        const s = pad.sample;
+        if (s) {
+            const info = sampleInfo[s.path];
+            W.padGrid(g, {
+                id: "pad_detail", columns: 1, padWidth: 340, padHeight: 108,
+                pads: [{ ...padConfig(track, pad, row), id: "0", selected: false, glow: padGlow(track, row) }],
+                onPadClick: () => playPad(track, row, 1, 0.5)
+            });
+            W.label(g, { text: missing ? `File missing: ${sampleMissing[s.path]}` : (info ? sampleDetails(info) : "Loading...") });
+            W.slider(g, { label: "Sample gain", value: s.gain, min: 0, max: 2, onChange: (v: string) => { editSample(pad, { gain: parseFloat(v) }); scheduleSave(); } });
+            W.slider(g, { label: "Pitch (semitones)", value: s.semitones, min: -12, max: 12, onChange: (v: string) => { editSample(pad, { semitones: parseFloat(v) }); scheduleSave(); } });
+            W.slider(g, { label: "Start", value: s.start, min: 0, max: 1, onChange: (v: string) => { editSample(pad, { start: parseFloat(v) }); scheduleSave(); } });
+            W.slider(g, { label: "End", value: s.end, min: 0, max: 1, onChange: (v: string) => { editSample(pad, { end: parseFloat(v) }); scheduleSave(); } });
+            W.checkbox(g, {
+                label: "Gate (stop when the note ends)", value: s.gate,
+                onChange: (v: any) => { editSample(pad, { gate: v === true || v === "true" }); persist(); }
+            });
+            W.horizontal(g, (h: string) => {
+                W.button(h, { text: "Play", id: "pad_play", onClick: () => playPad(track, row, 1, 0.5) });
+                W.button(h, { text: pad.voice ? "Use built-in voice" : "Clear", id: "pad_clear", onClick: () => onPadClear(track, row) });
+            });
+        } else {
+            W.label(g, {
+                text: pad.voice
+                    ? `This pad plays the built-in ${pad.voice} voice.`
+                    : "This pad is empty."
+            });
+            W.label(g, { text: "Pick a sample in the browser," });
+            W.label(g, { text: "then click this pad to put it here." });
+            W.button(g, { text: "Play", id: "pad_play", onClick: () => playPad(track, row, 1, 0.5) });
+        }
+    });
+}
+
+// The rack lives in a floating window, like the Analyzer: the arrangement is 16 lanes tall, so a
+// section of the tab would sit below the fold exactly when you want to put a sample on a pad. The
+// browser is always there (you can audition with no drum track picked); the pads and the pad editor
+// follow the drum track you have selected.
+let rackWindowId: string | null = null;
+let rackVisible = true;
+
+function setRackVisible(visible: boolean) {
+    rackVisible = visible;
+    if (rackWindowId) Entropy.UI.setWindowVisible(rackWindowId, visible);
+}
+
+function renderRackWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    W.horizontal(win, (row: string) => {
+        renderSampleBrowser(row);
+        if (track && track.kind === "drum") {
+            renderPadBank(row, track);
+            renderPadEditor(row, track);
+        } else {
+            W.group(row, (g: string) => {
+                W.label(g, { text: "Pads", bold: true });
+                W.label(g, { text: "The rack belongs to a drum track." });
+                W.label(g, { text: "Pick one in the arrangement, or add one." });
+                W.button(g, { text: "+ Drum Track", id: "rack_add_drum_track", onClick: () => { addTrack("drum"); persist(); } });
+            });
+        }
+    });
+}
+
 
 // Unlike the old per-note architecture, mute/solo are no longer pre-filtered here - every
 // track's bus (see syncTrackBus) applies them live, every sample, so toggling either one while
@@ -517,6 +877,10 @@ function triggerStep(absStep: number) {
         }
 
         const t = track as Track;
+        if (t.kind === "drum") {
+            playPad(t, note.row, note.velocity, duration);
+            continue;
+        }
         addon.Audio.playNoteOnTrack(t.id, {
             freq,
             waveform: voice,
@@ -599,6 +963,8 @@ function buildPatternEvents(): any[] {
         // The offline renderer only knows the built-in voices; a hosted plugin runs live.
         if (track.instrument) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
+        // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
+        if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
         const duration = Math.max(0.03, placed.lengthSteps * sd * 0.95);
 
         events.push({
@@ -626,13 +992,36 @@ function buildPatternEvents(): any[] {
     return events;
 }
 
+// The sample pads' hits, one per note, for the same render: the file to play and how, with the track's
+// gain folded in (an offline render has no live bus to apply it).
+function buildSampleEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (track.instrument || track.kind !== "drum") continue;
+        const pad = padAt(track, placed.note.row);
+        if (!pad?.sample) continue;
+        const hit = padHit(pad, placed.note.velocity, Math.max(0.03, placed.lengthSteps * sd * 0.95), isSampleMissing);
+        if (!hit || hit.type !== "sample") continue;
+        events.push({
+            startTime: placed.startStep * sd, path: hit.path, gain: hit.gain * track.gain,
+            semitones: hit.semitones, start: hit.start, end: hit.end, hold: hit.hold
+        });
+    }
+    return events;
+}
+
 function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
     const events = buildPatternEvents();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`);
+    const sampleEvents = buildSampleEvents();
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents);
     const skipped = project.tracks.filter(t => t.instrument).length;
+    const lost = Object.keys(sampleMissing).length;
     lastExportStatus = result.success
         ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
             + (skipped > 0 ? ` (${skipped} VST3 track${skipped === 1 ? "" : "s"} not included - plugins render live only)` : "")
+            + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
         : `Export failed: ${result.error}`;
     return result;
 }
@@ -784,7 +1173,8 @@ function setSongBars(bars: number) {
 function instrumentSummary(track: Track): string {
     if (track.instrument) return track.instrument.name;
     // Short on purpose: the header has room for about 16 characters beside the M/S pills.
-    return track.kind === "drum" ? "Drum kit" : `${track.voice.waveform[0].toUpperCase()}${track.voice.waveform.slice(1)} synth`;
+    if (track.kind === "drum") return ensureRack(track).some(p => p.sample) ? "Sample rack" : "Drum kit";
+    return `${track.voice.waveform[0].toUpperCase()}${track.voice.waveform.slice(1)} synth`;
 }
 
 // --- Grid paint interaction --------------------------------------------------
@@ -867,7 +1257,7 @@ function duplicatePattern(track: Track): Pattern {
 
 function rowLabelsFor(track: Track): string[] {
     if (track.kind === "drum") {
-        return DRUM_ROWS.map(d => d.name);
+        return ensureRack(track).map((p, i) => p.name || `Pad ${i + 1}`);
     }
     const labels: string[] = [];
     for (let r = track.rows - 1; r >= 0; r--) {
@@ -901,6 +1291,8 @@ function restoreSavedProject() {
     }
     const legacy = !Array.isArray(saved.arrangement);
     migrateProject(saved, newId);
+    // A project from before drum racks has no `rack`: it gets the five built-in pads it always had.
+    for (const t of saved.tracks) if (t.kind === "drum") ensureRack(t);
     project = saved as DAWProject;
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
         project.activeTrackId = project.tracks[0].id;
@@ -975,6 +1367,7 @@ addon.onInit(async () => {
     // Create the starter tracks' persistent mixing buses (and their effect instances) up front,
     // rather than waiting for the first user interaction to call persist().
     project.tracks.forEach(syncTrackBus);
+    verifyRacks();
 
     // Reload each track's plugin with the patch it was saved on. A plugin that fails to load keeps
     // its slot on the track (see loadTrackInstrument), so the failure is visible instead of silent.
@@ -1085,6 +1478,11 @@ addon.onInit(async () => {
                     text: "⬇ Export Song to WAV",
                     id: "export_wav",
                     onClick: () => { exportPatternToWav(); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: rackVisible ? "Hide Drum Rack" : "Show Drum Rack",
+                    id: "toggle_rack",
+                    onClick: () => { setRackVisible(!rackVisible); }
                 });
             });
             const bpmValue = parseFloat(bpmDraft);
@@ -1464,16 +1862,20 @@ addon.onInit(async () => {
         // one-off - the tradeoff is a muted track previews silent too.
         Entropy.UI.Widget.collapsingHeader(tabId, "🔊 Preview", (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
-                const previewRows = track.kind === "drum" ? DRUM_ROWS.length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
+                const previewRows = track.kind === "drum" ? ensureRack(track).length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
                 for (let r = 0; r < previewRows; r++) {
                     const { voice, freq } = noteVoiceAndFreq(track, r);
-                    const label = track.kind === "drum" ? DRUM_ROWS[r].name : midiToName(rowToMidi(r, track.rootNote, track.scale));
+                    const label = track.kind === "drum" ? (padAt(track, r)?.name || `Pad ${r + 1}`) : midiToName(rowToMidi(r, track.rootNote, track.scale));
                     Entropy.UI.Widget.button(tid2, {
                         text: label,
                         id: "preview_row_" + r,
                         onClick: () => {
                             if (trackUsesVst3(track)) {
                                 playVst3Note(track, r, 1.0, 0.5);
+                                return;
+                            }
+                            if (track.kind === "drum") {
+                                playPad(track, r, 1.0, 0.5);
                                 return;
                             }
                             addon.Audio.playNoteOnTrack(track.id, {
@@ -1588,6 +1990,19 @@ addon.onInit(async () => {
         onRender: () => renderAnalyzer(analyzerWindow)
     });
 
+    // The drum rack: sample browser, pad bank and pad editor side by side, top-left over the
+    // arrangement (drag it wherever suits) and clear of the analyzer at the bottom right.
+    const rackWidth = Math.max(640, Math.min(1290, screenW - 32));
+    rackWindowId = Entropy.UI.createWindow({
+        title: "Drum Rack",
+        width: rackWidth,
+        height: 590,
+        x: 16,
+        y: 56,
+        onRender: () => renderRackWindow(rackWindowId!)
+    });
+    Entropy.UI.setWindowVisible(rackWindowId, rackVisible);
+
     const onFrame = () => {
         // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The
         // host snapshots its state when the editor closes or a parameter edit settles, and this
@@ -1673,7 +2088,7 @@ addon.onInit(async () => {
             playing: transport.playing,
             mode: transport.mode,
             activeTrackId: project.activeTrackId,
-            drumRowLayout: DRUM_ROWS.map((d, i) => ({ row: i, name: d.name })),
+            drumRowLayout: defaultRack().map((d, i) => ({ row: i, name: d.name })),
             availableScales: SCALE_NAMES,
             tracks: project.tracks.map(t => ({
                 id: t.id,
@@ -1690,7 +2105,13 @@ addon.onInit(async () => {
                 rows: t.rows,
                 rowNotes: t.kind === "synth"
                     ? Array.from({ length: t.rows }, (_, r) => midiToName(rowToMidi(r, t.rootNote, t.scale)))
-                    : DRUM_ROWS.map(d => d.name),
+                    : ensureRack(t).map(d => d.name),
+                rack: t.kind === "drum"
+                    ? ensureRack(t).map((p, i) => ({
+                        row: i, name: p.name, plays: p.sample ? "sample" : (p.voice ? "built-in voice" : "nothing"),
+                        sample: p.sample ? { path: p.sample.path, gain: p.sample.gain, semitones: p.sample.semitones, start: p.sample.start, end: p.sample.end, gate: p.sample.gate, missing: isSampleMissing(p.sample.path) } : null
+                    }))
+                    : undefined,
                 activePatternId: t.activePatternId,
                 patterns: t.patterns.map(p => ({ id: p.id, name: p.name, steps: p.steps, noteCount: p.notes.length }))
             })),
@@ -1703,7 +2124,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_create_track",
-        description: "Create a new DAW track on the lowest free channel (or a chosen one). kind \"drum\" gives a 5-row kit (row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom). kind \"synth\" gives a pitched track spanning multiple octaves of the chosen scale (row 0 = root note, increasing row = higher pitch). It starts with one empty pattern and no clips; writing notes with daw_set_notes gives it a clip automatically. Returns the new track id plus its row layout so you can write patterns.",
+        description: "Create a new DAW track on the lowest free channel (or a chosen one). kind \"drum\" gives a drum rack that starts as a 5-pad kit (row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom); pads can be given sample files with daw_set_pad_sample. kind \"synth\" gives a pitched track spanning multiple octaves of the chosen scale (row 0 = root note, increasing row = higher pitch). It starts with one empty pattern and no clips; writing notes with daw_set_notes gives it a clip automatically. Returns the new track id plus its row layout so you can write patterns.",
         parameters: {
             type: "object",
             properties: {
@@ -1726,7 +2147,7 @@ addon.onInit(async () => {
             const track = addTrack("drum", channel, args.name);
             if (typeof args.gain === "number") track.gain = args.gain;
             persist();
-            return { success: true, id: track.id, kind: "drum", channel: track.channel, rows: DRUM_ROWS.length, patternId: track.activePatternId, rowLayout: DRUM_ROWS.map((d, i) => ({ row: i, name: d.name })) };
+            return { success: true, id: track.id, kind: "drum", channel: track.channel, rows: ensureRack(track).length, patternId: track.activePatternId, rowLayout: ensureRack(track).map((d, i) => ({ row: i, name: d.name })) };
         }
 
         const scale = (args.scale && SCALES[args.scale]) ? args.scale : "pentatonic_minor";
@@ -1858,7 +2279,7 @@ addon.onInit(async () => {
         description: `Write a note/beat pattern into one of a track's patterns (its active one unless patternId is given). Provide notes either as an explicit list or as compact ASCII row patterns (or both):
 - "notes": [{row, step, length, velocity}] — row/step/length are integers (length in steps, default 1), velocity is 0-1 (default 0.85).
 - "rows": [{row, pattern}] — one character per step, e.g. {row: 0, pattern: "X...X...X...X..."}. Characters: '.' or '-' = empty, 'x' = medium hit (0.75), 'X' = accent (1.0), digits 1-9 = velocity n/9.
-Row meaning depends on track kind (see daw_get_state): drum tracks use row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom; synth tracks use row = scale degree (0 = root note, increasing = higher pitch). Step 0 is the start of the pattern; a pattern repeats for as long as the clip that plays it lasts. A track with no clips yet gets one spanning the whole song, so the notes are audible straight away.
+Row meaning depends on track kind (see daw_get_state): drum tracks use the rack's pads (row 0=Kick, 1=Snare, 2=Hihat, 3=Clap, 4=Tom to begin with; see the track's "rack" in daw_get_state); synth tracks use row = scale degree (0 = root note, increasing = higher pitch). Step 0 is the start of the pattern; a pattern repeats for as long as the clip that plays it lasts. A track with no clips yet gets one spanning the whole song, so the notes are audible straight away.
 Default mode replaces the pattern's notes; pass mode:"add" to layer new notes onto the existing ones instead.`,
         parameters: {
             type: "object",
@@ -2009,6 +2430,77 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
         }
         persist();
         return { success: true, placed, skipped, clipCount: clipsOfTrack(project.arrangement, track.id).length };
+    });
+
+    addon.registerTool({
+        name: "daw_browse_samples",
+        description: "List the audio files and folders inside a folder on this machine, so a drum pad can be given a sample with daw_set_pad_sample. With no path it lists the user's Music folder. Only the Music folder and folders the user has chosen in the DAW's sample browser can be read. Folders come first; audioCount is how many samples are directly inside one.",
+        parameters: { type: "object", properties: { path: { type: "string", description: "A folder path from an earlier listing. Omit for the Music folder." } } }
+    }, (args: any) => {
+        const path = typeof args.path === "string" && args.path ? args.path : addon.IO.musicDir();
+        if (!path) return { success: false, error: "No Music folder was found." };
+        const r = listDir(path);
+        return r.ok
+            ? { success: true, path, entries: r.entries.map(e => ({ name: e.name, path: e.path, folder: e.isDir, sizeBytes: e.isDir ? undefined : e.size, audioCount: e.isDir ? e.audioCount : undefined, folderCount: e.isDir ? e.dirCount : undefined })) }
+            : { success: false, error: r.error };
+    });
+
+    addon.registerTool({
+        name: "daw_set_pad_sample",
+        description: "Put a sample file on a drum pad (or take it off). Only drum tracks have pads. The file must be wav, flac, mp3, ogg or m4a; only its first 12 seconds are used. Optional settings shape how it plays: gain 0-2, semitones -12..12 (changes length too), start/end as fractions 0-1 of the sample, gate (stop when the note ends instead of playing to the end). Pass path \"\" to clear the pad back to its built-in voice. Pass name to rename the pad.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                row: { type: "number", description: "The pad's row, from the track's rack in daw_get_state." },
+                path: { type: "string", description: "Absolute path of the file, from daw_browse_samples. \"\" clears the pad." },
+                name: { type: "string" },
+                gain: { type: "number" },
+                semitones: { type: "number" },
+                start: { type: "number" },
+                end: { type: "number" },
+                gate: { type: "boolean" }
+            },
+            required: ["trackId", "row"]
+        }
+    }, (args: any) => {
+        const track = project.tracks.find(t => t.id === args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (track.kind !== "drum") return { success: false, error: "Only drum tracks have pads." };
+        const row = Math.round(args.row);
+        const pad = padAt(track, row);
+        if (!pad) return { success: false, error: `No pad at row ${row}; this rack has ${ensureRack(track).length}.` };
+        if (typeof args.path === "string") {
+            if (args.path === "") {
+                clearSample(track, row);
+            } else {
+                const info = loadSampleInfo(args.path);
+                if (!info) return { success: false, error: sampleMissing[args.path] ?? "could not be read" };
+                assignSample(track, row, { path: args.path });
+            }
+        }
+        if (typeof args.name === "string" && args.name) pad.name = args.name.slice(0, 24);
+        editSample(pad, { gain: args.gain, semitones: args.semitones, start: args.start, end: args.end, gate: args.gate });
+        persist();
+        return {
+            success: true, row, name: pad.name, plays: pad.sample ? "sample" : (pad.voice ? "built-in voice" : "nothing"),
+            sample: pad.sample, seconds: pad.sample ? sampleInfo[pad.sample.path]?.seconds : undefined
+        };
+    });
+
+    addon.registerTool({
+        name: "daw_add_pad",
+        description: "Add an empty pad (a new piano-roll row) to a drum track's rack, up to 16 pads. Give it a sample with daw_set_pad_sample.",
+        parameters: { type: "object", properties: { trackId: { type: "string" }, name: { type: "string" } }, required: ["trackId"] }
+    }, (args: any) => {
+        const track = project.tracks.find(t => t.id === args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (track.kind !== "drum") return { success: false, error: "Only drum tracks have pads." };
+        const pad = addPad(track);
+        if (!pad) return { success: false, error: `A rack holds ${MAX_PADS} pads.` };
+        if (typeof args.name === "string" && args.name) pad.name = args.name.slice(0, 24);
+        persist();
+        return { success: true, row: track.rack!.length - 1, name: pad.name, rows: track.rows };
     });
 
     addon.registerTool({

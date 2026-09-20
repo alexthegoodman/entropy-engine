@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
 import {
     activePattern,
     barSteps,
@@ -17,26 +16,7 @@ import {
     triggersAt,
     type ArrProject,
 } from "../src/apps/daw_arrangement";
-
-// Executable Gherkin subset (same approach as canvas_animation_bdd.test.ts): an unknown line or
-// step fails loudly instead of being skipped, so the feature file cannot drift from what runs.
-interface Scenario { name: string; steps: string[] }
-function parseFeature(file: string): Scenario[] {
-    const scenarios: Scenario[] = [];
-    const text = readFileSync(new URL(`../../../tests/features/${file}.feature`, import.meta.url), "utf8");
-    for (const raw of text.split(/\r?\n/)) {
-        const line = raw.trim();
-        if (!line || line.startsWith("#") || line.startsWith("Feature:")) continue;
-        if (line.startsWith("Scenario:")) { scenarios.push({ name: line.slice(9).trim(), steps: [] }); continue; }
-        // Prose under `Feature:` (before the first scenario) is a description, not a step. Anything
-        // unrecognised inside a scenario still fails loudly.
-        if (!scenarios.length) continue;
-        const step = /^(Given|When|Then|And|But) (.+)$/.exec(line);
-        if (!step) throw new Error(`Unsupported Gherkin: ${line}`);
-        scenarios.at(-1)!.steps.push(step[2]);
-    }
-    return scenarios;
-}
+import { createWorld, parseFeature } from "./daw_test_world";
 
 // A legacy save: one looping `notes` array per track and one global `steps`, no patterns/clips.
 const LEGACY_PROJECT = {
@@ -48,116 +28,6 @@ const LEGACY_PROJECT = {
         notes: [{ row: 0, step: 0, length: 1, velocity: 1 }, { row: 0, step: 8, length: 1, velocity: 1 }],
     }],
 };
-
-// The production addon runs against a stand-in `Entropy`: widgets are captured each render so a
-// step can call the exact callbacks the real widgets would, and every audio/IO call is recorded.
-function createWorld(initialSaved?: unknown) {
-    let uuid = 0;
-    let init: (() => Promise<void> | void) | undefined;
-    let tabRender: (() => void) | undefined;
-    const windowRenders: (() => void)[] = [];
-    const updates: (() => void)[] = [];
-    const w = {
-        clock: 1_000_000,
-        saved: null as any,
-        tools: new Map<string, (args: any) => any>(),
-        buttons: new Map<string, () => void>(),
-        textInputs: new Map<string, any>(),
-        numerics: new Map<string, any>(),
-        dropdowns: new Map<string, any>(),
-        checkboxes: new Map<string, any>(),
-        // The analysis widgets, by id, exactly as the addon declared them this frame.
-        spectra: new Map<string, any>(),
-        scopes: new Map<string, any>(),
-        meters: new Map<string, any>(),
-        // What `Audio.analyze` answers per source; a source with no entry does not exist.
-        analysis: new Map<string, any>(),
-        piano: null as any,
-        arrangement: null as any,
-        labels: [] as string[],
-        played: [] as { id: string; cfg: any }[],
-        buses: new Map<string, any>(),
-        exports: [] as any[][],
-        lastCreatedTrackId: "",
-        lastToolResult: null as any,
-    };
-
-    const wrap = (_win: string, body: (win: string) => void) => body("win");
-    const widgets = {
-        collapsingHeader: (win: string, _title: string, body: (w: string) => void) => body(win),
-        horizontal: wrap, vertical: wrap, group: wrap,
-        button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); },
-        label: (_win: string, c: any) => { w.labels.push(c.text); },
-        slider: () => {}, separator: () => {},
-        checkbox: (_win: string, c: any) => { w.checkboxes.set(c.id ?? c.label, c); },
-        spectrum: (_win: string, c: any) => { w.spectra.set(c.id, c); },
-        oscilloscope: (_win: string, c: any) => { w.scopes.set(c.id, c); },
-        levelMeter: (_win: string, c: any) => { w.meters.set(c.id, c); },
-        numericInput: (_win: string, c: any) => { w.numerics.set(c.id ?? c.label, c); },
-        textInput: (_win: string, c: any) => { w.textInputs.set(c.id ?? c.label, c); },
-        dropdown: (_win: string, c: any) => { w.dropdowns.set(c.id ?? c.label, c); },
-        pianoRoll: (_win: string, c: any) => { w.piano = c; },
-        tracks: (_win: string, c: any) => { if (c.id === "arrangement") w.arrangement = c; },
-    };
-
-    const addonApi = {
-        onInit: (cb: () => void) => { init = cb; },
-        // The real addon registers under two names and the engine ticks only one; the stand-in
-        // takes just the "Global" one so a frame is never counted twice.
-        onUpdate: () => {},
-        onUpdatePlus: (_name: string, cb: () => void) => { updates.push(cb); },
-        registerTool: (spec: any, run: (args: any) => any) => { w.tools.set(spec.name, run); },
-        UI: { createTab: (cfg: any) => { tabRender = cfg.onRender; return "tab"; } },
-        IO: {
-            save: (p: unknown) => { w.saved = JSON.parse(JSON.stringify(p)); },
-            load: () => (initialSaved ? JSON.parse(JSON.stringify(initialSaved)) : null),
-        },
-        Audio: {
-            ensureTrackBus: (id: string, cfg: any) => { w.buses.set(id, cfg); },
-            removeTrackBus: (id: string) => { w.buses.delete(id); },
-            playNoteOnTrack: (id: string, cfg: any) => { w.played.push({ id, cfg }); },
-            renderPatternToWav: (events: any[], _name: string) => { w.exports.push(events); return { success: true, path: "test.wav", durationSeconds: 1 }; },
-            analyze: (source: string) => w.analysis.get(source) ?? null,
-        },
-        AudioEffect: {
-            createDelay: () => `delay-${++uuid}`, createReverb: () => `reverb-${++uuid}`,
-            setDelayParams: () => {}, setReverbParams: () => {}, destroy: () => {},
-        },
-        Vst3: {
-            unload: () => {}, load: () => ({ ok: false, error: "no plugins in the test world" }),
-            scan: () => ({ plugins: [], skipped: [] }), noteOn: () => {}, pollState: () => null,
-            takePeak: () => null, openEditor: () => ({ ok: false }), closeEditor: () => {}, allNotesOff: () => {},
-        },
-    };
-
-    (globalThis as any).Entropy = {
-        println: () => {},
-        generateUUID: () => `uuid-${++uuid}`,
-        Addon: { register: () => addonApi },
-        UI: { Widget: widgets, createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); return `window-${windowRenders.length}`; } },
-        Window: { getSize: () => [1400, 900] },
-        Composer: undefined,
-    };
-
-    const render = () => {
-        w.buttons.clear(); w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
-        w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
-        w.labels = []; w.piano = null; w.arrangement = null;
-        tabRender?.();
-        windowRenders.forEach(fn => fn());
-    };
-    const advance = (ms: number) => {
-        for (let left = ms; left > 0; left -= 50) {
-            w.clock += Math.min(50, left);
-            updates.forEach(fn => fn());
-        }
-        render();
-    };
-    return {
-        w, render, advance,
-        async open() { await import("../src/apps/daw_synth_addon"); await init?.(); render(); },
-    };
-}
 
 describe("The DAW arranges tracks on a 16-channel timeline (production addon callbacks)", () => {
     afterEach(() => { vi.restoreAllMocks(); vi.resetModules(); delete (globalThis as any).Entropy; });

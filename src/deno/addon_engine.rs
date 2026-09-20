@@ -64,7 +64,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -206,6 +206,7 @@ extension!(
         op_ui_widget_tracks,
         op_ui_widget_kanban,
         op_ui_widget_tree_view,
+        op_ui_widget_pad_grid,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -262,6 +263,13 @@ extension!(
         op_audio_play_note,
         op_audio_play_test,
         op_audio_render_pattern_wav,
+        op_audio_load_sample,
+        op_audio_play_sample_on_track,
+        op_audio_preview_sample,
+        op_audio_stop_preview,
+        op_io_music_dir,
+        op_io_pick_sample_folder,
+        op_io_list_dir,
         op_audio_effect_create_delay,
         op_audio_effect_create_reverb,
         op_audio_effect_set_delay,
@@ -4432,7 +4440,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::TreeView { id: tree_id, nodes } => {
+                UiWidget::TreeView { id: tree_id, nodes, max_height, width } => {
                     let nodes_data: Vec<crate::entropy_gui::TreeNode> = nodes
                         .iter()
                         .map(|n| crate::entropy_gui::TreeNode {
@@ -4443,9 +4451,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             expanded: n.expanded.unwrap_or(true),
                             marked: n.marked,
                             selected: n.selected.unwrap_or(false),
+                            icon: n.icon.clone().unwrap_or_default(),
+                            detail: n.detail.clone().unwrap_or_default(),
                         })
                         .collect();
-                    let resp = crate::entropy_gui::TreeView::new(tree_id.as_str()).show(ui, &nodes_data);
+                    let mut tree = crate::entropy_gui::TreeView::new(tree_id.as_str());
+                    if let Some(h) = max_height {
+                        tree = tree.max_height(*h);
+                    }
+                    if let Some(w) = width {
+                        tree = tree.width(*w);
+                    }
+                    let resp = tree.show(ui, &nodes_data);
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::TreeEvent::Selected(node) => {
@@ -4457,6 +4474,44 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             crate::entropy_gui::TreeEvent::Marked(node, value) => {
                                 events_to_push.push(format!("TREEVIEW_MARKED|{}|{}|{}", tree_id, node, value));
                             }
+                        }
+                    }
+                }
+                UiWidget::PadGrid { id: pad_id, config } => {
+                    use crate::entropy_gui::{Pad, PadEvent, PadGrid, PadGridOptions, PadKind};
+                    let d = PadGridOptions::default();
+                    let opts = PadGridOptions {
+                        columns: config.columns.map(|c| c.max(1) as usize).unwrap_or(d.columns),
+                        pad_size: crate::entropy_gui::vec2(config.pad_width.unwrap_or(d.pad_size.x), config.pad_height.unwrap_or(d.pad_size.y)),
+                        add_tile: config.add_tile.unwrap_or(false),
+                    };
+                    let pads: Vec<Pad> = config
+                        .pads
+                        .iter()
+                        .map(|p| {
+                            let color = p.color.map(egui::Color32::from_rgba_f32).unwrap_or(egui::Color32::from_rgb(90, 130, 230));
+                            let mut pad = Pad::new(p.id.clone(), p.label.clone(), color);
+                            pad.sublabel = p.sublabel.clone().unwrap_or_default();
+                            pad.hint = p.hint.clone().unwrap_or_default();
+                            pad.kind = match p.kind.as_deref() {
+                                Some("synth") => PadKind::Synth,
+                                Some("sample") => PadKind::Sample,
+                                Some("missing") => PadKind::Missing,
+                                _ => PadKind::Empty,
+                            };
+                            pad.waveform = p.waveform.clone().unwrap_or_default();
+                            pad.trim = p.trim.unwrap_or([0.0, 1.0]);
+                            pad.selected = p.selected.unwrap_or(false);
+                            pad.glow = p.glow.unwrap_or(0.0);
+                            pad
+                        })
+                        .collect();
+                    let resp = PadGrid::new(pad_id.as_str()).options(opts).show(ui, &pads);
+                    for event in resp.events {
+                        match event {
+                            PadEvent::Clicked(pad) => events_to_push.push(format!("PADGRID_CLICKED|{}|{}", pad_id, pad)),
+                            PadEvent::Cleared(pad) => events_to_push.push(format!("PADGRID_CLEARED|{}|{}", pad_id, pad)),
+                            PadEvent::AddRequested => events_to_push.push(format!("PADGRID_ADD|{}", pad_id)),
                         }
                     }
                 }

@@ -274,6 +274,7 @@ impl Context {
         inner.frame_count += 1;
         inner.pointer_over_ui = false;
         inner.input = raw_input;
+        inner.memory.begin_scroll_frame();
     }
 
     /// Marks the pointer as currently over some GUI element - called from `interact()`

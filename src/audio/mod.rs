@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod samples;
 pub mod vst3;
 pub mod vst3_capture;
 
@@ -9,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
+use samples::{SampleEvent, SampleParams, SampleVoice};
 
 // A wrapper to make a type-erased fundsp graph compatible with rodio::Source. The graph is
 // always exactly stereo (2 outputs) - see `build_note_node` - so this no longer needs to be
@@ -318,10 +320,38 @@ pub fn render_pattern_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<f64, String> {
+    render_events_to_wav(events, &[], sample_rate, output_path)
+}
+
+/// `render_pattern_to_wav` plus sample hits (a drum rack's pads). A sample is rendered by the same
+/// `SampleVoice` the live path plays, at the engine rate, and is resampled by linear interpolation
+/// if `sample_rate` differs. Like the synth events it carries no bus effects: a sample's gain is
+/// whatever the caller folded in.
+pub fn render_events_to_wav(
+    events: &[NoteEvent],
+    sample_events: &[SampleEvent],
+    sample_rate: u32,
+    output_path: &Path,
+) -> Result<f64, String> {
     let sr = sample_rate as f32;
 
-    let mut voice_bufs: Vec<(usize, Vec<f32>)> = Vec::with_capacity(events.len());
+    let mut voice_bufs: Vec<(usize, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
     let mut total_frames: usize = 0;
+
+    for hit in sample_events {
+        // A pad whose file has gone missing is skipped rather than failing the whole export.
+        let Ok(sample) = samples::load(&hit.path) else { continue };
+        let voice = SampleVoice::new(sample, hit.params, None);
+        let mut buf: Vec<f32> = voice.collect();
+        if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
+            let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+            buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
+        }
+        let n_frames = buf.len() / 2;
+        let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
+        total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
+        voice_bufs.push((start_sample, buf));
+    }
 
     for event in events {
         let mut node = build_note_node(&event.voice, &event.params, sr);
@@ -706,7 +736,13 @@ pub struct AudioEngine {
     /// Where each meter widget last read up to, so a peak is measured since the last frame
     /// rather than over a fixed trailing window. Keyed by the reader's own id.
     meter_cursors: Mutex<HashMap<String, u64>>,
+    /// Stops the sample the browser is auditioning when the next one starts.
+    preview_cancel: Mutex<Option<Arc<AtomicBool>>>,
 }
+
+/// The bus the sample browser auditions through. It feeds the master (so you hear it and the
+/// analyzer sees it) and has its own tap, so `analyze(PREVIEW_BUS)` reads what is being auditioned.
+pub const PREVIEW_BUS: &str = "sample-preview";
 
 impl AudioEngine {
     pub fn new() -> Self {
@@ -727,6 +763,7 @@ impl AudioEngine {
             master_tap,
             analyzer: Mutex::new(SpectrumAnalyzer::new()),
             meter_cursors: Mutex::new(HashMap::new()),
+            preview_cancel: Mutex::new(None),
         }
     }
 
@@ -833,6 +870,41 @@ impl AudioEngine {
             .take_duration(std::time::Duration::from_secs_f32(dur));
 
         bus.note_mixer.add(source);
+    }
+
+    /// Plays a sample file on a track's bus: a drum-rack pad hit. The bus gives it the track's gain,
+    /// mute, solo, effects, meter and analyzer tap. The sample is decoded on first use (see
+    /// `samples::load`); callers load it when a pad is assigned so a hit never waits on a decode.
+    /// Errors if the file cannot be read or the track has no bus.
+    pub fn play_sample_on_track(&self, track_id: &str, path: &str, params: SampleParams) -> Result<(), String> {
+        let sample = samples::load(path)?;
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        bus.note_mixer.add(SampleVoice::new(sample, params, None));
+        Ok(())
+    }
+
+    /// Auditions a sample through `PREVIEW_BUS`, cutting off the one still playing from the last
+    /// call.
+    pub fn preview_sample(&self, path: &str, params: SampleParams) -> Result<(), String> {
+        let sample = samples::load(path)?;
+        if !self.track_buses.lock().unwrap().contains_key(PREVIEW_BUS) {
+            self.ensure_track_bus(PREVIEW_BUS, 1.0, false, false, &[]);
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Some(previous) = self.preview_cancel.lock().unwrap().replace(cancel.clone()) {
+            previous.store(true, Ordering::Relaxed);
+        }
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(PREVIEW_BUS).ok_or("the preview bus was removed")?;
+        bus.note_mixer.add(SampleVoice::new(sample, params, Some(cancel)));
+        Ok(())
+    }
+
+    pub fn stop_preview(&self) {
+        if let Some(cancel) = self.preview_cancel.lock().unwrap().take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
     }
 
     /// Adds a long-lived source (a hosted VST3 instrument - see `vst3::Vst3Source`) to an existing

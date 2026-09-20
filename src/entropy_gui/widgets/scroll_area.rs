@@ -23,8 +23,12 @@ impl ScrollArea {
         let region = ui.available_rect_before_wrap();
         let mut offset = ui.ctx().memory(|m| m.get_scroll(id));
 
-        let hovered = ui.input(|i| i.pointer.pos).map_or(false, |p| region.contains(p));
-        if hovered {
+        let pointer = ui.input(|i| i.pointer.pos);
+        let hovered = pointer.map_or(false, |p| region.contains(p));
+        // With areas nested (a scrolling list inside a scrolling page) the wheel belongs to the
+        // innermost one under the pointer, not to both.
+        let inner_owns = pointer.map_or(false, |p| ui.ctx().memory(|m| m.scroll_owned_by_inner(id, region, p)));
+        if hovered && !inner_owns {
             let delta = ui.input(|i| i.scroll_delta);
             if self.vertical {
                 offset.y -= delta.y;
@@ -47,6 +51,9 @@ impl ScrollArea {
         offset.x = offset.x.clamp(0.0, (content_size.x - region.width()).max(0.0));
         offset.y = offset.y.clamp(0.0, (content_size.y - region.height()).max(0.0));
         ui.ctx().memory_mut(|m| m.set_scroll(id, offset));
+        if (self.vertical && content_size.y > region.height()) || (self.horizontal && content_size.x > region.width()) {
+            ui.ctx().memory_mut(|m| m.note_scrollable(id, region));
+        }
 
         if self.vertical && content_size.y > region.height() {
             let bar_w = 4.0;

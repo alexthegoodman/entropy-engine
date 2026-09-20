@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -363,6 +363,16 @@ export interface ScopedAPI {
      * spectral centroid. `framesWritten` proves the audio thread is running. Returns null when
      * the source does not exist. The analyzer widgets are drawn from the same taps. */
     analyze: (source?: string, fftSize?: number) => AudioAnalysis | null;
+    /** Decodes a sample file (or finds it in memory) and describes it. Only the first 12 seconds
+     * of a file are decoded (`truncated` says so). Call it when a sample is assigned so the first
+     * hit does not wait on the decode. wav, flac, mp3, ogg and m4a are supported. */
+    loadSample: (path: string, bins?: number) => SampleInfo;
+    /** A drum-rack hit: plays `path` on a track bus (see `ensureTrackBus`). */
+    playSampleOnTrack: (trackId: string, path: string, config?: SampleParams) => SampleResult;
+    /** Auditions a file through the shared preview bus, cutting off the previous audition. The bus
+     * is `"sample-preview"` for `analyze`. */
+    previewSample: (path: string, config?: SampleParams) => SampleResult;
+    stopPreview: () => void;
   };
   /** A shared, reusable effect registry - create an effect once, then attach it to one or more
    * track buses by id via `Audio.ensureTrackBus`'s `effectIds`, instead of baking delay/reverb
@@ -430,6 +440,9 @@ export interface ScopedAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
+       * ring and a glow the caller drives. See `PadGridConfig`. */
+      padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -541,6 +554,13 @@ export interface ScopedAPI {
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
     listModels: () => Promise<string[]>;
     pickAndImportModel: () => Promise<string>;
+    /** The user's Music folder, or null if the OS has none. Also allows `listDir` under it. */
+    musicDir: () => string | null;
+    /** A native folder dialog; the chosen folder becomes readable by `listDir`. Null if cancelled. */
+    pickSampleFolder: () => string | null;
+    /** Folders first, then audio files, directly inside `path`. Read-only, and refused outside the
+     * Music folder and folders chosen with `pickSampleFolder`. */
+    listDir: (path: string) => ListDirResult;
     load: () => any;
   };
   Scripts: {
@@ -1059,11 +1079,20 @@ export interface TreeNodeConfig {
    * for "mark several rows, then act on all of them" flows). */
   marked?: boolean;
   selected?: boolean;
+  /** A short glyph drawn before the label (a folder or file marker). */
+  icon?: string;
+  /** Dim right-aligned text on the row, such as a count or a duration. */
+  detail?: string;
 }
 
 export interface TreeViewConfig {
   id?: string;
   nodes?: TreeNodeConfig[];
+  /** Caps the tree at this many points and scrolls the rows inside it. Omit for a tree exactly as
+   * tall as its rows. */
+  maxHeight?: number;
+  /** A fixed width in points instead of filling the row. */
+  width?: number;
   /** Fired when a row's label is clicked. */
   onSelect?: (id: string) => void;
   /** Fired when a row's disclosure triangle is clicked. Apply this to whatever expanded-set
@@ -1071,6 +1100,104 @@ export interface TreeViewConfig {
   onToggleExpand?: (id: string) => void;
   /** Fired when a row's checkbox is clicked, carrying its new (post-click) value. */
   onMark?: (id: string, value: boolean) => void;
+}
+
+/** How one sample hit plays. */
+export interface SampleParams {
+  /** Linear gain, default 1. */
+  gain?: number;
+  /** Pitch shift in semitones by playback rate (it changes the length too), -24..24, default 0. */
+  semitones?: number;
+  /** Start and end of the played part as fractions of the decoded sample, default 0 and 1. */
+  start?: number;
+  end?: number;
+  /** Seconds to play before fading out. Omit to play the whole trimmed region (a one-shot). */
+  hold?: number;
+}
+
+export interface SampleResult {
+  ok: boolean;
+  error?: string | null;
+}
+
+/** What `Audio.loadSample` returns. */
+export interface SampleInfo {
+  ok: boolean;
+  error?: string | null;
+  /** Length of what was decoded. */
+  seconds: number;
+  /** Length of the whole file, when the decoder knows it. */
+  fullSeconds?: number | null;
+  /** The file was longer than 12 seconds and only its start was decoded. */
+  truncated: boolean;
+  sourceRate: number;
+  channels: number;
+  /** Loudest sample, linear. */
+  peak: number;
+  /** Peak envelope scaled to 0..1, for a thumbnail. */
+  waveform: number[];
+}
+
+/** One sample hit in an offline render - see `Audio.renderPatternToWav`. */
+export interface SampleEvent extends SampleParams {
+  /** Seconds from the start of the render. */
+  startTime: number;
+  path: string;
+}
+
+export interface DirEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  /** Audio files directly inside (folders only). */
+  audioCount: number;
+  /** Sub-folders directly inside (folders only). */
+  dirCount: number;
+}
+
+export interface ListDirResult {
+  ok: boolean;
+  error?: string | null;
+  entries: DirEntry[];
+}
+
+/** One pad of `Widget.padGrid`. */
+export interface PadConfig {
+  /** Unique within the grid. */
+  id: string;
+  label: string;
+  /** The second line, usually the file name. */
+  sublabel?: string;
+  /** A small tag in the top-right corner, such as the MIDI note the pad answers to. */
+  hint?: string;
+  /** [r, g, b, a] in 0..1. */
+  color?: [number, number, number, number];
+  /** "empty" (default): a faint +. "synth": a built-in voice. "sample": draws `waveform`.
+   * "missing": an assigned file that is gone, in a warning tint. */
+  kind?: "empty" | "synth" | "sample" | "missing";
+  /** Peak envelope, 0..1 per bin. */
+  waveform?: number[];
+  /** [start, end] as fractions of the waveform: the part outside is dimmed. */
+  trim?: [number, number];
+  selected?: boolean;
+  /** 0..1, how lit the pad is right now. The caller decays it; the widget keeps no time. */
+  glow?: number;
+}
+
+export interface PadGridConfig {
+  id?: string;
+  pads: PadConfig[];
+  columns?: number;
+  padWidth?: number;
+  padHeight?: number;
+  /** Draw a "+ Add pad" tile after the last pad. */
+  addTile?: boolean;
+  /** A pad was clicked: select it, play it, or put whatever is armed on it. */
+  onPadClick?: (padId: string) => void;
+  /** A pad was right-clicked: take its sound off. */
+  onPadClear?: (padId: string) => void;
+  onAdd?: () => void;
 }
 
 /** What `Audio.analyze` returns. */
@@ -1436,6 +1563,9 @@ export interface EntropyAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
+       * ring and a glow the caller drives. See `PadGridConfig`. */
+      padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -1714,7 +1844,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -1729,6 +1859,16 @@ export interface EntropyAPI {
      * spectral centroid. `framesWritten` proves the audio thread is running. Returns null when
      * the source does not exist. The analyzer widgets are drawn from the same taps. */
     analyze: (source?: string, fftSize?: number) => AudioAnalysis | null;
+    /** Decodes a sample file (or finds it in memory) and describes it. Only the first 12 seconds
+     * of a file are decoded (`truncated` says so). Call it when a sample is assigned so the first
+     * hit does not wait on the decode. wav, flac, mp3, ogg and m4a are supported. */
+    loadSample: (path: string, bins?: number) => SampleInfo;
+    /** A drum-rack hit: plays `path` on a track bus (see `ensureTrackBus`). */
+    playSampleOnTrack: (trackId: string, path: string, config?: SampleParams) => SampleResult;
+    /** Auditions a file through the shared preview bus, cutting off the previous audition. The bus
+     * is `"sample-preview"` for `analyze`. */
+    previewSample: (path: string, config?: SampleParams) => SampleResult;
+    stopPreview: () => void;
   };
   /** A shared, reusable effect registry - see the scoped `Entropy.Addon.register()` API's
    * `AudioEffect` for the full doc comment (identical surface, top-level here). */

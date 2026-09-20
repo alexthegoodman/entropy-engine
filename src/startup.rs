@@ -253,6 +253,7 @@ impl BrowserBddDriver {
                 Ok("restore") => include_str!("../tests/features/vst3_live_restore.feature"),
                 Ok("arrangement") => include_str!("../tests/features/daw_arrangement_live.feature"),
                 Ok("analyzer") => include_str!("../tests/features/daw_analyzer_live.feature"),
+                Ok("rack") => include_str!("../tests/features/daw_rack_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
@@ -440,6 +441,12 @@ impl BrowserBddDriver {
             BrowserBddAction::Wait(_) => {}
             BrowserBddAction::Event { control_id, value } => {
                 let event = value.as_ref().map_or_else(|| control_id.clone(), |value| format!("{control_id}|{value}"));
+                // `{music}` stands for the folder the sample browser was pointed at (ENTROPY_MUSIC_DIR),
+                // so a feature can name a generated file without knowing where the run put it.
+                let event = match std::env::var("ENTROPY_MUSIC_DIR") {
+                    Ok(dir) => event.replace("{music}", &dir),
+                    Err(_) => event,
+                };
                 Self::queue_event(window, event);
                 self.outcomes.push(serde_json::json!({ "kind": "control", "id": control_id, "outcome": "queued" }));
             }
