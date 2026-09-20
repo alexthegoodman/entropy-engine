@@ -114,6 +114,8 @@ struct BrowserBddDriver {
 }
 
 enum BrowserBddAction {
+    Pointer { x: f32, y: f32, phase: String },
+    AssertLabel { text: String, present: bool },
     Wait(u32),
     Event { control_id: String, value: Option<String> },
     Link { control_id: String, url: String },
@@ -145,6 +147,15 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
     // Cucumber-expression-style steps here only ever use double-quoted string arguments, so
     // pulling out every substring between quotes covers every shape below without a regex.
     let quoted: Vec<&str> = text.split('"').skip(1).step_by(2).collect();
+
+    if (text.starts_with("I see the label ") || text.starts_with("I do not see the label ")) && quoted.len() == 1 {
+        return Some(BrowserBddAction::AssertLabel { text: quoted[0].to_string(), present: text.starts_with("I see") });
+    }
+    if text.starts_with("I send pointer ") && quoted.len() == 3 {
+        let phase = quoted[0].to_string();
+        assert!(["down", "move", "up"].contains(&phase.as_str()), "unknown pointer phase");
+        return Some(BrowserBddAction::Pointer { phase, x: quoted[1].parse().expect("pointer x"), y: quoted[2].parse().expect("pointer y") });
+    }
 
     if let Some(rest) = text.strip_prefix("I advance ") {
         let count_str = rest.trim_end_matches(" frames").trim_end_matches(" frame");
@@ -215,7 +226,9 @@ impl BrowserBddDriver {
                 include_str!("../tests/features/vst3_live.feature")
             }
         } else if canvas {
-            include_str!("../tests/features/canvas_live.feature")
+            if std::env::var("ENTROPY_CANVAS_BDD_FEATURE").as_deref() == Ok("logic") {
+                include_str!("../tests/features/canvas_logic_live.feature")
+            } else { include_str!("../tests/features/canvas_live.feature") }
         } else {
             BROWSER_LIVE_FEATURE_SOURCE
         };
@@ -290,6 +303,34 @@ impl BrowserBddDriver {
         }
         let Some(action) = self.actions.pop_front() else { return };
         match action {
+            BrowserBddAction::AssertLabel { text, present } => {
+                let labels = window.pipeline.export_editor.as_mut().map(|editor| {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let state = state.borrow();
+                    state.borrow::<crate::deno::addon_ops::AddonContext>().ui_frame_labels.clone()
+                }).unwrap_or_default();
+                let passed = labels.contains(&text) == present;
+                self.outcomes.push(serde_json::json!({ "kind": "assert-label", "text": text, "present": present, "passed": passed }));
+                if !passed { self.write_result("failed", Some(&format!("Label assertion failed: {text:?}; visible labels: {labels:?}"))); event_loop.exit(); }
+            }
+            BrowserBddAction::Pointer { x, y, phase } => {
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let mut state = state.borrow_mut();
+                    let ctx = state.borrow_mut::<crate::deno::addon_ops::AddonContext>();
+                    use crate::deno::addon_ops::InputEvent;
+                    // These steps target the scene viewport, not a widget. OS hover position is
+                    // unrelated to the injected pointer coordinates in this headless driver.
+                    ctx.pointer_over_ui = false;
+                    ctx.bdd_pointer_in_viewport = true;
+                    ctx.input_events.push(match phase.as_str() {
+                        "down" => InputEvent::MouseDown { button: 0, x, y },
+                        "move" => InputEvent::MouseMove { x, y },
+                        _ => InputEvent::MouseUp { button: 0 },
+                    });
+                }
+                self.outcomes.push(serde_json::json!({ "kind": "pointer", "phase": phase, "x": x, "y": y }));
+            }
             BrowserBddAction::WaitMs(ms) => self.wait_until = Some(Instant::now() + Duration::from_millis(ms)),
             BrowserBddAction::CaptureEditor(name) => {
                 let path = self.artifact_dir.join(format!("{name}.png"));

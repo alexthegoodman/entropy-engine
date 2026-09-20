@@ -1635,6 +1635,23 @@ impl EntropyPipeline {
 
         export_editor.camera_binding = Some(camera_binding);
 
+        // `Entropy.Window.getSize()` is otherwise only refreshed by the first frame's update,
+        // so an addon laying out windows in `onInit` would see AddonContext's 1920x1080
+        // placeholder instead of the real window.
+        {
+            let op_state = export_editor.addon_engine.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                // `window_size` here is the caller's camera/video placeholder, not the real
+                // client area - prefer the window itself when there is one.
+                #[cfg(target_os = "windows")]
+                let real = window.map(|w| { let size = w.inner_size(); [size.width, size.height] });
+                #[cfg(not(target_os = "windows"))]
+                let real: Option<[u32; 2]> = None;
+                context.window_size = real.unwrap_or([window_size.width, window_size.height]);
+            }
+        }
+
         if let Some(path) = &bundle_path {
             if let Err(e) = export_editor.addon_engine.load_addon(path).await {
                 println!("Failed to load custom bundle {:?}: {}", path, e);

@@ -189,6 +189,7 @@ extension!(
         op_lighting_update_sun,
         op_println,
         op_ui_create_window,
+        crate::deno::addon_ops::op_ui_set_window_visible,
         op_ui_create_tab,
         op_ui_widget_label,
         op_ui_widget_button,
@@ -577,6 +578,7 @@ impl AddonEngine {
             tab_order: Vec::new(),
             active_tab: None,
             ui_widgets: HashMap::new(),
+            ui_frame_labels: Vec::new(),
             pending_theme: None,
             ui_events: Arc::new(Mutex::new(Vec::new())),
             doc_editor_commands: HashMap::new(),
@@ -615,6 +617,7 @@ impl AddonEngine {
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
             pointer_over_ui: false,
+            bdd_pointer_in_viewport: false,
             modifiers: Modifiers::default(),
             window_size: [1920, 1080],
             selected_entity_id: None,
@@ -3652,7 +3655,18 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                 let mut sorted_windows: Vec<_> = context.ui_windows.iter().map(|(id, (config, _))| (id.clone(), config.clone())).collect();
                 sorted_windows.sort_by(|a, b| a.0.cmp(&b.0));
 
+                context.ui_frame_labels.clear();
+                for (id, config) in &sorted_windows {
+                    if !config.visible { continue; }
+                    if let Some(widgets) = context.ui_widgets.get(id) {
+                        context.ui_frame_labels.extend(widgets.iter().filter_map(|widget| {
+                            if let UiWidget::Label { text, .. } = widget { Some(text.clone()) } else { None }
+                        }));
+                    }
+                }
+
                 for (id, config) in sorted_windows {
+                    if !config.visible { continue; }
                     let mut open = true;
                     let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
@@ -3682,7 +3696,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.pointer_over_ui = ctx.pointer_over_ui();
+                context.pointer_over_ui = ctx.pointer_over_ui() && !context.bdd_pointer_in_viewport;
             }
         }
 
@@ -3815,7 +3829,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
             let mut op_state = self.runtime.op_state();
             let mut op_state = op_state.borrow_mut();
             if let Some(context) = op_state.try_borrow_mut::<AddonContext>() {
-                context.pointer_over_ui = ctx.pointer_over_ui();
+                context.pointer_over_ui = ctx.pointer_over_ui() && !context.bdd_pointer_in_viewport;
             }
         }
 
@@ -4426,7 +4440,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         })
                         .collect();
 
-                    let resp = crate::entropy_gui::NodeGraphEditor::new(snarl_id.as_str()).show(ui, &nodes, &links, None, |_, _| {});
+                    let resp = crate::entropy_gui::NodeGraphEditor::new(snarl_id.as_str()).show(ui, &nodes, &links, graph.selected_node.as_deref(), |_, _| {});
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::NodeGraphEvent::NodeMoved { node, pos } => {
@@ -4446,10 +4460,10 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                                     ));
                                 }
                             }
-                            // No declared `SnarlConfig` callback for these yet (selection/delete
-                            // aren't part of the pre-existing API surface) - not pushed.
-                            crate::entropy_gui::NodeGraphEvent::NodeClicked(_)
-                            | crate::entropy_gui::NodeGraphEvent::BackgroundClicked
+                            crate::entropy_gui::NodeGraphEvent::NodeClicked(node) => {
+                                events_to_push.push(format!("SNARL_NODE_SELECTED|{}|{}", snarl_id, node));
+                            }
+                            crate::entropy_gui::NodeGraphEvent::BackgroundClicked
                             | crate::entropy_gui::NodeGraphEvent::DeleteRequested(_) => {}
                         }
                     }

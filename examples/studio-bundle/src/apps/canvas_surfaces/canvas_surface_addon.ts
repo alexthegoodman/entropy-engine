@@ -79,6 +79,9 @@
 import { identity, defaultTransform, multiply, inverse, point, normal as transformNormal, transformMatrix, animatedTransform, groupWorld, reparentFrame, sample, setKey } from "./canvas_animation";
 import type { Group, Clip, Channel, Matrix, Transform, RetainedStroke } from "./canvas_animation";
 import { CanvasHistory } from "./canvas_history";
+import { emptyLogic, logicNode, logicProblems, LogicSession } from "./canvas_logic";
+import type { LogicGraph } from "./canvas_logic";
+import { renderLogicEditor } from "./canvas_logic_editor";
 import { DEFAULT_PAINT_SETTINGS, blendPixel, compositePixel, compositeLayers, pressureResponse, stabilizePoint } from "./canvas_paint";
 import type { PaintLayer, PaintSettings, RGB } from "./canvas_paint";
 import { SceneLibrary } from "./canvas_scene_library";
@@ -524,6 +527,49 @@ let activeSurfaceId: string | null = null;
 let pipelineId: string;
 let groups: Group[] = [];
 let clips: Clip[] = [];
+let logic: LogicGraph = emptyLogic();
+let gameSession: LogicSession | null = null;
+let gameMessage = "";
+let gamePreviousTime: number | null = null;
+let workspace: "animation" | "logic" = "animation";
+let workspaceVisible = false;
+function showWorkspace(kind: "animation" | "logic"): void {
+    workspace = kind; workspaceVisible = true;
+    Entropy.UI.setWindowVisible(keyframeWindowId, true);
+}
+let editingClipId: string | null = null;
+
+function stopGame(): void {
+    Entropy.UI.setWindowVisible(keyframeWindowId, workspaceVisible);
+    gameSession?.stop(); gameSession = null; gamePreviousTime = null;
+    stopPreview(); selectedClipId = editingClipId ?? selectedClipId;
+    gameMessage = ""; textInputActive = false;
+    lastGizmoSurfaceId = null;
+    statusMessage = "Editing. Artwork and pose restored.";
+}
+function runGameAction(action: () => void): void {
+    try { action(); } catch (error) { stopGame(); statusMessage = `Play stopped: ${(error as Error).message}`; }
+}
+function startGame(): void {
+    if (gameSession) return;
+    if (practiceSurface) togglePractice();
+    stopPreview(); finishStroke(); resetGesture(); history.commit();
+    const problems = logicProblems(logic, surfaces.map(s => s.id), clips.map(c => c.id));
+    if (problems.length) { statusMessage = problems[0]; showWorkspace("logic"); return; }
+    editingClipId = selectedClipId; gameMessage = ""; gamePreviousTime = null;
+    Entropy.UI.setWindowVisible(keyframeWindowId, false);
+    if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; }
+    gameSession = new LogicSession(JSON.parse(JSON.stringify(logic)), node => {
+        if (node.kind === "message") gameMessage = node.text;
+        if (node.kind === "clip") { const clip = clips.find(c => c.id === node.target); if (clip) playCanvasClip(clip.name); }
+    });
+    statusMessage = "Playing. Click a surface to interact. Stop returns to editing.";
+    runGameAction(() => gameSession!.start());
+}
+function clickGameSurface(x: number, y: number): void {
+    const hit = raycastSurfaces(x, y);
+    if (hit && gameSession) runGameAction(() => gameSession!.click(hit.surface.id));
+}
 let activeGroupId: string | null = null;
 let selectedStrokeId: string | null = null;
 let selectedClipId: string | null = null;
@@ -605,8 +651,9 @@ function previewAt(time: number): void {
     }
     refreshGeometry();
 }
-/** Stable clip names are the future interaction entry point. */
+/** Gameplay clip entry point. Scrubbing and clip preview remain editor-only controls. */
 export function playCanvasClip(name: string): boolean {
+    if (!gameSession) return false;
     const clip = clips.find(c => c.name === name);
     if (!clip) return false;
     stopPreview(); selectedClipId = clip.id; previewAt(0); playing = true; previousTime = null; return true;
@@ -616,7 +663,7 @@ export function playCanvasClip(name: string): boolean {
 // Snapshots share unchanged canvases. Paint gestures copy only their target canvas before
 // writing; moving a surface therefore costs metadata, not another 2.3 MB bitmap.
 type SurfaceState = Omit<Surface, "worldPatches" | "dirty" | "canvas">;
-interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; groups: Group[]; clips: Clip[]; activeGroupId: string | null; selectedClipId: string | null; selectedStrokeId: string | null; }
+interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; groups: Group[]; clips: Clip[]; logic: LogicGraph; activeGroupId: string | null; selectedClipId: string | null; selectedStrokeId: string | null; }
 let historyReady = false;
 let restoringHistory = false;
 let pointerHeld = false;
@@ -625,6 +672,7 @@ let gestureCanvases = new Set<string>();
 
 function captureScene(): SceneState {
     return {
+        logic: JSON.parse(JSON.stringify(logic)),
         activeId: activeSurfaceId, sceneId: currentSceneId, sceneName, groups: JSON.parse(JSON.stringify(groups)), clips: JSON.parse(JSON.stringify(clips)), activeGroupId, selectedClipId, selectedStrokeId,
         surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, canvas: _canvas, ...s }) => ({
             ...s, position: [...s.position], scale: [...s.scale], pivot: [...s.pivot], frame: [...s.frame], layers: s.layers.map(layer => ({ ...layer, pixels: editingPixels.get(layer.id) ?? layer.pixels })),
@@ -634,7 +682,7 @@ function captureScene(): SceneState {
 
 function sameScene(a: SceneState, b: SceneState): boolean {
     // Selection alone is not an edit. Keep it in snapshots to restore a deleted selection.
-    return JSON.stringify(a.groups) === JSON.stringify(b.groups) && JSON.stringify(a.clips) === JSON.stringify(b.clips) && a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
+    return JSON.stringify(a.logic) === JSON.stringify(b.logic) && JSON.stringify(a.groups) === JSON.stringify(b.groups) && JSON.stringify(a.clips) === JSON.stringify(b.clips) && a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
         const other = b.surfaces[i];
         const { layers, bases, strokes, cutMask, activeLayerId: _active, ...meta } = s;
         const { layers: otherLayers, bases: otherBases, strokes: otherStrokes, cutMask: otherMask, activeLayerId: _otherActive, ...otherMeta } = other;
@@ -648,6 +696,7 @@ function sameScene(a: SceneState, b: SceneState): boolean {
 }
 
 function restoreScene(state: SceneState): void {
+    logic = JSON.parse(JSON.stringify(state.logic));
     stopPreview();
     restoringHistory = true;
     geometryKeys.clear();
@@ -1382,6 +1431,7 @@ function finishStroke(): void {
 }
 
 Entropy.Input.onStylusDown((e) => {
+    if (gameSession) { if (!Entropy.Input.isPointerOverUI()) clickGameSurface(e.x, e.y); usingStylus = true; return; }
     history.commit();
     penHeld = true;
     currentMouseX = e.x;
@@ -1434,6 +1484,7 @@ Entropy.Input.onMouseDown((button, x, y) => {
     pointerKnown = true;
     if (button === 0) textInputActive = Entropy.Input.isPointerOverUI();
     if (button !== 0 || usingStylus || textInputActive) return;
+    if (gameSession) { if (!orbitButtonDown) clickGameSurface(x, y); return; }
     if (pickingColor) { sampleColor(x, y); return; }
 
     if (mode === "draw") {
@@ -1480,7 +1531,7 @@ let previewSurfaceId: string | null = null;
 let hoverSurfaceName = "";
 function updateBrushPreview(): void {
     let hit: SurfaceHit | null = null;
-    if (!preview && pointerKnown && mode === "draw" && !orbitButtonDown && !Entropy.Input.isPointerOverUI()) {
+    if (!gameSession && !preview && pointerKnown && mode === "draw" && !orbitButtonDown && !Entropy.Input.isPointerOverUI()) {
         if (drawTarget) {
             const ray = Entropy.Camera.screenToWorldRay(currentMouseX, currentMouseY);
             hit = raycastSurfaceMesh(drawTarget, ray.origin, ray.direction);
@@ -1555,6 +1606,7 @@ function restoreView(): void {
 
 Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
     const k = key.toLowerCase();
+    if (gameSession) { if (k === "escape") stopGame(); return; }
     if (alt || textInputActive) return;
     if (ctrl && k === "s") { saveScene(); return; }
     if (ctrl && k === "z") { shift ? redo() : undo(); return; }
@@ -1581,7 +1633,7 @@ let activeGizmoId: string | null = null;
 let lastGizmoSurfaceId: string | null = null;
 
 function syncGizmoToSelection(): void {
-    if (preview || activeGroupId) return;
+    if (gameSession || preview || activeGroupId) return;
     if (activeSurfaceId === lastGizmoSurfaceId) return;
     lastGizmoSurfaceId = activeSurfaceId;
 
@@ -1702,7 +1754,7 @@ function sceneIsDirty(): boolean {
 }
 function serializeScene(): SavedScene {
     return {
-        version: 3, groups, clips,
+        version: 3, groups, clips, logic,
         surfaces: surfaces.map((s): SavedSurface => ({
             id: s.id, parentId: s.parentId, frame: s.frame, scale: s.scale, pivot: s.pivot, strokes: s.strokes,
             name: s.name, kind: s.kind, position: [...s.position],
@@ -1718,6 +1770,7 @@ function serializeScene(): SavedScene {
     };
 }
 function saveScene(asNew = false): boolean {
+    if (gameSession) return false;
     stopPreview();
     if (!libraryReady) { statusMessage = "Scene library unavailable. Restart after checking storage."; return false; }
     if (practiceSurface) togglePractice();
@@ -1764,6 +1817,7 @@ function loadScene(): void {
             beginEdit("Load scene");
             for (const s of [...surfaces]) deleteSurface(s);
             groups = JSON.parse(JSON.stringify(scene.groups ?? [])); clips = JSON.parse(JSON.stringify(scene.clips ?? [])); activeGroupId = null; selectedClipId = clips[0]?.id ?? null; selectedStrokeId = null;
+            logic = JSON.parse(JSON.stringify(scene.logic ?? emptyLogic()));
             for (const { saved, canvas, layers, cutMask, bases } of decoded) {
                 spawnSurface(saved.position, saved.yaw, saved.kind, saved.halfW, saved.halfH, saved.halfD, saved.radius,
                     { ...saved, canvas, layers, cutMask, bases });
@@ -1781,6 +1835,7 @@ function newScene(): void {
         beginEdit("New scene");
         for (const s of [...surfaces]) deleteSurface(s);
         groups = []; clips = []; activeGroupId = null; selectedClipId = null; selectedStrokeId = null;
+        logic = emptyLogic();
         currentSceneId = Entropy.generateUUID(); sceneName = "Untitled scene";
         spawnSurface([0, 1.5, 0], 0);
         history.commit();
@@ -2034,21 +2089,23 @@ function setupUI(): void {
     // sidebar's own Keyframes group (still the place to pick a channel and set a precise value)
     // is scrolled elsewhere.
     keyframeWindowId = Entropy.UI.createWindow({
-        title: "Keyframes",
-        width: 640,
-        height: 220,
+        title: "Canvas workspace",
+        width: Math.max(600, Entropy.Window.getSize()[0] - 370),
+        height: 480,
         x: 342,
-        y: 16,
+        y: Math.max(16, Entropy.Window.getSize()[1] - 505),
         onRender: renderKeyframeTimelineUI
     });
+    Entropy.UI.setWindowVisible(keyframeWindowId, false);
 }
 
 /** A small editable creation that exercises the same data used by hand-authored scenes. */
-function createAnimatedExample(): void {
+function createAnimatedExample(withLogic = false): void {
     requestSceneAction("Open animated character example", () => {
         beginEdit("Animated character example");
         for (const s of [...surfaces]) deleteSurface(s);
         groups = []; clips = []; markedNodes.clear(); selectedStrokeId = null;
+        logic = emptyLogic();
         currentSceneId = Entropy.generateUUID(); sceneName = "Drawn character";
         const character: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Character", parentId: null, frame: identity(), pivot: [0, 1.5, 0] };
         const arm: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Waving arm", parentId: character.id, frame: identity(), pivot: [0.65, 2.05, 0] };
@@ -2077,11 +2134,24 @@ function createAnimatedExample(): void {
         for (const [time, value] of [[0, 0], [0.5, 2.3], [1, 1.7], [1.5, 2.3], [2, 0]]) setKey(clip, arm.id, "roll", time, value);
         setKey(clip, smile.id, "progress", 0, 0); setKey(clip, smile.id, "progress", 1, 1);
         clips = [clip]; selectedClipId = clip.id; activeGroupId = character.id; activeSurfaceId = face.id; playhead = 0;
+        if (withLogic) {
+            const start = logicNode("demo-start", "start", [20, 20]);
+            const welcome = { ...logicNode("demo-welcome", "message", [240, 20]), text: "Click my face to say hello!" };
+            const click = { ...logicNode("demo-click", "click", [20, 150]), target: face.id };
+            const once = logicNode("demo-once", "once", [240, 150]);
+            const wave = { ...logicNode("demo-wave", "clip", [460, 150]), target: clip.id };
+            const wait = { ...logicNode("demo-wait", "wait", [680, 150]), seconds: 2 };
+            const message = { ...logicNode("demo-message", "message", [680, 20]), text: "Hello, friend! Stop and Play to try again." };
+            logic = { nodes: [start, welcome, click, once, wave, wait, message], connections: [[start, welcome], [click, once], [once, wave], [wave, wait], [wait, message]].map(([a, b]) => ({ fromNode: a.id, fromPin: "next", toNode: b.id, toPin: "in" })) };
+            showWorkspace("logic");
+        }
         history.commit(); savedSceneState = null; pendingSceneAction = null;
         applyView({ position: [0, 2.0, 8], target: [0, 1.7, 0] });
-        statusMessage = "Example ready. Play Wave and smile, or select a part to edit it.";
+        statusMessage = withLogic ? "Example ready. Open Logic or press Play." : "Example ready. Preview a clip or edit a part.";
     });
 }
+
+function createPlayableExample(): void { createAnimatedExample(true); }
 
 let parentChoice: string | null = null;
 let channelChoice: Channel = "roll";
@@ -2245,6 +2315,7 @@ function renderAnimationUI(): void {
     W.label(uiWindowId, { text: "Clips", bold: true });
     W.group(uiWindowId, () => {
         button("clip_create", "+ New Clip", () => {
+            showWorkspace("animation");
             beginEdit("New animation"); let number = 1; while (clips.some(c => c.name === `Clip ${number}`)) number++; const clip: Clip = { id: Entropy.generateUUID(), name: `Clip ${number}`, duration: 2, tracks: [] }; clips.push(clip); selectedClipId = clip.id; playhead = 0;
         });
         for (const clip of clips) button(`clip_${clip.id}`, `${clip.id === selectedClipId ? "> " : ""}${clip.name}`, () => { stopPreview(); selectedClipId = clip.id; playhead = 0; });
@@ -2263,7 +2334,7 @@ function renderAnimationUI(): void {
     W.label(uiWindowId, { text: "Playback", bold: true });
     W.group(uiWindowId, () => {
         slider("clip_time", "Time (seconds)", playhead, 0, clip.duration, value => { playing = false; previewAt(value); });
-        button("clip_play", playing ? "Pause" : "Play", () => { if (playing) { playing = false; previousTime = null; } else { previewAt(playhead >= clip.duration ? 0 : playhead); playing = true; previousTime = null; } });
+        button("clip_play", playing ? "Pause preview" : "Preview clip", () => { if (playing) { playing = false; previousTime = null; } else { previewAt(playhead >= clip.duration ? 0 : playhead); playing = true; previousTime = null; } });
     });
 
     W.label(uiWindowId, { text: "Keyframes", bold: true });
@@ -2311,6 +2382,12 @@ function parseKeyframeRowId(rowId: string): [string, Channel] {
  * own `KeyframeConfig`), so precise value entry stays in the sidebar's Keyframes group; this
  * window is the shared-timeline view and the seek/move/add/delete surface. */
 function renderKeyframeTimelineUI(): void {
+    if (gameSession || !workspaceVisible) return;
+    Entropy.UI.Widget.button(keyframeWindowId, { id: "workspace_close", text: "Return to canvas", onClick: () => { workspaceVisible = false; Entropy.UI.setWindowVisible(keyframeWindowId, false); } });
+    if (workspace === "logic") {
+        renderLogicEditor(keyframeWindowId, logic, surfaces, clips, change => { beginEdit("Edit gameplay logic"); change(); }, activeSurfaceId);
+        return;
+    }
     const W = Entropy.UI.Widget;
     const clip = currentClip();
     if (!clip) { W.label(keyframeWindowId, { text: "No clip selected. Create or select one in the Canvas Surfaces window's Groups & animation section." }); return; }
@@ -2512,7 +2589,35 @@ function renderSceneLibrary(): void {
     Entropy.UI.Widget.label(uiWindowId, { text: "Save as new needs a different name." });
 }
 
+function addSurfaceFromPalette(): void {
+    // The first surface already occupies slot 1; start the stagger one slot ahead.
+    const n = surfaces.length + 1;
+    spawnSurface([(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0, pendingKind,
+        pendingWidth / 2, pendingHeight / 2, pendingDepth / 2, pendingRadius);
+}
+
 function renderUI(): void {
+    const W = Entropy.UI.Widget;
+    W.horizontal(uiWindowId, () => {
+        W.button(uiWindowId, { id: "game_play", text: gameSession ? "Stop" : "Play", onClick: () => gameSession ? stopGame() : startGame() });
+        if (!gameSession) {
+            W.button(uiWindowId, { id: "workspace_logic", text: workspaceVisible && workspace === "logic" ? "> Logic" : "Logic", onClick: () => showWorkspace("logic") });
+            W.button(uiWindowId, { id: "workspace_animation", text: workspaceVisible && workspace === "animation" ? "> Animate" : "Animate", onClick: () => showWorkspace("animation") });
+        }
+    });
+    if (gameSession) {
+        W.label(uiWindowId, { text: sceneName, bold: true });
+        W.label(uiWindowId, { text: gameMessage, bold: true });
+        W.label(uiWindowId, { text: "Click surfaces to interact." });
+        W.label(uiWindowId, { text: "Esc or Stop returns to editing." });
+        return;
+    }
+    W.label(uiWindowId, { text: "Add a surface > Draw > Logic > Play" });
+    W.horizontal(uiWindowId, () => {
+        W.button(uiWindowId, { id: "quick_surface", text: "+ Surface", onClick: addSurfaceFromPalette });
+        W.button(uiWindowId, { id: "quick_save", text: "Save scene", onClick: () => { saveScene(); } });
+    });
+    W.button(uiWindowId, { id: "playable_example", text: "Open playable example", onClick: createPlayableExample });
     Entropy.UI.Widget.label(uiWindowId, { text: practiceSurface ? "PRACTICE ? not saved" : `${sceneName}${sceneIsDirty() ? " *" : ""}`, bold: true });
     if (statusMessage) Entropy.UI.Widget.label(uiWindowId, { text: statusMessage });
     if (pendingSceneAction) {
@@ -2747,17 +2852,7 @@ function renderUI(): void {
         Entropy.UI.Widget.button(uiWindowId, {
             text: "+ New Surface",
             id: "new_surface",
-            onClick: () => {
-                // +1: slot 0 of this stagger grid is x=-3.5, but slot 1 is x=0 - the same spot the
-                // very first surface (spawned separately in onInit, not through this grid at all)
-                // already occupies. Starting one slot ahead means the first-ever click always lands
-                // on a genuinely empty spot instead of silently overlapping that surface.
-                const n = surfaces.length + 1;
-                spawnSurface(
-                    [(n % 3) * 3.5 - 3.5, 1.5, -Math.floor(n / 3) * 3.0], 0, pendingKind,
-                    pendingWidth / 2, pendingHeight / 2, pendingDepth / 2, pendingRadius
-                );
-            }
+            onClick: addSurfaceFromPalette
         });
 
     });
@@ -2872,8 +2967,8 @@ addon.onInit(() => {
 
     // Default engine game_mode is `true` (src/app.rs) - the gizmo render pass is gated on
     // `!game_mode` (src/core/render_addon_frame.rs) and game_composer_addon.ts only ever shows a
-    // gizmo after its own `Entropy.setGameMode(false)`. This is a creation tool, not a "game" -
-    // it should stay in edit mode (gizmo visible/interactive) for its whole lifetime.
+    // gizmo after its own `Entropy.setGameMode(false)`. This engine flag enables the gizmo
+    // renderer; the addon's separate Play session hides gizmos and gates gameplay input.
     Entropy.setGameMode(false);
 
     Entropy.Camera.setTransform([0, 1.6, 6], [0, 1.2, 0]);
@@ -2897,6 +2992,11 @@ addon.onInit(() => {
 });
 
 addon.onUpdatePlus("Global", (_time: number) => {
+    if (gameSession && Number.isFinite(_time)) {
+        const delta = gamePreviousTime === null ? 0 : Math.max(0, _time - gamePreviousTime);
+        gamePreviousTime = _time;
+        runGameAction(() => gameSession!.tick(delta));
+    }
     if (usingStylusClearPending) {
         usingStylusClearPending = false;
         usingStylus = false;

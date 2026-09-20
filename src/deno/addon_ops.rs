@@ -233,6 +233,9 @@ fn default_resizable() -> bool { true }
 
 pub struct UiWindowConfig {
 
+    #[serde(default = "default_resizable")]
+    pub visible: bool,
+
     pub title: String,
 
     #[serde(default = "default_resizable")]
@@ -467,6 +470,8 @@ pub enum UiWidget {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct BehaviorGraph {
+    #[serde(default)]
+    pub selected_node: Option<String>,
     pub nodes: Vec<BehaviorNode>,
     pub connections: Vec<BehaviorConnection>,
 }
@@ -859,6 +864,8 @@ pub struct AddonContext {
     pub ui_windows: HashMap<String, (UiWindowConfig, v8::Global<v8::Function>)>,
     pub ui_tabs: HashMap<String, (UiTabConfig, v8::Global<v8::Function>, String)>, // (config, callback, addon_name)
     pub ui_widgets: HashMap<String, Vec<UiWidget>>,
+    /// Visible top-level labels from the last rendered frame, for live BDD assertions.
+    pub ui_frame_labels: Vec<String>,
     /// Set by `op_ui_set_theme`, applied (and left in place, not drained) by `AddonEngine::
     /// render_ui`/`render_tabs` each frame - see those functions for why it isn't cleared here.
     pub pending_theme: Option<crate::entropy_gui::style::ThemeDescriptor>,
@@ -920,6 +927,10 @@ pub struct AddonContext {
     pub pressed_keys: HashSet<String>,
     pub mouse_position: [f32; 2],
     pub pointer_over_ui: bool,
+    /// Set by the BDD driver once it injects a viewport pointer event: the real OS cursor's
+    /// hover state is unrelated to injected coordinates, so the per-frame GUI snapshot of
+    /// `pointer_over_ui` must not overwrite the driver's "not over UI" claim.
+    pub bdd_pointer_in_viewport: bool,
     pub modifiers: Modifiers,
     pub window_size: [u32; 2],
     pub selected_entity_id: Option<String>,
@@ -2856,6 +2867,13 @@ pub fn op_ui_create_window(state: &mut OpState, #[serde] config: UiWindowConfig,
         ctx.ui_windows.insert(id.clone(), (config, on_render));
     }
     id
+}
+
+#[op2(fast)]
+pub fn op_ui_set_window_visible(state: &mut OpState, #[string] id: &str, visible: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some((config, _)) = ctx.ui_windows.get_mut(id) { config.visible = visible; }
+    }
 }
 
 #[op2]

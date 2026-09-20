@@ -4,7 +4,7 @@ import { validateScene } from "../src/apps/canvas_surfaces/canvas_scene_format";
 
 // Executable Gherkin subset: unsupported lines and steps fail loudly.
 const scenarios: { name: string; steps: string[] }[] = [];
-for (const raw of readFileSync(new URL("../../../tests/features/canvas_animation.feature", import.meta.url), "utf8").split(/\r?\n/)) {
+for (const raw of ["canvas_animation", "canvas_logic"].flatMap(file => readFileSync(new URL(`../../../tests/features/${file}.feature`, import.meta.url), "utf8").split(/\r?\n/))) {
     const line = raw.trim();
     if (!line || line.startsWith("#") || line.startsWith("Feature:")) continue;
     if (line.startsWith("Scenario:")) { scenarios.push({ name: line.slice(9).trim(), steps: [] }); continue; }
@@ -26,6 +26,8 @@ describe("Canvas animation BDD through production addon callbacks", () => {
     let update: (time?: number) => void;
     let render: () => void;
     let api: any;
+    let graphWidget: any;
+    let windows: (() => void)[];
     let overUI: boolean;
     let savedIndex: any;
     let savedData: Map<string, any>;
@@ -54,6 +56,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
         // PREVIOUS test's stale closure (render is declared outside beforeEach, so it otherwise
         // survives from one test to the next).
         render = undefined as unknown as () => void;
+        windows = []; graphWidget = null;
         let serial = 0;
         const widget = {
             button: (_id: string, c: any) => { buttons.set(c.id, c.onClick); captions.set(c.id, c.text); },
@@ -65,6 +68,9 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             group: (id: string, fn: (id: string) => void) => fn(id),
             collapsingHeader: (id: string, _title: string, fn: (id: string) => void) => fn(id),
             treeView: (_id: string, c: any) => { treeNodes = c.nodes || []; treeCallbacks = c; },
+            snarl: (_id: string, c: any) => { graphWidget = c; },
+            dropdown: (_id: string, c: any) => textInputs.set(c.id, c.onChange),
+            keyframeTimeline: vi.fn(),
         };
         api = {
             AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: (time?: number) => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
@@ -79,7 +85,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             Controls: { enable: vi.fn(), disable: vi.fn() },
             // setupUI() now creates a second window for the keyframe timeline - only the first
             // (the main sidebar) is what these tests drive via render()/update().
-            UI: { createWindow: (c: any) => { if (!render) render = () => { buttons.clear(); sliders.clear(); captions.clear(); labels = []; treeNodes = []; c.onRender(); }; return "tools"; }, Widget: widget },
+            UI: { setWindowVisible: vi.fn(), createWindow: (c: any) => { windows.push(c.onRender); render = () => { buttons.clear(); sliders.clear(); captions.clear(); labels = []; treeNodes = []; windows.forEach(fn => fn()); }; return `window${windows.length}`; }, Widget: widget },
             Window: { getSize: () => [1400, 900] },
             Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
@@ -92,6 +98,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
     let originalPixels: Uint8Array;
     let originalVertices: number[];
     let firstSurfaceId: string;
+    let gameGeometry: any;
     const set = (id: string, value: string) => { render(); expect(sliders.has(id), id).toBe(true); sliders.get(id)!.onChange(value); update(); };
     const name = (id: string, value: string) => { render(); expect(textInputs.has(id), id).toBe(true); textInputs.get(id)!(value); update(); };
     const saved = () => savedData.get(savedIndex.scenes[0].key);
@@ -166,7 +173,29 @@ describe("Canvas animation BDD through production addon callbacks", () => {
         "I select the outer group": () => selectNodeByLabel("Group 2"),
         "the cycle is rejected": () => { render(); expect(labels.some(label => label.includes("cannot contain themselves"))).toBe(true); },
         "the scene is still saved": () => { render(); expect(labels).toContain("Untitled scene"); expect(labels).not.toContain("Untitled scene *"); },
-        "the preview advances to its end": () => { update(10); update(11); update(12); render(); expect(sliders.get("clip_time")!.value).toBe(2); expect(captions.get("clip_play")).toBe("Play"); },
+        "the preview advances to its end": () => { update(10); update(11); update(12); render(); expect(sliders.get("clip_time")!.value).toBe(2); expect(captions.get("clip_play")).toBe("Preview clip"); },
+        "I open the playable example": () => { click("playable_example"); click("scene_confirm_discard"); click("save_scene"); gameGeometry = structuredClone([...meshes.values()].filter(m => m.id.startsWith("canvas_surface_")).sort((a, b) => a.id.localeCompare(b.id)).map(m => m.vertexData)); },
+        "gameplay has not started": () => { update(10); update(14); render(); expect(captions.get("game_play")).toBe("Play"); expect(labels).not.toContain("Click my face to say hello!"); },
+        "the welcome message is shown": () => { render(); expect(captions.get("game_play")).toBe("Stop"); expect(labels).toContain("Click my face to say hello!"); expect(buttons.has("save_scene")).toBe(false); },
+        "I click the character face": () => { emit("onMouseDown", 0, 0, 2.65); emit("onMouseUp", 0); update(); },
+        "the wave changes the geometry": () => { update(20); update(21); expect([...meshes.values()].filter(m => m.id.startsWith("canvas_surface_")).sort((a, b) => a.id.localeCompare(b.id)).map(m => m.vertexData)).not.toEqual(gameGeometry); render(); expect(labels).toContain("Click my face to say hello!"); },
+        "the delayed reply is shown": () => { update(22.1); render(); expect(labels).toContain("Hello, friend! Stop and Play to try again."); },
+        "the scene and graph are unchanged": () => { render(); expect([...meshes.values()].filter(m => m.id.startsWith("canvas_surface_")).sort((a, b) => a.id.localeCompare(b.id)).map(m => m.vertexData)).toEqual(gameGeometry); expect(labels).toContain("Drawn character"); expect(labels).not.toContain("Drawn character *"); click("save_scene"); expect(saved().logic.nodes).toHaveLength(7); expect(saved().logic.connections).toHaveLength(5); },
+        "I disconnect the wave": () => { render(); graphWidget.onDisconnect(["demo-once", "next", "demo-wave", "in"]); update(); },
+        "I reconnect the wave": () => { render(); graphWidget.onConnect(["demo-once", "next", "demo-wave", "in"]); update(); },
+        "the disconnected click does nothing": () => { update(20); update(25); render(); expect(labels).toContain("Click my face to say hello!"); },
+        "I attempt a graph loop": () => { render(); graphWidget.onConnect(["demo-wave", "next", "demo-once", "in"]); render(); expect(labels.some(l => l.includes("Logic loops"))).toBe(true); expect(graphWidget.graph.connections).toHaveLength(5); },
+        "I add a startup message without code": () => {
+            click("workspace_logic"); click("logic_add_start"); click("logic_add_message"); name("logic_message", "Made in the editor"); render();
+            const [start, message] = graphWidget.graph.nodes;
+            graphWidget.onConnect([start.id, "next", message.id, "in"]); update(); click("save_scene");
+        },
+        "my authored message is shown": () => { render(); expect(labels).toContain("Made in the editor"); },
+        "pending actions were cancelled": () => { update(100); render(); expect(captions.get("game_play")).toBe("Play"); expect(labels).not.toContain("Hello, friend! Stop and Play to try again."); },
+        "the completed wave does not restart": () => { update(25); update(26); expect(JSON.stringify([...meshes.values()].filter(m => m.id.startsWith("canvas_surface_")).sort((a, b) => a.id.localeCompare(b.id)).map(m => m.vertexData)) === JSON.stringify(gameGeometry)).toBe(true); },
+        "the graph has five wires": () => { render(); expect(graphWidget.graph.connections).toHaveLength(5); },
+        "I select the click node": () => { render(); graphWidget.onNodeSelected("demo-click"); update(); },
+        "Play requests a surface target": () => { render(); expect(captions.get("game_play")).toBe("Play"); expect(labels).toContain("Choose a surface for When surface clicked."); },
         "malformed animation and hierarchy are rejected": () => {
             const scene = saved();
             const cycle = structuredClone(scene); cycle.groups[0].parentId = cycle.groups[0].id; expect(() => validateScene(cycle)).toThrow();
@@ -187,5 +216,5 @@ describe("Canvas animation BDD through production addon callbacks", () => {
                 else throw new Error(`No step definition: ${step}`);
             } catch (error) { throw new Error(`Step failed: ${step}`, { cause: error }); }
         }
-    });
+    }, 20000);
 });

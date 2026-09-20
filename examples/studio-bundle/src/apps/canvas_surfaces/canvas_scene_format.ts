@@ -1,4 +1,6 @@
 import { groupWorld, inverse } from "./canvas_animation";
+import { validateLogic } from "./canvas_logic";
+import type { LogicGraph } from "./canvas_logic";
 import type { Group, Clip, Matrix, V3, RetainedStroke } from "./canvas_animation";
 export interface SavedPaintLayer {
     id: string; name: string; visible: boolean; locked: boolean; opacity: number; pixelsBase64: string; basePixelsBase64?: string;
@@ -17,7 +19,7 @@ export interface SavedSurface {
     cutMaskBase64?: string;
     activeLayerId?: string;
 }
-export interface SavedScene { version: 1 | 2 | 3; surfaces: SavedSurface[]; groups?: Group[]; clips?: Clip[]; }
+export interface SavedScene { version: 1 | 2 | 3; surfaces: SavedSurface[]; groups?: Group[]; clips?: Clip[]; logic?: LogicGraph; }
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const PIXELS = 768 * 768;
 
@@ -85,6 +87,7 @@ export function validateScene(value: unknown): SavedScene {
         }
     }
     if (scene.version === 3) validateAnimation(scene);
+    if (scene.logic !== undefined) validateLogic(scene.logic);
     if (totalBytes > 256 * 1024 * 1024) throw new Error("Scene exceeds the 256 MiB artwork limit.");
     return scene;
 }

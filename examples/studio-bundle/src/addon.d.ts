@@ -1087,6 +1087,7 @@ export interface PipelineConfig {
 }
 
 export interface DropdownConfig {
+    id?: string;
     label: string;
     options: string[];
     selectedIndex: number;
@@ -1123,11 +1124,13 @@ export interface BehaviorConnection {
 }
 
 export interface BehaviorGraph {
+    selectedNode?: string;
     nodes: BehaviorNode[];
     connections: BehaviorConnection[];
 }
 
 export interface SnarlConfig {
+    onNodeSelected?: (nodeId: string) => void;
     id?: string;
     graph: BehaviorGraph;
     onConnect?: (params: string[]) => void;
@@ -1276,6 +1279,7 @@ export interface EntropyAPI {
   };
   UI: {
     createWindow: (config: WindowConfig) => string;
+    setWindowVisible: (id: string, visible: boolean) => void;
     createTab: (config: TabConfig) => string;
     miniMap: (windowId: string, config: MiniMapConfig) => void;
     drawRect: (config: UIRectConfig) => void;

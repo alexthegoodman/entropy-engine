@@ -810,6 +810,7 @@ globalThis.Entropy = {
         }
     },
     UI: {
+        setWindowVisible: (id, visible) => ops.op_ui_set_window_visible(id, visible),
         createWindow: (config) => {
             // addon.d.ts documents `title?`, `width?`, `height?` as flat, optional fields, but
             // the op wants { title, resizable, defaultSize: { width, height } } - translate here
@@ -1049,11 +1050,13 @@ globalThis.Entropy = {
 
                 ops.op_ui_widget_snarl(windowId, graph, id);
 
-                if (config?.onConnect || config?.onDisconnect || config?.onNodeMoved) {
+                if (config?.onConnect || config?.onDisconnect || config?.onNodeMoved || config?.onNodeSelected) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
-                        if (type === "SNARL_CONNECT" && config.onConnect) {
+                        if (type === "SNARL_NODE_SELECTED" && config.onNodeSelected) {
+                            config.onNodeSelected(parts[2]);
+                        } else if (type === "SNARL_CONNECT" && config.onConnect) {
                             config.onConnect(parts.slice(2));
                         } else if (type === "SNARL_DISCONNECT" && config.onDisconnect) {
                             config.onDisconnect(parts.slice(2));
@@ -1199,7 +1202,7 @@ globalThis.Entropy = {
                 const parts = event.split("|");
                 id = parts[1];
                 payload = parts[2];
-            } else if (event.startsWith("SNARL_CONNECT|") || event.startsWith("SNARL_DISCONNECT|") || event.startsWith("SNARL_NODE_MOVED|")) {
+            } else if (event.startsWith("SNARL_CONNECT|") || event.startsWith("SNARL_DISCONNECT|") || event.startsWith("SNARL_NODE_MOVED|") || event.startsWith("SNARL_NODE_SELECTED|")) {
                 // SNARL_NODE_MOVED| was missing from this list until the node graph editor
                 // actually became interactive (see NodeGraphEditor) - the snarl() listener
                 // above already parsed this event shape, but it never reached the listener:

@@ -95,7 +95,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             Controls: { enable: vi.fn(), disable: vi.fn() },
             // setupUI() now creates a second window for the keyframe timeline - only the first
             // (the main sidebar) is what these tests drive via render()/update().
-            UI: { createWindow: (c: any) => { if (!render) render = c.onRender; return "tools"; }, Widget: widget },
+            UI: { setWindowVisible: vi.fn(), createWindow: (c: any) => { if (!render) render = c.onRender; return "tools"; }, Widget: widget },
             Window: { getSize: () => [1400, 900] },
             Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
