@@ -402,6 +402,7 @@ export interface ScopedAPI {
   };
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
+  Icons: IconsAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -1460,6 +1461,24 @@ export interface WavetableNoteConfig {
   startTime?: number;
 }
 
+import type { IconName } from "./icon_names";
+export type { IconName };
+
+export type IconStyle = "regular" | "bold" | "fill";
+
+/** Phosphor icons as characters. Put the string in any label: `W.button(h, { text: Icons.label("play", "Play") })`,
+ * or `text: Icons.get("play")` for an icon-only button. Each weight is drawn by the same widgets with no
+ * extra option. An unknown name logs once and returns "". */
+export interface IconsAPI {
+  /** The character that draws `name` (default style "regular"). Known limit: "bold" and "fill" take space but draw blank in the real window, so use "regular". */
+  get: (name: IconName, style?: IconStyle) => string;
+  /** "<icon> <text>" */
+  label: (name: IconName, text: string, style?: IconStyle) => string;
+  has: (name: string) => boolean;
+  /** Every icon name, sorted. */
+  names: () => string[];
+}
+
 export interface WavetableAPI {
   /** Creates the table if missing (a stack of sines); `preset` replaces its contents. */
   ensure: (id: string, options?: { preset?: string; frames?: number }) => WavetableInfo;
@@ -2173,6 +2192,7 @@ export interface EntropyAPI {
   };
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
+  Icons: IconsAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

@@ -1,5 +1,5 @@
-//! Font registry — two text faces (proportional/monospace) plus two icon-fallback faces,
-//! matching `FontId::family`.
+//! Font registry - two text faces (proportional/monospace), two system icon-fallback faces and
+//! three embedded Phosphor icon faces, matching `FontId::family`.
 //!
 //! The proportional face reuses an already-embedded engine font (Figtree). No embedded
 //! monospace font exists anywhere in the engine's 60-font set (`src/renderer_text/fonts.rs`),
@@ -17,10 +17,12 @@
 //! outline rasterizer produces usable monochrome glyphs from Segoe UI Emoji despite it being a
 //! COLR/CPAL color font (fontdue only reads the base `glyf` outline, which Windows keeps as a
 //! meaningful monochrome fallback shape, not an empty placeholder). `text_layout::shape_text`
-//! is what actually falls back per-character; this registry just hands it the four faces.
+//! is what actually falls back per-character; this registry just hands it the faces.
 //! Both are ~1-12MB system files read at runtime, not embedded.
 
 use crate::entropy_gui::geometry::FontFamily;
+use crate::entropy_gui::icons::{self, IconStyle};
+use crate::entropy_gui::text_layout::FaceSet;
 use crate::renderer_text::fonts::FontManager;
 use std::collections::HashMap;
 
@@ -29,6 +31,9 @@ pub struct FontRegistry {
     monospace: fontdue::Font,
     emoji: Option<fontdue::Font>,
     symbol: Option<fontdue::Font>,
+    /// Phosphor Regular, Bold and Fill, indexed by `IconStyle::index`. Embedded, so they always
+    /// load (unlike the two system faces). Icons are private-use characters, see `icons.rs`.
+    phosphor: [fontdue::Font; 3],
     /// The engine's full ~60-font catalog (`src/renderer_text/fonts.rs`, already embedded via
     /// `include_bytes!` for the old 3D-scene text renderer) - reused here so `DocEditor`'s font
     /// picker has real choices instead of just proportional/monospace. Only raw bytes are
@@ -40,6 +45,11 @@ pub struct FontRegistry {
 }
 
 const PROPORTIONAL_BYTES: &[u8] = include_bytes!("../fonts/figtree/Figtree[wght].ttf");
+const PHOSPHOR_BYTES: [&[u8]; 3] = [
+    include_bytes!("../fonts/phosphor/Phosphor.ttf"),
+    include_bytes!("../fonts/phosphor/Phosphor-Bold.ttf"),
+    include_bytes!("../fonts/phosphor/Phosphor-Fill.ttf"),
+];
 
 impl FontRegistry {
     pub fn new() -> Self {
@@ -54,7 +64,11 @@ impl FontRegistry {
         let emoji = Self::load_system_font(&["C:/Windows/Fonts/seguiemj.ttf"]);
         let symbol = Self::load_system_font(&["C:/Windows/Fonts/seguisym.ttf"]);
 
-        Self { proportional, monospace, emoji, symbol, catalog: FontManager::new(), named_font_cache: HashMap::new() }
+        let phosphor = PHOSPHOR_BYTES.map(|bytes| {
+            fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("failed to parse embedded Phosphor icon font")
+        });
+
+        Self { proportional, monospace, emoji, symbol, phosphor, catalog: FontManager::new(), named_font_cache: HashMap::new() }
     }
 
     /// Every font name `DocEditor`'s font picker can offer, in catalog order.
@@ -119,10 +133,22 @@ impl FontRegistry {
         [self.emoji.as_ref(), self.symbol.as_ref()]
     }
 
-    /// Resolves the actual face `ch` should render with for the requested `family`: the
-    /// family's own face if it has a real glyph for `ch`, else the first icon fallback that
-    /// does, else the family's own face again (an unavoidable `.notdef` box).
+    /// The Phosphor face for one icon weight.
+    pub fn phosphor(&self, style: IconStyle) -> &fontdue::Font {
+        &self.phosphor[style.index()]
+    }
+
+    /// Resolves the actual face `ch` should render with for the requested `family`: a Phosphor
+    /// icon character gets its weight's face, else the family's own face if it has a real glyph
+    /// for `ch`, else the first icon fallback that does, else the family's own face again (an
+    /// unavoidable `.notdef` box).
     pub fn resolve_for_char(&self, family: FontFamily, ch: char) -> (&fontdue::Font, u8) {
+        if let Some((style, font_char)) = icons::decode(ch) {
+            let font = self.phosphor(style);
+            if font.lookup_glyph_index(font_char) != 0 {
+                return (font, 3 + style.index() as u8);
+            }
+        }
         let primary = self.font_for(family);
         if primary.lookup_glyph_index(ch) != 0 {
             return (primary, 0);
@@ -137,13 +163,21 @@ impl FontRegistry {
         (primary, 0)
     }
 
-    /// The 3-face set `text_layout::shape_text` shapes against: index 0 is whichever text face
-    /// `family` requested, 1 is the emoji fallback, 2 is the symbol fallback. A missing
-    /// fallback face is represented by re-using slot 0 (harmless: `resolve_for_char` only ever
-    /// returns that slot index when the face actually loaded and has the glyph).
-    pub fn shaping_set(&self, family: FontFamily) -> [&fontdue::Font; 3] {
+    /// The face set `text_layout::shape_text` shapes against: index 0 is whichever text face
+    /// `family` requested, 1 is the emoji fallback, 2 is the symbol fallback, 3 to 5 are
+    /// Phosphor Regular, Bold and Fill. A missing system fallback is represented by re-using slot
+    /// 0 (harmless: `resolve_for_char` only ever returns that slot index when the face actually
+    /// loaded and has the glyph).
+    pub fn shaping_set(&self, family: FontFamily) -> FaceSet<'_> {
         let primary = self.font_for(family);
-        [primary, self.emoji.as_ref().unwrap_or(primary), self.symbol.as_ref().unwrap_or(primary)]
+        [
+            primary,
+            self.emoji.as_ref().unwrap_or(primary),
+            self.symbol.as_ref().unwrap_or(primary),
+            &self.phosphor[0],
+            &self.phosphor[1],
+            &self.phosphor[2],
+        ]
     }
 }
 
@@ -151,4 +185,39 @@ impl Default for FontRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::entropy_gui::text_layout::{shape_text, FIRST_ICON_FACE};
+
+    #[test]
+    fn every_table_icon_exists_in_every_weight() {
+        let fonts = FontRegistry::new();
+        for style in IconStyle::ALL {
+            let face = fonts.phosphor(style);
+            for name in icons::names() {
+                let cp = char::from_u32(icons::codepoint(name).unwrap()).unwrap();
+                assert_ne!(face.lookup_glyph_index(cp), 0, "{name} is missing from {style:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn an_icon_goes_to_its_weights_face_and_text_stays_on_the_text_face() {
+        let fonts = FontRegistry::new();
+        for style in IconStyle::ALL {
+            let ch = icons::glyph("play", style).unwrap();
+            let (_, idx) = fonts.resolve_for_char(FontFamily::Proportional, ch);
+            assert_eq!(idx as usize, FIRST_ICON_FACE + style.index());
+        }
+        assert_eq!(fonts.resolve_for_char(FontFamily::Proportional, 'a').1, 0);
+        // The registry and the shaper agree: shape a label and read back each glyph's face.
+        let play = icons::glyph("play", IconStyle::Fill).unwrap();
+        let shaped = shape_text(fonts.shaping_set(FontFamily::Proportional), 14.0, None, &format!("{play} Play"));
+        let faces: Vec<u8> = shaped.glyphs.iter().map(|g| g.font_index).collect();
+        assert_eq!(faces, vec![(FIRST_ICON_FACE + 2) as u8, 0, 0, 0, 0, 0]);
+    }
+
 }

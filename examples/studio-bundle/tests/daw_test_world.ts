@@ -33,6 +33,8 @@ export function createWorld(initialSaved?: unknown) {
         saved: null as any,
         tools: new Map<string, (args: any) => any>(),
         buttons: new Map<string, () => void>(),
+        buttonTexts: new Map<string, string>(),
+        headers: [] as string[],
         textInputs: new Map<string, any>(),
         numerics: new Map<string, any>(),
         dropdowns: new Map<string, any>(),
@@ -83,9 +85,9 @@ export function createWorld(initialSaved?: unknown) {
 
     const wrap = (_win: string, body: (win: string) => void) => body("win");
     const widgets = {
-        collapsingHeader: (win: string, _title: string, body: (w: string) => void) => body(win),
+        collapsingHeader: (win: string, title: string, body: (w: string) => void) => { w.headers.push(title); body(win); },
         horizontal: wrap, vertical: wrap, group: wrap,
-        button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); },
+        button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); w.buttonTexts.set(c.id ?? `text:${c.text}`, c.text); },
         label: (_win: string, c: any) => { w.labels.push(c.text); },
         slider: (_win: string, c: any) => { w.sliders.push(c); }, separator: () => {},
         checkbox: (_win: string, c: any) => { w.checkboxes.set(c.id ?? c.label, c); },
@@ -161,6 +163,15 @@ export function createWorld(initialSaved?: unknown) {
             stopPreview: () => { w.previewStops++; },
             analyze: (source: string) => w.analysis.get(source) ?? null,
         },
+        // Phosphor icons as the addon sees them: a character in the engine, here a readable marker
+        // like [play] or [fill:play] so a test can say which icon a button shows. Unknown names
+        // return "" like the engine (which also logs once).
+        Icons: {
+            get: (name: string, style = "regular") => name.startsWith("no-") ? "" : (style === "regular" ? `[${name}]` : `[${style}:${name}]`),
+            label: (name: string, text: string, style = "regular") => `${style === "regular" ? `[${name}]` : `[${style}:${name}]`} ${text}`,
+            has: (name: string) => !name.startsWith("no-"),
+            names: () => [] as string[],
+        },
         // The engine's wavetable registry, reduced to what the addon can observe: a table is created as
         // a preset, edited by strokes and operations (each recorded in `edits`), and saved and
         // restored as an opaque string. The stand-in refuses data that did not come from `exportData`,
@@ -219,6 +230,7 @@ export function createWorld(initialSaved?: unknown) {
         println: () => {},
         generateUUID: () => `uuid-${++uuid}`,
         Addon: { register: () => addonApi },
+        Icons: addonApi.Icons,
         UI: {
             Widget: widgets,
             createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); const id = `window-${windowRenders.length}`; w.windowTitles[id] = cfg.title; return id; },
@@ -229,7 +241,7 @@ export function createWorld(initialSaved?: unknown) {
     };
 
     const render = () => {
-        w.buttons.clear(); w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
+        w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
         w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.wavetableViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;

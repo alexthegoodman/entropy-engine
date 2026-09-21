@@ -13,6 +13,8 @@ pub mod dock;
 pub mod draw_list;
 pub mod fonts;
 pub mod geometry;
+pub mod icon_table;
+pub mod icons;
 pub mod id;
 pub mod memory;
 pub mod painter;

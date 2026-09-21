@@ -2671,6 +2671,34 @@ pub fn op_audio_stop_preview(state: &mut OpState) {
     }
 }
 
+/// What `Entropy.Icons` needs from the engine: for each weight, the number to add to an icon's
+/// font codepoint to get the character that draws it in that weight, and every icon's name with
+/// its font codepoint. See `entropy_gui::icons`.
+#[derive(Serialize)]
+pub struct IconTableJs {
+    pub styles: HashMap<String, u32>,
+    pub icons: Vec<(String, u32)>,
+}
+
+#[op2]
+#[serde]
+pub fn op_icon_table(_state: &mut OpState) -> IconTableJs {
+    use crate::entropy_gui::icons::{IconStyle, BOLD_BASE, FILL_BASE, PUA_BASE};
+    let styles = IconStyle::ALL
+        .iter()
+        .map(|s| {
+            let (name, base) = match s {
+                IconStyle::Regular => ("regular", PUA_BASE),
+                IconStyle::Bold => ("bold", BOLD_BASE),
+                IconStyle::Fill => ("fill", FILL_BASE),
+            };
+            (name.to_string(), base - PUA_BASE)
+        })
+        .collect();
+    let icons = crate::entropy_gui::icon_table::ICON_TABLE.iter().map(|(n, cp)| (n.to_string(), *cp)).collect();
+    IconTableJs { styles, icons }
+}
+
 /// The user's Music folder (also made readable by `listDir`), or "" if the OS has none.
 #[op2]
 #[string]

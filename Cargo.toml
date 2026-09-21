@@ -43,6 +43,10 @@ name = "tab_bar_bdd"
 harness = false
 
 [[test]]
+name = "icons_bdd"
+harness = false
+
+[[test]]
 name = "window_layers_bdd"
 harness = false
 

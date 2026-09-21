@@ -36,6 +36,7 @@ import {
 } from "./daw_arrangement";
 import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
 import type { WavetableSettings } from "./daw_wavetable";
+import type { IconName, IconStyle } from "../addon";
 import {
     WT_OPS,
     WT_PRESETS,
@@ -79,6 +80,13 @@ import {
     stem,
     toggleFolder,
 } from "./daw_rack";
+
+/** Phosphor icons (`Entropy.Icons`): `icon("play")` alone, `withIcon("play", "Play")` beside a label. The DAW uses
+ * the regular (outline) weight only: Fill and Bold icons do not draw in the real window (see README, Icons). */
+const icon = (name: IconName, style?: IconStyle): string => Entropy.Icons.get(name, style);
+const withIcon = (name: IconName, text: string, style?: IconStyle): string => Entropy.Icons.label(name, text, style);
+/** The marker in front of an option in a pick list: a ring with a dot for the chosen one, an empty ring otherwise. */
+const radio = (selected: boolean): string => (selected ? icon("radio-button") : icon("circle")) + " ";
 
 const addon = Entropy.Addon.register({
     name: "DAW",
@@ -875,7 +883,7 @@ function renderSampleBrowser(win: string) {
     W.group(win, (g: string) => {
         W.label(g, { text: "Sample Browser", bold: true });
         W.horizontal(g, (h: string) => {
-            W.button(h, { text: "♪ Music", id: "browser_music", onClick: openMusicFolder });
+            W.button(h, { text: withIcon("music-notes", "Music"), id: "browser_music", onClick: openMusicFolder });
             W.button(h, { text: "Folder...", id: "browser_pick", onClick: pickSampleFolder });
             W.button(h, { text: "Refresh", id: "browser_refresh", onClick: refreshRack });
         });
@@ -1190,11 +1198,11 @@ function renderGuitarWindow(win: string) {
     if (outTrack) W.label(win, { text: `${outTrack.name} has a VST3 instrument, so the guitar plays that. Set its pitch-bend range to ${prefs.bendRange} semitones.` });
 
     W.horizontal(win, (tid: string) => {
-        W.button(tid, { text: running ? "■ Stop" : "▶ Start", id: "guitar_toggle", onClick: () => { running ? stopGuitar() : startGuitar(); } });
+        W.button(tid, { text: running ? withIcon("stop", "Stop") : withIcon("play", "Start"), id: "guitar_toggle", onClick: () => { running ? stopGuitar() : startGuitar(); } });
         W.button(tid, { text: "All notes off", id: "guitar_all_off", onClick: () => { addon.Guitar.releaseAll(); } });
         if (running) {
             W.button(tid, {
-                text: guitarRecording ? "■ Stop and keep take" : "● Record take", id: "guitar_record",
+                text: guitarRecording ? withIcon("stop", "Stop and keep take") : withIcon("record", "Record take"), id: "guitar_record",
                 onClick: () => {
                     if (guitarRecording) { finishGuitarTake(); return; }
                     const r = addon.Guitar.record("start");
@@ -1221,7 +1229,7 @@ function renderGuitarWindow(win: string) {
         W.label(tid, { text: "Response:", bold: true });
         GUITAR_MODES.forEach(m => {
             W.button(tid, {
-                text: (prefs.mode === m ? "● " : "") + m[0].toUpperCase() + m.slice(1), id: "guitar_mode_" + m,
+                text: radio(prefs.mode === m) + m[0].toUpperCase() + m.slice(1), id: "guitar_mode_" + m,
                 onClick: () => { prefs.mode = m; pushGuitarSettings({ mode: m }); }
             });
         });
@@ -1306,7 +1314,7 @@ function renderWavetableWindow(win: string) {
         Entropy.UI.Widget.label(row, { text: `${track.name} - start from`, bold: true });
         for (const p of WT_PRESETS) {
             Entropy.UI.Widget.button(row, {
-                text: (wt.preset === p.id ? "● " : "") + p.label, id: "wt_preset_" + p.id,
+                text: radio(wt.preset === p.id) + p.label, id: "wt_preset_" + p.id,
                 onClick: () => { loadWavetablePreset(track, p.id); }
             });
         }
@@ -1316,7 +1324,7 @@ function renderWavetableWindow(win: string) {
             Entropy.UI.Widget.button(row, { text: o.label, id: "wt_op_" + o.id, onClick: () => { runWavetableOp(track, o.id, o.arg); } });
         }
         Entropy.UI.Widget.button(row, {
-            text: latched ? "■ Release note" : "▶ Hold a note", id: "wt_latch",
+            text: latched ? withIcon("stop", "Release note") : withIcon("play", "Hold a note"), id: "wt_latch",
             onClick: () => { toggleLatch(track); }
         });
         Entropy.UI.Widget.checkbox(row, {
@@ -1948,7 +1956,7 @@ addon.onInit(async () => {
     project.tracks.forEach(t => { if (t.instrument) loadTrackInstrument(t, t.instrument); });
 
     const renderInstrumentPanel = (tabId: string, track: Track) => {
-        Entropy.UI.Widget.collapsingHeader(tabId, `🔌 ${track.name} - Instrument (VST3)`, (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("plug", `${track.name} - Instrument (VST3)`), (tid: string) => {
             const runtime = vst3Runtime[track.id];
 
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
@@ -1963,13 +1971,13 @@ addon.onInit(async () => {
             if (vst3Catalog.length > 0) {
                 Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                     Entropy.UI.Widget.button(tid2, {
-                        text: (!track.instrument ? "● " : "") + "Built-in",
+                        text: radio(!track.instrument) + "Built-in",
                         id: "vst3_use_builtin",
                         onClick: () => { clearTrackInstrument(track); persist(); }
                     });
                     vst3Catalog.forEach(plugin => {
                         Entropy.UI.Widget.button(tid2, {
-                            text: (track.instrument?.path === plugin.path ? "● " : "") + plugin.name,
+                            text: radio(track.instrument?.path === plugin.path) + plugin.name,
                             id: "vst3_use_" + vst3Slug(plugin.name),
                             onClick: () => {
                                 loadTrackInstrument(track, { path: plugin.path, name: plugin.name });
@@ -2016,12 +2024,12 @@ addon.onInit(async () => {
         Entropy.UI.Widget.group(tabId, (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
-                    text: transport.playing ? "⏸ Stop" : "▶ Play",
+                    text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),
                     id: "transport_toggle",
                     onClick: () => { transport.playing ? stop() : play(); }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: "⏮ Rewind",
+                    text: withIcon("skip-back", "Rewind"),
                     id: "transport_rewind",
                     onClick: () => { rewind(); }
                 });
@@ -2049,7 +2057,7 @@ addon.onInit(async () => {
                     }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: "⬇ Export Song to WAV",
+                    text: withIcon("download-simple", "Export Song to WAV"),
                     id: "export_wav",
                     onClick: () => { exportPatternToWav(); }
                 });
@@ -2059,12 +2067,12 @@ addon.onInit(async () => {
                     onClick: () => { setRackVisible(!rackVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: wavetableVisible ? "Hide Wavetable" : "🌄 Wavetable",
+                    text: wavetableVisible ? "Hide Wavetable" : withIcon("wave-sawtooth", "Wavetable"),
                     id: "toggle_wavetable",
                     onClick: () => { setWavetableVisible(!wavetableVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
-                    text: guitarStatus.running ? "🎸 Guitar (on)" : (guitarVisible ? "Hide Guitar Input" : "🎸 Guitar Input"),
+                    text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
                     id: "toggle_guitar",
                     onClick: () => { setGuitarVisible(!guitarVisible); }
                 });
@@ -2108,7 +2116,7 @@ addon.onInit(async () => {
     });
 
     const renderArrangement = (tabId: string) => {
-        Entropy.UI.Widget.collapsingHeader(tabId, "🎼 Arrangement", (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("rows", "Arrangement"), (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.dropdown(tid2, {
                     label: "Snap",
@@ -2262,7 +2270,7 @@ addon.onInit(async () => {
 
         // Mixer: one channel-strip group per track, laid out side by side like a real mixing
         // console instead of a flat vertical list of rows.
-        Entropy.UI.Widget.collapsingHeader(tabId, "🎚 Mixer", (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("sliders-horizontal", "Mixer"), (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.group(tid2, (tid3: string) => {
                     Entropy.UI.Widget.label(tid3, { text: "Master", bold: true });
@@ -2271,7 +2279,7 @@ addon.onInit(async () => {
                 project.tracks.forEach(track => {
                     Entropy.UI.Widget.group(tid2, (tid3: string) => {
                         Entropy.UI.Widget.button(tid3, {
-                            text: (track.id === project.activeTrackId ? "▶ " : "") + track.name,
+                            text: (track.id === project.activeTrackId ? icon("play") + " " : "") + track.name,
                             id: "select_track_" + project.tracks.indexOf(track),
                             onClick: () => { project.activeTrackId = track.id; }
                         });
@@ -2294,7 +2302,7 @@ addon.onInit(async () => {
                             });
                         });
                         Entropy.UI.Widget.button(tid3, {
-                            text: "🗑 Delete",
+                            text: withIcon("trash", "Delete"),
                             onClick: () => {
                                 removeTrack(track);
                                 persist();
@@ -2313,7 +2321,7 @@ addon.onInit(async () => {
 
         renderInstrumentPanel(tabId, track);
 
-        Entropy.UI.Widget.collapsingHeader(tabId, `🎹 ${track.name} — Voice`, (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("piano-keys", `${track.name} - Voice`), (tid: string) => {
             if (track.instrument) {
                 Entropy.UI.Widget.label(tid, { text: `${track.instrument.name} is this track's instrument - the built-in oscillator and envelope are bypassed. Gain, mute, solo and Effects still apply.` });
                 return;
@@ -2394,7 +2402,7 @@ addon.onInit(async () => {
         // FX: each track owns exactly one shared delay + reverb Entropy.AudioEffect instance
         // (see syncTrackBus) - these sliders edit that instance's live params, not a per-note
         // config anymore.
-        Entropy.UI.Widget.collapsingHeader(tabId, "✨ Effects", (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("sparkle", "Effects"), (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.group(tid2, (tid3: string) => {
                     Entropy.UI.Widget.label(tid3, { text: "Delay", bold: true });
@@ -2444,7 +2452,7 @@ addon.onInit(async () => {
         // Preview plays through this track's own persistent bus (ensureTrackBus/syncTrackBus),
         // so it's an honest preview of the track's actual gain/mute/solo/FX, not a bypassed
         // one-off - the tradeoff is a muted track previews silent too.
-        Entropy.UI.Widget.collapsingHeader(tabId, "🔊 Preview", (tid: string) => {
+        Entropy.UI.Widget.collapsingHeader(tabId, withIcon("speaker-high", "Preview"), (tid: string) => {
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 const previewRows = track.kind === "drum" ? ensureRack(track).length : Math.min(track.rows, SCALES[track.scale]?.length || 7);
                 for (let r = 0; r < previewRows; r++) {
@@ -2560,7 +2568,7 @@ addon.onInit(async () => {
     // via AddonEngine::render_tabs - the widget calls inside renderDAWUI don't care which host
     // is drawing them.
     const tabId = addon.UI.createTab({
-        title: "🎹 DAW",
+        title: withIcon("piano-keys", "DAW"),
         onRender: async () => {
             renderDAWUI(tabId);
         }

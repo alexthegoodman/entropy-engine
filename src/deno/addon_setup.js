@@ -163,6 +163,38 @@ const audioAPI = {
 // Widget.wavetable). A table is named by an id you choose (the DAW uses the track's id) and lives
 // engine-side, so the editor widget, these calls and a playing note all see the same table. Calls
 // return {ok, error?, ...} instead of throwing.
+// Phosphor icons as characters (see entropy_gui/icons.rs). `get` returns a string to put in any
+// label; a Bold or Fill icon is drawn by the same widgets with no extra option.
+let _iconTable = null;
+const _iconWarned = new Set();
+function _loadIcons() {
+    if (!_iconTable) {
+        const raw = ops.op_icon_table();
+        _iconTable = { styles: raw.styles, byName: new Map(raw.icons) };
+    }
+    return _iconTable;
+}
+const iconsAPI = {
+    get: (name, style = "regular") => {
+        const t = _loadIcons();
+        const cp = t.byName.get(name);
+        const add = t.styles[style];
+        if (cp === undefined || add === undefined) {
+            const key = name + "/" + style;
+            if (!_iconWarned.has(key)) {
+                _iconWarned.add(key);
+                ops.op_println("Entropy.Icons: unknown icon '" + name + "' (style '" + style + "')");
+            }
+            return "";
+        }
+        return String.fromCodePoint(cp + add);
+    },
+    // "<icon> <text>", for a button that shows both.
+    label: (name, text, style = "regular") => iconsAPI.get(name, style) + " " + text,
+    has: (name) => _loadIcons().byName.has(name),
+    names: () => Array.from(_loadIcons().byName.keys()),
+};
+
 const wavetableAPI = {
     // Creates the table if there is none (a stack of sines) and describes it:
     // {ok, frames, tableSize, revision, version, canUndo, canRedo}. options: {preset, frames}.
@@ -806,6 +838,7 @@ globalThis.Entropy = {
                 AudioEffect: audioEffectAPI,
                 Vst3: vst3API,
                 Wavetable: wavetableAPI,
+                Icons: iconsAPI,
     Guitar: guitarAPI,
                 Guitar: guitarAPI,
                 IO: {
@@ -1683,6 +1716,7 @@ globalThis.Entropy = {
     AudioEffect: audioEffectAPI,
     Vst3: vst3API,
     Wavetable: wavetableAPI,
+    Icons: iconsAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

@@ -2,7 +2,15 @@
 //! text (e.g. the video timeline's ruler ticks). Ports the layout call shape from
 //! `src/renderer_text/text_due.rs:405-422` — wrapping already works via fontdue, reused as-is.
 
+use crate::entropy_gui::icons;
 use fontdue::layout::{CoordinateSystem, GlyphRasterConfig, Layout, LayoutSettings, TextStyle};
+
+/// Faces `shape_text` shapes against: the requested text face, the emoji and symbol fallbacks,
+/// then Phosphor Regular, Bold and Fill (see `FontRegistry::shaping_set`).
+pub const FACE_COUNT: usize = 6;
+/// Index of the first Phosphor face in a `FaceSet`.
+pub const FIRST_ICON_FACE: usize = 3;
+pub type FaceSet<'a> = [&'a fontdue::Font; FACE_COUNT];
 
 #[derive(Clone, Copy, Debug)]
 pub struct ShapedGlyph {
@@ -12,10 +20,10 @@ pub struct ShapedGlyph {
     pub x: f32,
     pub y: f32,
     pub raster_config: GlyphRasterConfig,
-    /// Index into the 3-face `fonts` slice `shape_text` was called with — which face this
-    /// glyph was actually shaped (and must be rasterized) against. Almost always 0 (the
-    /// requested text face); 1/2 mark a character that face had no glyph for and that fell
-    /// back to the emoji/symbol face instead (see `FontRegistry::resolve_for_char`).
+    /// Index into the `FaceSet` `shape_text` was called with - which face this glyph was
+    /// actually shaped (and must be rasterized) against. Almost always 0 (the requested text
+    /// face); 1/2 mark a character that face had no glyph for and that fell back to the
+    /// emoji/symbol face instead, 3 to 5 are Phosphor icons (see `FontRegistry::resolve_for_char`).
     pub font_index: u8,
 }
 
@@ -25,14 +33,16 @@ pub struct ShapedText {
     pub height: f32,
 }
 
-/// Shapes `text` at `px` size against a 3-face set: `fonts[0]` is the requested text face,
-/// `fonts[1]`/`fonts[2]` are icon fallbacks (see `FontRegistry::shaping_set`). Each character
-/// is shaped against the first face in that order that actually has a glyph for it, so a
-/// label mixing ordinary text with an emoji/symbol icon renders both correctly in one call.
+/// Shapes `text` at `px` size against a `FaceSet`: `fonts[0]` is the requested text face,
+/// `fonts[1]`/`fonts[2]` are system icon fallbacks, `fonts[3..]` are Phosphor weights (see
+/// `FontRegistry::shaping_set`). A Phosphor icon character (see `icons`) goes to its weight's
+/// face; any other character is shaped against the first of the text face and the two
+/// fallbacks that has a glyph for it, so a label mixing ordinary text with an icon renders
+/// both correctly in one call.
 /// `max_width` enables word-wrap (fontdue's own wrapping); pass `None` for a single unwrapped
 /// line (used by text-edit, which manages line breaks itself rather than relying on
 /// automatic wrap-point byte mapping).
-pub fn shape_text(fonts: [&fontdue::Font; 3], px: f32, max_width: Option<f32>, text: &str) -> ShapedText {
+pub fn shape_text(fonts: FaceSet<'_>, px: f32, max_width: Option<f32>, text: &str) -> ShapedText {
     let mut layout: Layout<()> = Layout::new(CoordinateSystem::PositiveYDown);
     let settings = LayoutSettings { max_width, ..LayoutSettings::default() };
     layout.reset(&settings);
@@ -77,7 +87,13 @@ pub fn shape_text(fonts: [&fontdue::Font; 3], px: f32, max_width: Option<f32>, t
     ShapedText { glyphs, width: max_x, height: layout.height() }
 }
 
-fn resolve_font_index(fonts: [&fontdue::Font; 3], ch: char) -> u8 {
+fn resolve_font_index(fonts: FaceSet<'_>, ch: char) -> u8 {
+    if let Some((style, font_char)) = icons::decode(ch) {
+        let face = FIRST_ICON_FACE + style.index();
+        if fonts[face].lookup_glyph_index(font_char) != 0 {
+            return face as u8;
+        }
+    }
     if fonts[0].lookup_glyph_index(ch) != 0 {
         return 0;
     }
@@ -90,7 +106,14 @@ fn resolve_font_index(fonts: [&fontdue::Font; 3], ch: char) -> u8 {
     0
 }
 
-fn append_run(layout: &mut Layout<()>, fonts: [&fontdue::Font; 3], px: f32, text: &str, font_index: u8) {
+fn append_run(layout: &mut Layout<()>, fonts: FaceSet<'_>, px: f32, text: &str, font_index: u8) {
+    if font_index as usize >= FIRST_ICON_FACE {
+        // Bold and Fill icons sit in their own private-use planes in the string; the font only
+        // knows its own codepoint.
+        let mapped: String = text.chars().map(|c| icons::decode(c).map_or(c, |(_, font_char)| font_char)).collect();
+        layout.append(&fonts, &TextStyle { text: &mapped, px, font_index: font_index as usize, user_data: () });
+        return;
+    }
     let style = TextStyle { text, px, font_index: font_index as usize, user_data: () };
     layout.append(&fonts, &style);
 }

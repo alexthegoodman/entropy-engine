@@ -195,7 +195,10 @@ impl Painter {
         let ContextInner { fonts, .. } = &mut *guard;
         let face_set = fonts.shaping_set(font_id.family);
         let shaped = crate::entropy_gui::text_layout::shape_text(face_set, font_id.size, None, text);
-        crate::entropy_gui::geometry::vec2(shaped.width, shaped.height.max(font_id.size))
+        // A line is as tall as the text face's line, whatever glyphs it holds: an icon-only label
+        // (Phosphor's line is shorter than Figtree's) must size a widget like a text label does.
+        let line = fonts.font_for(font_id.family).horizontal_line_metrics(font_id.size).map_or(0.0, |m| m.new_line_size.ceil());
+        crate::entropy_gui::geometry::vec2(shaped.width, shaped.height.max(font_id.size).max(line))
     }
 
     /// Paints already-shaped glyphs (from `entropy_gui::widgets_doc_editor`'s own multi-face
