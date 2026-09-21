@@ -7,6 +7,7 @@
 
 use cucumber::{given, then, when, World as _};
 use entropy_engine::audio::analysis::ENGINE_SAMPLE_RATE;
+use entropy_engine::audio::wavetable::{self, Wavetable, WavetableParams};
 use entropy_engine::audio::AudioEngine;
 use entropy_engine::guitar::pitch::{PitchDetector, TierDetector};
 use entropy_engine::guitar::testsig::{self, Motion, Pluck, Truth};
@@ -14,7 +15,7 @@ use entropy_engine::guitar::{midi_to_hz, Algorithm, GuitarConfig, Mode};
 use entropy_engine::guitar_live::{GuitarSession, RecordedNote, SyntheticInput, Waveform};
 use realfft::RealFftPlanner;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const FS: f32 = 48_000.0;
@@ -40,6 +41,9 @@ struct LiveWorld {
     slaps: Vec<(f32, f32)>,
     /// Events the engine emitted, counted independently by replaying the same recording offline.
     offline_events: usize,
+    /// The table the wavetable voice reads, and how rough a track sounded when last measured.
+    table: Option<String>,
+    roughness: f32,
 }
 
 impl std::fmt::Debug for LiveWorld {
@@ -67,6 +71,8 @@ impl Default for LiveWorld {
             room: None,
             slaps: Vec::new(),
             offline_events: 0,
+            table: None,
+            roughness: 0.0,
         }
     }
 }
@@ -173,6 +179,18 @@ impl LiveWorld {
         d.estimate(&snap.left).filter(|e| e.confidence > 0.8).map(|e| e.freq_hz)
     }
 
+    /// How much high-frequency detail the track has right now: the RMS of the second difference over
+    /// the RMS of the signal. A sine barely bends between samples; a square has an edge every cycle.
+    fn track_roughness(&self, track: &str) -> f32 {
+        let snap = self.audio().snapshot(track, 4096).unwrap_or_else(|| panic!("track {track} has no tap"));
+        let rms = |it: &mut dyn Iterator<Item = f32>| {
+            let (sum, n) = it.fold((0.0f32, 0usize), |(s, n), v| (s + v * v, n + 1));
+            (sum / n.max(1) as f32).sqrt()
+        };
+        let curve = rms(&mut snap.left.windows(3).map(|w| w[2] - 2.0 * w[1] + w[0]));
+        curve / rms(&mut snap.left.iter().copied()).max(1e-9)
+    }
+
     fn track_peak_db(&self, track: &str) -> f32 {
         let snap = self.audio().snapshot(track, 2048).unwrap_or_else(|| panic!("track {track} has no tap"));
         let peak = snap.left.iter().chain(snap.right.iter()).fold(0.0f32, |a, &b| a.max(b.abs()));
@@ -201,6 +219,20 @@ fn session(w: &mut LiveWorld) {
 fn voice(w: &mut LiveWorld, waveform: String, track: String) {
     let audio = w.audio().clone();
     w.session.as_mut().unwrap().play_built_in(&audio, &track, Waveform::from_name(&waveform).expect("a waveform")).expect("the voice is added to the track");
+}
+
+/// A table of 8 frames from a preset, registered like the DAW's, and a wavetable voice on `track`
+/// resting at `position`. The sound is the DAW's default one: no filter, no unison.
+#[given(expr = "the guitar plays the {string} wavetable at position {float} on {string}")]
+fn wavetable_voice(w: &mut LiveWorld, preset: String, position: f32, track: String) {
+    let mut table = Wavetable::new(8);
+    assert!(table.load_preset(&preset), "no preset {preset}");
+    let id = format!("guitar-live-{preset}");
+    wavetable::insert_table(&id, Arc::new(Mutex::new(table)));
+    let audio = w.audio().clone();
+    let params = WavetableParams { position, attack: 0.003, decay: 0.05, sustain: 1.0, release: 0.06, gain: 1.0, ..WavetableParams::default() };
+    w.session.as_mut().unwrap().play_wavetable(&audio, &track, &id, params).expect("the wavetable voice is added to the track");
+    w.table = Some(id);
 }
 
 #[given(expr = "a track {string} hosting the {string} plugin")]
@@ -320,6 +352,33 @@ fn device_lost(w: &mut LiveWorld) {
     std::thread::sleep(Duration::from_millis(900));
 }
 
+#[when(expr = "the roughness of {string} is measured")]
+fn measure_roughness(w: &mut LiveWorld, track: String) {
+    w.roughness = w.track_roughness(&track);
+    println!("    {track}'s roughness: {:.4}", w.roughness);
+}
+
+/// Every frame of the table becomes the same square cycle, the way a sculpting stroke changes it.
+#[when("the table is redrawn as a square wave")]
+fn redraw_square(w: &mut LiveWorld) {
+    let table = wavetable::get_table(w.table.as_ref().expect("a wavetable voice")).expect("the table is registered");
+    let mut table = wavetable::lock_table(&table);
+    let cycle: Vec<f32> = (0..wavetable::TABLE_SIZE).map(|i| if i < wavetable::TABLE_SIZE / 2 { 0.8 } else { -0.8 }).collect();
+    for f in 0..table.frames() {
+        table.set_frame(f, &cycle);
+    }
+}
+
+#[when(expr = "{int} milliseconds pass")]
+fn time_passes(_w: &mut LiveWorld, ms: u64) {
+    std::thread::sleep(Duration::from_millis(ms));
+}
+
+#[when(expr = "the wavetable position is moved to {float}")]
+fn move_position(w: &mut LiveWorld, position: f32) {
+    w.session.as_ref().unwrap().set_position(position);
+}
+
 #[when(expr = "{int} picks of E4 are played in real time")]
 fn timed_picks(w: &mut LiveWorld, n: u32) {
     let tap = w.audio().tap(&w.track).expect("a tap");
@@ -388,6 +447,20 @@ fn audible(w: &mut LiveWorld, track: String) {
     let d = w.session.as_ref().unwrap().diagnostics();
     println!("    guitar: {} notes found, routed {}", d.stats.notes, w.session.as_ref().unwrap().routed());
     assert!(db > -50.0, "{db:.1} dBFS: nothing is playing");
+}
+
+#[then(expr = "{string} peaks between {int} and {int} dBFS")]
+fn peaks_between(w: &mut LiveWorld, track: String, lo: i32, hi: i32) {
+    let db = w.track_peak_db(&track);
+    println!("    {track}'s last 2048 frames peak at {db:.1} dBFS");
+    assert!(db >= lo as f32 && db <= hi as f32, "{db:.1} dBFS is outside {lo}..{hi}");
+}
+
+#[then(expr = "{string} is at least {float} times rougher than measured")]
+fn rougher(w: &mut LiveWorld, track: String, times: f32) {
+    let now = w.track_roughness(&track);
+    println!("    {track}'s roughness: {:.4} against {:.4} before ({:.1}x)", now, w.roughness, now / w.roughness.max(1e-9));
+    assert!(now >= w.roughness * times, "{now:.4} is not {times}x {:.4}", w.roughness);
 }
 
 #[then(expr = "the guitar found exactly {int} note(s)")]

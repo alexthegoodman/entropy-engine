@@ -266,15 +266,21 @@ const guitarAPI = {
     listInputs: () => ops.op_guitar_list_inputs(),
     // config: {host?, device?, channel? (0-based), sampleRate?, bufferFrames?, mode? ("fast"|"balanced"|
     // "accurate"), sensitivity?, gateOpenDb?, gateCloseDb?, bendRange? (1-12 semitones), referencePitch?,
-    // inputGainDb?, trackId? (play the built-in voice on this track), waveform?, vst3Track?, vst3Channel?}.
+    // inputGainDb?, trackId? (play the built-in voice on this track), waveform?, wavetable?, vst3Track?,
+    // vst3Channel?}.
     // Returns {ok, opened: {host, device, sampleRate, channels, bufferFrames, sampleFormat, notes[]}}
     // where `notes` lists anything the driver would not do as asked (rate, buffer).
     start: (config) => ops.op_guitar_start(config ?? {}),
     stop: () => ops.op_guitar_stop(),
     // Same fields as start's settings; takes effect within one input buffer.
     set: (config) => ops.op_guitar_set(config ?? {}),
-    // {trackId?, waveform?, vst3Track?, vst3Channel?}; an empty trackId or vst3Track switches that output off.
+    // {trackId?, waveform?, wavetable?, vst3Track?, vst3Channel?}; an empty trackId or vst3Track switches
+    // that output off. waveform "wavetable" plays the table named by `wavetable.table` (a note config as
+    // for Audio.wavetableNoteOn: position, unison, cutoff, envelope...; pitch and velocity come from the
+    // string). The table is read live, so sculpting it is heard on a note already sounding.
     target: (target) => ops.op_guitar_target(target ?? {}),
+    // Moves the wavetable voice through its table (0..1), a sounding note included.
+    setPosition: (position) => ops.op_guitar_set_position(position),
     status: () => ops.op_guitar_status(),
     // playing=false listens to the room and sets the gate; playing=true listens to soft and hard notes
     // and sets the velocity range. status().calibration.finished reports the result once.

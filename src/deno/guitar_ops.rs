@@ -6,6 +6,7 @@
 //! live on too, and `GuitarSession::play_vst3` needs it: the plugin registry is thread-affine.
 
 use crate::deno::addon_ops::AddonContext;
+use crate::deno::wavetable_ops::WavetableNoteConfig;
 use crate::guitar::{GuitarConfig, Mode, Tunables};
 use crate::guitar_live::{list_input_devices, CalState, GuitarSession, InputRequest, OpenedInput, Waveform};
 use deno_core::{op2, OpState};
@@ -100,21 +101,28 @@ pub struct GuitarStartConfig {
     /// Play the VST3 instrument hosted on this track, on `vst3_channel` (0-15).
     pub vst3_track: Option<String>,
     pub vst3_channel: Option<u8>,
+    /// The sound for `waveform: "wavetable"`: the note config an addon gives `Audio.wavetableNoteOn`
+    /// (`table` names the table to read). Its pitch, velocity and duration are ignored.
+    pub wavetable: Option<WavetableNoteConfig>,
 }
 
-fn point_output(live: &mut Live, audio: &crate::audio::AudioEngine, track: Option<&str>, waveform: Option<&str>, vst3_track: Option<&str>, vst3_channel: u8) -> Result<(), String> {
-    match track.filter(|t| !t.is_empty()) {
+fn point_output(live: &mut Live, audio: &crate::audio::AudioEngine, target: &GuitarTarget) -> Result<(), String> {
+    match target.track_id.as_deref().filter(|t| !t.is_empty()) {
+        Some(t) if target.waveform.as_deref().is_some_and(|w| w.eq_ignore_ascii_case("wavetable")) => {
+            let note = target.wavetable.as_ref().ok_or("the wavetable voice needs a `wavetable` note config (its `table` and settings)")?;
+            live.session.play_wavetable(audio, t, &note.table, note.to_params())?;
+        }
         Some(t) => {
-            let w = match waveform {
-                Some(name) => Waveform::from_name(name).ok_or_else(|| format!("no waveform '{name}' (sine, triangle, saw, square)"))?,
+            let w = match target.waveform.as_deref() {
+                Some(name) => Waveform::from_name(name).ok_or_else(|| format!("no waveform '{name}' (sine, triangle, saw, square, wavetable)"))?,
                 None => Waveform::Saw,
             };
             live.session.play_built_in(audio, t, w)?;
         }
         None => live.session.silence_built_in(),
     }
-    match vst3_track.filter(|t| !t.is_empty()) {
-        Some(t) => live.session.play_vst3(t, vst3_channel)?,
+    match target.vst3_track.as_deref().filter(|t| !t.is_empty()) {
+        Some(t) => live.session.play_vst3(t, target.vst3_channel.unwrap_or(0))?,
         None => live.session.stop_vst3(),
     }
     Ok(())
@@ -157,7 +165,14 @@ pub fn op_guitar_start(state: &mut OpState, #[serde] config: GuitarStartConfig) 
         Err(e) => return err(e),
     };
     let mut live = Live { session, opened };
-    if let Err(e) = point_output(&mut live, &audio, config.track_id.as_deref(), config.waveform.as_deref(), config.vst3_track.as_deref(), config.vst3_channel.unwrap_or(0)) {
+    let target = GuitarTarget {
+        track_id: config.track_id.clone(),
+        waveform: config.waveform.clone(),
+        vst3_track: config.vst3_track.clone(),
+        vst3_channel: config.vst3_channel,
+        wavetable: config.wavetable.clone(),
+    };
+    if let Err(e) = point_output(&mut live, &audio, &target) {
         live.session.stop();
         return err(e);
     }
@@ -201,6 +216,7 @@ pub struct GuitarTarget {
     pub waveform: Option<String>,
     pub vst3_track: Option<String>,
     pub vst3_channel: Option<u8>,
+    pub wavetable: Option<WavetableNoteConfig>,
 }
 
 /// Points the notes somewhere else while playing. An empty or missing `trackId` stops the built-in
@@ -213,7 +229,7 @@ pub fn op_guitar_target(state: &mut OpState, #[serde] target: GuitarTarget) -> J
     LIVE.with(|cell| {
         let mut guard = cell.borrow_mut();
         let Some(live) = guard.as_mut() else { return err("the guitar input is not running") };
-        match point_output(live, &audio, target.track_id.as_deref(), target.waveform.as_deref(), target.vst3_track.as_deref(), target.vst3_channel.unwrap_or(0)) {
+        match point_output(live, &audio, &target) {
             Ok(()) => json!({ "ok": true }),
             Err(e) => err(e),
         }
@@ -336,6 +352,16 @@ pub fn op_guitar_record(#[string] action: String) -> Json {
             other => err(format!("record action must be 'start' or 'stop', not '{other}'")),
         }
     })
+}
+
+/// Moves the wavetable voice through its table (0..1), including a note that is sounding.
+#[op2(fast)]
+pub fn op_guitar_set_position(position: f64) {
+    LIVE.with(|cell| {
+        if let Some(live) = cell.borrow().as_ref() {
+            live.session.set_position(position as f32);
+        }
+    });
 }
 
 #[op2]

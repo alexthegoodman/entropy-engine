@@ -13,7 +13,7 @@ export function noteName(midi: number): string {
 
 export type GuitarMode = "fast" | "balanced" | "accurate";
 export const GUITAR_MODES: GuitarMode[] = ["fast", "balanced", "accurate"];
-export const GUITAR_WAVEFORMS = ["sine", "triangle", "saw", "square"] as const;
+export const GUITAR_WAVEFORMS = ["sine", "triangle", "saw", "square", "wavetable"] as const;
 
 /** What is saved with the project (spec CFG-1). Unknown fields in a saved file are ignored and
  * missing ones take their defaults (CFG-4), so a newer or older save still opens. */

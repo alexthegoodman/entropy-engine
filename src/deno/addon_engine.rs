@@ -37,7 +37,7 @@ use crate::core::vertex::Vertex;
 use crate::deno::addon_ops::op_yumon_brain_test_infer;
 use crate::deno::guitar_ops::{
     op_guitar_list_inputs, op_guitar_start, op_guitar_stop, op_guitar_set, op_guitar_target, op_guitar_status,
-    op_guitar_calibrate, op_guitar_record, op_guitar_release_all,
+    op_guitar_calibrate, op_guitar_record, op_guitar_release_all, op_guitar_set_position,
 };
 use crate::deno::wavetable_ops::{
     op_wavetable_ensure, op_wavetable_remove, op_wavetable_info, op_wavetable_op, op_wavetable_stamp,
@@ -314,6 +314,7 @@ extension!(
         op_guitar_calibrate,
         op_guitar_record,
         op_guitar_release_all,
+        op_guitar_set_position,
         op_vst3_scan,
         op_vst3_load,
         op_vst3_unload,

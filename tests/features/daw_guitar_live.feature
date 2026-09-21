@@ -35,3 +35,19 @@ Feature: The running DAW opens a real audio input from its Guitar Input panel
     And I advance 10 frames
     Then I see the label "Status: stopped"
     And I capture "guitar-04-stopped-again"
+
+    # The Voice list offers the wavetable (index 4). Starting with it sends the track's whole
+    # wavetable sound through the real op, which fails if the table or the track's bus is missing.
+    When I set "guitar_waveform" to "4"
+    And I advance 5 frames
+    And I click "guitar_toggle"
+    And I advance 10 frames
+    And I wait 1500 milliseconds
+    And I advance 10 frames
+    Then I see the label "Status: listening"
+    And I see the label "Plays Bass's wavetable. Make it a wavetable synth to sculpt it."
+    And I capture "guitar-05-wavetable-voice"
+
+    When I click "guitar_toggle"
+    And I advance 10 frames
+    Then I see the label "Status: stopped"

@@ -43,7 +43,7 @@ fn daw_guitar_live_feature() {
     let result = run_daw(&root, &data);
     assert_eq!(result["status"], "passed", "{result:#}");
     let artifacts = result["artifacts"].as_array().unwrap();
-    assert_eq!(artifacts.len(), 4, "{artifacts:#?}");
+    assert_eq!(artifacts.len(), 5, "{artifacts:#?}");
     for a in artifacts {
         let path = a.as_str().unwrap();
         let bytes = fs::read(path).expect("screenshot exists");

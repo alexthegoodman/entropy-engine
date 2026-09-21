@@ -922,6 +922,9 @@ interface GuitarSettings {
   velocityGamma?: number;
 }
 
+/** "wavetable" plays a table (see `Wavetable`) that can be sculpted while it sounds. */
+type GuitarWaveform = "sine" | "triangle" | "saw" | "square" | "wavetable";
+
 interface GuitarStartConfig extends GuitarSettings {
   /** Host name from `listInputs` (WASAPI by default on Windows; ASIO with the `asio` cargo feature). */
   host?: string;
@@ -934,7 +937,10 @@ interface GuitarStartConfig extends GuitarSettings {
   bufferFrames?: number;
   /** Play the built-in voice on this track's bus (the bus must exist). */
   trackId?: string;
-  waveform?: "sine" | "triangle" | "saw" | "square";
+  waveform?: GuitarWaveform;
+  /** The sound of the "wavetable" voice: a note config as for `Audio.wavetableNoteOn`, whose `table` is
+   * the table to read. Pitch and velocity come from the string. */
+  wavetable?: WavetableNoteConfig;
   /** Play the VST3 instrument hosted on this track, on MIDI channel `vst3Channel` (0-15). */
   vst3Track?: string;
   vst3Channel?: number;
@@ -1023,8 +1029,11 @@ interface GuitarAPI {
   start: (config?: GuitarStartConfig) => { ok: boolean; error?: string; opened?: GuitarOpened };
   stop: () => { ok: boolean };
   set: (settings: GuitarSettings) => { ok: boolean; error?: string };
-  /** An empty `trackId` or `vst3Track` switches that output off. */
-  target: (target: { trackId?: string; waveform?: "sine" | "triangle" | "saw" | "square"; vst3Track?: string; vst3Channel?: number }) => { ok: boolean; error?: string };
+  /** An empty `trackId` or `vst3Track` switches that output off. Pointing at a wavetable voice again
+   * (after the table's settings change) starts a fresh voice; the table itself is always read live. */
+  target: (target: { trackId?: string; waveform?: GuitarWaveform; wavetable?: WavetableNoteConfig; vst3Track?: string; vst3Channel?: number }) => { ok: boolean; error?: string };
+  /** Moves the wavetable voice through its table (0..1), a sounding note included. */
+  setPosition: (position: number) => void;
   status: () => GuitarStatus;
   /** `playing = false` listens to the room (default 3 s) and sets the gate; `playing = true` listens to
    * soft and hard notes (default 5 s) and sets the velocity range. */

@@ -100,6 +100,7 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
             const notesOn = (name: string) => w.wavetableNotes.filter(n => n.id === trackId(name));
             const voicesOn = (name: string) => w.played.filter(p => p.id === trackId(name)).map(p => p.cfg.waveform);
             let builtInBefore = 0;
+            let pointedBefore = 0;
 
             const steps: [RegExp, (...m: string[]) => void | Promise<void>][] = [
                 [/^the DAW is open$/, async () => { await world.open(); }],
@@ -201,6 +202,59 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                     slider.onChange(String(value));
                     world.render();
                 }],
+
+                // ---- the guitar ----
+                [/^the Guitar Input window is open$/, () => { click("toggle_guitar"); }],
+                [/^the guitar Voice list is "(.+)"$/, list => {
+                    world.render();
+                    expect(w.dropdowns.get("guitar_waveform").options).toEqual(list.split(", "));
+                }],
+                [/^the guitar plays the "(.+)" voice on "(.+)"$/, (voice, name) => {
+                    world.render();
+                    const target = w.dropdowns.get("guitar_target");
+                    target.onChange(String(target.options.indexOf(name)));
+                    world.render();
+                    const waveform = w.dropdowns.get("guitar_waveform");
+                    if (!waveform.options.includes(voice)) throw new Error(`no voice ${voice}; have ${waveform.options.join(", ")}`);
+                    waveform.onChange(String(waveform.options.indexOf(voice)));
+                    world.render();
+                }],
+                [/^the guitar is started$/, () => { click("guitar_toggle"); world.advance(100); }],
+                [/^the guitar was started on the "(.+)" voice with the table of "(.+)"$/, (voice, name) => {
+                    const start = w.guitar.starts.at(-1);
+                    expect(start, "the guitar was never started").toBeTruthy();
+                    expect([start.trackId, start.waveform]).toEqual([trackId(name), voice]);
+                    expect(start.wavetable.table).toBe(trackId(name));
+                }],
+                [/^the guitar's wavetable sound has unison (\d+), position ([\d.]+) and the track's cutoff and envelope$/, (unison, position) => {
+                    const cfg = w.guitar.starts.at(-1).wavetable;
+                    const voice = state().tracks[trackIndex("Lead")].voice;
+                    expect([cfg.unison, cfg.position]).toEqual([+unison, +position]);
+                    expect([cfg.cutoff, cfg.resonance, cfg.attack, cfg.decay, cfg.sustain, cfg.release])
+                        .toEqual([voice.cutoff, voice.resonance, voice.attack, voice.decay, voice.sustain, voice.release]);
+                }],
+                [/^the guitar was pointed again at the table of "(.+)" with unison (\d+)$/, (name, unison) => {
+                    const t = w.guitar.targets.at(-1);
+                    expect(t, "the guitar was never pointed again").toBeTruthy();
+                    expect([t.wavetable.table, t.wavetable.unison]).toEqual([trackId(name), +unison]);
+                }],
+                [/^the guitar was pointed again with cutoff (\d+)$/, cutoff => {
+                    const t = w.guitar.targets.at(-1);
+                    expect(t, "the guitar was never pointed again").toBeTruthy();
+                    expect(t.wavetable.cutoff).toBe(+cutoff);
+                }],
+                [/^I remember how many times the guitar was pointed$/, () => { pointedBefore = w.guitar.targets.length; }],
+                [/^the guitar voice was moved to position ([\d.]+) and not replaced$/, position => {
+                    expect(w.guitar.targets.length).toBe(pointedBefore);
+                    expect(w.guitar.positions.at(-1)).toBeCloseTo(+position, 9);
+                }],
+                [/^the guitar was started on the "(.+)" voice with no wavetable$/, voice => {
+                    const start = w.guitar.starts.at(-1);
+                    expect(start.waveform).toBe(voice);
+                    expect(start.wavetable).toBeUndefined();
+                }],
+                [/^the guitar was never pointed again$/, () => { expect(w.guitar.targets).toHaveLength(0); expect(w.guitar.positions).toHaveLength(0); }],
+                [/^the guitar was never started or pointed$/, () => { expect(w.guitar.starts).toHaveLength(0); expect(w.guitar.targets).toHaveLength(0); expect(w.guitar.positions).toHaveLength(0); }],
 
                 // ---- saving ----
                 [/^I sculpt the table of "(.+)"$/, name => {

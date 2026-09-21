@@ -206,3 +206,98 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"params","params":{"unison":40,"position":-3,"detuneCents":900}}
     Then the tool succeeded
     And the tool reports unison 7, position 0 and detune 60
+
+  # ---- The guitar input plays the wavetable ----
+  # The voice the guitar plays is a Rust voice (wavetable_voice.rs, guitar_live_bdd.rs); these
+  # scenarios cover what the panel asks of it.
+
+  Scenario: The guitar's Voice list offers the wavetable
+    Given the DAW is open
+    And the Guitar Input window is open
+    Then the guitar Voice list is "sine, triangle, saw, square, wavetable"
+
+  Scenario: The guitar plays the table the Wavetable window edits
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    When the guitar is started
+    Then the guitar was started on the "wavetable" voice with the table of "Lead"
+    And the terrain widget shows the table of "Lead"
+    And I see the label "Plays Lead's wavetable. Sculpt it in the Wavetable window."
+
+  Scenario: The guitar carries the track's own wavetable settings and filter
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    When the guitar is started
+    Then the guitar's wavetable sound has unison 1, position 0.35 and the track's cutoff and envelope
+
+  Scenario: A track that is not a wavetable synth yet still has a table to play
+    Given the DAW is open
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Bass"
+    Then I see the label "Plays Bass's wavetable. Make it a wavetable synth to sculpt it."
+    When the guitar is started
+    Then the guitar was started on the "wavetable" voice with the table of "Bass"
+    And the engine has a table for "Bass" that started as "saw"
+
+  Scenario: A control in the Wavetable window changes what the running guitar plays
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    And the guitar is started
+    And I advance 200 milliseconds
+    When I drag the slider "Unison voices" to 5
+    And I advance 200 milliseconds
+    Then the guitar was pointed again at the table of "Lead" with unison 5
+
+  Scenario: The track's own filter changes reach the running guitar too
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    And the guitar is started
+    And I advance 200 milliseconds
+    When I call the tool "daw_set_track_params" with {"trackId":"trk-lead","cutoff":900}
+    And I advance 200 milliseconds
+    Then the guitar was pointed again with cutoff 900
+
+  Scenario: Position moves the voice that is sounding instead of replacing it
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    And the guitar is started
+    And I advance 200 milliseconds
+    And I remember how many times the guitar was pointed
+    When I drag the slider "Position" to 0.7
+    And I advance 200 milliseconds
+    Then the guitar voice was moved to position 0.7 and not replaced
+
+  Scenario: The built-in voices are unchanged
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    And the Guitar Input window is open
+    And the guitar plays the "saw" voice on "Lead"
+    When the guitar is started
+    Then the guitar was started on the "saw" voice with no wavetable
+    When I drag the slider "Unison voices" to 5
+    And I advance 200 milliseconds
+    Then the guitar was never pointed again
+
+  Scenario: A guitar that is not running is not sent anything
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    And the Guitar Input window is open
+    And the guitar plays the "wavetable" voice on "Lead"
+    When I drag the slider "Unison voices" to 5
+    And I advance 200 milliseconds
+    Then the guitar was never started or pointed

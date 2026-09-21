@@ -223,6 +223,23 @@ impl WavetableShared {
     pub fn active_voices(&self) -> u32 {
         self.active.load(Ordering::Relaxed)
     }
+
+    /// A voice that outlives its notes (the guitar's) counts itself in while a note sounds, so the
+    /// editor's glow follows it too.
+    pub(crate) fn voice_started(&self) {
+        self.active.fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn voice_ended(&self) {
+        if self.active.fetch_sub(1, Ordering::Relaxed) == 1 {
+            self.energy.store(0f32.to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    pub(crate) fn publish_activity(&self, position: f32, energy: f32) {
+        self.last_pos.store(position.to_bits(), Ordering::Relaxed);
+        self.energy.store(energy.to_bits(), Ordering::Relaxed);
+    }
 }
 
 // ------------------------------------------------------------------------------------------
@@ -1023,14 +1040,14 @@ enum Stage {
 }
 
 #[derive(Clone, Copy, Default)]
-struct Svf {
+pub(crate) struct Svf {
     ic1: f32,
     ic2: f32,
 }
 
 impl Svf {
     #[inline]
-    fn lowpass(&mut self, x: f32, a1: f32, a2: f32, a3: f32) -> f32 {
+    pub(crate) fn lowpass(&mut self, x: f32, a1: f32, a2: f32, a3: f32) -> f32 {
         let v3 = x - self.ic2;
         let v1 = a1 * self.ic1 + a2 * v3;
         let v2 = self.ic2 + a2 * self.ic1 + a3 * v3;
@@ -1241,7 +1258,7 @@ impl Drop for WavetableVoice {
     }
 }
 
-fn filter_coefficients(cutoff: f32, resonance: f32, sr: f32) -> Option<(f32, f32, f32)> {
+pub(crate) fn filter_coefficients(cutoff: f32, resonance: f32, sr: f32) -> Option<(f32, f32, f32)> {
     if cutoff >= 19_000.0 {
         return None;
     }

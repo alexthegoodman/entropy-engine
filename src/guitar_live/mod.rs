@@ -14,12 +14,14 @@ pub mod pipeline;
 pub mod router;
 pub mod shared;
 pub mod voice;
+pub mod wavetable_voice;
 
 pub use input::{list_input_devices, InputDevice, InputRequest, OpenedInput};
 pub use pipeline::{Control, GuitarPipeline, PipelineParts};
 pub use router::{RecordedNote, Recorder, Router, Targets};
 pub use shared::{CalState, LiveDiagnostics, Shared};
 pub use voice::{GuitarVoice, VoiceControl, Waveform};
+pub use wavetable_voice::WavetableGuitarVoice;
 
 use crate::audio::AudioEngine;
 use crate::guitar::{GuitarConfig, GuitarEvent, Tunables};
@@ -135,9 +137,33 @@ impl GuitarSession {
         Ok(())
     }
 
+    /// Plays notes on a wavetable voice added to `track_id`'s bus. It reads the table called
+    /// `table_id` live, so the table can be sculpted while it plays. `params` is the sound; the
+    /// pick decides pitch and velocity.
+    pub fn play_wavetable(&mut self, audio: &AudioEngine, track_id: &str, table_id: &str, params: crate::audio::wavetable::WavetableParams) -> Result<(), String> {
+        let table = crate::audio::wavetable::shared_for(table_id).ok_or_else(|| format!("no wavetable called {table_id}"))?;
+        if let Some(old) = self.voice.take() {
+            old.stop();
+        }
+        let ctl = VoiceControl::new();
+        if !audio.add_track_source(track_id, WavetableGuitarVoice::new(ctl.clone(), table, params)) {
+            return Err(format!("track '{track_id}' has no audio bus to play on"));
+        }
+        self.targets.lock().unwrap().voice = Some(ctl.clone());
+        self.voice = Some(ctl);
+        Ok(())
+    }
+
     pub fn set_waveform(&self, w: Waveform) {
         if let Some(v) = &self.voice {
             v.set_waveform(w);
+        }
+    }
+
+    /// Moves a wavetable voice through its table (0..1), including a note that is sounding.
+    pub fn set_position(&self, position: f32) {
+        if let Some(v) = &self.voice {
+            v.set_position(position);
         }
     }
 

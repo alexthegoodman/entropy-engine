@@ -117,6 +117,58 @@ Feature: Guitar input playing the DAW's instruments, on the real audio output
     When 8 picks of E4 are played in real time
     Then the sound reaches the track within 90 ms of the pick at the median
 
+  # The wavetable voice: the same note path as the built-in voice, reading a table that can be
+  # sculpted while it sounds. The table is 8 frames from a preset ("saw" runs from a sine in its
+  # first frame to a saw in its last).
+
+  Scenario Outline: A picked note sounds at the right pitch through a wavetable
+    Given the guitar plays the "saw" wavetable at position 1.0 on "lead"
+    And a string tuned to <note> is picked at -14 dBFS
+    And the string is muted after 0.9 seconds
+    When the recording is played up to 0.7 seconds
+    Then "lead" is sounding at <note> within 12 cents
+    And "lead" peaks between -30 and -1 dBFS
+    When the recording is played to the end
+    Then "lead" is silent
+
+    Examples:
+      | note |
+      | E2   |
+      | A2   |
+      | D3   |
+      | E4   |
+      | E5   |
+
+  Scenario: A bend of the string bends the wavetable
+    Given the guitar plays the "saw" wavetable at position 1.0 on "lead"
+    And a string tuned to A3 is picked at -14 dBFS
+    And its pitch is bent up 200 cents over 300 ms after 0.3 seconds
+    When the recording is played up to 1.3 seconds
+    Then "lead" is sounding at 246.9 Hz within 15 cents
+
+  Scenario: Sculpting the table is heard by a note that is already ringing
+    Given the guitar plays the "sine" wavetable at position 0.0 on "lead"
+    And a string tuned to A3 is picked at -14 dBFS
+    When the recording is played up to 0.7 seconds
+    And the roughness of "lead" is measured
+    And the table is redrawn as a square wave
+    And 300 milliseconds pass
+    Then "lead" is at least 3 times rougher than measured
+
+  Scenario: Moving the position while a note rings changes its sound
+    Given the guitar plays the "saw" wavetable at position 0.0 on "lead"
+    And a string tuned to A3 is picked at -14 dBFS
+    When the recording is played up to 0.7 seconds
+    And the roughness of "lead" is measured
+    And the wavetable position is moved to 1.0
+    And 300 milliseconds pass
+    Then "lead" is at least 3 times rougher than measured
+
+  Scenario: How long from a pick to sound in the track through a wavetable
+    Given the guitar plays the "saw" wavetable at position 1.0 on "lead"
+    When 8 picks of E4 are played in real time
+    Then the sound reaches the track within 90 ms of the pick at the median
+
   # A gate below the room's noise floor never lets a decayed note end. Calibration fixes that.
   Scenario: In a loud room a decayed note hangs on until the gate is calibrated
     Given the guitar plays the "sine" voice on "lead"

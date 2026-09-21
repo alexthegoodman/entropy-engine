@@ -1047,12 +1047,51 @@ function refreshGuitarDevices() {
 
 // Where the notes go: the target track's VST3 instrument if it has a working one, else the built-in
 // voice on its bus.
-function guitarOutput(prefs: GuitarPrefs): Record<string, unknown> {
-    const track = project.tracks.find(t => t.id === prefs.targetTrackId && t.kind === "synth")
+function guitarTargetTrack(prefs: GuitarPrefs): Track | undefined {
+    return project.tracks.find(t => t.id === prefs.targetTrackId && t.kind === "synth")
         ?? project.tracks.find(t => t.kind === "synth");
+}
+
+// The "wavetable" voice reads the target track's own table, live, so what is sculpted in the
+// Wavetable window is what the guitar plays. Pitch and velocity come from the string.
+function guitarOutput(prefs: GuitarPrefs): Record<string, unknown> {
+    const track = guitarTargetTrack(prefs);
     if (!track) return {};
     if (track.instrument && vst3Runtime[track.id]?.ok) return { vst3Track: track.id, vst3Channel: 0 };
+    if (prefs.waveform === WT_WAVEFORM) {
+        return { trackId: track.id, waveform: prefs.waveform, wavetable: wavetableNoteConfig(track.id, track.voice, trackWavetable(track), { freq: 440, velocity: 0.8 }) };
+    }
     return { trackId: track.id, waveform: prefs.waveform };
+}
+
+// What the running wavetable voice was built from, so a change made anywhere (a slider in the
+// Wavetable window, the track's Voice panel, an AI tool) is noticed. The position is not part of
+// it: that moves a sounding note through the table without a new voice.
+let guitarVoiceKey = "";
+let guitarVoicePosition = -1;
+
+function rememberGuitarVoice(out: Record<string, unknown>) {
+    const wt = out.wavetable as { position: number } | undefined;
+    guitarVoiceKey = wt ? JSON.stringify({ ...out, wavetable: { ...wt, position: 0 } }) : "";
+    guitarVoicePosition = wt ? wt.position : -1;
+}
+
+function pointGuitar(prefs: GuitarPrefs) {
+    const out = guitarOutput(prefs);
+    rememberGuitarVoice(out);
+    addon.Guitar.target(out);
+}
+
+function syncGuitarWavetable(prefs: GuitarPrefs) {
+    if (!guitarStatus.running || !guitarVoiceKey) return;
+    const out = guitarOutput(prefs);
+    const wt = out.wavetable as { position: number } | undefined;
+    if (!wt) return;
+    if (JSON.stringify({ ...out, wavetable: { ...wt, position: 0 } }) !== guitarVoiceKey) { pointGuitar(prefs); return; }
+    if (wt.position !== guitarVoicePosition) {
+        guitarVoicePosition = wt.position;
+        addon.Guitar.setPosition(wt.position);
+    }
 }
 
 function startGuitar() {
@@ -1069,6 +1108,7 @@ function startGuitar() {
         return;
     }
     guitarHints.reset();
+    rememberGuitarVoice(out);
     const o = r.opened!;
     guitarMessage = `Listening on ${o.device} (${o.host}) at ${o.sampleRate} Hz.` + (o.notes.length ? " " + o.notes.join(" ") : "");
 }
@@ -1129,6 +1169,7 @@ function pollGuitar() {
     }
     guitarStatus = st;
     if (!st.running || !st.diagnostics) return;
+    syncGuitarWavetable(guitarPrefs());
     guitarHints.update(st.diagnostics.note !== null, st.diagnostics.levelDb);
     if (st.bufferNote) guitarMessage = st.bufferNote;
     const fin = st.calibration?.finished;
@@ -1182,7 +1223,7 @@ function renderGuitarWindow(win: string) {
             onChange: (idx: string) => {
                 prefs.targetTrackId = synthTracks[parseInt(idx, 10)]?.id ?? null;
                 scheduleSave();
-                if (running) addon.Guitar.target(guitarOutput(prefs));
+                if (running) pointGuitar(prefs);
             }
         });
         W.dropdown(tid, {
@@ -1190,12 +1231,25 @@ function renderGuitarWindow(win: string) {
             onChange: (idx: string) => {
                 prefs.waveform = GUITAR_WAVEFORMS[parseInt(idx, 10)] ?? "saw";
                 scheduleSave();
-                if (running) addon.Guitar.target(guitarOutput(prefs));
+                if (running) pointGuitar(prefs);
             }
         });
     });
     const outTrack = project.tracks.find(t => t.id === (guitarOutput(prefs) as any).vst3Track);
     if (outTrack) W.label(win, { text: `${outTrack.name} has a VST3 instrument, so the guitar plays that. Set its pitch-bend range to ${prefs.bendRange} semitones.` });
+    else if (prefs.waveform === WT_WAVEFORM) {
+        const target = guitarTargetTrack(prefs);
+        if (target) {
+            const editing = getActiveTrack()?.id === target.id;
+            W.label(win, {
+                text: !isWavetableTrack(target)
+                    ? `Plays ${target.name}'s wavetable. Make it a wavetable synth to sculpt it.`
+                    : editing
+                        ? `Plays ${target.name}'s wavetable. Sculpt it in the Wavetable window.`
+                        : `Plays ${target.name}'s wavetable. Select it to sculpt it.`
+            });
+        }
+    }
 
     W.horizontal(win, (tid: string) => {
         W.button(tid, { text: running ? withIcon("stop", "Stop") : withIcon("play", "Start"), id: "guitar_toggle", onClick: () => { running ? stopGuitar() : startGuitar(); } });

@@ -79,6 +79,9 @@ export function createWorld(initialSaved?: unknown) {
         nextVoice: 1,
         wavetableExports: [] as any[][],
         removedTables: [] as string[],
+        // The guitar input: what the panel started it with, every later `target`, and every position
+        // pushed to the running voice. `running` is what `status` reports.
+        guitar: { running: false, starts: [] as any[], targets: [] as any[], positions: [] as number[] },
         lastCreatedTrackId: "",
         lastToolResult: null as any,
     };
@@ -214,6 +217,28 @@ export function createWorld(initialSaved?: unknown) {
             analyzeNote: (cfg: any) => w.tables.has(cfg.table)
                 ? { ok: true, seconds: 0.85, peakDb: -12, rmsDb: -15, peakHz: cfg.freq, centroidHz: 300 + 4000 * cfg.position }
                 : { ok: false, error: `no wavetable called ${cfg.table}` },
+        },
+        Guitar: {
+            listInputs: () => ({ devices: [], hosts: [] }),
+            start: (cfg: any) => {
+                w.guitar.running = true; w.guitar.starts.push(cfg);
+                return { ok: true, opened: { device: "Test input", host: "Test", sampleRate: 48000, channels: 1, bufferFrames: null, sampleFormat: "f32", notes: [] } };
+            },
+            stop: () => { w.guitar.running = false; return { ok: true }; },
+            set: () => ({ ok: true }),
+            target: (t: any) => { w.guitar.targets.push(t); return { ok: true }; },
+            setPosition: (p: number) => { w.guitar.positions.push(p); },
+            status: () => !w.guitar.running ? { running: false } : {
+                running: true, deviceLost: false, recording: false, bufferNote: null,
+                calibration: { state: "idle", busy: false, finished: null },
+                settings: { mode: "balanced", sensitivity: 0.5, gateOpenDb: -50, gateCloseDb: -56, bendRange: 2, referencePitch: 440, inputGainDb: 0, velocityFloorDb: -50, velocityCeilDb: -10 },
+                diagnostics: {
+                    levelDb: -40, inputPeakDb: -30, clipped: false, freqHz: 0, confidence: 0, note: null, cents: 0, state: "silent", velocity: 0, bend: 8192,
+                    pipelineLatencyMs: 0, bufferMs: 10, bufferFrames: 480, sampleRate: 48000, callbacks: 1, overruns: 0, streamErrors: 0, maxCallbackUs: 10,
+                    meanCallbackUs: 10, droppedBends: 0, droppedEvents: 0, notes: 0, noiseRejects: 0, octaveRejects: 0, octaveCorrections: 0, slides: 0, repicks: 0,
+                },
+            },
+            calibrate: () => ({ ok: true }), record: () => ({ ok: true, notes: [] }), releaseAll: () => ({ ok: true }),
         },
         AudioEffect: {
             createDelay: () => `delay-${++uuid}`, createReverb: () => `reverb-${++uuid}`,

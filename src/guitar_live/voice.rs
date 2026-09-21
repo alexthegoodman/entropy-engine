@@ -49,16 +49,18 @@ impl Waveform {
 pub struct VoiceControl {
     /// Bumped on every Note On, so a quick Off and On that the audio thread never saw between two
     /// blocks still restarts the note.
-    trigger: AtomicU32,
-    gate: AtomicBool,
-    hz_bits: AtomicU32,
-    bend_cents_bits: AtomicU32,
-    velocity: AtomicU32,
+    pub(super) trigger: AtomicU32,
+    pub(super) gate: AtomicBool,
+    pub(super) hz_bits: AtomicU32,
+    pub(super) bend_cents_bits: AtomicU32,
+    pub(super) velocity: AtomicU32,
     waveform: AtomicU32,
     gain_bits: AtomicU32,
-    alive: AtomicBool,
+    /// Where a wavetable voice rests in its table, 0..1 (f32 bits); the other voices ignore it.
+    pub(super) position_bits: AtomicU32,
+    pub(super) alive: AtomicBool,
     /// Frames rendered, so a test can tell the voice is really being pulled by an output.
-    rendered: AtomicU64,
+    pub(super) rendered: AtomicU64,
 }
 
 impl VoiceControl {
@@ -71,6 +73,7 @@ impl VoiceControl {
             velocity: AtomicU32::new(100),
             waveform: AtomicU32::new(Waveform::Saw.index()),
             gain_bits: AtomicU32::new(0.3f32.to_bits()),
+            position_bits: AtomicU32::new(0.0f32.to_bits()),
             alive: AtomicBool::new(true),
             rendered: AtomicU64::new(0),
         })
@@ -93,6 +96,10 @@ impl VoiceControl {
 
     pub fn set_waveform(&self, w: Waveform) {
         self.waveform.store(w.index(), Ordering::Relaxed);
+    }
+
+    pub fn set_position(&self, position: f32) {
+        self.position_bits.store(position.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn set_gain(&self, gain: f32) {
@@ -127,7 +134,7 @@ const ATTACK_S: f32 = 0.003;
 /// Release time constant, seconds.
 const RELEASE_S: f32 = 0.06;
 /// Pitch follows the target with this time constant, seconds, so a bend is smooth and a step is not a click.
-const GLIDE_S: f32 = 0.0015;
+pub(super) const GLIDE_S: f32 = 0.0015;
 
 pub struct GuitarVoice {
     ctl: Arc<VoiceControl>,
