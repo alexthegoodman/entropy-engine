@@ -47,6 +47,14 @@ name = "window_layers_bdd"
 harness = false
 
 [[test]]
+name = "wavetable_view_bdd"
+harness = false
+
+[[test]]
+name = "wavetable_synth_bdd"
+harness = false
+
+[[test]]
 name = "guitar_engine_bdd"
 harness = false
 

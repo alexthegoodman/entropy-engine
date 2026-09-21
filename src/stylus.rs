@@ -50,6 +50,8 @@ pub struct PenTilt {
     pub tilt_x: Option<f32>,
     pub tilt_y: Option<f32>,
     pub barrel: bool,
+    /// The pen is inverted or its eraser end is touching (`PEN_FLAG_INVERTED`/`PEN_FLAG_ERASER`).
+    pub eraser: bool,
 }
 
 // PEN_MASK_TILT_X / PEN_MASK_TILT_Y / PEN_FLAG_BARREL aren't exposed as named constants by the
@@ -58,6 +60,8 @@ pub struct PenTilt {
 const PEN_MASK_TILT_X: u32 = 0x00000004;
 const PEN_MASK_TILT_Y: u32 = 0x00000008;
 const PEN_FLAG_BARREL: u32 = 0x00000001;
+const PEN_FLAG_INVERTED: u32 = 0x00000002;
+const PEN_FLAG_ERASER: u32 = 0x00000004;
 
 fn tilt_map() -> &'static Mutex<HashMap<u32, PenTilt>> {
     static MAP: OnceLock<Mutex<HashMap<u32, PenTilt>>> = OnceLock::new();
@@ -85,10 +89,11 @@ pub fn msg_hook_capture_tilt(msg_ptr: *const c_void) -> bool {
         let tilt_x = (pen_info.penMask & PEN_MASK_TILT_X != 0).then_some(pen_info.tiltX as f32);
         let tilt_y = (pen_info.penMask & PEN_MASK_TILT_Y != 0).then_some(pen_info.tiltY as f32);
         let barrel = pen_info.penFlags & PEN_FLAG_BARREL != 0;
+        let eraser = pen_info.penFlags & (PEN_FLAG_INVERTED | PEN_FLAG_ERASER) != 0;
         tilt_map()
             .lock()
             .unwrap()
-            .insert(pointer_id, PenTilt { tilt_x, tilt_y, barrel });
+            .insert(pointer_id, PenTilt { tilt_x, tilt_y, barrel, eraser });
     }
 
     false

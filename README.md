@@ -233,6 +233,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.kanban` | A kanban board with columns, movable cards, selection, deletion, and add-card callbacks. Your addon owns the board data. |
 | `Widget.treeView` | An indented outliner with disclosure triangles, full-row selection, and optional checkboxes, icons and right-aligned detail text per row. `maxHeight` scrolls the rows inside a capped box, `width` fixes its width. Your addon supplies the visible rows and owns expanded state. |
 | `Widget.tabBar` | A non-fullscreen tab strip inside a window (`Entropy.UI.createTab` tabs own the whole work area). Tabs stretch to fill one line, or wrap at natural width when they do not fit. Your addon owns `selected`, updates it in `onSelect(id)`, and draws only the selected tab's widgets after the bar. |
+| `Widget.wavetable` | A wavetable as sculptable 3D terrain (phase across, frame into the screen, level up) with a single-cycle pen strip, the selected frame's harmonics and a keyboard. Mouse and pen both work: a pen presses with its own pressure, leans the brush with its tilt, and its eraser end lowers; the pen's side button, the right mouse button and Alt orbit. Config: `table`, `tool` (`raise`/`lower`/`smooth`/`level`/`orbit`), `radius`, `strength`, `frame`, `height`, `width`, `keyboard`, `held`. Callbacks: `onEdit` (save now), `onStrokeStart`/`onStrokeEnd`, `onFrame`, `onTool`, `onKeyDown`/`onKeyUp`. |
 | `Widget.padGrid` | A drum-machine pad bank: rounded pads with a name, waveform thumbnail (trim range dimmed), colour accent, selection ring, and a `glow` you drive to pulse a pad when it is hit. Kinds: `empty`, `synth`, `sample`, `missing`. Callbacks: `onPadClick`, `onPadClear` (right-click), `onAdd`. |
 | `Widget.docEditor` + `docEditorToggleBold/Italic`, `docEditorSetFontFamily/Size/Color`, `docEditorSetPaginated`, `docEditorLoadSample`, `docEditorFontNames` | A multi-page word processor that can be paginated or continuous, with mixed bold, italic, font, size, and color per run. The document text stays on the Rust side; build the toolbar from ordinary widgets and drive formatting with the `docEditor*` calls. |
 | `Widget.html(windowId, html, options)` | Renders an HTML string with `<style>` and inline CSS as laid-out UI with block/flex layout, inherited text color, and images. JavaScript is never executed. |
@@ -270,9 +271,11 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Audio.playSynth(config)` | Plays a synthesized waveform (sine/square/saw/noise) with a frequency, duration, filter cutoff, and gain for quick one-shot sound effects without audio files. |
 | `Audio.playNote(config)` | Like `playSynth`, but with a full ADSR envelope (attack/decay/sustain/release), resonance, and named drum voices (kick/snare/hihat/clap/tom) for music and rhythm tools such as the piano-roll widget. |
 | `Audio.playTestTone()` | Plays a fixed test tone, useful for confirming audio output is wired up at all. |
-| `Audio.renderPatternToWav(events, suggestedName?, sampleEvents?)` | Renders scheduled note events, and optional sample hits (`{startTime, path, gain, semitones, start, end, hold}`), to a WAV file without live playback, then opens a native save dialog. |
+| `Audio.renderPatternToWav(events, suggestedName?, sampleEvents?, wavetableEvents?)` | Renders scheduled note events, and optional sample hits (`{startTime, path, gain, semitones, start, end, hold}`) and wavetable notes (`{table, startTime, freq, duration, ...}`), to a WAV file without live playback, then opens a native save dialog. |
 | `Audio.ensureTrackBus(trackId, config)` / `removeTrackBus(trackId)` | Creates or updates a persistent track bus with gain, mute, solo, and an ordered effect chain, or tears it down. Bus changes apply to notes already ringing. |
 | `Audio.playNoteOnTrack(trackId, config)` | Plays a note through an existing track bus so its gain, mute, solo, and effects apply. |
+| `Audio.playWavetableOnTrack(trackId, config)` | Plays one timed wavetable note through a track bus. `config`: `table`, `freq`, `velocity`, `gain`, `position` (0-1 across the frames), `lfoRate`/`lfoDepth`, `sweep`/`sweepTime`, `velToPosition`, `unison` (1-7), `detuneCents`, `spread`, `cutoff`, `resonance`, ADSR, `duration`. The note reads the table as it is at every sample, so sculpting changes a note already sounding. Returns `{ok, error?}`. |
+| `Audio.wavetableNoteOn(trackId, config)` / `wavetableNoteOff(voice)` / `wavetableSetPosition(voice, position)` | A note held until released (a key, a latch): returns `{ok, voice}`; `position` moves it through the table while it sounds. |
 | `Audio.loadSample(path, bins?)` | Decodes a wav/flac/mp3/ogg/m4a file (first 12 seconds only) into memory and returns `{ok, seconds, fullSeconds, truncated, sourceRate, channels, peak, waveform}`. Call it when a sample is assigned so the first hit does not wait on the decode. |
 | `Audio.playSampleOnTrack(trackId, path, config?)` | Plays a sample through an existing track bus. `config`: `gain`, `semitones` (pitch by playback rate), `start`/`end` (fractions of the file), `hold` (seconds before fading out; omit for a one-shot). Returns `{ok, error?}`. |
 | `Audio.previewSample(path, config?)` / `stopPreview()` | Auditions a file on a shared preview bus (`"sample-preview"` for `analyze`), cutting off the previous audition. |
@@ -302,6 +305,11 @@ Host installed VST3 instruments on a track bus. This API is Windows-only. Create
 | `Guitar.status()` | One snapshot for a panel: level, detected note/frequency/cents/confidence, tracker state, callback timing and errors. |
 | `Guitar.calibrate(playing, seconds?)` | Listens to the room (sets the gate) or to soft and hard notes (sets the velocity range). |
 | `Guitar.record("start" \| "stop")` | A take: notes with latency-compensated times and bend points. |
+| `Wavetable.ensure(id, {preset?, frames?})` / `remove(id)` / `info(id)` | Creates a wavetable (32 frames of 2048 samples, a stack of sines) named by an id you choose, or replaces it with a preset (`sine`, `saw`, `square`, `pwm`, `vowels`, `bell`, `terrain`, `glass`). `info` adds undo state and where a sounding note is reading. The table lives engine-side and is read lock-free by the audio thread, band-limited per octave pair so high notes do not alias. |
+| `Wavetable.op(id, name, arg?)` | Whole-table operations: `normalize`, `smooth`, `invert`, `reverse`, `flip_frames`, `randomize`, `undo`, `redo`. |
+| `Wavetable.stamp(id, stamps)` | Brush dabs (`{tool, frame, phase, radius?, aspect?, angle?, amount?, target?}`) as one undo step: the same brush a stylus uses, so a script can sculpt. |
+| `Wavetable.setFrame` / `exportData` / `importData` | Write one frame from samples; save the whole table as base64 (16-bit) and load it back. |
+| `Wavetable.harmonics(id, frame?, count?)` / `analyzeNote(config, seconds?)` | Read a frame's harmonic amplitudes; play one note offline and read back `{peakDb, rmsDb, peakHz, centroidHz}` with no audio device, to check what a table sounds like. |
 
 </details>
 
@@ -413,7 +421,7 @@ All studio-bundle examples share one binary - pass the example's name as an arg:
 ```bash
 cd examples/studio-bundle/
 
-// audio editor
+// audio editor (arrangement, drum rack, guitar input, wavetable synth)
 npm run build-daw
 cargo run --bin example --release -- daw
 

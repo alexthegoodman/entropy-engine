@@ -39,6 +39,12 @@ use crate::deno::guitar_ops::{
     op_guitar_list_inputs, op_guitar_start, op_guitar_stop, op_guitar_set, op_guitar_target, op_guitar_status,
     op_guitar_calibrate, op_guitar_record, op_guitar_release_all,
 };
+use crate::deno::wavetable_ops::{
+    op_wavetable_ensure, op_wavetable_remove, op_wavetable_info, op_wavetable_op, op_wavetable_stamp,
+    op_wavetable_set_frame, op_wavetable_export, op_wavetable_import, op_wavetable_harmonics,
+    op_wavetable_render_analyze, op_audio_play_wavetable_on_track, op_audio_wavetable_note_on,
+    op_audio_wavetable_note_off, op_audio_wavetable_set_position,
+};
 use crate::deno::vst3_ops::{
     op_vst3_scan, op_vst3_load, op_vst3_unload, op_vst3_note_on, op_vst3_all_notes_off, op_vst3_open_editor,
     op_vst3_close_editor, op_vst3_poll_state, op_vst3_save_state, op_vst3_find_parameters, op_vst3_set_parameter,
@@ -68,7 +74,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -212,6 +218,21 @@ extension!(
         op_ui_widget_tree_view,
         op_ui_widget_tab_bar,
         op_ui_widget_pad_grid,
+        op_ui_widget_wavetable,
+        op_wavetable_ensure,
+        op_wavetable_remove,
+        op_wavetable_info,
+        op_wavetable_op,
+        op_wavetable_stamp,
+        op_wavetable_set_frame,
+        op_wavetable_export,
+        op_wavetable_import,
+        op_wavetable_harmonics,
+        op_wavetable_render_analyze,
+        op_audio_play_wavetable_on_track,
+        op_audio_wavetable_note_on,
+        op_audio_wavetable_note_off,
+        op_audio_wavetable_set_position,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4541,6 +4562,37 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             PadEvent::Cleared(pad) => events_to_push.push(format!("PADGRID_CLEARED|{}|{}", pad_id, pad)),
                             PadEvent::AddRequested => events_to_push.push(format!("PADGRID_ADD|{}", pad_id)),
                         }
+                    }
+                }
+                UiWidget::WavetableView { id: wt_id, config } => {
+                    use crate::audio::wavetable;
+                    use crate::entropy_gui::{ViewTool, WavetableEvent, WavetableOptions, WavetableView};
+                    let handle = wavetable::ensure_table(&config.table);
+                    let mut table = wavetable::lock_table(&handle);
+                    let d = WavetableOptions::default();
+                    let opts = WavetableOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        tool: config.tool.as_deref().and_then(ViewTool::from_name).unwrap_or(d.tool),
+                        radius: config.radius.unwrap_or(d.radius),
+                        strength: config.strength.unwrap_or(d.strength),
+                        frame: config.frame.map(|f| f as usize).unwrap_or(d.frame),
+                        keyboard: config.keyboard.unwrap_or(d.keyboard),
+                        first_key: config.first_key.map(|k| k.min(96) as u8).unwrap_or(d.first_key),
+                        key_octaves: config.octaves.map(|o| o.clamp(1, 5) as u8).unwrap_or(d.key_octaves),
+                        held: config.held.clone().unwrap_or_default().into_iter().map(|k| k.min(127) as u8).collect(),
+                    };
+                    let resp = WavetableView::new(wt_id.as_str()).options(opts).show(ui, &mut table);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            WavetableEvent::StrokeBegan => format!("WAVETABLE_STROKE_BEGAN|{}", wt_id),
+                            WavetableEvent::StrokeEnded => format!("WAVETABLE_STROKE_ENDED|{}", wt_id),
+                            WavetableEvent::Edited => format!("WAVETABLE_EDITED|{}", wt_id),
+                            WavetableEvent::FrameSelected(f) => format!("WAVETABLE_FRAME|{}|{}", wt_id, f),
+                            WavetableEvent::ToolSelected(t) => format!("WAVETABLE_TOOL|{}|{}", wt_id, t.name()),
+                            WavetableEvent::KeyDown { midi, velocity } => format!("WAVETABLE_KEY_DOWN|{}|{}|{:.3}", wt_id, midi, velocity),
+                            WavetableEvent::KeyUp { midi } => format!("WAVETABLE_KEY_UP|{}|{}", wt_id, midi),
+                        });
                     }
                 }
                 UiWidget::Oscilloscope { id: scope_id, config } => {

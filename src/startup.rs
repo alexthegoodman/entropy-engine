@@ -275,6 +275,7 @@ impl BrowserBddDriver {
                 Ok("analyzer") => include_str!("../tests/features/daw_analyzer_live.feature"),
                 Ok("rack") => include_str!("../tests/features/daw_rack_live.feature"),
                 Ok("guitar") => include_str!("../tests/features/daw_guitar_live.feature"),
+                Ok("wavetable") => include_str!("../tests/features/daw_wavetable_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
@@ -333,7 +334,8 @@ impl BrowserBddDriver {
         if self.canvas || self.daw {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
-        if self.canvas {
+        // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
+        if self.canvas || self.daw {
             result["tools"] = serde_json::json!(self.tool_results);
         }
         if self.daw {

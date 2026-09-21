@@ -2,15 +2,17 @@ pub mod analysis;
 pub mod samples;
 pub mod vst3;
 pub mod vst3_capture;
+pub mod wavetable;
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
 use samples::{SampleEvent, SampleParams, SampleVoice};
+use wavetable::{WavetableParams, WavetableVoice};
 
 // A wrapper to make a type-erased fundsp graph compatible with rodio::Source. The graph is
 // always exactly stereo (2 outputs) - see `build_note_node` - so this no longer needs to be
@@ -333,6 +335,27 @@ pub fn render_events_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<f64, String> {
+    render_events_full_to_wav(events, sample_events, &[], sample_rate, output_path)
+}
+
+/// One scheduled note of a wavetable track in an offline render: the table it reads, and the note.
+#[derive(Clone, Debug)]
+pub struct WavetableEvent {
+    pub start_time: f64,
+    pub table: String,
+    pub params: WavetableParams,
+}
+
+/// `render_events_to_wav` plus wavetable notes. A wavetable note is rendered by the same
+/// `WavetableVoice` the live path plays, from the table's current contents, so a bounce sounds like
+/// what was sculpted. A note whose table no longer exists is skipped, like a pad whose file is gone.
+pub fn render_events_full_to_wav(
+    events: &[NoteEvent],
+    sample_events: &[SampleEvent],
+    wavetable_events: &[WavetableEvent],
+    sample_rate: u32,
+    output_path: &Path,
+) -> Result<f64, String> {
     let sr = sample_rate as f32;
 
     let mut voice_bufs: Vec<(usize, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
@@ -343,6 +366,20 @@ pub fn render_events_to_wav(
         let Ok(sample) = samples::load(&hit.path) else { continue };
         let voice = SampleVoice::new(sample, hit.params, None);
         let mut buf: Vec<f32> = voice.collect();
+        if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
+            let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+            buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
+        }
+        let n_frames = buf.len() / 2;
+        let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
+        total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
+        voice_bufs.push((start_sample, buf));
+    }
+
+    for hit in wavetable_events {
+        let Some(shared) = wavetable::shared_for(&hit.table) else { continue };
+        let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.005) + 0.5;
+        let mut buf = wavetable::render_note(shared, hit.params, limit);
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
             buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
@@ -738,6 +775,16 @@ pub struct AudioEngine {
     meter_cursors: Mutex<HashMap<String, u64>>,
     /// Stops the sample the browser is auditioning when the next one starts.
     preview_cancel: Mutex<Option<Arc<AtomicBool>>>,
+    /// The wavetable notes being held (see `wavetable_note_on`), by voice id.
+    wavetable_gates: Mutex<HashMap<u64, WavetableHandle>>,
+    next_wavetable_voice: AtomicU64,
+}
+
+/// What the main thread keeps of a held wavetable note: the gate that releases it and the position
+/// its voice reads (see `WavetableVoice::with_live_position`).
+struct WavetableHandle {
+    gate: Arc<AtomicBool>,
+    position: Arc<AtomicU32>,
 }
 
 /// The bus the sample browser auditions through. It feeds the master (so you hear it and the
@@ -764,6 +811,8 @@ impl AudioEngine {
             analyzer: Mutex::new(SpectrumAnalyzer::new()),
             meter_cursors: Mutex::new(HashMap::new()),
             preview_cancel: Mutex::new(None),
+            wavetable_gates: Mutex::new(HashMap::new()),
+            next_wavetable_voice: AtomicU64::new(1),
         }
     }
 
@@ -882,6 +931,47 @@ impl AudioEngine {
         let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
         bus.note_mixer.add(SampleVoice::new(sample, params, None));
         Ok(())
+    }
+
+    /// Plays one timed wavetable note on a track's bus. The note reads the table called `table_id`
+    /// as it is at every sample, so sculpting the table changes a note that is already sounding.
+    pub fn play_wavetable_on_track(&self, track_id: &str, table_id: &str, params: WavetableParams) -> Result<(), String> {
+        let shared = wavetable::shared_for(table_id).ok_or_else(|| format!("no wavetable called {table_id}"))?;
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        bus.note_mixer.add(WavetableVoice::new(shared, params, None));
+        Ok(())
+    }
+
+    /// Starts a wavetable note that sounds until `wavetable_note_off` (a key held down, or a note
+    /// latched while sculpting). Returns the id to release it with.
+    pub fn wavetable_note_on(&self, track_id: &str, table_id: &str, params: WavetableParams) -> Result<u64, String> {
+        let shared = wavetable::shared_for(table_id).ok_or_else(|| format!("no wavetable called {table_id}"))?;
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        let gate = Arc::new(AtomicBool::new(true));
+        let position = Arc::new(AtomicU32::new(params.position.to_bits()));
+        let id = self.next_wavetable_voice.fetch_add(1, Ordering::Relaxed);
+        bus.note_mixer.add(WavetableVoice::new(shared, params, Some(gate.clone())).with_live_position(position.clone()));
+        let mut gates = self.wavetable_gates.lock().unwrap();
+        // A voice that has finished has dropped its clone of the gate, leaving only ours.
+        gates.retain(|_, h| Arc::strong_count(&h.gate) > 1);
+        gates.insert(id, WavetableHandle { gate, position });
+        Ok(id)
+    }
+
+    /// Releases a note started by `wavetable_note_on`. Unknown or already-finished ids are ignored.
+    pub fn wavetable_note_off(&self, voice_id: u64) {
+        if let Some(h) = self.wavetable_gates.lock().unwrap().remove(&voice_id) {
+            h.gate.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// Moves a held note through its table: `position` is 0..1 across the frames.
+    pub fn wavetable_set_position(&self, voice_id: u64, position: f32) {
+        if let Some(h) = self.wavetable_gates.lock().unwrap().get(&voice_id) {
+            h.position.store(position.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        }
     }
 
     /// Auditions a sample through `PREVIEW_BUS`, cutting off the one still playing from the last

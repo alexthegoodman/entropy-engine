@@ -65,6 +65,18 @@ export function createWorld(initialSaved?: unknown) {
         windowTitles: {} as Record<string, string>,
         padGrids: new Map<string, any>(),
         trees: new Map<string, any>(),
+        // Wavetables. `wavetableViews` are the editor widgets as the addon declared them this frame;
+        // `tables` is the fake engine's registry (a table is a string that records what was done to
+        // it, so a test can tell a preset from a stroke from an operation); `wavetableNotes` are timed
+        // notes, `heldNotes` the notes started with a gate (by voice id), and `wavetableExports` what
+        // the WAV export was handed.
+        wavetableViews: new Map<string, any>(),
+        tables: new Map<string, { data: string; preset: string; edits: string[] }>(),
+        wavetableNotes: [] as { id: string; cfg: any }[],
+        heldNotes: new Map<number, { id: string; cfg: any; released: boolean; position: number }>(),
+        nextVoice: 1,
+        wavetableExports: [] as any[][],
+        removedTables: [] as string[],
         lastCreatedTrackId: "",
         lastToolResult: null as any,
     };
@@ -85,6 +97,7 @@ export function createWorld(initialSaved?: unknown) {
         dropdown: (_win: string, c: any) => { w.dropdowns.set(c.id ?? c.label, c); },
         pianoRoll: (_win: string, c: any) => { w.piano = c; },
         padGrid: (_win: string, c: any) => { w.padGrids.set(c.id, c); },
+        wavetable: (_win: string, c: any) => { w.wavetableViews.set(c.id ?? c.table, c); },
         treeView: (_win: string, c: any) => { w.trees.set(c.id, c); },
         tracks: (_win: string, c: any) => { if (c.id === "arrangement") w.arrangement = c; },
     };
@@ -110,9 +123,26 @@ export function createWorld(initialSaved?: unknown) {
             ensureTrackBus: (id: string, cfg: any) => { w.buses.set(id, cfg); },
             removeTrackBus: (id: string) => { w.buses.delete(id); },
             playNoteOnTrack: (id: string, cfg: any) => { w.played.push({ id, cfg }); },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[]) => {
+            playWavetableOnTrack: (id: string, cfg: any) => {
+                if (!w.tables.has(cfg.table)) return { ok: false, error: `no wavetable called ${cfg.table}` };
+                w.wavetableNotes.push({ id, cfg });
+                return { ok: true };
+            },
+            wavetableNoteOn: (id: string, cfg: any) => {
+                if (!w.tables.has(cfg.table)) return { ok: false, error: `no wavetable called ${cfg.table}` };
+                const voice = w.nextVoice++;
+                w.heldNotes.set(voice, { id, cfg, released: false, position: cfg.position });
+                return { ok: true, voice };
+            },
+            wavetableNoteOff: (voice: number) => { const n = w.heldNotes.get(voice); if (n) n.released = true; },
+            wavetableSetPosition: (voice: number, position: number) => {
+                const n = w.heldNotes.get(voice);
+                if (n && !n.released) n.position = position;
+            },
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[]) => {
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
+                w.wavetableExports.push(wavetableEvents ?? []);
                 return { success: true, path: "test.wav", durationSeconds: 1 };
             },
             loadSample: (path: string) => w.samples[path]
@@ -130,6 +160,49 @@ export function createWorld(initialSaved?: unknown) {
             },
             stopPreview: () => { w.previewStops++; },
             analyze: (source: string) => w.analysis.get(source) ?? null,
+        },
+        // The engine's wavetable registry, reduced to what the addon can observe: a table is created as
+        // a preset, edited by strokes and operations (each recorded in `edits`), and saved and
+        // restored as an opaque string. The stand-in refuses data that did not come from `exportData`,
+        // like the real one refuses a string that is not a table.
+        Wavetable: {
+            ensure: (id: string, options?: { preset?: string }) => {
+                const known = ["sine", "saw", "square", "pwm", "vowels", "bell", "terrain", "glass"];
+                if (options?.preset && !known.includes(options.preset)) return { ok: false, error: `no preset called ${options.preset}` };
+                const t = w.tables.get(id);
+                if (!t) w.tables.set(id, { data: `table:${options?.preset ?? "sine"}`, preset: options?.preset ?? "sine", edits: [] });
+                else if (options?.preset) { t.data = `table:${options.preset}`; t.preset = options.preset; t.edits.push(`preset ${options.preset}`); }
+                return { ok: true, id, frames: 32, canUndo: false, canRedo: false };
+            },
+            remove: (id: string) => { w.removedTables.push(id); return w.tables.delete(id); },
+            info: (id: string) => w.tables.has(id) ? { ok: true, id, frames: 32, canUndo: w.tables.get(id)!.edits.length > 0, canRedo: false, activity: null, activeVoices: 0 } : { ok: false, error: `no wavetable called ${id}` },
+            op: (id: string, name: string, arg?: number) => {
+                const t = w.tables.get(id);
+                if (!t) return { ok: false, error: `no wavetable called ${id}` };
+                t.data += `+${name}`; t.edits.push(`op ${name}${arg ? " " + arg : ""}`);
+                return { ok: true };
+            },
+            stamp: (id: string, stamps: any[]) => {
+                const t = w.tables.get(id);
+                if (!t) return { ok: false, error: `no wavetable called ${id}` };
+                for (const s of stamps) if (!["raise", "lower", "smooth", "level"].includes(s.tool)) return { ok: false, error: `no brush called ${s.tool}` };
+                t.data += `+stamp${stamps.length}`; t.edits.push(`stamp x${stamps.length}`);
+                return { ok: true, touchedFrames: [Math.max(0, Math.floor(stamps[0].frame) - 3), Math.floor(stamps[0].frame) + 3] };
+            },
+            setFrame: () => ({ ok: true }),
+            exportData: (id: string) => w.tables.get(id)?.data ?? null,
+            importData: (id: string, data: string) => {
+                if (!data.startsWith("table:")) return { ok: false, error: "not a wavetable (missing WVT1 header)" };
+                const t = w.tables.get(id);
+                if (!t) w.tables.set(id, { data, preset: "custom", edits: ["imported"] });
+                else { t.data = data; t.edits.push("imported"); }
+                return { ok: true };
+            },
+            harmonics: () => ({ ok: true, frame: 0, harmonics: [1, 0.5, 0.33, 0.25], peak: 0.9, rms: 0.6 }),
+            // Brightness follows the position, so a test can tell where in the table a note was heard.
+            analyzeNote: (cfg: any) => w.tables.has(cfg.table)
+                ? { ok: true, seconds: 0.85, peakDb: -12, rmsDb: -15, peakHz: cfg.freq, centroidHz: 300 + 4000 * cfg.position }
+                : { ok: false, error: `no wavetable called ${cfg.table}` },
         },
         AudioEffect: {
             createDelay: () => `delay-${++uuid}`, createReverb: () => `reverb-${++uuid}`,
@@ -158,7 +231,7 @@ export function createWorld(initialSaved?: unknown) {
     const render = () => {
         w.buttons.clear(); w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = [];
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.wavetableViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
         windowRenders.forEach(fn => fn());

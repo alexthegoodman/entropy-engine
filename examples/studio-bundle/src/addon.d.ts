@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -357,6 +357,14 @@ export interface ScopedAPI {
     /** Triggers one note on an already-created track bus (see `ensureTrackBus`). The bus's own
      * `effectIds` chain handles FX now, so there are no delay/reverb fields here. */
     playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+    /** Plays one timed wavetable note on a track's bus (see `Wavetable`). The note reads the table
+     * as it is at every sample, so sculpting the table changes a note that is already sounding. */
+    playWavetableOnTrack: (trackId: string, config: WavetableNoteConfig) => WavetableOk;
+    /** Starts a wavetable note that sounds until `wavetableNoteOff(voice)`. */
+    wavetableNoteOn: (trackId: string, config: WavetableNoteConfig) => WavetableOk & { voice?: number };
+    wavetableNoteOff: (voice: number) => void;
+    /** Moves a held wavetable note through its table (0..1 across the frames) while it sounds. */
+    wavetableSetPosition: (voice: number, position: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -393,6 +401,7 @@ export interface ScopedAPI {
     destroy: (effectId: string) => void;
   };
   Vst3: Vst3API;
+  Wavetable: WavetableAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -448,6 +457,8 @@ export interface ScopedAPI {
       /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
        * ring and a glow the caller drives. See `PadGridConfig`. */
       padGrid: (windowId: string, config: PadGridConfig) => void;
+      /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
+      wavetable: (windowId: string, config: WavetableViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -1355,6 +1366,118 @@ export interface PadGridConfig {
   onAdd?: () => void;
 }
 
+export interface WavetableViewConfig {
+  id?: string;
+  /** The table to show and edit (`Wavetable.ensure` makes it; it is created if missing). */
+  table: string;
+  /** "raise" (default), "lower", "smooth", "level" or "orbit". You own this; `onTool` says when the user picks another. */
+  tool?: string;
+  /** Brush radius in world units, 0.04 to 0.6. */
+  radius?: number;
+  /** 0..1. */
+  strength?: number;
+  /** The selected frame, 0-based. You own this; `onFrame` says when the user picks another. */
+  frame?: number;
+  height?: number;
+  width?: number;
+  /** Show the on-screen keyboard. Default true. */
+  keyboard?: boolean;
+  /** MIDI note of the keyboard's first key (a C). Default 48. */
+  firstKey?: number;
+  octaves?: number;
+  /** Notes to draw as held, beyond the one the pointer is pressing. */
+  held?: number[];
+  /** A stroke ended, or undo/redo ran: the table changed for good, so save it now. */
+  onEdit?: () => void;
+  onStrokeStart?: () => void;
+  onStrokeEnd?: () => void;
+  onFrame?: (frame: number) => void;
+  onTool?: (tool: string) => void;
+  onKeyDown?: (midi: number, velocity: number) => void;
+  onKeyUp?: (midi: number) => void;
+}
+
+export interface WavetableOk { ok: boolean; error?: string }
+
+export interface WavetableInfo extends WavetableOk {
+  id?: string;
+  frames?: number;
+  tableSize?: number;
+  revision?: number;
+  version?: number;
+  canUndo?: boolean;
+  canRedo?: boolean;
+  /** Where the sounding note is reading (0..1 across the frames) and how loud it is; null when silent. */
+  activity?: { position: number; energy: number } | null;
+  activeVoices?: number;
+}
+
+export interface WavetableStamp {
+  tool: "raise" | "lower" | "smooth" | "level";
+  /** Fractional frame, 0-based. */
+  frame: number;
+  /** Cycles, 0..1 (wraps around the cycle edge). */
+  phase: number;
+  /** World units; default 0.16. */
+  radius?: number;
+  /** 1 is round; more stretches the dab along `angle`. */
+  aspect?: number;
+  angle?: number;
+  /** 0.3 is a firm dab; 1 or more saturates. */
+  amount?: number;
+  /** The height `level` pulls toward, -1..1. */
+  target?: number;
+}
+
+/** A wavetable note. Anything left out takes its default. */
+export interface WavetableNoteConfig {
+  table: string;
+  freq?: number;
+  velocity?: number;
+  gain?: number;
+  /** Where in the table the note rests, 0..1 across the frames. */
+  position?: number;
+  lfoRate?: number;
+  /** How far the LFO sweeps the position, as a fraction of the table. */
+  lfoDepth?: number;
+  /** Added to the position at note-on, falling away over `sweepTime` seconds. */
+  sweep?: number;
+  sweepTime?: number;
+  velToPosition?: number;
+  /** 1 to 7 voices. */
+  unison?: number;
+  detuneCents?: number;
+  spread?: number;
+  cutoff?: number;
+  resonance?: number;
+  attack?: number;
+  decay?: number;
+  sustain?: number;
+  release?: number;
+  /** Seconds to hold before releasing (timed notes). */
+  duration?: number;
+  /** Offline renders only: seconds from the start. */
+  startTime?: number;
+}
+
+export interface WavetableAPI {
+  /** Creates the table if missing (a stack of sines); `preset` replaces its contents. */
+  ensure: (id: string, options?: { preset?: string; frames?: number }) => WavetableInfo;
+  presets: string[];
+  remove: (id: string) => boolean;
+  info: (id: string) => WavetableInfo;
+  /** "normalize", "smooth", "invert", "reverse", "flip_frames", "randomize", "undo", "redo". */
+  op: (id: string, name: string, arg?: number) => WavetableInfo;
+  /** Brush dabs as one undo step: the same brush the editor uses. */
+  stamp: (id: string, stamps: WavetableStamp[]) => WavetableInfo & { touchedFrames?: [number, number] | null };
+  setFrame: (id: string, frame: number, samples: number[]) => WavetableInfo;
+  exportData: (id: string) => string | null;
+  importData: (id: string, data: string) => WavetableInfo;
+  harmonics: (id: string, frame?: number, count?: number) => WavetableOk & { frame?: number; harmonics?: number[]; peak?: number; rms?: number };
+  /** Plays a note offline and reads it back; no audio device involved. */
+  analyzeNote: (config: WavetableNoteConfig, seconds?: number) => WavetableOk & { seconds?: number; peakDb?: number; rmsDb?: number; peakHz?: number; centroidHz?: number };
+}
+
 /** What `Audio.analyze` returns. */
 export interface AudioAnalysis {
   peakL: number;
@@ -1725,6 +1848,8 @@ export interface EntropyAPI {
       /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
        * ring and a glow the caller drives. See `PadGridConfig`. */
       padGrid: (windowId: string, config: PadGridConfig) => void;
+      /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
+      wavetable: (windowId: string, config: WavetableViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2003,7 +2128,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2012,6 +2137,14 @@ export interface EntropyAPI {
     removeTrackBus: (trackId: string) => void;
     /** Triggers one note on an already-created track bus (see `ensureTrackBus`). */
     playNoteOnTrack: (trackId: string, config: PlayNoteOnTrackConfig) => void;
+    /** Plays one timed wavetable note on a track's bus (see `Wavetable`). The note reads the table
+     * as it is at every sample, so sculpting the table changes a note that is already sounding. */
+    playWavetableOnTrack: (trackId: string, config: WavetableNoteConfig) => WavetableOk;
+    /** Starts a wavetable note that sounds until `wavetableNoteOff(voice)`. */
+    wavetableNoteOn: (trackId: string, config: WavetableNoteConfig) => WavetableOk & { voice?: number };
+    wavetableNoteOff: (voice: number) => void;
+    /** Moves a held wavetable note through its table (0..1 across the frames) while it sounds. */
+    wavetableSetPosition: (voice: number, position: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -2039,6 +2172,7 @@ export interface EntropyAPI {
     destroy: (effectId: string) => void;
   };
   Vst3: Vst3API;
+  Wavetable: WavetableAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

@@ -452,6 +452,31 @@ pub struct PadGridConfig {
     pub add_tile: Option<bool>,
 }
 
+/// `Widget.wavetable` - see `entropy_gui::WavetableView`. `table` names a table in the wavetable
+/// registry (`Entropy.Wavetable.ensure`); it is created as a stack of sines if it does not exist.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct WavetableViewConfig {
+    pub table: String,
+    /// "raise" (default), "lower", "smooth", "level" or "orbit".
+    pub tool: Option<String>,
+    /// Brush radius in world units, 0.04 to 0.6.
+    pub radius: Option<f32>,
+    /// 0..1.
+    pub strength: Option<f32>,
+    /// The selected frame (0-based).
+    pub frame: Option<u32>,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// Show the on-screen keyboard. Default true.
+    pub keyboard: Option<bool>,
+    /// MIDI note of the keyboard's first key (a C). Default 48.
+    pub first_key: Option<u32>,
+    pub octaves: Option<u32>,
+    /// Notes to draw as held, beyond the one the pointer is pressing.
+    pub held: Option<Vec<u32>>,
+}
+
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -580,6 +605,9 @@ pub enum UiWidget {
     TabBar { id: String, tabs: Vec<TabBarItemConfig>, selected: String },
     /// A drum-machine pad bank - see `entropy_gui::widgets_pads`.
     PadGrid { id: String, config: PadGridConfig },
+    /// A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard - see
+    /// `entropy_gui::widgets_wavetable`. The table lives Rust-side; nothing crosses into JS per frame.
+    WavetableView { id: String, config: WavetableViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -2455,6 +2483,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] events: Vec<NoteEventConfig>,
     #[string] suggested_name: String,
     #[serde] sample_events: Vec<SampleEventConfig>,
+    #[serde] wavetable_events: Vec<crate::deno::wavetable_ops::WavetableNoteConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2510,7 +2539,9 @@ pub fn op_audio_render_pattern_wav(
         .map(|e| crate::audio::samples::SampleEvent { start_time: e.start_time, path: e.path, params: e.params.to_params() })
         .collect();
 
-    match crate::audio::render_events_to_wav(&note_events, &sample_hits, 44100, &output_path) {
+    let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
+
+    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, 44100, &output_path) {
         Ok(duration_seconds) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
@@ -3515,6 +3546,18 @@ pub fn op_ui_widget_tab_bar(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TabBar { id, tabs, selected });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_wavetable(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: WavetableViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::WavetableView { id, config });
     }
 }
 

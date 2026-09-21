@@ -28,11 +28,23 @@ impl Harness {
     }
 
     pub fn run(&mut self, pointer: PointerState, scroll: f32, add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui)) -> Vec<DrawCommand> {
+        self.run_with(pointer, scroll, Default::default(), add)
+    }
+
+    /// `run` with the keyboard modifiers held down for the frame.
+    pub fn run_with(
+        &mut self,
+        pointer: PointerState,
+        scroll: f32,
+        modifiers: entropy_engine::entropy_gui::context::Modifiers,
+        add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui),
+    ) -> Vec<DrawCommand> {
         let raw = RawInput {
             screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(self.width as f32, self.height as f32)),
             pixels_per_point: 1.0,
             pointer,
             scroll_delta: vec2(0.0, scroll),
+            modifiers,
             dt: self.time_step,
             ..Default::default()
         };

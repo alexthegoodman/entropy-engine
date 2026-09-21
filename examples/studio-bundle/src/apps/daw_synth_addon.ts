@@ -35,6 +35,16 @@ import {
     triggersAt,
 } from "./daw_arrangement";
 import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
+import type { WavetableSettings } from "./daw_wavetable";
+import {
+    WT_OPS,
+    WT_PRESETS,
+    WT_WAVEFORM,
+    defaultWavetable,
+    describeSettings as describeWavetable,
+    noteConfig as wavetableNoteConfig,
+    repairWavetable,
+} from "./daw_wavetable";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import {
     GUITAR_MODES,
@@ -152,6 +162,8 @@ interface Track {
     instrument?: Vst3Instrument | null;
     // Drum tracks only: the pads, one per piano-roll row. `rows` always equals rack.length.
     rack?: DrumPad[];
+    // Synth tracks whose waveform is "wavetable": the sculpted table (base64) and its settings.
+    wavetable?: WavetableSettings;
     rootNote: number;
     scale: string;
     rows: number;
@@ -342,6 +354,141 @@ function addTrack(kind: "synth" | "drum", channel?: number, name?: string): Trac
     return track;
 }
 
+// --- Wavetable tracks (see daw_wavetable.ts and src/audio/wavetable.rs) ---------------------------
+//
+// A synth track whose waveform is "wavetable" plays a table you sculpt in the Wavetable window. The
+// table lives engine-side, named by the track's id; the project saves it as base64 next to the
+// track's settings. Everything here that is not saved is runtime: which tables the engine has been
+// given, and the engine ids of the notes being held while the window is used.
+
+const wtLoaded: Record<string, boolean> = {};
+// Engine ids of held notes: by key (a key pressed in the window), the audition note that sounds for
+// the length of a stroke, and the note latched by the Hold button.
+const wtHeld: Record<string, Record<number, number>> = {};
+const wtStroke: Record<string, number> = {};
+const wtLatch: Record<string, number> = {};
+let wtStatus = "";
+
+function isWavetableTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === WT_WAVEFORM;
+}
+
+// The track's wavetable settings, with the table itself put in the engine the first time it is
+// needed: from the saved data if there is any, otherwise from the preset it started as.
+function trackWavetable(track: Track): WavetableSettings {
+    if (!track.wavetable) track.wavetable = defaultWavetable();
+    const wt = track.wavetable;
+    if (!wtLoaded[track.id]) {
+        wtLoaded[track.id] = true;
+        const preset = WT_PRESETS.some(p => p.id === wt.preset) ? wt.preset : "saw";
+        addon.Wavetable.ensure(track.id, { preset: wt.data ? undefined : preset });
+        if (wt.data) {
+            const r = addon.Wavetable.importData(track.id, wt.data);
+            if (!r.ok) {
+                wtStatus = `${track.name}: the saved wavetable could not be read (${r.error}), so it starts from ${preset}.`;
+                addon.Wavetable.ensure(track.id, { preset });
+                wt.data = undefined;
+            }
+        } else {
+            wt.data = addon.Wavetable.exportData(track.id) ?? undefined;
+        }
+    }
+    return wt;
+}
+
+// Copies the engine's table into the track, so the project saves what is on screen. Called whenever
+// an edit ends; the write to disk is debounced.
+function saveTrackWavetable(track: Track) {
+    const data = addon.Wavetable.exportData(track.id);
+    if (data && track.wavetable) track.wavetable.data = data;
+    scheduleSave();
+}
+
+function wavetableNote(track: Track, freq: number, velocity: number, duration: number) {
+    addon.Audio.playWavetableOnTrack(track.id, wavetableNoteConfig(track.id, track.voice, trackWavetable(track), { freq, velocity, duration }));
+}
+
+function startHeldWavetableNote(track: Track, midi: number, velocity: number): number | null {
+    const r = addon.Audio.wavetableNoteOn(track.id, wavetableNoteConfig(track.id, track.voice, trackWavetable(track), { freq: midiToFreq(midi), velocity }));
+    return r.ok && r.voice !== undefined ? r.voice : null;
+}
+
+function releaseWavetableVoices(track: Track) {
+    for (const v of Object.values(wtHeld[track.id] ?? {})) addon.Audio.wavetableNoteOff(v);
+    wtHeld[track.id] = {};
+    if (wtStroke[track.id] !== undefined) addon.Audio.wavetableNoteOff(wtStroke[track.id]);
+    if (wtLatch[track.id] !== undefined) addon.Audio.wavetableNoteOff(wtLatch[track.id]);
+    delete wtStroke[track.id];
+    delete wtLatch[track.id];
+}
+
+function heldWavetableVoices(track: Track): number[] {
+    const held = Object.values(wtHeld[track.id] ?? {});
+    for (const v of [wtStroke[track.id], wtLatch[track.id]]) if (v !== undefined) held.push(v);
+    return held;
+}
+
+function pressWavetableKey(track: Track, midi: number, velocity: number) {
+    const v = startHeldWavetableNote(track, midi, velocity);
+    if (v !== null) (wtHeld[track.id] ??= {})[midi] = v;
+}
+
+function releaseWavetableKey(track: Track, midi: number) {
+    const v = wtHeld[track.id]?.[midi];
+    if (v === undefined) return;
+    addon.Audio.wavetableNoteOff(v);
+    delete wtHeld[track.id][midi];
+}
+
+// While a stroke is in progress a note sounds (if "Hear while sculpting" is on), so the change is
+// heard as it is made rather than after. A latched note already sounds, so a stroke adds nothing.
+function beginStrokeAudition(track: Track) {
+    const wt = trackWavetable(track);
+    if (!wt.audition || wtStroke[track.id] !== undefined || wtLatch[track.id] !== undefined) return;
+    const v = startHeldWavetableNote(track, wt.auditionNote, 0.8);
+    if (v !== null) wtStroke[track.id] = v;
+}
+
+function endStrokeAudition(track: Track) {
+    const v = wtStroke[track.id];
+    if (v === undefined) return;
+    addon.Audio.wavetableNoteOff(v);
+    delete wtStroke[track.id];
+}
+
+function toggleLatch(track: Track) {
+    const held = wtLatch[track.id];
+    if (held !== undefined) {
+        addon.Audio.wavetableNoteOff(held);
+        delete wtLatch[track.id];
+        return;
+    }
+    const v = startHeldWavetableNote(track, trackWavetable(track).auditionNote, 0.8);
+    if (v !== null) wtLatch[track.id] = v;
+}
+
+// The position slider moves every note that is sounding through the table, so dragging it is heard.
+function setWavetablePosition(track: Track, position: number) {
+    const wt = trackWavetable(track);
+    wt.position = Math.max(0, Math.min(1, position));
+    for (const v of heldWavetableVoices(track)) addon.Audio.wavetableSetPosition(v, wt.position);
+    scheduleSave();
+}
+
+function loadWavetablePreset(track: Track, preset: string) {
+    const r = addon.Wavetable.ensure(track.id, { preset });
+    if (!r.ok) { wtStatus = r.error ?? "That preset could not be loaded."; return; }
+    trackWavetable(track).preset = preset;
+    saveTrackWavetable(track);
+}
+
+function runWavetableOp(track: Track, op: string, arg?: number) {
+    trackWavetable(track);
+    const r = addon.Wavetable.op(track.id, op, arg);
+    wtStatus = r.ok ? "" : (r.error ?? `${op} did not work`);
+    if (r.ok) saveTrackWavetable(track);
+}
+
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
 
 function ensureTrackEffects(track: Track) {
@@ -363,6 +510,7 @@ function ensureTrackEffects(track: Track) {
 // edit: the DAW's sliders are click-to-set rather than continuous-drag, so this fires once per
 // interaction, not once per frame.
 function syncTrackBus(track: Track) {
+    if (isWavetableTrack(track)) trackWavetable(track);
     ensureTrackEffects(track);
     addon.AudioEffect.setDelayParams(track.delayEffectId!, {
         time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
@@ -378,6 +526,9 @@ function syncTrackBus(track: Track) {
 }
 
 function removeTrackBus(track: Track) {
+    releaseWavetableVoices(track);
+    if (wtLoaded[track.id]) addon.Wavetable.remove(track.id);
+    delete wtLoaded[track.id];
     addon.Vst3.unload(track.id);
     delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
@@ -844,7 +995,7 @@ function renderPadEditor(win: string, track: Track) {
 // browser is always there (you can audition with no drum track picked); the pads and the pad editor
 // follow the drum track you have selected.
 let rackWindowId: string | null = null;
-let rackVisible = true;
+let rackVisible = false;
 
 function setRackVisible(visible: boolean) {
     rackVisible = visible;
@@ -1113,6 +1264,123 @@ function renderGuitarWindow(win: string) {
     }
 }
 
+// --- The Wavetable window -------------------------------------------------------------------------
+//
+// The active synth track's table as terrain (see entropy_gui::WavetableView), with the settings
+// that decide how a note moves through it. Mouse and pen both work on the terrain; the on-screen
+// keyboard plays the sound through the track's own bus, so it honours the track's gain, mute, solo
+// and effects like any other note.
+
+let wavetableWindowId: string | null = null;
+let wavetableVisible = false;
+let wavetableWindowHeight = 900;
+let wavetableWindowWidth = 1240;
+// The right-hand column of sliders takes this much of the window's width; the terrain gets the rest.
+const WAVETABLE_SIDE_COLUMN = 380;
+
+function setWavetableVisible(visible: boolean) {
+    wavetableVisible = visible;
+    if (wavetableWindowId) Entropy.UI.setWindowVisible(wavetableWindowId, visible);
+}
+
+function renderWavetableWindow(win: string) {
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        Entropy.UI.Widget.label(win, { text: "The wavetable editor works on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isWavetableTrack(track)) {
+        Entropy.UI.Widget.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        Entropy.UI.Widget.button(win, {
+            text: "Make it a wavetable synth", id: "wt_make",
+            onClick: () => { track.voice.waveform = WT_WAVEFORM; persist(); }
+        });
+        return;
+    }
+    const wt = trackWavetable(track);
+    const latched = wtLatch[track.id] !== undefined;
+
+    Entropy.UI.Widget.horizontal(win, (columns: string) => {
+    Entropy.UI.Widget.vertical(columns, (left: string) => {
+    Entropy.UI.Widget.horizontal(left, (row: string) => {
+        Entropy.UI.Widget.label(row, { text: `${track.name} - start from`, bold: true });
+        for (const p of WT_PRESETS) {
+            Entropy.UI.Widget.button(row, {
+                text: (wt.preset === p.id ? "● " : "") + p.label, id: "wt_preset_" + p.id,
+                onClick: () => { loadWavetablePreset(track, p.id); }
+            });
+        }
+    });
+    Entropy.UI.Widget.horizontal(left, (row: string) => {
+        for (const o of WT_OPS) {
+            Entropy.UI.Widget.button(row, { text: o.label, id: "wt_op_" + o.id, onClick: () => { runWavetableOp(track, o.id, o.arg); } });
+        }
+        Entropy.UI.Widget.button(row, {
+            text: latched ? "■ Release note" : "▶ Hold a note", id: "wt_latch",
+            onClick: () => { toggleLatch(track); }
+        });
+        Entropy.UI.Widget.checkbox(row, {
+            label: "Hear while sculpting", value: wt.audition,
+            onChange: (v: any) => { wt.audition = v === true || v === "true"; scheduleSave(); }
+        });
+    });
+    Entropy.UI.Widget.horizontal(left, (row: string) => {
+        Entropy.UI.Widget.slider(row, {
+            label: "Brush size", value: wt.radius, min: 0.04, max: 0.6,
+            onChange: (v: string) => { wt.radius = parseFloat(v); scheduleSave(); }
+        });
+        Entropy.UI.Widget.slider(row, {
+            label: "Strength", value: wt.strength, min: 0.05, max: 1,
+            onChange: (v: string) => { wt.strength = parseFloat(v); scheduleSave(); }
+        });
+        Entropy.UI.Widget.numericInput(row, {
+            label: "Note (MIDI)", id: "wt_audition_note", value: wt.auditionNote,
+            onChange: (v: string) => { wt.auditionNote = Math.max(24, Math.min(96, Math.round(parseFloat(v) || wt.auditionNote))); scheduleSave(); }
+        });
+    });
+
+    Entropy.UI.Widget.wavetable(left, {
+        id: "wt_" + track.id,
+        table: track.id,
+        tool: wt.tool,
+        radius: wt.radius,
+        strength: wt.strength,
+        frame: wt.frame,
+        width: Math.max(420, wavetableWindowWidth - WAVETABLE_SIDE_COLUMN),
+        height: Math.max(440, wavetableWindowHeight - 230),
+        held: [...(latched ? [wt.auditionNote] : [])],
+        onEdit: () => { saveTrackWavetable(track); },
+        onStrokeStart: () => { beginStrokeAudition(track); },
+        onStrokeEnd: () => { endStrokeAudition(track); },
+        onFrame: (f: number) => { wt.frame = f; scheduleSave(); },
+        onTool: (t: string) => { wt.tool = t as WavetableSettings["tool"]; scheduleSave(); },
+        onKeyDown: (midi: number, velocity: number) => { pressWavetableKey(track, midi, velocity); },
+        onKeyUp: (midi: number) => { releaseWavetableKey(track, midi); },
+    });
+
+    if (wtStatus) Entropy.UI.Widget.label(left, { text: wtStatus });
+    });
+    Entropy.UI.Widget.vertical(columns, (right: string) => {
+        Entropy.UI.Widget.group(right, (g: string) => {
+            Entropy.UI.Widget.label(g, { text: "Motion", bold: true });
+            Entropy.UI.Widget.slider(g, { label: "Position", value: wt.position, min: 0, max: 1, onChange: (v: string) => { setWavetablePosition(track, parseFloat(v)); } });
+            Entropy.UI.Widget.slider(g, { label: "LFO rate (Hz)", value: wt.lfoRate, min: 0, max: 20, onChange: (v: string) => { wt.lfoRate = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "LFO depth", value: wt.lfoDepth, min: 0, max: 1, onChange: (v: string) => { wt.lfoDepth = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "Sweep", value: wt.sweep, min: -1, max: 1, onChange: (v: string) => { wt.sweep = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "Sweep time (s)", value: wt.sweepTime, min: 0.02, max: 6, onChange: (v: string) => { wt.sweepTime = parseFloat(v); scheduleSave(); } });
+        });
+        Entropy.UI.Widget.group(right, (g: string) => {
+            Entropy.UI.Widget.label(g, { text: "Voice", bold: true });
+            Entropy.UI.Widget.slider(g, { label: "Unison voices", value: wt.unison, min: 1, max: 7, onChange: (v: string) => { wt.unison = Math.round(parseFloat(v)); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "Detune (cents)", value: wt.detuneCents, min: 0, max: 60, onChange: (v: string) => { wt.detuneCents = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "Stereo spread", value: wt.spread, min: 0, max: 1, onChange: (v: string) => { wt.spread = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.slider(g, { label: "Velocity to position", value: wt.velToPosition, min: -1, max: 1, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
+            Entropy.UI.Widget.label(g, { text: "Cutoff and envelope: see Voice." });
+        });
+    });
+    });
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -1156,6 +1424,10 @@ function triggerStep(absStep: number) {
         const t = track as Track;
         if (t.kind === "drum") {
             playPad(t, note.row, note.velocity, duration);
+            continue;
+        }
+        if (isWavetableTrack(t)) {
+            wavetableNote(t, freq, note.velocity, duration);
             continue;
         }
         addon.Audio.playNoteOnTrack(t.id, {
@@ -1237,8 +1509,9 @@ function buildPatternEvents(): any[] {
 
     for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
         const track = placed.track as Track;
-        // The offline renderer only knows the built-in voices; a hosted plugin runs live.
-        if (track.instrument) continue;
+        // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
+        // track is rendered by buildWavetableEvents from the table as it is now.
+        if (track.instrument || isWavetableTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -1289,10 +1562,31 @@ function buildSampleEvents(): any[] {
     return events;
 }
 
+// The wavetable tracks' notes for the same render. The offline renderer plays the table as it is now,
+// through the same voice the live path uses; the track's gain is folded in (no live bus to apply it).
+function buildWavetableEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isWavetableTrack(track)) continue;
+        const { freq } = noteVoiceAndFreq(track, placed.note.row);
+        const config = wavetableNoteConfig(track.id, track.voice, trackWavetable(track), {
+            freq, velocity: placed.note.velocity,
+            duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
+            startTime: placed.startStep * sd,
+        });
+        config.gain *= track.gain;
+        events.push(config);
+    }
+    return events;
+}
+
 function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
     const events = buildPatternEvents();
     const sampleEvents = buildSampleEvents();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents);
+    const wavetableEvents = buildWavetableEvents();
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents);
     const skipped = project.tracks.filter(t => t.instrument).length;
     const lost = Object.keys(sampleMissing).length;
     lastExportStatus = result.success
@@ -1570,6 +1864,8 @@ function restoreSavedProject() {
     migrateProject(saved, newId);
     // A project from before drum racks has no `rack`: it gets the five built-in pads it always had.
     for (const t of saved.tracks) if (t.kind === "drum") ensureRack(t);
+    // A wavetable track's settings are clamped, and its saved table is checked when the engine is given it.
+    for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
     project = saved as DAWProject;
     if (saved.guitar) project.guitar = readGuitarPrefs(saved.guitar);
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
@@ -1580,7 +1876,7 @@ function restoreSavedProject() {
     if (legacy) addon.IO.save(project);
 }
 
-const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise"];
+const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise", WT_WAVEFORM];
 const SCALE_NAMES = Object.keys(SCALES);
 const SNAP_MODES: SnapMode[] = ["bar", "beat", "step"];
 const SNAP_LABELS = ["Bar", "Beat", "Step"];
@@ -1761,6 +2057,11 @@ addon.onInit(async () => {
                     text: rackVisible ? "Hide Drum Rack" : "Show Drum Rack",
                     id: "toggle_rack",
                     onClick: () => { setRackVisible(!rackVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: wavetableVisible ? "Hide Wavetable" : "🌄 Wavetable",
+                    id: "toggle_wavetable",
+                    onClick: () => { setWavetableVisible(!wavetableVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
                     text: guitarStatus.running ? "🎸 Guitar (on)" : (guitarVisible ? "Hide Guitar Input" : "🎸 Guitar Input"),
@@ -2161,6 +2462,10 @@ addon.onInit(async () => {
                                 playPad(track, r, 1.0, 0.5);
                                 return;
                             }
+                            if (isWavetableTrack(track)) {
+                                wavetableNote(track, freq, 1.0, 0.5);
+                                return;
+                            }
                             addon.Audio.playNoteOnTrack(track.id, {
                                 freq, waveform: voice, duration: 0.5,
                                 cutoff: track.voice.cutoff, resonance: track.voice.resonance,
@@ -2286,6 +2591,19 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(rackWindowId, rackVisible);
 
+    // The wavetable editor, hidden until asked for. Tall and wide: the terrain wants room.
+    wavetableWindowHeight = Math.max(560, Math.min(940, screenH - 72));
+    wavetableWindowWidth = Math.max(760, Math.min(1240, screenW - 32));
+    wavetableWindowId = Entropy.UI.createWindow({
+        title: "Wavetable",
+        width: wavetableWindowWidth,
+        height: wavetableWindowHeight,
+        x: 16,
+        y: 56,
+        onRender: () => renderWavetableWindow(wavetableWindowId!)
+    });
+    Entropy.UI.setWindowVisible(wavetableWindowId, wavetableVisible);
+
     // The guitar input, top right, hidden until asked for. Drag it anywhere.
     guitarWindowId = Entropy.UI.createWindow({
         title: "Guitar Input",
@@ -2395,6 +2713,7 @@ addon.onInit(async () => {
                 gain: t.gain,
                 instrument: t.instrument ? { name: t.instrument.name, loaded: vst3Runtime[t.id]?.ok === true } : null,
                 voice: t.voice,
+                wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
                 rootNote: t.kind === "synth" ? t.rootNote : undefined,
                 scale: t.kind === "synth" ? t.scale : undefined,
                 rows: t.rows,
@@ -2517,6 +2836,107 @@ addon.onInit(async () => {
 
         persist();
         return { success: true, track: { id: track.id, name: track.name, voice: track.voice, gain: track.gain, muted: track.muted, solo: track.solo } };
+    });
+
+    addon.registerTool({
+        name: "daw_wavetable",
+        description: "Design the sound of a wavetable synth track: a track whose waveform is \"wavetable\" (daw_set_track_params with waveform \"wavetable\" makes one). Its sound is a table of 32 frames, each one cycle of a wave; a note plays one frame's wave at its pitch and moves through the frames as it sounds, so the table is a timbre that changes over time. The human sculpts the same table in the Wavetable window as terrain (phase across, frame into the screen, level up), and every action here edits that same table. Actions: \"info\" (settings, and the harmonics of one frame), \"preset\" (start from sine, saw, square, pwm, vowels, bell, terrain or glass: saw and square brighten across the frames, vowels moves through formants), \"op\" (normalize, smooth, invert, reverse, flip_frames, randomize), \"sculpt\" (brush dabs: raise, lower, smooth or level at a frame and a phase; radius is in world units, 0.16 default, amount 0.3 is a firm dab and 1 or more saturates), \"params\" (position 0-1 across the frames, lfoRate/lfoDepth, sweep/sweepTime, velToPosition, unison 1-7, detuneCents, spread), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so you can check a change worked without listening). Position 0 is the first frame. Sculpt then \"hear\" is the way to verify an edit.",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "preset", "op", "sculpt", "params", "hear"] },
+                preset: { type: "string", enum: WT_PRESETS.map(p => p.id), description: "For action preset." },
+                op: { type: "string", enum: WT_OPS.map(o => o.id), description: "For action op." },
+                arg: { type: "number", description: "For action op: normalize peak (default 0.9), smooth passes, randomize seed." },
+                stamps: {
+                    type: "array",
+                    description: "For action sculpt. Applied together as one undo step.",
+                    items: {
+                        type: "object",
+                        properties: {
+                            tool: { type: "string", enum: ["raise", "lower", "smooth", "level"] },
+                            frame: { type: "number", description: "0-based, may be fractional. Frame 0 is where a note starts at position 0." },
+                            phase: { type: "number", description: "Position within the cycle, 0-1 (wraps)." },
+                            radius: { type: "number", description: "World units, default 0.16. The whole cycle is 2 wide." },
+                            amount: { type: "number", description: "0.3 is a firm dab; 1 or more saturates." },
+                            target: { type: "number", description: "For level: the height to pull toward, -1 to 1." }
+                        },
+                        required: ["tool", "frame", "phase"]
+                    }
+                },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        position: { type: "number" }, lfoRate: { type: "number" }, lfoDepth: { type: "number" },
+                        sweep: { type: "number" }, sweepTime: { type: "number" }, velToPosition: { type: "number" },
+                        unison: { type: "number" }, detuneCents: { type: "number" }, spread: { type: "number" }
+                    }
+                },
+                frame: { type: "number", description: "For info: which frame's harmonics to report (default 0)." },
+                note: { type: "number", description: "For hear: MIDI note (default 48)." },
+                position: { type: "number", description: "For hear: where in the table to listen, 0-1 (default the track's position)." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isWavetableTrack(track)) return { success: false, error: `${track.name} is not a wavetable track. Use daw_set_track_params with waveform "wavetable" first.` };
+        const wt = trackWavetable(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describeWavetable(wt), ...extra });
+
+        switch (args.action) {
+            case "info": {
+                const frame = Math.max(0, Math.min(31, Math.round(args.frame ?? 0)));
+                const h = addon.Wavetable.harmonics(track.id, frame, 16);
+                const info = addon.Wavetable.info(track.id);
+                return done({ frames: info.frames, frame, harmonics: h.harmonics?.map(v => Math.round(v * 1000) / 1000), peak: h.peak, canUndo: info.canUndo });
+            }
+            case "preset": {
+                if (!WT_PRESETS.some(p => p.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + WT_PRESETS.map(p => p.id).join(", ") };
+                loadWavetablePreset(track, args.preset);
+                return done();
+            }
+            case "op": {
+                if (!WT_OPS.some(o => o.id === args.op)) return { success: false, error: "Unknown op. Choose one of: " + WT_OPS.map(o => o.id).join(", ") };
+                const r = addon.Wavetable.op(track.id, args.op, args.arg);
+                if (!r.ok) return { success: false, error: r.error };
+                saveTrackWavetable(track);
+                return done();
+            }
+            case "sculpt": {
+                if (!Array.isArray(args.stamps) || args.stamps.length === 0) return { success: false, error: "sculpt needs a non-empty stamps array." };
+                const r = addon.Wavetable.stamp(track.id, args.stamps);
+                if (!r.ok) return { success: false, error: r.error };
+                saveTrackWavetable(track);
+                return done({ touchedFrames: r.touchedFrames ?? null });
+            }
+            case "params": {
+                const p = args.params ?? {};
+                const merged = repairWavetable({ ...wt, ...p });
+                for (const k of ["position", "lfoRate", "lfoDepth", "sweep", "sweepTime", "velToPosition", "unison", "detuneCents", "spread"] as const) {
+                    if (typeof p[k] === "number") (wt as any)[k] = merged[k];
+                }
+                // A note that is sounding follows the position, exactly as it does for the slider.
+                if (typeof p.position === "number") setWavetablePosition(track, wt.position);
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const midi = typeof args.note === "number" ? args.note : 48;
+                const config = wavetableNoteConfig(track.id, track.voice, wt, { freq: midiToFreq(midi), velocity: 0.8, duration: 0.6 });
+                if (typeof args.position === "number") config.position = Math.max(0, Math.min(1, args.position));
+                config.sweep = 0; config.lfoDepth = 0;
+                const a = addon.Wavetable.analyzeNote(config, 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined, d = 1) => v === undefined ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({ note: midiToName(midi), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), strongestHz: r(a.peakHz), brightnessHz: r(a.centroidHz, 0) });
+            }
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
     });
 
     addon.registerTool({

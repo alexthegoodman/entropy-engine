@@ -7,7 +7,7 @@
 //! Also the only place IME text is actually consumed into a buffer: previously (real egui
 //! aside) `WindowEvent::Ime` was only logged (`src/startup.rs`), never fed to a text field.
 
-use crate::entropy_gui::context::{Context, KeyEvent, Modifiers, PlatformOutput, PointerState, RawInput};
+use crate::entropy_gui::context::{Context, KeyEvent, Modifiers, PenState, PlatformOutput, PointerState, RawInput};
 use crate::entropy_gui::context::Key as GuiKey;
 use crate::entropy_gui::context::ViewportId;
 use crate::entropy_gui::geometry::{pos2, vec2, CursorIcon as GuiCursorIcon, Rect, Vec2};
@@ -42,6 +42,8 @@ pub struct State {
     // bare bool) so a lost/undelivered Ended/Cancelled self-heals instead of permanently
     // locking out real mouse input - pen lift-off has already been observed to be flaky.
     last_touch_time: Option<std::time::Instant>,
+    /// Pressure, tilt and buttons of the pen that is touching right now, if one is.
+    pen: Option<PenState>,
 }
 
 /// The custom "modern pointer" art, one bitmap per DPI tier, swapped in for
@@ -116,6 +118,7 @@ impl State {
             last_frame_instant: std::time::Instant::now(),
             pointer_cursors: None,
             last_touch_time: None,
+            pen: None,
         }
     }
 
@@ -170,8 +173,39 @@ impl State {
                 self.last_touch_time = Some(std::time::Instant::now());
                 self.pointer_pos = Some(pos2(touch.location.x as f32, touch.location.y as f32));
                 match touch.phase {
-                    TouchPhase::Started | TouchPhase::Moved => self.primary_down = true,
-                    TouchPhase::Ended | TouchPhase::Cancelled => self.primary_down = false,
+                    TouchPhase::Started | TouchPhase::Moved => {
+                        self.primary_down = true;
+                        // Pressure is winit's; tilt, the barrel button and the eraser come from
+                        // the same packet via `stylus.rs` (Windows only). Anything that is not a
+                        // pen (finger touch) has no `stylus` entry and reports pressure only.
+                        let pressure = match touch.force {
+                            Some(winit::event::Force::Normalized(f)) => f as f32,
+                            Some(winit::event::Force::Calibrated { force, max_possible_force, .. }) if max_possible_force > 0.0 => (force / max_possible_force) as f32,
+                            _ => 1.0,
+                        };
+                        #[cfg(target_os = "windows")]
+                        let pen_packet = crate::stylus::tilt_for(touch.id as u32);
+                        #[cfg(not(target_os = "windows"))]
+                        let pen_packet: Option<()> = None;
+                        let mut pen = PenState { pressure: pressure.clamp(0.0, 1.0), ..PenState::default() };
+                        #[cfg(target_os = "windows")]
+                        if let Some(p) = pen_packet {
+                            pen.has_tilt = p.tilt_x.is_some() || p.tilt_y.is_some();
+                            pen.tilt_x = p.tilt_x.unwrap_or(0.0);
+                            pen.tilt_y = p.tilt_y.unwrap_or(0.0);
+                            pen.barrel = p.barrel;
+                            pen.eraser = p.eraser;
+                        }
+                        let _ = pen_packet;
+                        // The pen's side button is this pen's right mouse button.
+                        self.secondary_down = pen.barrel;
+                        self.pen = Some(pen);
+                    }
+                    TouchPhase::Ended | TouchPhase::Cancelled => {
+                        self.primary_down = false;
+                        self.secondary_down = false;
+                        self.pen = None;
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -235,6 +269,7 @@ impl State {
                 primary_released: !self.primary_down && self.prev_primary_down,
                 secondary_down: self.secondary_down,
                 secondary_pressed: self.secondary_down && !self.prev_secondary_down,
+                pen: self.pen,
             },
             scroll_delta: self.scroll_accum,
             modifiers: self.modifiers,

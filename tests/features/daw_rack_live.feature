@@ -9,7 +9,9 @@ Feature: The running DAW plays samples from a folder on its drum pads
 
   Scenario: Browse, audition, put three samples on the kit, and hear them in the song
     Given the real DAW is running in test mode
-    When I advance 60 frames
+    When I advance 20 frames
+    And I click "toggle_rack"
+    And I advance 40 frames
     Then I capture "rack-01-browser"
 
     When I send the widget event "TREEVIEW_SELECTED|sample_tree|{music}\Drum Kit"

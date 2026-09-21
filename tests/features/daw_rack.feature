@@ -247,13 +247,13 @@ Feature: Drum tracks play samples from the Music folder
     When I call the tool "daw_browse_samples" with {"path":"C:/Windows"}
     Then the tool failed saying "outside the folders"
 
-  Scenario: The rack is a window of its own that can be hidden and shown again
+  Scenario: The rack is a window of its own, hidden until it is asked for
     Given the DAW is open
-    Then the drum rack window is shown
-    When I click "toggle_rack"
     Then the drum rack window is hidden
     When I click "toggle_rack"
     Then the drum rack window is shown
+    When I click "toggle_rack"
+    Then the drum rack window is hidden
 
   Scenario: With a synth track selected the rack asks for a drum track instead of showing pads
     Given a disk with a drum kit folder

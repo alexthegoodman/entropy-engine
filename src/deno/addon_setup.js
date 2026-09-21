@@ -67,7 +67,7 @@ const audioAPI = {
     },
     // Renders a whole list of pre-scheduled note events offline to a WAV file (opens a native
     // save dialog engine-side); see `op_audio_render_pattern_wav` for the shape of `events`.
-    renderPatternToWav: (events, suggestedName, sampleEvents) => {
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -91,7 +91,7 @@ const audioAPI = {
             startTime: e.startTime || 0.0,
             path: e.path,
             params: sampleParams(e)
-        })));
+        })), wavetableEvents || []);
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -126,6 +126,17 @@ const audioAPI = {
     // Auditions a file through the shared preview bus, cutting off the previous audition.
     previewSample: (path, config) => ops.op_audio_preview_sample(path, sampleParams(config)),
     stopPreview: () => ops.op_audio_stop_preview(),
+    // A wavetable note on a track's bus (see Entropy.Wavetable). config: {table, freq, velocity,
+    // gain, position, lfoRate, lfoDepth, sweep, sweepTime, velToPosition, unison, detuneCents,
+    // spread, cutoff, resonance, attack, decay, sustain, release, duration}. The note reads the
+    // table as it is at every sample, so sculpting it changes a note that is already sounding.
+    // Returns {ok, error?}.
+    playWavetableOnTrack: (trackId, config) => ops.op_audio_play_wavetable_on_track({ ...config, trackId }),
+    // Starts a note that sounds until wavetableNoteOff(voice). Returns {ok, voice?, error?}.
+    wavetableNoteOn: (trackId, config) => ops.op_audio_wavetable_note_on({ ...config, trackId }),
+    wavetableNoteOff: (voice) => ops.op_audio_wavetable_note_off(voice),
+    // Moves a held note through its table (0..1 across the frames) while it sounds.
+    wavetableSetPosition: (voice, position) => ops.op_audio_wavetable_set_position(voice, position),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -148,6 +159,42 @@ const audioAPI = {
 // Hosts real VST3 plugins as a track's instrument (see src/audio/vst3.rs). A track's bus must exist
 // first (Audio.ensureTrackBus). Every call returns {ok, error?, ...} instead of throwing: a plugin
 // failing to load is an ordinary runtime condition the addon's UI should surface.
+// Wavetables: a stack of single-cycle waves you sculpt as terrain (see src/audio/wavetable.rs and
+// Widget.wavetable). A table is named by an id you choose (the DAW uses the track's id) and lives
+// engine-side, so the editor widget, these calls and a playing note all see the same table. Calls
+// return {ok, error?, ...} instead of throwing.
+const wavetableAPI = {
+    // Creates the table if there is none (a stack of sines) and describes it:
+    // {ok, frames, tableSize, revision, version, canUndo, canRedo}. options: {preset, frames}.
+    // A preset on a table that exists replaces its contents (one undo step). Presets: sine, saw,
+    // square, pwm, vowels, bell, terrain, glass.
+    ensure: (id, options) => ops.op_wavetable_ensure(id, options || {}),
+    presets: ["sine", "saw", "square", "pwm", "vowels", "bell", "terrain", "glass"],
+    remove: (id) => ops.op_wavetable_remove(id),
+    // Like ensure, plus {activity: {position, energy} | null, activeVoices}: where the sounding
+    // note is reading right now.
+    info: (id) => ops.op_wavetable_info(id),
+    // A whole-table operation: "normalize" (arg = peak, default 0.9), "smooth" (arg = passes),
+    // "invert", "reverse", "flip_frames", "randomize" (arg = seed), "undo", "redo".
+    op: (id, name, arg) => ops.op_wavetable_op(id, name, arg || 0),
+    // Brush dabs, the same brush the editor uses, as one undo step. Each stamp: {tool: "raise" |
+    // "lower" | "smooth" | "level", frame (fractional, 0-based), phase (cycles, wraps), radius
+    // (world units, default 0.16), aspect, angle, amount (0.3 is firm, 1+ saturates), target}.
+    stamp: (id, stamps) => ops.op_wavetable_stamp(id, stamps),
+    // Sets one frame from samples in -1..1 (any length, resampled to one cycle).
+    setFrame: (id, frame, samples) => ops.op_wavetable_set_frame(id, frame, samples),
+    // The whole table as a base64 string (16-bit, with a header); null if there is no such table.
+    exportData: (id) => { const r = ops.op_wavetable_export(id); return r && r.ok ? r.data : null; },
+    importData: (id, data) => ops.op_wavetable_import(id, data),
+    // {ok, frame, harmonics: number[], peak, rms}: what a frame is made of (a unit sine's first
+    // harmonic reads 1).
+    harmonics: (id, frame, count) => ops.op_wavetable_harmonics(id, frame || 0, count || 32),
+    // Plays one note offline and reads it back: {ok, seconds, peakDb, rmsDb, peakHz, centroidHz}.
+    // config is a wavetable note (see Audio.playWavetableOnTrack) plus `table`. No audio device
+    // is used, so this is how to check what a table sounds like.
+    analyzeNote: (config, seconds) => ops.op_wavetable_render_analyze(config, seconds || 0)
+};
+
 const vst3API = {
     // Installed plugins from the standard VST3 folders: {plugins: [{name, vendor, category, path,
     // isInstrument, hasGui, hasMidiInput, hasMidiOutput, ...}], skipped: string[]}. Cached for the
@@ -758,6 +805,7 @@ globalThis.Entropy = {
                 Audio: audioAPI,
                 AudioEffect: audioEffectAPI,
                 Vst3: vst3API,
+                Wavetable: wavetableAPI,
     Guitar: guitarAPI,
                 Guitar: guitarAPI,
                 IO: {
@@ -1117,6 +1165,31 @@ globalThis.Entropy = {
                 const id = nextWidgetId(windowId, "levelmeter", config?.id);
                 ops.op_ui_widget_level_meter(windowId, { source: "master", ...(config || {}) }, id);
             },
+            // A wavetable as sculptable terrain, with a single-cycle pen strip, the harmonics of the
+            // selected frame and a keyboard (see Entropy.Wavetable). The table lives engine-side and
+            // is edited in place, so nothing crosses into JS per frame. config: {table, tool, radius,
+            // strength, frame, height, width, keyboard, firstKey, octaves, held}; the caller owns
+            // `tool` and `frame` and hears about changes through the callbacks: onEdit (a stroke
+            // ended or undo/redo ran: save now), onStrokeStart/onStrokeEnd, onFrame(index),
+            // onTool(name), onKeyDown(midi, velocity), onKeyUp(midi).
+            wavetable: (windowId, config) => {
+                const id = nextWidgetId(windowId, "wavetable", config?.id);
+                ops.op_ui_widget_wavetable(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "WAVETABLE_EDITED" && config.onEdit) config.onEdit();
+                        else if (type === "WAVETABLE_STROKE_BEGAN" && config.onStrokeStart) config.onStrokeStart();
+                        else if (type === "WAVETABLE_STROKE_ENDED" && config.onStrokeEnd) config.onStrokeEnd();
+                        else if (type === "WAVETABLE_FRAME" && config.onFrame) config.onFrame(parseInt(parts[2], 10));
+                        else if (type === "WAVETABLE_TOOL" && config.onTool) config.onTool(parts[2]);
+                        else if (type === "WAVETABLE_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]));
+                        else if (type === "WAVETABLE_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10));
+                    });
+                }
+            },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
             // treeView.
@@ -1339,7 +1412,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("TABBAR_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("TABBAR_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid widget id
                 payload = event; // pass the whole event to the listener
@@ -1609,6 +1682,7 @@ globalThis.Entropy = {
     Audio: audioAPI,
     AudioEffect: audioEffectAPI,
     Vst3: vst3API,
+    Wavetable: wavetableAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

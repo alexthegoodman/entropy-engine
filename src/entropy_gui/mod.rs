@@ -33,6 +33,7 @@ pub mod widgets_pads;
 pub mod widgets_tabs;
 pub mod widgets_tracks;
 pub mod widgets_tree;
+pub mod widgets_wavetable;
 
 pub use color::{Color32, Shadow, Stroke};
 pub use containers::context_menu::context_menu;
@@ -64,6 +65,7 @@ pub use widgets_pads::{Pad, PadEvent, PadGrid, PadGridOptions, PadGridResponse, 
 pub use widgets_tabs::{layout_tabs, Tab, TabBar, TabBarEvent, TabBarResponse, TabSlot};
 pub use widgets_tracks::{MiniNote, Track, TrackClip, TrackView, TrackViewEvent, TrackViewOptions, TrackViewResponse};
 pub use widgets_tree::{TreeEvent, TreeNode, TreeResponse, TreeView};
+pub use widgets_wavetable::{Camera as WavetableCamera, ViewTool, WavetableEvent, WavetableOptions, WavetableResponse, WavetableView};
 
 /// Rich-text is a thin `String` wrapper in this simplified kit — enough to support
 /// `.strong()`/`.italics()`/`.color()` chaining, and converts into a plain label like egui's

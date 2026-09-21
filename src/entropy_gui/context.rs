@@ -48,6 +48,24 @@ pub struct KeyEvent {
     pub modifiers: Modifiers,
 }
 
+/// What a pen reports while it touches the surface. Absent (`PointerState::pen == None`) for a
+/// mouse, so a widget can tell "a pen at pressure 0.4" from "a mouse" and treat a mouse as a
+/// fixed, comfortable pressure of its own.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct PenState {
+    /// 0..1.
+    pub pressure: f32,
+    /// Degrees from the surface normal: 0 is upright, +-90 is flat. Zero when the pen does not
+    /// report tilt (most cheap styli only report pressure); check `has_tilt`.
+    pub tilt_x: f32,
+    pub tilt_y: f32,
+    pub has_tilt: bool,
+    /// The side button. The window backend also reports it as the secondary button.
+    pub barrel: bool,
+    /// The pen is being used upside down, or its eraser end is down.
+    pub eraser: bool,
+}
+
 /// Pointer state for the current frame — already edge-detected (pressed/released) by the
 /// winit backend, mirroring `egui::InputState::pointer`'s method-call shape.
 #[derive(Clone, Copy, Debug, Default)]
@@ -59,6 +77,8 @@ pub struct PointerState {
     pub primary_released: bool,
     pub secondary_down: bool,
     pub secondary_pressed: bool,
+    /// Set while a pen is touching; `None` for a mouse.
+    pub pen: Option<PenState>,
 }
 
 impl PointerState {
