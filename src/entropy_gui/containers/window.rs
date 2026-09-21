@@ -66,6 +66,11 @@ impl<'open> Window<'open> {
         let default_rect = Rect::from_min_size(default_min, self.default_size);
         let rect = ctx.memory(|m| m.get_window_rect(id, default_rect));
 
+        // Everything below (title bar, close button, body) is this window's layer: it sees the
+        // pointer unless a window built after it covers the pointer, and the panels underneath
+        // stop seeing the pointer wherever this window sits (see `Context::input`).
+        let previous_layer = ctx.enter_layer(id);
+
         let title_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + TITLE_BAR_HEIGHT));
 
         // Interact against last frame's rect first so this frame's drag/resize is reflected
@@ -121,6 +126,9 @@ impl<'open> Window<'open> {
         let mut ui = Ui::new(ctx.clone(), id, body, Layout::top_down(Align::Min), body, DrawTarget::Overlay);
         let inner = add_contents(&mut ui);
 
-        Some(InnerResponse { inner: Some(inner), response: interact(ctx, new_rect, id, Sense::hover()) })
+        let response = interact(ctx, new_rect, id, Sense::hover());
+        ctx.add_occluder(id, new_rect);
+        ctx.leave_layer(previous_layer);
+        Some(InnerResponse { inner: Some(inner), response })
     }
 }

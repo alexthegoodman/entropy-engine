@@ -38,6 +38,10 @@ harness = false
 name = "pad_grid_bdd"
 harness = false
 
+[[test]]
+name = "window_layers_bdd"
+harness = false
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }

@@ -138,6 +138,24 @@ pub struct FullOutput {
     pub pixels_per_point: f32,
 }
 
+/// One floating window's footprint, kept so widgets in lower layers can tell the pointer is over
+/// something drawn on top of them. `order` is the window's `show` call order within its frame,
+/// which is also its draw order (later is on top).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Occluder {
+    pub(crate) id: Id,
+    pub(crate) order: u32,
+    pub(crate) rect: Rect,
+}
+
+/// The layer a widget is being built in. `None` (on `ContextInner::layer`) is the base layer:
+/// panels, tabs and dock leaves. Each `Window` is a layer above it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct LayerKey {
+    pub(crate) id: Id,
+    pub(crate) order: u32,
+}
+
 pub(crate) struct ContextInner {
     pub(crate) style: Style,
     pub(crate) memory: Memory,
@@ -163,6 +181,37 @@ pub(crate) struct ContextInner {
     /// button/window - see `Context::pointer_over_ui` and its addon-facing
     /// `Entropy.Input.isPointerOverUI()`.
     pub(crate) pointer_over_ui: bool,
+    /// Window footprints from the previous frame. A window is built after the panels beneath it,
+    /// so this frame's list is not complete yet when those panels hit-test; last frame's is (the
+    /// same one-frame delay egui's layer hit-testing has).
+    pub(crate) occluders_prev: Vec<Occluder>,
+    pub(crate) occluders_cur: Vec<Occluder>,
+    /// Layer the widgets being built right now belong to (`None` = base).
+    pub(crate) layer: Option<LayerKey>,
+    /// Windows begun so far this frame; the next one's `order`.
+    pub(crate) windows_begun: u32,
+    /// Which layer a held pointer button was pressed on (`Some(None)` = base), until it is
+    /// released. While set, only that layer sees the pointer, so dragging a slider out of a
+    /// window does not start driving whatever is underneath.
+    pub(crate) pointer_capture: Option<Option<Id>>,
+}
+
+impl ContextInner {
+    /// The topmost window under `pos` (last frame's footprints), or `None` for the base layer.
+    fn top_layer_at(&self, pos: Pos2) -> Option<Id> {
+        self.occluders_prev.iter().filter(|o| o.rect.contains(pos)).max_by_key(|o| o.order).map(|o| o.id)
+    }
+
+    /// True when the layer currently being built should not see the pointer.
+    fn pointer_hidden(&self) -> bool {
+        let mine = self.layer.map(|l| l.id);
+        if let Some(captured) = self.pointer_capture {
+            return captured != mine;
+        }
+        let Some(pos) = self.input.pointer.pos else { return false };
+        let my_order = self.layer.map_or(-1_i64, |l| l.order as i64);
+        self.occluders_prev.iter().any(|o| o.order as i64 > my_order && o.rect.contains(pos))
+    }
 }
 
 #[derive(Clone)]
@@ -185,6 +234,11 @@ impl Default for Context {
             cursor_icon: CursorIcon::Default,
             frame_count: 0,
             pointer_over_ui: false,
+            occluders_prev: Vec::new(),
+            occluders_cur: Vec::new(),
+            layer: None,
+            windows_begun: 0,
+            pointer_capture: None,
         })))
     }
 }
@@ -219,8 +273,40 @@ impl Context {
         self.0.borrow_mut().cursor_icon = icon;
     }
 
+    /// The frame's input as the layer currently being built should see it: when the pointer is
+    /// over a window drawn above that layer (or a press started on another layer), the pointer
+    /// position, buttons and wheel are withheld, so a panel never reacts to a click a window
+    /// swallowed. Keyboard and text input are untouched.
     pub fn input<R>(&self, reader: impl FnOnce(&RawInput) -> R) -> R {
-        reader(&self.0.borrow().input)
+        let inner = self.0.borrow();
+        if inner.pointer_hidden() {
+            let mut masked = inner.input.clone();
+            masked.pointer = PointerState { pos: None, ..PointerState::default() };
+            masked.scroll_delta = crate::entropy_gui::geometry::Vec2::ZERO;
+            return reader(&masked);
+        }
+        reader(&inner.input)
+    }
+
+    /// Starts a window layer and returns the layer to hand back to `leave_layer`. Called by
+    /// `Window::show` before it hit-tests its own title bar, so those hit-tests use the window's
+    /// own layer.
+    pub(crate) fn enter_layer(&self, id: Id) -> Option<LayerKey> {
+        let mut inner = self.0.borrow_mut();
+        let key = LayerKey { id, order: inner.windows_begun };
+        inner.windows_begun += 1;
+        std::mem::replace(&mut inner.layer, Some(key))
+    }
+
+    pub(crate) fn leave_layer(&self, previous: Option<LayerKey>) {
+        self.0.borrow_mut().layer = previous;
+    }
+
+    /// Records the window's final footprint for next frame's hit-testing.
+    pub(crate) fn add_occluder(&self, id: Id, rect: Rect) {
+        let mut inner = self.0.borrow_mut();
+        let order = inner.layer.map_or(0, |l| l.order);
+        inner.occluders_cur.push(Occluder { id, order, rect });
     }
 
     pub fn output_mut<R>(&self, writer: impl FnOnce(&mut PlatformOutput) -> R) -> R {
@@ -274,6 +360,15 @@ impl Context {
         inner.frame_count += 1;
         inner.pointer_over_ui = false;
         inner.input = raw_input;
+        inner.occluders_prev = std::mem::take(&mut inner.occluders_cur);
+        inner.windows_begun = 0;
+        inner.layer = None;
+        let p = inner.input.pointer;
+        if p.primary_pressed || p.secondary_pressed {
+            inner.pointer_capture = Some(p.pos.and_then(|pos| inner.top_layer_at(pos)));
+        } else if !p.primary_down && !p.primary_released && !p.secondary_down {
+            inner.pointer_capture = None;
+        }
         inner.memory.begin_scroll_frame();
     }
 
