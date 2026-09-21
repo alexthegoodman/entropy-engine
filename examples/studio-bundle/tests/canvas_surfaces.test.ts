@@ -92,7 +92,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             tabBar: (_id: string, c: any) => { tabBar = c; },
         };
         api = {
-            AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: () => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
+            AddonAtom: { register: () => ({ registerTool: () => {}, onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: () => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
                 GameState: { save: (key: string, value: any) => savedData.set(key, structuredClone(value)), load: (key: string) => savedData.get(key) ?? null } }) },
             Input: new Proxy({}, { get: (_t, name: string) => name === "isPointerOverUI" ? () => overUI : (fn: (...args: any[]) => void) => { (listeners[name] ??= []).push(fn); return () => {}; } }),
             Texture: { create: (_w: number, _h: number, data: Uint8Array) => { const id = `texture${serial++}`; textures.set(id, data.slice()); return id; }, update: (id: string, data: Uint8Array) => textures.set(id, data.slice()) },
@@ -154,10 +154,10 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     it("renders hover feedback without touching artwork and clears it over UI", () => {
         const blank = pixels().slice();
         emit("onMouseMove", 0, 1.5); update();
-        expect([...buffers.values()].some(b => b[6] === 1)).toBe(true);
+        expect([...buffers.values()].filter(b => b.length === 8).some(b => b[6] === 1)).toBe(true);
         expect(Buffer.from(pixels()).equals(Buffer.from(blank))).toBe(true);
         overUI = true; update();
-        expect([...buffers.values()].every(b => b[6] === 0)).toBe(true);
+        expect([...buffers.values()].filter(b => b.length === 8).every(b => b[6] === 0)).toBe(true);
         click("undo"); expect(Buffer.from(pixels()).equals(Buffer.from(blank))).toBe(true);
     });
 

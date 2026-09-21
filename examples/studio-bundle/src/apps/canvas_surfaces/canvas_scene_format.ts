@@ -1,9 +1,15 @@
 import { groupWorld, inverse } from "./canvas_animation";
 import { validateLogic } from "./canvas_logic";
 import type { LogicGraph } from "./canvas_logic";
+import { validateLighting } from "./canvas_lighting";
+import type { LightingSettings } from "./canvas_lighting";
 import type { Group, Clip, Matrix, V3, RetainedStroke } from "./canvas_animation";
+/** A canvas that is one solid colour (a blocked-out prop nobody has painted yet) is saved as that colour
+ * instead of 2.4 MB of base64, which is what lets a world of a hundred surfaces fit in a scene file. */
+export type Rgba = [number, number, number, number];
 export interface SavedPaintLayer {
-    id: string; name: string; visible: boolean; locked: boolean; opacity: number; pixelsBase64: string; basePixelsBase64?: string;
+    id: string; name: string; visible: boolean; locked: boolean; opacity: number;
+    pixelsBase64?: string; pixelsFill?: Rgba; basePixelsBase64?: string; basePixelsFill?: Rgba;
 }
 export interface SavedSurface {
     id?: string; parentId?: string | null; frame?: Matrix; scale?: V3; pivot?: V3; strokes?: RetainedStroke[];
@@ -16,12 +22,33 @@ export interface SavedSurface {
     visible: boolean;
     canvasBase64?: string; // version 1
     layers?: SavedPaintLayer[]; // version 2
-    cutMaskBase64?: string;
+    cutMaskBase64?: string; cutMaskFill?: number;
     activeLayerId?: string;
+    /** Blocks the player in Play. Absent means not solid. */
+    solid?: boolean;
 }
-export interface SavedScene { version: 1 | 2 | 3; surfaces: SavedSurface[]; groups?: Group[]; clips?: Clip[]; logic?: LogicGraph; }
+/** Play-mode settings: which group or surface the player walks as, how far from the origin they may walk, and the light. */
+export interface SavedWorld { player: string | null; bounds: number; lighting: LightingSettings; }
+export interface SavedScene { version: 1 | 2 | 3; surfaces: SavedSurface[]; groups?: Group[]; clips?: Clip[]; logic?: LogicGraph; world?: SavedWorld; }
 const BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 const PIXELS = 768 * 768;
+
+/** The single RGBA value every pixel has, or null if the canvas is not one flat colour. */
+export function uniformFill(bytes: Uint8Array): Rgba | null {
+    if (bytes.length < 4 || bytes.length % 4) return null;
+    if (bytes.byteOffset % 4 === 0) {
+        const words = new Uint32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4), first = words[0];
+        for (let i = 1; i < words.length; i++) if (words[i] !== first) return null;
+    } else {
+        for (let i = 4; i < bytes.length; i++) if (bytes[i] !== bytes[i - 4]) return null;
+    }
+    return [bytes[0], bytes[1], bytes[2], bytes[3]];
+}
+export function fillBytes(rgba: Rgba, pixelCount = PIXELS): Uint8Array {
+    const out = new Uint8Array(pixelCount * 4);
+    new Uint32Array(out.buffer).fill((rgba[0] | (rgba[1] << 8) | (rgba[2] << 16) | (rgba[3] << 24)) >>> 0); // little-endian, like every target
+    return out;
+}
 
 export function bytesToBase64(bytes: Uint8Array): string {
     const chunks: string[] = [];
@@ -63,12 +90,13 @@ export function validateScene(value: unknown): SavedScene {
         if (typeof value !== "string" || value.length !== Math.ceil(bytes / 3) * 4 || /[^A-Za-z0-9+/=]/.test(value) ||
             value.includes("=")) throw new Error("Invalid scene image data."); // both image sizes are divisible by 3
     };
+    const fill = (v: unknown, length: number) => Array.isArray(v) && v.length === length && v.every(n => Number.isInteger(n) && n >= 0 && n <= 255);
     for (const s of scene.surfaces) {
         if (!s || typeof s.name !== "string" || !["plane", "box", "cylinder", "sphere"].includes(s.kind) ||
             !Array.isArray(s.position) || s.position.length !== 3 || !s.position.every(Number.isFinite) ||
             ![s.yaw, s.pitch, s.roll, s.bend].every(Number.isFinite) ||
-            ![s.halfW, s.halfH, s.halfD, s.radius].every(n => Number.isFinite(n) && n >= 0.1 && n <= 10000) ||
-            !["x", "y"].includes(s.bendAxis) || Math.abs(s.bend) > 1 || typeof s.visible !== "boolean")
+            ![s.halfW, s.halfH, s.halfD, s.radius].every(n => Number.isFinite(n) && n >= 0.01 && n <= 10000) ||
+            !["x", "y"].includes(s.bendAxis) || Math.abs(s.bend) > 1 || typeof s.visible !== "boolean" || (s.solid !== undefined && typeof s.solid !== "boolean"))
             throw new Error("Invalid surface geometry in scene.");
         if (scene.version === 1) image(s.canvasBase64, PIXELS * 4);
         else {
@@ -79,17 +107,27 @@ export function validateScene(value: unknown): SavedScene {
                     typeof layer.visible !== "boolean" || typeof layer.locked !== "boolean" ||
                     !Number.isFinite(layer.opacity) || layer.opacity < 0 || layer.opacity > 1) throw new Error("Invalid paint layer.");
                 ids.add(layer.id);
-                image(layer.pixelsBase64, PIXELS * 4);
-                if (scene.version === 3 && layer.basePixelsBase64 !== undefined) image(layer.basePixelsBase64, PIXELS * 4);
+                if (layer.pixelsFill !== undefined) { if (!fill(layer.pixelsFill, 4)) throw new Error("Invalid scene image data."); }
+                else image(layer.pixelsBase64, PIXELS * 4);
+                if (scene.version === 3 && layer.basePixelsFill !== undefined) { if (!fill(layer.basePixelsFill, 4)) throw new Error("Invalid scene image data."); }
+                else if (scene.version === 3 && layer.basePixelsBase64 !== undefined) image(layer.basePixelsBase64, PIXELS * 4);
             }
             if (!ids.has(s.activeLayerId ?? "")) throw new Error("Active paint layer is missing.");
-            image(s.cutMaskBase64, PIXELS);
+            if (s.cutMaskFill !== undefined) { if (!Number.isInteger(s.cutMaskFill) || s.cutMaskFill < 0 || s.cutMaskFill > 255) throw new Error("Invalid scene image data."); }
+            else image(s.cutMaskBase64, PIXELS);
         }
     }
     if (scene.version === 3) validateAnimation(scene);
     if (scene.logic !== undefined) validateLogic(scene.logic);
+    if (scene.world !== undefined) validateWorld(scene.world);
     if (totalBytes > 256 * 1024 * 1024) throw new Error("Scene exceeds the 256 MiB artwork limit.");
     return scene;
+}
+
+function validateWorld(world: SavedWorld): void {
+    if (!world || typeof world !== "object" || !(world.player === null || (typeof world.player === "string" && world.player.length <= 200)) ||
+        !Number.isFinite(world.bounds) || world.bounds < 1 || world.bounds > 1000) throw new Error("Invalid world settings.");
+    validateLighting(world.lighting);
 }
 
 function validateAnimation(scene: SavedScene): void {
@@ -118,7 +156,7 @@ function validateAnimation(scene: SavedScene): void {
         for (const st of surface.strokes!) {
             takeId(st.id); strokeIds.add(st.id);
             if (typeof st.name !== "string" || typeof st.visible !== "boolean" || !Number.isFinite(st.progress) || st.progress < 0 || st.progress > 1 ||
-                !surface.layers?.some(l => l.id === st.layerId && l.basePixelsBase64 !== undefined) || !st.brush || !vector(st.brush.color) || st.brush.color.some(n => n < 0 || n > 255) ||
+                !surface.layers?.some(l => l.id === st.layerId && (l.basePixelsBase64 !== undefined || l.basePixelsFill !== undefined)) || !st.brush || !vector(st.brush.color) || st.brush.color.some(n => n < 0 || n > 255) ||
                 !Number.isFinite(st.brush.softness) || st.brush.softness < 0 || st.brush.softness > 1 || typeof st.brush.isEraser !== "boolean" || !Array.isArray(st.stamps) || !st.stamps.length) fail();
             stampCount += st.stamps.length;
             if (stampCount > 1000000) fail();

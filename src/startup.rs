@@ -121,6 +121,8 @@ struct BrowserBddDriver {
     /// interval. Polled every driver tick through the same since-last-read reader a meter uses.
     measuring: Vec<(String, String, f32, u64)>,
     measurements: serde_json::Map<String, serde_json::Value>,
+    /// What each `I call the tool` step got back, in order, parsed from the addon's own reply.
+    tool_results: Vec<serde_json::Value>,
 }
 
 enum BrowserBddAction {
@@ -137,6 +139,13 @@ enum BrowserBddAction {
     /// `I start measuring "name" of "source"` ... `I record the measurement "name"`.
     StartMeasuring { name: String, source: String },
     RecordMeasurement { name: String },
+    /// `I call the tool "name" with {json}`: calls a tool registered with `registerTool` through
+    /// `AddonEngine::call_tool`, the function the MCP server calls, so a scenario can drive an addon
+    /// exactly as an MCP client would. A reply with `"success": false` fails the run.
+    Tool { name: String, args: String },
+    /// `I hold the key "d" for 30 frames`: the key reads as pressed (`Entropy.Input.isKeyPressed`) for
+    /// that many driver ticks, then is released. `pressed` is false until the first tick.
+    HoldKey { key: String, frames: u32, pressed: bool },
     Finish,
 }
 
@@ -159,6 +168,12 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
     {
         return None;
     }
+    if let Some(rest) = text.strip_prefix("I call the tool \"") {
+        let (name, tail) = rest.split_once('"').unwrap_or_else(|| panic!("feature file: unterminated tool name in {text:?}"));
+        let args = tail.strip_prefix(" with ").unwrap_or("{}");
+        serde_json::from_str::<serde_json::Value>(args).unwrap_or_else(|error| panic!("feature file: tool arguments are not JSON in {text:?}: {error}"));
+        return Some(BrowserBddAction::Tool { name: name.to_string(), args: args.to_string() });
+    }
     // Cucumber-expression-style steps here only ever use double-quoted string arguments, so
     // pulling out every substring between quotes covers every shape below without a regex.
     let quoted: Vec<&str> = text.split('"').skip(1).step_by(2).collect();
@@ -172,6 +187,11 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         return Some(BrowserBddAction::Pointer { phase, x: quoted[1].parse().expect("pointer x"), y: quoted[2].parse().expect("pointer y") });
     }
 
+    if text.starts_with("I hold the key ") && quoted.len() == 1 {
+        let frames = text.rsplit(" for ").next().unwrap_or("").trim_end_matches(" frames").trim_end_matches(" frame")
+            .parse::<u32>().unwrap_or_else(|_| panic!("feature file: not a frame count in {text:?}"));
+        return Some(BrowserBddAction::HoldKey { key: quoted[0].to_string(), frames, pressed: false });
+    }
     if let Some(rest) = text.strip_prefix("I advance ") {
         let count_str = rest.trim_end_matches(" frames").trim_end_matches(" frame");
         let count = count_str
@@ -258,9 +278,11 @@ impl BrowserBddDriver {
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
-            if std::env::var("ENTROPY_CANVAS_BDD_FEATURE").as_deref() == Ok("logic") {
-                include_str!("../tests/features/canvas_logic_live.feature")
-            } else { include_str!("../tests/features/canvas_live.feature") }
+            match std::env::var("ENTROPY_CANVAS_BDD_FEATURE").as_deref() {
+                Ok("logic") => include_str!("../tests/features/canvas_logic_live.feature"),
+                Ok("world") => include_str!("../tests/features/canvas_world_live.feature"),
+                _ => include_str!("../tests/features/canvas_live.feature"),
+            }
         } else {
             BROWSER_LIVE_FEATURE_SOURCE
         };
@@ -274,6 +296,7 @@ impl BrowserBddDriver {
             analyses: serde_json::Map::new(),
             measuring: Vec::new(),
             measurements: serde_json::Map::new(),
+            tool_results: Vec::new(),
             artifacts: Vec::new(),
             outcomes: Vec::new(),
             artifact_dir,
@@ -309,6 +332,9 @@ impl BrowserBddDriver {
         });
         if self.canvas || self.daw {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
+        }
+        if self.canvas {
+            result["tools"] = serde_json::json!(self.tool_results);
         }
         if self.daw {
             // What the hosted plugins actually did, read from the audio side's own counters rather
@@ -450,6 +476,41 @@ impl BrowserBddDriver {
                 };
                 Self::queue_event(window, event);
                 self.outcomes.push(serde_json::json!({ "kind": "control", "id": control_id, "outcome": "queued" }));
+            }
+            BrowserBddAction::Tool { name, args } => {
+                let reply = window.pipeline.export_editor.as_mut().and_then(|editor| editor.addon_engine.call_tool(&name, &args));
+                let parsed = reply.as_deref().map(|text| serde_json::from_str::<serde_json::Value>(text).unwrap_or_else(|_| serde_json::Value::String(text.to_string())));
+                let failed = match &parsed {
+                    None => true,
+                    Some(value) => value.get("success").and_then(|v| v.as_bool()) == Some(false) || value.as_str().is_some_and(|s| s.starts_with("Error:")),
+                };
+                self.tool_results.push(serde_json::json!({ "tool": name, "result": parsed }));
+                self.outcomes.push(serde_json::json!({ "kind": "tool", "name": name, "outcome": if failed { "failed" } else { "ok" } }));
+                if failed {
+                    self.write_result("failed", Some(&format!("tool {name} failed: {}", reply.unwrap_or_else(|| "not registered".to_string()))));
+                    event_loop.exit();
+                }
+            }
+            BrowserBddAction::HoldKey { key, frames, pressed } => {
+                if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                    let state = editor.addon_engine.runtime.op_state();
+                    let mut state = state.borrow_mut();
+                    if let Some(context) = state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                        if !pressed {
+                            context.pressed_keys.insert(key.clone());
+                            context.input_events.push(crate::deno::addon_ops::InputEvent::KeyDown { key: key.clone() });
+                        }
+                        if frames == 0 {
+                            context.pressed_keys.remove(&key);
+                            context.input_events.push(crate::deno::addon_ops::InputEvent::KeyUp { key: key.clone() });
+                        }
+                    }
+                }
+                if frames == 0 {
+                    self.outcomes.push(serde_json::json!({ "kind": "key", "key": key, "outcome": "released" }));
+                } else {
+                    self.actions.push_front(BrowserBddAction::HoldKey { key, frames: frames - 1, pressed: true });
+                }
             }
             BrowserBddAction::Link { control_id, url } => {
                 Self::queue_event(window, format!("HTML_LINK|{control_id}|{url}"));

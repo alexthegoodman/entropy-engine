@@ -424,6 +424,10 @@ cargo run --bin example --release -- fft-water
 // multi-page text editor
 npm run build-doc-editor-demo
 cargo run --bin example --release -- doc-editor-demo
+
+// hand-drawn 3D worlds you can walk through (Canvas Surfaces, see the MCP section)
+npm run build-canvas-surfaces
+cargo run --bin example --release -- canvas-surface-demo
 ```
 
 Run `cargo run --bin example` with no name for the full list (also: `game2d`,
@@ -447,3 +451,27 @@ claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp
 ```
 
 All tools registered with `registerTool` in an addon will be accessible via MCP, simply startup your app, and the MCP server will be active as well.
+
+### Canvas Surfaces tools
+
+`canvas-surface-demo` registers 31 `canvas_*` tools (definitions in
+`examples/studio-bundle/src/apps/canvas_surfaces/canvas_tool_schemas.ts`). Every call is one undo step,
+changes nothing during Play, rejects unknown arguments, and returns `{success, ...}` or
+`{success: false, error}`. Names accept an id or an exact name.
+
+| Group | Tools |
+|-------|-------|
+| Scene | `canvas_get_scene`, `canvas_world_stats`, `canvas_new_scene`, `canvas_list_scenes`, `canvas_save_scene`, `canvas_load_scene`, `canvas_undo`, `canvas_redo` |
+| Surfaces | `canvas_create_surface`, `canvas_update_surface`, `canvas_fill_surface`, `canvas_delete`, `canvas_create_group`, `canvas_update_group` |
+| Prefabs | `canvas_list_prefabs`, `canvas_add_prefab` (house, tree, human, pickup, chest, rock, fence, gate, lamppost, signpost, ground, pond) |
+| Animation | `canvas_create_clip`, `canvas_set_keyframes`, `canvas_delete_clip` |
+| Logic | `canvas_get_logic`, `canvas_add_rule`, `canvas_add_collectible`, `canvas_set_logic`, `canvas_clear_logic` |
+| World | `canvas_set_world` (player, walk bounds), `canvas_set_lighting` (presets, sun, fog, 4 lamps), `canvas_set_camera` |
+| Play | `canvas_play`, `canvas_stop`, `canvas_get_play_state`, `canvas_playtest` (headless, reports messages, counters, failures) |
+
+Gameplay logic node kinds: events `start`, `click`, `near`, `interact` (E); actions `once`, `wait`,
+`message` (`{counter}` prints a counter), `show`, `hide`, `add` (change a counter), `check` (only continue
+if a counter is at least / below a value), `clip`, `teleport`. With a `player` set, Play walks it (WASD,
+E, follow camera, sliding collision against `solid` surfaces). Surfaces that are one flat colour save as
+that colour, so unpainted block-outs cost bytes, not megabytes. A full worked level and its verification
+steps: [CANVAS_SURFACES_RPG_LEVEL.md](CANVAS_SURFACES_RPG_LEVEL.md).

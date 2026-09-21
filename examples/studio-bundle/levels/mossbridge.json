@@ -1,0 +1,1189 @@
+{
+ "name": "Mossbridge",
+ "calls": [
+  {
+   "tool": "canvas_new_scene",
+   "args": {
+    "name": "Mossbridge",
+    "confirmDiscard": true
+   }
+  },
+  {
+   "tool": "canvas_set_lighting",
+   "args": {
+    "preset": "golden_hour",
+    "fogDensity": 0.006
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "ground",
+    "position": [
+     0,
+     0
+    ],
+    "name": "Ground",
+    "params": {
+     "width": 70,
+     "depth": 70,
+     "color": [
+      104,
+      150,
+      86
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "ground",
+    "position": [
+     0,
+     -4
+    ],
+    "name": "Road",
+    "params": {
+     "width": 3,
+     "depth": 44,
+     "color": [
+      196,
+      168,
+      118
+     ],
+     "lift": 0.02
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "ground",
+    "position": [
+     0,
+     7
+    ],
+    "name": "Plaza",
+    "params": {
+     "width": 12,
+     "depth": 10,
+     "color": [
+      158,
+      154,
+      146
+     ],
+     "lift": 0.03
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "human",
+    "position": [
+     0,
+     14
+    ],
+    "name": "Hero",
+    "yaw": 3.14159,
+    "params": {
+     "shirtColor": [
+      200,
+      70,
+      60
+     ],
+     "pantsColor": [
+      60,
+      60,
+      90
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_set_world",
+   "args": {
+    "player": "Hero",
+    "bounds": 29
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "human",
+    "position": [
+     -5.5,
+     4
+    ],
+    "name": "Keeper",
+    "yaw": 0.9,
+    "params": {
+     "shirtColor": [
+      110,
+      80,
+      160
+     ],
+     "pantsColor": [
+      70,
+      60,
+      90
+     ],
+     "skinColor": [
+      224,
+      184,
+      150
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "human",
+    "position": [
+     7,
+     3
+    ],
+    "name": "Miller",
+    "yaw": -0.9,
+    "params": {
+     "shirtColor": [
+      220,
+      200,
+      150
+     ],
+     "pantsColor": [
+      110,
+      90,
+      70
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "house",
+    "position": [
+     -10,
+     3
+    ],
+    "name": "Keeper House",
+    "yaw": 0.25,
+    "params": {
+     "wallColor": [
+      214,
+      190,
+      150
+     ],
+     "roofColor": [
+      150,
+      70,
+      55
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "house",
+    "position": [
+     11,
+     4
+    ],
+    "name": "Mill",
+    "yaw": -0.25,
+    "params": {
+     "width": 5,
+     "wallColor": [
+      200,
+      206,
+      214
+     ],
+     "roofColor": [
+      70,
+      80,
+      120
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "house",
+    "position": [
+     -11,
+     -8
+    ],
+    "name": "Bakery",
+    "yaw": 0.5,
+    "params": {
+     "wallColor": [
+      224,
+      176,
+      130
+     ],
+     "roofColor": [
+      120,
+      60,
+      50
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "chest",
+    "position": [
+     3.5,
+     -5
+    ],
+    "name": "Chest",
+    "yaw": 0.3
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "lamppost",
+    "position": [
+     -4,
+     9
+    ],
+    "name": "Lamp West"
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "lamppost",
+    "position": [
+     4,
+     9
+    ],
+    "name": "Lamp East"
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pond",
+    "position": [
+     -20,
+     -18
+    ],
+    "name": "Pond",
+    "params": {
+     "radius": 3.5
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     17,
+     -2
+    ],
+    "name": "Oak 1",
+    "params": {
+     "height": 3.8,
+     "leafColor": [
+      64,
+      132,
+      72
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     21,
+     6
+    ],
+    "name": "Oak 2",
+    "params": {
+     "height": 4.4,
+     "leafColor": [
+      64,
+      132,
+      72
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     24,
+     -9
+    ],
+    "name": "Oak 3",
+    "params": {
+     "height": 3.6,
+     "leafColor": [
+      64,
+      132,
+      72
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     15,
+     -12
+    ],
+    "name": "Oak 4",
+    "params": {
+     "height": 4.0,
+     "leafColor": [
+      64,
+      132,
+      72
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     -17,
+     8
+    ],
+    "name": "Birch 1",
+    "params": {
+     "height": 4.6,
+     "leafColor": [
+      96,
+      150,
+      84
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     -22,
+     -2
+    ],
+    "name": "Birch 2",
+    "params": {
+     "height": 3.8,
+     "leafColor": [
+      96,
+      150,
+      84
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     -21,
+     13
+    ],
+    "name": "Birch 3",
+    "params": {
+     "height": 4.2,
+     "leafColor": [
+      96,
+      150,
+      84
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     -15,
+     -14
+    ],
+    "name": "Birch 4",
+    "params": {
+     "height": 3.6,
+     "leafColor": [
+      96,
+      150,
+      84
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     -7,
+     -24
+    ],
+    "name": "Pine 1",
+    "params": {
+     "height": 5.0,
+     "leafColor": [
+      40,
+      96,
+      66
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "tree",
+    "position": [
+     8,
+     -22
+    ],
+    "name": "Pine 2",
+    "params": {
+     "height": 5.0,
+     "leafColor": [
+      40,
+      96,
+      66
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "fence",
+    "position": [
+     -16,
+     -17
+    ],
+    "name": "Fence West",
+    "params": {
+     "length": 28
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "fence",
+    "position": [
+     16,
+     -17
+    ],
+    "name": "Fence East",
+    "params": {
+     "length": 28
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "gate",
+    "position": [
+     0,
+     -17
+    ],
+    "name": "Gate",
+    "params": {
+     "width": 3
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "lamppost",
+    "position": [
+     0,
+     -26
+    ],
+    "name": "Shrine Lantern",
+    "params": {
+     "height": 4.5,
+     "lampColor": [
+      255,
+      236,
+      190
+     ]
+    }
+   }
+  },
+  {
+   "tool": "canvas_create_surface",
+   "args": {
+    "name": "Beam",
+    "kind": "cylinder",
+    "position": [
+     0,
+     8,
+     -26
+    ],
+    "size": {
+     "radius": 0.5,
+     "height": 16
+    },
+    "color": [
+     255,
+     240,
+     190
+    ],
+    "visible": false
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pickup",
+    "position": [
+     18.5,
+     1.5
+    ],
+    "name": "Glowcap 1",
+    "params": {
+     "color": [
+      90,
+      255,
+      200
+     ],
+     "size": 0.22
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pickup",
+    "position": [
+     20.5,
+     -6
+    ],
+    "name": "Glowcap 2",
+    "params": {
+     "color": [
+      90,
+      255,
+      200
+     ],
+     "size": 0.22
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pickup",
+    "position": [
+     -19,
+     6
+    ],
+    "name": "Glowcap 3",
+    "params": {
+     "color": [
+      90,
+      255,
+      200
+     ],
+     "size": 0.22
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pickup",
+    "position": [
+     -14,
+     -3
+    ],
+    "name": "Glowcap 4",
+    "params": {
+     "color": [
+      90,
+      255,
+      200
+     ],
+     "size": 0.22
+    }
+   }
+  },
+  {
+   "tool": "canvas_add_prefab",
+   "args": {
+    "prefab": "pickup",
+    "position": [
+     12,
+     -14
+    ],
+    "name": "Glowcap 5",
+    "params": {
+     "color": [
+      90,
+      255,
+      200
+     ],
+     "size": 0.22
+    }
+   }
+  },
+  {
+   "tool": "canvas_set_lighting",
+   "args": {
+    "lamps": [
+     {
+      "position": [
+       -4,
+       3.2,
+       9
+      ],
+      "color": [
+       1,
+       0.78,
+       0.45
+      ],
+      "intensity": 1.6,
+      "reach": 2.5
+     },
+     {
+      "position": [
+       4,
+       3.2,
+       9
+      ],
+      "color": [
+       1,
+       0.78,
+       0.45
+      ],
+      "intensity": 1.6,
+      "reach": 2.5
+     },
+     {
+      "position": [
+       0,
+       5,
+       -26
+      ],
+      "color": [
+       1,
+       0.9,
+       0.6
+      ],
+      "intensity": 1.2,
+      "reach": 3
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_create_clip",
+   "args": {
+    "name": "Rise",
+    "duration": 2
+   }
+  },
+  {
+   "tool": "canvas_set_keyframes",
+   "args": {
+    "clip": "Rise",
+    "target": "Beam",
+    "channel": "sy",
+    "keys": [
+     {
+      "time": 0,
+      "value": 0.05
+     },
+     {
+      "time": 2,
+      "value": 1
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "start"
+    },
+    "then": [
+     {
+      "do": "message",
+      "text": "Mossbridge is dark. Find the Keeper. WASD walks, E talks."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_collectible",
+   "args": {
+    "target": "Glowcap 1",
+    "counter": "glowcaps",
+    "message": "Glowcap {glowcaps} of 5.",
+    "distance": 1.3
+   }
+  },
+  {
+   "tool": "canvas_add_collectible",
+   "args": {
+    "target": "Glowcap 2",
+    "counter": "glowcaps",
+    "message": "Glowcap {glowcaps} of 5.",
+    "distance": 1.3
+   }
+  },
+  {
+   "tool": "canvas_add_collectible",
+   "args": {
+    "target": "Glowcap 3",
+    "counter": "glowcaps",
+    "message": "Glowcap {glowcaps} of 5.",
+    "distance": 1.3
+   }
+  },
+  {
+   "tool": "canvas_add_collectible",
+   "args": {
+    "target": "Glowcap 4",
+    "counter": "glowcaps",
+    "message": "Glowcap {glowcaps} of 5.",
+    "distance": 1.3
+   }
+  },
+  {
+   "tool": "canvas_add_collectible",
+   "args": {
+    "target": "Glowcap 5",
+    "counter": "glowcaps",
+    "message": "Glowcap {glowcaps} of 5.",
+    "distance": 1.3
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Chest",
+     "distance": 2,
+     "prompt": "Open"
+    },
+    "once": true,
+    "then": [
+     {
+      "do": "add",
+      "counter": "coins",
+      "amount": 5
+     },
+     {
+      "do": "message",
+      "text": "Five coins. You have {coins}."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Miller",
+     "distance": 2.2,
+     "prompt": "Talk"
+    },
+    "then": [
+     {
+      "do": "message",
+      "text": "Miller: Glowcaps grow in the eastern and western woods."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Keeper",
+     "distance": 2.2,
+     "prompt": "Talk"
+    },
+    "conditions": [
+     {
+      "counter": "gate_open",
+      "atLeast": 1
+     }
+    ],
+    "then": [
+     {
+      "do": "message",
+      "text": "Keeper: Go north. The lantern is on the hill."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Keeper",
+     "distance": 2.2,
+     "prompt": "Talk"
+    },
+    "conditions": [
+     {
+      "counter": "quest",
+      "atLeast": 1
+     },
+     {
+      "counter": "glowcaps",
+      "below": 5
+     }
+    ],
+    "then": [
+     {
+      "do": "message",
+      "text": "Keeper: You have {glowcaps} of 5 glowcaps."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Keeper",
+     "distance": 2.2,
+     "prompt": "Talk"
+    },
+    "conditions": [
+     {
+      "counter": "quest",
+      "atLeast": 1
+     },
+     {
+      "counter": "glowcaps",
+      "atLeast": 5
+     },
+     {
+      "counter": "gate_open",
+      "below": 1
+     }
+    ],
+    "then": [
+     {
+      "do": "message",
+      "text": "Keeper: The north gate is open. Light the lantern."
+     },
+     {
+      "do": "hide",
+      "target": "Gate"
+     },
+     {
+      "do": "add",
+      "counter": "gate_open"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Keeper",
+     "distance": 2.2,
+     "prompt": "Talk"
+    },
+    "conditions": [
+     {
+      "counter": "quest",
+      "below": 1
+     }
+    ],
+    "then": [
+     {
+      "do": "message",
+      "text": "Keeper: The lantern has gone out. Bring me 5 glowcaps."
+     },
+     {
+      "do": "add",
+      "counter": "quest"
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_add_rule",
+   "args": {
+    "when": {
+     "type": "interact",
+     "target": "Shrine Lantern",
+     "distance": 2.5,
+     "prompt": "Light"
+    },
+    "once": true,
+    "conditions": [
+     {
+      "counter": "gate_open",
+      "atLeast": 1
+     }
+    ],
+    "then": [
+     {
+      "do": "message",
+      "text": "The lantern blazes. Mossbridge is lit again. You win!"
+     },
+     {
+      "do": "show",
+      "target": "Beam"
+     },
+     {
+      "do": "clip",
+      "clip": "Rise"
+     },
+     {
+      "do": "add",
+      "counter": "won"
+     }
+    ],
+    "otherwise": [
+     {
+      "do": "message",
+      "text": "The lantern is cold. Speak to the Keeper."
+     }
+    ]
+   }
+  },
+  {
+   "tool": "canvas_set_world",
+   "args": {
+    "player": "Hero"
+   }
+  }
+ ],
+ "playtests": {
+  "quest": [
+   {
+    "walkTo": "Keeper"
+   },
+   {
+    "interact": true
+   },
+   {
+    "expect": {
+     "counters": {
+      "quest": 1
+     },
+     "message": "Bring me 5 glowcaps"
+    }
+   },
+   {
+    "interact": true
+   },
+   {
+    "expect": {
+     "message": "0 of 5"
+    }
+   },
+   {
+    "walkTo": [
+     0,
+     12
+    ]
+   },
+   {
+    "walkTo": [
+     14,
+     12
+    ]
+   },
+   {
+    "walkTo": "Glowcap 1"
+   },
+   {
+    "walkTo": "Glowcap 2"
+   },
+   {
+    "walkTo": [
+     12,
+     -8
+    ]
+   },
+   {
+    "walkTo": "Glowcap 5"
+   },
+   {
+    "walkTo": [
+     0,
+     -10
+    ]
+   },
+   {
+    "walkTo": [
+     -6,
+     -3
+    ]
+   },
+   {
+    "walkTo": "Glowcap 4"
+   },
+   {
+    "walkTo": [
+     -16,
+     2
+    ]
+   },
+   {
+    "walkTo": [
+     -16,
+     5
+    ]
+   },
+   {
+    "walkTo": "Glowcap 3"
+   },
+   {
+    "expect": {
+     "counters": {
+      "glowcaps": 5
+     }
+    }
+   },
+   {
+    "walkTo": [
+     -12,
+     9
+    ]
+   },
+   {
+    "walkTo": [
+     -8,
+     9
+    ]
+   },
+   {
+    "walkTo": "Keeper"
+   },
+   {
+    "interact": true
+   },
+   {
+    "expect": {
+     "counters": {
+      "gate_open": 1
+     },
+     "message": "north gate is open",
+     "shown": {
+      "Gate": false
+     }
+    }
+   },
+   {
+    "interact": true
+   },
+   {
+    "expect": {
+     "message": "Go north"
+    }
+   },
+   {
+    "walkTo": [
+     0,
+     -12
+    ]
+   },
+   {
+    "walkTo": [
+     0,
+     -22
+    ]
+   },
+   {
+    "walkTo": "Shrine Lantern"
+   },
+   {
+    "interact": true
+   },
+   {
+    "expect": {
+     "counters": {
+      "won": 1
+     },
+     "message": "You win",
+     "shown": {
+      "Beam": true
+     }
+    }
+   }
+  ],
+  "gate_blocks": [
+   {
+    "walkTo": [
+     0,
+     -12
+    ]
+   },
+   {
+    "walkTo": [
+     0,
+     -22
+    ]
+   }
+  ],
+  "gap_east": [
+   {
+    "walkTo": [
+     1.9,
+     -12
+    ]
+   },
+   {
+    "walkTo": [
+     1.9,
+     -22
+    ]
+   }
+  ],
+  "gap_west": [
+   {
+    "walkTo": [
+     -1.9,
+     -12
+    ]
+   },
+   {
+    "walkTo": [
+     -1.9,
+     -22
+    ]
+   }
+  ]
+ }
+}

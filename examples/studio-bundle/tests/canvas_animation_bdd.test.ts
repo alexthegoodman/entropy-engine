@@ -82,7 +82,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             keyframeTimeline: vi.fn(),
         };
         api = {
-            AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: (time?: number) => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
+            AddonAtom: { register: () => ({ registerTool: () => {}, onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: (time?: number) => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
                 GameState: { save: (key: string, value: any) => savedData.set(key, structuredClone(value)), load: (key: string) => savedData.get(key) ?? null } }) },
             Input: new Proxy({}, { get: (_t, name: string) => name === "isPointerOverUI" ? () => overUI : (fn: (...args: any[]) => void) => { (listeners[name] ??= []).push(fn); return () => {}; } }),
             Texture: { create: (_w: number, _h: number, data: Uint8Array) => { const id = `texture${serial++}`; textures.set(id, data.slice()); return id; }, update: (id: string, data: Uint8Array) => textures.set(id, data.slice()) },
@@ -157,7 +157,7 @@ describe("Canvas animation BDD through production addon callbacks", () => {
             const scene = structuredClone(saved()); scene.version = 2; delete scene.groups; delete scene.clips;
             for (const surface of scene.surfaces) {
                 for (const key of ["id", "parentId", "frame", "scale", "pivot", "strokes"]) delete surface[key];
-                for (const layer of surface.layers) delete layer.basePixelsBase64;
+                for (const layer of surface.layers) { delete layer.basePixelsBase64; delete layer.basePixelsFill; }
             }
             savedData.set(savedIndex.scenes[0].key, scene); click("load_scene"); firstSurfaceId = surfaceMeshes()[0];
         },

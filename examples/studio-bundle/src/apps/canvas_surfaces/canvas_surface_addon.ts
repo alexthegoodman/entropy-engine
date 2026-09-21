@@ -79,13 +79,22 @@
 import { identity, defaultTransform, multiply, inverse, point, normal as transformNormal, transformMatrix, animatedTransform, groupWorld, reparentFrame, sample, setKey } from "./canvas_animation";
 import type { Group, Clip, Channel, Matrix, Transform, RetainedStroke } from "./canvas_animation";
 import { CanvasHistory } from "./canvas_history";
-import { emptyLogic, logicNode, logicProblems, LogicSession } from "./canvas_logic";
-import type { LogicGraph } from "./canvas_logic";
+import { emptyLogic, logicNode, logicProblems, validateLogic, LogicSession, LOGIC_KINDS } from "./canvas_logic";
+import type { LogicGraph, LogicNode } from "./canvas_logic";
+import { appendRule } from "./canvas_logic_rules";
+import type { Rule } from "./canvas_logic_rules";
+import { LIGHTING_PRESETS, LIGHTING_PRESET_NAMES, defaultLighting, cloneLighting, mergeLighting, packLighting, LIGHTING_FLOATS } from "./canvas_lighting";
+import type { LightingSettings } from "./canvas_lighting";
+import { PREFABS, PREFAB_IDS, buildPrefab, parseColor } from "./canvas_prefabs";
+import { stepPlayer, cameraRelative, followCamera, distanceToRect, unionRect } from "./canvas_walk";
+import type { Rect, XZ } from "./canvas_walk";
+import { CANVAS_TOOLS, CANVAS_TOOL_NAMES } from "./canvas_tool_schemas";
+import type { CanvasToolName } from "./canvas_tool_schemas";
 import { renderLogicEditor } from "./canvas_logic_editor";
 import { DEFAULT_PAINT_SETTINGS, blendPixel, compositePixel, compositeLayers, pressureResponse, stabilizePoint } from "./canvas_paint";
 import type { PaintLayer, PaintSettings, RGB } from "./canvas_paint";
 import { SceneLibrary } from "./canvas_scene_library";
-import { bytesToBase64, base64ToBytes, validateScene } from "./canvas_scene_format";
+import { bytesToBase64, base64ToBytes, validateScene, uniformFill, fillBytes } from "./canvas_scene_format";
 import type { SavedScene, SavedSurface } from "./canvas_scene_format";
 
 const addonInfo = {
@@ -516,6 +525,8 @@ interface Surface {
     cutMask: Uint8Array;
     dirty: boolean;
     visible: boolean;
+    /** Blocks the player while playing. */
+    solid: boolean;
     // Cached world-space patches - rebuilt by pushSurfaceTransform/createSurfaceMesh on every
     // geometry change (move/rotate/bend/resize) and used by raycastSurfaceMesh so drawing/
     // selection never has to recompute geometry mid-raycast.
@@ -528,8 +539,18 @@ let pipelineId: string;
 let groups: Group[] = [];
 let clips: Clip[] = [];
 let logic: LogicGraph = emptyLogic();
+/** Play-mode settings saved with the scene. `player` is the id of a root group (or a surface) the keyboard moves. */
+interface WorldState { player: string | null; bounds: number; lighting: LightingSettings; }
+const DEFAULT_BOUNDS = 40;
+let world: WorldState = { player: null, bounds: DEFAULT_BOUNDS, lighting: defaultLighting() };
+let lightingBufferId = "";
+function resetWorld(): void { world = { player: null, bounds: DEFAULT_BOUNDS, lighting: defaultLighting() }; applyLighting(); }
+function applyLighting(): void {
+    const l = world.lighting;
+    if (lightingBufferId) Entropy.Buffer.write(lightingBufferId, packLighting(l));
+    Entropy.Lighting.updateSun({ horizonColor: l.horizonColor, zenithColor: l.zenithColor, sunDirection: l.sunDirection, sunColor: l.sunColor, sunIntensity: l.sunIntensity });
+}
 let gameSession: LogicSession | null = null;
-let gameMessage = "";
 let gamePreviousTime: number | null = null;
 let workspace: "animation" | "logic" = "animation";
 let workspaceVisible = false;
@@ -539,36 +560,189 @@ function showWorkspace(kind: "animation" | "logic"): void {
 }
 let editingClipId: string | null = null;
 
+// --- Play sessions ------------------------------------------------------------------------------
+//
+// A GameRun is one Play: a fresh LogicSession plus everything Play may change (which surfaces are
+// shown, where the player stands), snapshotted so Stop puts it all back and the scene never turns
+// dirty from playing. With a `world.player` set, the keyboard walks it (WASD, camera-relative) and
+// the camera follows; without one, Play is the original click-only mode with the orbit camera.
+// A `dry` run does the same work but never touches a mesh or the camera. The canvas_playtest tool
+// uses it to play a whole game inside one frame, which also keeps it clear of the engine's
+// same-tick mesh queue ordering (see the note above spawnSurface).
+
+const PLAYER_HEIGHT = 1.8;
+function ancestorIds(s: Surface): string[] {
+    const ids: string[] = [];
+    let id = s.parentId;
+    while (id) { ids.push(id); id = groups.find(g => g.id === id)?.parentId ?? null; }
+    return ids;
+}
+/** A surface id maps to itself; a group id to every surface anywhere beneath it. */
+function surfacesUnder(id: string): Surface[] {
+    const direct = surfaces.find(s => s.id === id);
+    return direct ? [direct] : surfaces.filter(s => ancestorIds(s).includes(id));
+}
+function surfaceFootprint(s: Surface): { rect: Rect; minY: number } {
+    const bb = surfaceAABB(s);
+    return { rect: { minX: bb.min[0], maxX: bb.max[0], minZ: bb.min[2], maxZ: bb.max[2] }, minY: bb.min[1] };
+}
+interface PlayerHandle { position: Vec3; yaw: number; place(x: number, z: number, yaw?: number): void; }
+/** The node the keyboard moves: a root group (a prefab person) or a root surface. */
+function playerHandle(): PlayerHandle | null {
+    const id = world.player;
+    if (!id) return null;
+    const g = groups.find(g => g.id === id);
+    if (g) return g.parentId ? null : {
+        position: g.position, yaw: g.rotation[1],
+        place: (x, z, yaw) => { g.position = [x, g.position[1], z]; if (yaw !== undefined) g.rotation = [g.rotation[0], yaw, g.rotation[2]]; },
+    };
+    const s = surfaces.find(s => s.id === id);
+    return s && !s.parentId ? {
+        position: s.position, yaw: s.yaw,
+        place: (x, z, yaw) => { s.position = [x, s.position[1], z]; if (yaw !== undefined) s.yaw = yaw; },
+    } : null;
+}
+const targetIds = (): string[] => [...surfaces.map(s => s.id), ...groups.map(g => g.id)];
+
+class GameRun {
+    readonly session: LogicSession;
+    message = "";
+    /** Every message shown, in order, and every clip started. The playtest tool reports both. */
+    readonly messages: string[] = [];
+    readonly clipsPlayed: string[] = [];
+    /** Set when the player moved; the frame loop rebuilds meshes once and clears it. */
+    moved = false;
+    private shown = new Map<string, boolean>();
+    private home: { position: Vec3; yaw: number } | null;
+    private rects = new Map<string, Rect>();
+    private blockers: { s: Surface; rect: Rect }[] = [];
+    constructor(readonly dry: boolean) {
+        for (const s of surfaces) { s.worldPatches = buildSurfaceWorldPatches(s); this.shown.set(s.id, s.visible); }
+        const p = playerHandle();
+        this.home = p ? { position: [...p.position], yaw: p.yaw } : null;
+        const own = new Set(p ? surfacesUnder(world.player!).map(s => s.id) : []);
+        for (const s of surfaces) if (s.solid && !own.has(s.id)) {
+            const f = surfaceFootprint(s);
+            if (f.minY < PLAYER_HEIGHT) this.blockers.push({ s, rect: f.rect });
+        }
+        this.session = new LogicSession(JSON.parse(JSON.stringify(logic)), node => this.effect(node));
+    }
+    get hasPlayer(): boolean { return this.home !== null; }
+    position(): XZ | null { const p = playerHandle(); return p ? [p.position[0], p.position[2]] : null; }
+    private rectOf(s: Surface): Rect {
+        let r = this.rects.get(s.id);
+        if (!r) { r = surfaceFootprint(s).rect; this.rects.set(s.id, r); }
+        return r;
+    }
+    /** Distance from the player to the nearest edge of what is currently shown under `target`. */
+    distanceTo = (target: string): number | null => {
+        const at = this.position();
+        if (!at) return null;
+        const rect = unionRect(surfacesUnder(target).filter(s => s.visible).map(s => this.rectOf(s)));
+        return rect ? distanceToRect(at[0], at[1], rect) : null;
+    };
+    /** `dir` is a world-space XZ direction. Returns true if the player moved. */
+    walk(dir: XZ, dt: number): boolean {
+        const p = playerHandle();
+        if (!p) return false;
+        const live = this.blockers.filter(b => b.s.visible).map(b => b.rect);
+        const step = stepPlayer([p.position[0], p.position[2]], dir, dt, live, world.bounds);
+        if (!step.moved) return false;
+        p.place(step.pos[0], step.pos[1], Math.atan2(dir[0], dir[1]));
+        this.moved = true;
+        return true;
+    }
+    tick(dt: number): void { this.session.tick(dt); this.session.proximity(this.distanceTo); }
+    interact(): void { this.session.interact(this.distanceTo); }
+    click(ids: string[]): void { this.session.click(ids); }
+    prompt(): string | null { return this.session.interactables(this.distanceTo)[0]?.node.text ?? null; }
+    private setShown(s: Surface, visible: boolean): void {
+        if (s.visible === visible) return;
+        s.visible = visible;
+        if (this.dry) return;
+        if (visible) createSurfaceMesh(s); else Entropy.Model.clearMesh(s.meshId);
+    }
+    private effect(node: LogicNode): void {
+        if (node.kind === "message") { this.message = this.session.format(node.text); this.messages.push(this.message); }
+        else if (node.kind === "show" || node.kind === "hide") for (const s of surfacesUnder(node.target)) this.setShown(s, node.kind === "show");
+        else if (node.kind === "teleport") {
+            const rect = unionRect(surfacesUnder(node.target).map(s => this.rectOf(s)));
+            const p = playerHandle();
+            if (rect && p) { p.place((rect.minX + rect.maxX) / 2, (rect.minZ + rect.maxZ) / 2); this.moved = true; }
+        } else if (node.kind === "clip") {
+            const clip = clips.find(c => c.id === node.target);
+            if (clip) { this.clipsPlayed.push(clip.name); if (!this.dry) playCanvasClip(clip.name); }
+        }
+    }
+    /** Put back everything Play changed. */
+    restore(): void {
+        for (const s of surfaces) { const was = this.shown.get(s.id); if (was !== undefined) this.setShown(s, was); }
+        const p = playerHandle();
+        if (p && this.home) p.place(this.home.position[0], this.home.position[2], this.home.yaw);
+    }
+}
+
+let gameRun: GameRun | null = null;
+let playReturnView: CameraView | null = null;
+let camYaw = 0;
+let camDistance = 9;
+const CAMERA_PITCH = 0.72;
+const held = (...keys: string[]): boolean => keys.some(k => Entropy.Input.isKeyPressed(k));
+function moveInput(): XZ {
+    const f = (held("w", "W", "ArrowUp", "arrowup") ? 1 : 0) - (held("s", "S", "ArrowDown", "arrowdown") ? 1 : 0);
+    const r = (held("d", "D", "ArrowRight", "arrowright") ? 1 : 0) - (held("a", "A", "ArrowLeft", "arrowleft") ? 1 : 0);
+    return [r, f];
+}
+function placeFollowCamera(): void {
+    const p = playerHandle();
+    if (!p) return;
+    const view = followCamera([p.position[0], p.position[1] + 1, p.position[2]], camYaw, CAMERA_PITCH, camDistance);
+    Entropy.Camera.setTransform(view.position, view.target);
+}
+Entropy.Input.onMouseWheel((_dx, dy) => { if (gameRun?.hasPlayer && !Entropy.Input.isPointerOverUI()) camDistance = Math.max(3, Math.min(25, camDistance - dy * 0.6)); });
+
 function stopGame(): void {
     Entropy.UI.setWindowVisible(keyframeWindowId, workspaceVisible);
+    const run = gameRun;
+    gameRun = null;
     gameSession?.stop(); gameSession = null; gamePreviousTime = null;
     stopPreview(); selectedClipId = editingClipId ?? selectedClipId;
-    gameMessage = ""; textInputActive = false;
+    if (run) {
+        run.restore();
+        if (run.hasPlayer) { refreshGeometry(); spawnGroundGrid(); if (playReturnView) applyView(playReturnView); }
+    }
+    playReturnView = null;
+    textInputActive = false;
     lastGizmoSurfaceId = null;
     statusMessage = "Editing. Artwork and pose restored.";
 }
 function runGameAction(action: () => void): void {
     try { action(); } catch (error) { stopGame(); statusMessage = `Play stopped: ${(error as Error).message}`; }
 }
+function currentView(): CameraView {
+    const [position, direction] = Entropy.Camera.getTransform();
+    const distance = Math.max(1, Math.hypot(...subV(position, orbitTarget)));
+    return { position: [...position], target: addV(position, direction.map(n => n * distance) as Vec3) };
+}
 function startGame(): void {
     if (gameSession) return;
     if (practiceSurface) togglePractice();
     stopPreview(); finishStroke(); resetGesture(); history.commit();
-    const problems = logicProblems(logic, surfaces.map(s => s.id), clips.map(c => c.id));
+    const problems = logicProblems(logic, targetIds(), clips.map(c => c.id));
     if (problems.length) { statusMessage = problems[0]; showWorkspace("logic"); return; }
-    editingClipId = selectedClipId; gameMessage = ""; gamePreviousTime = null;
+    editingClipId = selectedClipId; gamePreviousTime = null;
     Entropy.UI.setWindowVisible(keyframeWindowId, false);
     if (activeGizmoId) { Entropy.Gizmo.hide(activeGizmoId); activeGizmoId = null; }
-    gameSession = new LogicSession(JSON.parse(JSON.stringify(logic)), node => {
-        if (node.kind === "message") gameMessage = node.text;
-        if (node.kind === "clip") { const clip = clips.find(c => c.id === node.target); if (clip) playCanvasClip(clip.name); }
-    });
-    statusMessage = "Playing. Click a surface to interact. Stop returns to editing.";
-    runGameAction(() => gameSession!.start());
+    const run = new GameRun(false);
+    gameRun = run; gameSession = run.session;
+    if (run.hasPlayer) { playReturnView = currentView(); camYaw = 0; Entropy.Controls.disable(); Entropy.Model.clearMesh(GROUND_GRID_MESH_ID); placeFollowCamera(); }
+    statusMessage = run.hasPlayer ? "Playing. WASD walks, E interacts. Stop returns to editing." : "Playing. Click a surface to interact. Stop returns to editing.";
+    runGameAction(() => run.session.start());
 }
 function clickGameSurface(x: number, y: number): void {
     const hit = raycastSurfaces(x, y);
-    if (hit && gameSession) runGameAction(() => gameSession!.click(hit.surface.id));
+    const run = gameRun;
+    if (hit && run) runGameAction(() => run.click([hit.surface.id, ...ancestorIds(hit.surface)]));
 }
 let activeGroupId: string | null = null;
 let selectedStrokeId: string | null = null;
@@ -663,7 +837,7 @@ export function playCanvasClip(name: string): boolean {
 // Snapshots share unchanged canvases. Paint gestures copy only their target canvas before
 // writing; moving a surface therefore costs metadata, not another 2.3 MB bitmap.
 type SurfaceState = Omit<Surface, "worldPatches" | "dirty" | "canvas">;
-interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; groups: Group[]; clips: Clip[]; logic: LogicGraph; activeGroupId: string | null; selectedClipId: string | null; selectedStrokeId: string | null; }
+interface SceneState { surfaces: SurfaceState[]; activeId: string | null; sceneId: string | null; sceneName: string; groups: Group[]; clips: Clip[]; logic: LogicGraph; world: WorldState; activeGroupId: string | null; selectedClipId: string | null; selectedStrokeId: string | null; }
 let historyReady = false;
 let restoringHistory = false;
 let pointerHeld = false;
@@ -672,7 +846,7 @@ let gestureCanvases = new Set<string>();
 
 function captureScene(): SceneState {
     return {
-        logic: JSON.parse(JSON.stringify(logic)),
+        logic: JSON.parse(JSON.stringify(logic)), world: JSON.parse(JSON.stringify(world)),
         activeId: activeSurfaceId, sceneId: currentSceneId, sceneName, groups: JSON.parse(JSON.stringify(groups)), clips: JSON.parse(JSON.stringify(clips)), activeGroupId, selectedClipId, selectedStrokeId,
         surfaces: surfaces.map(({ worldPatches: _patches, dirty: _dirty, canvas: _canvas, ...s }) => ({
             ...s, position: [...s.position], scale: [...s.scale], pivot: [...s.pivot], frame: [...s.frame], layers: s.layers.map(layer => ({ ...layer, pixels: editingPixels.get(layer.id) ?? layer.pixels })),
@@ -682,7 +856,7 @@ function captureScene(): SceneState {
 
 function sameScene(a: SceneState, b: SceneState): boolean {
     // Selection alone is not an edit. Keep it in snapshots to restore a deleted selection.
-    return JSON.stringify(a.logic) === JSON.stringify(b.logic) && JSON.stringify(a.groups) === JSON.stringify(b.groups) && JSON.stringify(a.clips) === JSON.stringify(b.clips) && a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
+    return JSON.stringify(a.logic) === JSON.stringify(b.logic) && JSON.stringify(a.world) === JSON.stringify(b.world) && JSON.stringify(a.groups) === JSON.stringify(b.groups) && JSON.stringify(a.clips) === JSON.stringify(b.clips) && a.sceneId === b.sceneId && a.sceneName === b.sceneName && a.surfaces.length === b.surfaces.length && a.surfaces.every((s, i) => {
         const other = b.surfaces[i];
         const { layers, bases, strokes, cutMask, activeLayerId: _active, ...meta } = s;
         const { layers: otherLayers, bases: otherBases, strokes: otherStrokes, cutMask: otherMask, activeLayerId: _otherActive, ...otherMeta } = other;
@@ -697,6 +871,7 @@ function sameScene(a: SceneState, b: SceneState): boolean {
 
 function restoreScene(state: SceneState): void {
     logic = JSON.parse(JSON.stringify(state.logic));
+    if (JSON.stringify(world) !== JSON.stringify(state.world)) { world = JSON.parse(JSON.stringify(state.world)); applyLighting(); }
     stopPreview();
     restoringHistory = true;
     geometryKeys.clear();
@@ -903,6 +1078,7 @@ function createSurfaceMesh(s: Surface): void {
             { group: 2, binding: 0, resource: { type: "Texture", value: { id: s.textureId } } },
             { group: 2, binding: 1, resource: { type: "Sampler" } },
             { group: 2, binding: 2, resource: { type: "Buffer", value: { id: s.previewBufferId } } },
+            { group: 2, binding: 3, resource: { type: "Buffer", value: { id: lightingBufferId } } },
         ],
     });
 }
@@ -933,7 +1109,7 @@ let pendingKind: ShapeKind = "plane";
 function spawnSurface(
     position: Vec3, yaw: number, kind: ShapeKind = "plane",
     halfW = DEFAULT_HALF_SIZE, halfH = DEFAULT_HALF_SIZE, halfD = DEFAULT_HALF_DEPTH, radius = DEFAULT_RADIUS,
-    restore?: { id?: string; parentId?: string | null; frame?: Matrix; scale?: Vec3; pivot?: Vec3; strokes?: RetainedStroke[]; bases?: Record<string, Uint8Array>; name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean; layers?: PaintLayer[]; activeLayerId?: string; cutMask?: Uint8Array }
+    restore?: { id?: string; parentId?: string | null; frame?: Matrix; scale?: Vec3; pivot?: Vec3; strokes?: RetainedStroke[]; bases?: Record<string, Uint8Array>; name?: string; pitch?: number; roll?: number; bend?: number; bendAxis?: BendAxis; canvas?: Uint8Array; visible?: boolean; solid?: boolean; layers?: PaintLayer[]; activeLayerId?: string; cutMask?: Uint8Array }
 ): Surface {
     beginEdit("New surface");
     surfaceCount++;
@@ -973,6 +1149,7 @@ function spawnSurface(
         canvas, layers, cutMask, activeLayerId: restore?.activeLayerId ?? layers[0].id,
         dirty: false,
         visible: restore?.visible ?? true,
+        solid: restore?.solid ?? false,
         worldPatches: [],
     };
 
@@ -1606,7 +1783,11 @@ function restoreView(): void {
 
 Entropy.Input.onKeyDown((key, ctrl, shift, alt) => {
     const k = key.toLowerCase();
-    if (gameSession) { if (k === "escape") stopGame(); return; }
+    if (gameSession) {
+        if (k === "escape") stopGame();
+        else if (k === "e" || k === "enter") { const run = gameRun; if (run) runGameAction(() => run.interact()); }
+        return;
+    }
     if (alt || textInputActive) return;
     if (ctrl && k === "s") { saveScene(); return; }
     if (ctrl && k === "z") { shift ? redo() : undo(); return; }
@@ -1703,6 +1884,7 @@ function deleteSurface(s: Surface): void {
     geometryKeys.delete(s.id); markedNodes.delete(s.id);
     for (const clip of clips) clip.tracks = clip.tracks.filter(t => t.targetId !== s.id && !s.strokes.some(st => st.id === t.targetId));
     if (s.visible) Entropy.Model.clearMesh(s.meshId);
+    if (world.player === s.id) world.player = null;
     const idx = surfaces.indexOf(s);
     if (idx >= 0) surfaces.splice(idx, 1);
     if (activeSurfaceId === s.id) {
@@ -1752,19 +1934,28 @@ const sceneLibrary = new SceneLibrary<SavedScene>({
 function sceneIsDirty(): boolean {
     return savedSceneState ? !sameScene(savedSceneState, captureScene()) : true;
 }
+/** An unpainted, single-colour canvas is stored as its colour rather than as base64 (see uniformFill). */
+function pixelFields(prefix: "pixels" | "basePixels", bytes: Uint8Array): Record<string, unknown> {
+    const fill = uniformFill(bytes);
+    return fill ? { [`${prefix}Fill`]: fill } : { [`${prefix}Base64`]: bytesToBase64(bytes) };
+}
+function maskFields(mask: Uint8Array): Record<string, unknown> {
+    const first = mask[0];
+    return mask.every(v => v === first) ? { cutMaskFill: first } : { cutMaskBase64: bytesToBase64(mask) };
+}
 function serializeScene(): SavedScene {
     return {
-        version: 3, groups, clips, logic,
+        version: 3, groups, clips, logic, world: { player: world.player, bounds: world.bounds, lighting: cloneLighting(world.lighting) },
         surfaces: surfaces.map((s): SavedSurface => ({
             id: s.id, parentId: s.parentId, frame: s.frame, scale: s.scale, pivot: s.pivot, strokes: s.strokes,
             name: s.name, kind: s.kind, position: [...s.position],
             yaw: s.yaw, pitch: s.pitch, roll: s.roll,
             halfW: s.halfW, halfH: s.halfH, halfD: s.halfD, radius: s.radius,
-            bend: s.bend, bendAxis: s.bendAxis, visible: s.visible,
-            activeLayerId: s.activeLayerId, cutMaskBase64: bytesToBase64(s.cutMask),
+            bend: s.bend, bendAxis: s.bendAxis, visible: s.visible, ...(s.solid ? { solid: true } : {}),
+            activeLayerId: s.activeLayerId, ...maskFields(s.cutMask),
             layers: s.layers.map(layer => ({
-                id: layer.id, name: layer.name, visible: layer.visible, locked: layer.locked,
-                opacity: layer.opacity, basePixelsBase64: s.bases[layer.id] ? bytesToBase64(s.bases[layer.id]) : undefined, pixelsBase64: bytesToBase64(layer.pixels),
+                id: layer.id, name: layer.name, visible: layer.visible, locked: layer.locked, opacity: layer.opacity,
+                ...pixelFields("pixels", layer.pixels), ...(s.bases[layer.id] ? pixelFields("basePixels", s.bases[layer.id]) : {}),
             })),
         })),
     };
@@ -1808,9 +1999,9 @@ function loadScene(): void {
         const decoded = scene.surfaces.map(saved => ({
             saved,
             canvas: scene.version === 1 ? base64ToBytes(saved.canvasBase64!) : undefined,
-            layers: saved.layers?.map(({ pixelsBase64, basePixelsBase64: _base, ...layer }) => ({ ...layer, pixels: base64ToBytes(pixelsBase64) })),
-            bases: Object.fromEntries((saved.layers ?? []).filter(layer => layer.basePixelsBase64).map(layer => [layer.id, base64ToBytes(layer.basePixelsBase64!)])),
-            cutMask: saved.cutMaskBase64 ? base64ToBytes(saved.cutMaskBase64) : undefined,
+            layers: saved.layers?.map(({ pixelsBase64, pixelsFill, basePixelsBase64: _base, basePixelsFill: _baseFill, ...layer }) => ({ ...layer, pixels: pixelsFill ? fillBytes(pixelsFill) : base64ToBytes(pixelsBase64!) })),
+            bases: Object.fromEntries((saved.layers ?? []).filter(layer => layer.basePixelsBase64 || layer.basePixelsFill).map(layer => [layer.id, layer.basePixelsFill ? fillBytes(layer.basePixelsFill) : base64ToBytes(layer.basePixelsBase64!)])),
+            cutMask: saved.cutMaskFill !== undefined ? new Uint8Array(CANVAS_RES * CANVAS_RES).fill(saved.cutMaskFill) : saved.cutMaskBase64 ? base64ToBytes(saved.cutMaskBase64) : undefined,
         }));
         const name = sceneLibrary.entries.find(entry => entry.id === id)!.name;
         requestSceneAction(`Load ${name}`, () => {
@@ -1818,6 +2009,8 @@ function loadScene(): void {
             for (const s of [...surfaces]) deleteSurface(s);
             groups = JSON.parse(JSON.stringify(scene.groups ?? [])); clips = JSON.parse(JSON.stringify(scene.clips ?? [])); activeGroupId = null; selectedClipId = clips[0]?.id ?? null; selectedStrokeId = null;
             logic = JSON.parse(JSON.stringify(scene.logic ?? emptyLogic()));
+            world = scene.world ? { player: scene.world.player, bounds: scene.world.bounds, lighting: cloneLighting(scene.world.lighting) } : { player: null, bounds: DEFAULT_BOUNDS, lighting: defaultLighting() };
+            applyLighting();
             for (const { saved, canvas, layers, cutMask, bases } of decoded) {
                 spawnSurface(saved.position, saved.yaw, saved.kind, saved.halfW, saved.halfH, saved.halfD, saved.radius,
                     { ...saved, canvas, layers, cutMask, bases });
@@ -1835,7 +2028,7 @@ function newScene(): void {
         beginEdit("New scene");
         for (const s of [...surfaces]) deleteSurface(s);
         groups = []; clips = []; activeGroupId = null; selectedClipId = null; selectedStrokeId = null;
-        logic = emptyLogic();
+        logic = emptyLogic(); resetWorld();
         currentSceneId = Entropy.generateUUID(); sceneName = "Untitled scene";
         spawnSurface([0, 1.5, 0], 0);
         history.commit();
@@ -1996,6 +2189,20 @@ struct BrushPreview {
 @group(2) @binding(2)
 var<uniform> brush_preview: BrushPreview;
 
+// One shared buffer for the whole scene (canvas_lighting.ts packLighting writes it, same order).
+struct Lighting {
+    ambient: vec4<f32>,
+    sun_dir: vec4<f32>,      // xyz points toward the sun
+    sun_color: vec4<f32>,    // rgb, w = intensity
+    sky_fill: vec4<f32>,     // rgb, w = fill strength
+    ground_fill: vec4<f32>,
+    fog: vec4<f32>,          // rgb, w = density
+    lamp_pos: array<vec4<f32>, 4>,    // xyz, w = reach
+    lamp_color: array<vec4<f32>, 4>,  // rgb, w = intensity (0 = off)
+};
+@group(2) @binding(3)
+var<uniform> lighting: Lighting;
+
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
@@ -2025,21 +2232,15 @@ fn vs_main(in: VertexInput) -> VertexOutput {
     return out;
 }
 
-const AMBIENT: f32 = 0.45;
-const LIGHT1_POS = vec3<f32>(4.0, 5.0, 3.0);
-const LIGHT1_COLOR = vec3<f32>(1.0, 0.96, 0.88);
-const LIGHT1_INTENSITY: f32 = 1.1;
-const LIGHT2_POS = vec3<f32>(-4.0, 3.0, -3.5);
-const LIGHT2_COLOR = vec3<f32>(0.55, 0.65, 0.95);
-const LIGHT2_INTENSITY: f32 = 0.7;
-
-fn point_light_diffuse(world_pos: vec3<f32>, n: vec3<f32>, light_pos: vec3<f32>, light_color: vec3<f32>, intensity: f32) -> vec3<f32> {
-    let to_light = light_pos - world_pos;
+fn point_light_diffuse(world_pos: vec3<f32>, n: vec3<f32>, pos_reach: vec4<f32>, color_intensity: vec4<f32>) -> vec3<f32> {
+    let to_light = pos_reach.xyz - world_pos;
     let dist = length(to_light);
     let l = to_light / max(dist, 0.0001);
     let ndotl = max(dot(n, l), 0.0);
-    let atten = 1.0 / (1.0 + 0.06 * dist + 0.012 * dist * dist);
-    return light_color * intensity * ndotl * atten;
+    // Distance is measured in units of reach; reach 1 is the original editor falloff.
+    let d = dist / max(pos_reach.w, 0.1);
+    let atten = 1.0 / (1.0 + 0.06 * d + 0.012 * d * d);
+    return color_intensity.rgb * color_intensity.w * ndotl * atten;
 }
 
 @fragment
@@ -2052,10 +2253,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         discard;
     }
     let n = normalize(in.normal);
-    var lighting = vec3<f32>(AMBIENT, AMBIENT, AMBIENT);
-    lighting += point_light_diffuse(in.world_pos, n, LIGHT1_POS, LIGHT1_COLOR, LIGHT1_INTENSITY);
-    lighting += point_light_diffuse(in.world_pos, n, LIGHT2_POS, LIGHT2_COLOR, LIGHT2_INTENSITY);
-    var lit_rgb = sampled.rgb * in.color.rgb * lighting;
+    var light = lighting.ambient.rgb;
+    light += lighting.sun_color.rgb * lighting.sun_color.w * max(dot(n, normalize(lighting.sun_dir.xyz)), 0.0);
+    light += mix(lighting.ground_fill.rgb, lighting.sky_fill.rgb, n.y * 0.5 + 0.5) * lighting.sky_fill.w;
+    light += point_light_diffuse(in.world_pos, n, lighting.lamp_pos[0], lighting.lamp_color[0]);
+    light += point_light_diffuse(in.world_pos, n, lighting.lamp_pos[1], lighting.lamp_color[1]);
+    light += point_light_diffuse(in.world_pos, n, lighting.lamp_pos[2], lighting.lamp_color[2]);
+    light += point_light_diffuse(in.world_pos, n, lighting.lamp_pos[3], lighting.lamp_color[3]);
+    var lit_rgb = sampled.rgb * in.color.rgb * light;
+    let fog_amount = 1.0 - exp(-lighting.fog.w * length(camera.view_pos.xyz - in.world_pos));
+    lit_rgb = mix(lit_rgb, lighting.fog.rgb, clamp(fog_amount, 0.0, 1.0));
     let delta = in.tex_coords * 768.0 - brush_preview.center_radius.xy;
     let c = brush_preview.rotation_enabled.x;
     let s = brush_preview.rotation_enabled.y;
@@ -2107,7 +2314,7 @@ function createAnimatedExample(withLogic = false): void {
         beginEdit("Animated character example");
         for (const s of [...surfaces]) deleteSurface(s);
         groups = []; clips = []; markedNodes.clear(); selectedStrokeId = null;
-        logic = emptyLogic();
+        logic = emptyLogic(); resetWorld();
         currentSceneId = Entropy.generateUUID(); sceneName = "Drawn character";
         const character: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Character", parentId: null, frame: identity(), pivot: [0, 1.5, 0] };
         const arm: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: "Waving arm", parentId: character.id, frame: identity(), pivot: [0.65, 2.05, 0] };
@@ -2387,7 +2594,7 @@ function renderKeyframeTimelineUI(): void {
     if (gameSession || !workspaceVisible) return;
     Entropy.UI.Widget.button(keyframeWindowId, { id: "workspace_close", text: "Return to canvas", onClick: () => { workspaceVisible = false; Entropy.UI.setWindowVisible(keyframeWindowId, false); } });
     if (workspace === "logic") {
-        renderLogicEditor(keyframeWindowId, logic, surfaces, clips, change => { beginEdit("Edit gameplay logic"); change(); }, activeSurfaceId);
+        renderLogicEditor(keyframeWindowId, logic, [...surfaces.map(s => ({ id: s.id, name: s.name })), ...groups.map(g => ({ id: g.id, name: `${g.name} (group)` }))], clips, change => { beginEdit("Edit gameplay logic"); change(); }, activeSurfaceId);
         return;
     }
     const W = Entropy.UI.Widget;
@@ -2620,8 +2827,12 @@ function renderUI(): void {
     });
     if (gameSession) {
         W.label(uiWindowId, { text: sceneName, bold: true });
-        W.label(uiWindowId, { text: gameMessage, bold: true });
-        W.label(uiWindowId, { text: "Click surfaces to interact." });
+        W.label(uiWindowId, { text: gameRun?.message ?? "", bold: true });
+        const counters = [...gameSession.vars].filter(([, v]) => v !== 0).map(([name, v]) => `${name}: ${v}`);
+        if (counters.length) W.label(uiWindowId, { text: counters.join("   ") });
+        const prompt = gameRun?.prompt();
+        if (prompt) W.label(uiWindowId, { text: `[E] ${prompt}`, bold: true });
+        W.label(uiWindowId, { text: gameRun?.hasPlayer ? "WASD walk | E interact | Q R turn | wheel zoom" : "Click surfaces to interact." });
         W.label(uiWindowId, { text: "Esc or Stop returns to editing." });
         return;
     }
@@ -2799,6 +3010,10 @@ function renderToolTab(): void {
                 onClick: () => setSurfaceVisible(s, !s.visible)
             });
             Entropy.UI.Widget.button(uiWindowId, {
+                text: s.solid ? "Solid: blocks the player" : "Solid: player walks through", id: "toggle_solid",
+                onClick: () => { beginEdit("Toggle solid"); s.solid = !s.solid; }
+            });
+            Entropy.UI.Widget.button(uiWindowId, {
                 text: "Delete Surface", id: "delete_surface",
                 onClick: () => deleteActiveSurface()
             });
@@ -2855,6 +3070,7 @@ function renderSurfacesTab(): void {
         id: "new_surface",
         onClick: addSurfaceFromPalette
     });
+    W.collapsingHeader(uiWindowId, "Prefabs", renderPrefabsUI, "prefabs_header", true);
     W.label(uiWindowId, { text: `Surfaces (${surfaces.length})`, bold: true });
     W.horizontal(uiWindowId, () => {
         W.button(uiWindowId, { text: "Focus", id: "focus_surface", onClick: () => focusSurface(false) });
@@ -2867,7 +3083,38 @@ function renderSurfacesTab(): void {
 /** Scene tab: the playable example, then save, load and export. */
 function renderSceneTab(): void {
     Entropy.UI.Widget.button(uiWindowId, { id: "playable_example", text: "Open playable example", onClick: createPlayableExample });
+    Entropy.UI.Widget.collapsingHeader(uiWindowId, "World and lighting", renderWorldUI, "world_header", true);
     renderSceneLibrary();
+}
+
+/** Ready-made props: one click drops a blocked-out group on the ground under the camera's target. */
+function renderPrefabsUI(): void {
+    const W = Entropy.UI.Widget;
+    W.label(uiWindowId, { text: "Drops a prop at the camera target." });
+    for (let i = 0; i < PREFAB_IDS.length; i += 3) W.horizontal(uiWindowId, () => {
+        for (const id of PREFAB_IDS.slice(i, i + 3)) W.button(uiWindowId, { id: `prefab_${id}`, text: `+ ${id}`, onClick: () => addPrefabAtView(id) });
+    });
+}
+
+/** Who walks in Play, how far they may go, and the light. The same settings the MCP tools change. */
+function renderWorldUI(): void {
+    const W = Entropy.UI.Widget;
+    const playerName = world.player ? groups.find(g => g.id === world.player)?.name ?? surfaces.find(s => s.id === world.player)?.name ?? "(missing)" : "none (Play is click-only)";
+    W.label(uiWindowId, { text: `Player: ${playerName}` });
+    W.horizontal(uiWindowId, () => {
+        W.button(uiWindowId, { id: "world_set_player", text: "Use selection", onClick: () => {
+            const node = activeGroupId ? groups.find(g => g.id === activeGroupId) : activeSurface();
+            if (!node) { statusMessage = "Select a group or surface first."; return; }
+            if (node.parentId) { statusMessage = "The player must not be inside another group."; return; }
+            beginEdit("Set player"); world.player = node.id; statusMessage = `Player is ${node.name}. Press Play, then WASD.`;
+        } });
+        W.button(uiWindowId, { id: "world_clear_player", text: "No player", onClick: () => { beginEdit("Clear player"); world.player = null; } });
+    });
+    W.slider(uiWindowId, { id: "world_bounds", label: "Walk bounds", value: world.bounds, min: 5, max: 200, onChange: v => { const n = Number(v); if (Number.isFinite(n)) { beginEdit("Walk bounds"); world.bounds = Math.max(1, Math.min(1000, n)); } } });
+    W.label(uiWindowId, { text: "Lighting" });
+    for (let i = 0; i < LIGHTING_PRESET_NAMES.length; i += 3) W.horizontal(uiWindowId, () => {
+        for (const name of LIGHTING_PRESET_NAMES.slice(i, i + 3)) W.button(uiWindowId, { id: `light_${name}`, text: name, onClick: () => { beginEdit("Change lighting"); world.lighting = cloneLighting(LIGHTING_PRESETS[name]); applyLighting(); } });
+    });
 }
 
 function renderHelpTab(): void {
@@ -2876,10 +3123,11 @@ function renderHelpTab(): void {
     W.label(uiWindowId, { text: "Tool: brush, transform, cut for the mode above." });
     W.label(uiWindowId, { text: "Surfaces: add, focus, hide, delete." });
     W.label(uiWindowId, { text: "Animate: groups, clips and keyframes." });
-    W.label(uiWindowId, { text: "Scene: save, load, export." });
+    W.label(uiWindowId, { text: "Scene: save, load, export, player, lighting." });
+    W.label(uiWindowId, { text: "Surfaces > Prefabs: houses, trees, people." });
     W.separator(uiWindowId);
     W.label(uiWindowId, { text: "Shortcuts", bold: true });
-    for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Ctrl+S Save scene", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
+    for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Ctrl+S Save scene", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size", "Play: WASD walk | E interact | Q R turn"])
         W.label(uiWindowId, { text });
 }
 
@@ -2929,13 +3177,19 @@ function buildGroundGridMesh(): { vertexData: number[]; indexData: number[] } {
     return { vertexData, indexData };
 }
 
+const GROUND_GRID_MESH_ID = "canvas_surfaces_ground_grid";
+let groundGridResources: { texture: string; preview: string } | null = null;
+/** The reference grid is an editing aid: Play hides it (clearMesh) and Stop brings it back with the same texture and buffer. */
 function spawnGroundGrid(): void {
-    const previewBufferId = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
-    Entropy.Buffer.write(previewBufferId, new Float32Array(8));
-    const gridTextureId = Entropy.Texture.create(1, 1, new Uint8Array([255, 255, 255, 255]));
+    if (!groundGridResources) {
+        const preview = Entropy.Buffer.create({ size: 32, usage: "Uniform" });
+        Entropy.Buffer.write(preview, new Float32Array(8));
+        groundGridResources = { preview, texture: Entropy.Texture.create(1, 1, new Uint8Array([255, 255, 255, 255])) };
+    }
+    const previewBufferId = groundGridResources.preview, gridTextureId = groundGridResources.texture;
     const { vertexData, indexData } = buildGroundGridMesh();
     Entropy.Model.createMesh({
-        id: "canvas_surfaces_ground_grid",
+        id: GROUND_GRID_MESH_ID,
         position: [0, 0, 0],
         vertexData,
         indexData,
@@ -2944,7 +3198,597 @@ function spawnGroundGrid(): void {
             { group: 2, binding: 0, resource: { type: "Texture", value: { id: gridTextureId } } },
             { group: 2, binding: 1, resource: { type: "Sampler" } },
             { group: 2, binding: 2, resource: { type: "Buffer", value: { id: previewBufferId } } },
+            { group: 2, binding: 3, resource: { type: "Buffer", value: { id: lightingBufferId } } },
         ],
+    });
+}
+
+// --- Prefabs and flat colour ---------------------------------------------------------------------
+
+const r3 = (n: number): number => Math.round(n * 1000) / 1000;
+const r3v = (v: readonly number[]): number[] => v.map(r3);
+
+/** A brand-new array, never an in-place write: history snapshots share unchanged canvases. */
+function paintFlat(s: Surface, rgb: RGB): void {
+    const layer = s.layers.find(l => l.id === s.activeLayerId && l.visible && !l.locked) ?? s.layers[0];
+    layer.pixels = fillBytes([rgb[0], rgb[1], rgb[2], 255]);
+    composeSurface(s);
+}
+/** The triangular end of a gable roof: alpha is cut everywhere outside an apex-up triangle. */
+function cutGable(s: Surface): void {
+    const mask = new Uint8Array(CANVAS_RES * CANVAS_RES);
+    const mid = (CANVAS_RES - 1) / 2;
+    for (let y = 0; y < CANVAS_RES; y++) {
+        const half = mid * (y / (CANVAS_RES - 1)) + 0.5;
+        for (let x = 0; x < CANVAS_RES; x++) if (Math.abs(x - mid) <= half) mask[y * CANVAS_RES + x] = 255;
+    }
+    s.cutMask = mask;
+    composeSurface(s);
+}
+function uniqueName(base: string, taken: (name: string) => boolean): string {
+    if (!taken(base)) return base;
+    for (let n = 2; ; n++) if (!taken(`${base} ${n}`)) return `${base} ${n}`;
+}
+const surfaceNameTaken = (name: string): boolean => surfaces.some(s => s.name === name);
+const groupNameTaken = (name: string): boolean => groups.some(g => g.name === name);
+
+function placePrefab(id: string, params: Record<string, unknown>, position: Vec3, yaw: number, name?: string): { group: Group; made: Surface[]; footprint: number } {
+    const spec = buildPrefab(id, params);
+    if (surfaces.length + spec.parts.length > 128) throw new Error(`A scene holds at most 128 surfaces; this prefab needs ${spec.parts.length} and ${surfaces.length} exist.`);
+    if (groups.length >= 128) throw new Error("A scene holds at most 128 groups.");
+    beginEdit(`Add ${id}`);
+    const groupName = uniqueName(name?.trim() || id.charAt(0).toUpperCase() + id.slice(1), groupNameTaken);
+    const group: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: groupName, parentId: null, frame: identity(), position: [...position], rotation: [0, yaw, 0] };
+    groups.push(group);
+    const made = spec.parts.map(part => {
+        const s = spawnSurface(part.position, part.yaw ?? 0, part.kind, part.halfW ?? DEFAULT_HALF_SIZE, part.halfH ?? DEFAULT_HALF_SIZE, part.halfD ?? DEFAULT_HALF_DEPTH, part.radius ?? DEFAULT_RADIUS, {
+            name: uniqueName(`${groupName} ${part.name}`, surfaceNameTaken), parentId: group.id, pitch: part.pitch ?? 0, roll: part.roll ?? 0, scale: part.scale ? [...part.scale] as Vec3 : undefined, solid: part.solid ?? false,
+        });
+        paintFlat(s, part.color);
+        if (part.mask === "gable") cutGable(s);
+        return s;
+    });
+    activeGroupId = group.id; selectedStrokeId = null;
+    return { group, made, footprint: spec.footprint };
+}
+/** Where the GUI drops a prefab: on the ground under the camera's orbit target. */
+function addPrefabAtView(id: string): void {
+    try {
+        const at = placePrefab(id, {}, [Math.round(orbitTarget[0] * 2) / 2, 0, Math.round(orbitTarget[2] * 2) / 2], 0);
+        statusMessage = `Added ${at.group.name} (${at.made.length} surface${at.made.length === 1 ? "" : "s"}).`;
+    } catch (error) { statusMessage = (error as Error).message; }
+}
+
+// --- MCP tools -----------------------------------------------------------------------------------
+//
+// Every tool is defined in canvas_tool_schemas.ts and implemented here. A tool is one undo step,
+// returns { success: true, ... } or { success: false, error }, refuses to change the scene during
+// Play, and rejects arguments it does not know so a typo is an error, not a silent no-op.
+
+type Args = Record<string, any>;
+function fail(message: string): never { throw new Error(message); }
+function vec(value: unknown, name: string, length = 3): number[] {
+    if (!Array.isArray(value) || value.length !== length || !value.every(n => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 1e5)) fail(`${name} must be [${length === 3 ? "x, y, z" : "x, z"}] numbers.`);
+    return value as number[];
+}
+function angle(value: unknown, name: string): number {
+    if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1e4) fail(`${name} must be a number of radians.`);
+    return value as number;
+}
+function flag(value: unknown, name: string): boolean { if (typeof value !== "boolean") fail(`${name} must be true or false.`); return value as boolean; }
+function listNames(names: string[]): string { return names.length ? names.slice(0, 15).map(n => `"${n}"`).join(", ") + (names.length > 15 ? ", ..." : "") : "(none)"; }
+
+function findSurface(ref: unknown): Surface {
+    const key = String(ref);
+    const byId = surfaces.find(s => s.id === key);
+    if (byId) return byId;
+    const named = surfaces.filter(s => s.name === key);
+    if (named.length === 1) return named[0];
+    if (named.length > 1) fail(`More than one surface is named "${key}" (ids: ${named.map(s => s.id).join(", ")}). Use an id.`);
+    return fail(`No surface "${key}". Surfaces: ${listNames(surfaces.map(s => s.name))}.`);
+}
+function findGroup(ref: unknown): Group {
+    const key = String(ref);
+    const byId = groups.find(g => g.id === key);
+    if (byId) return byId;
+    const named = groups.filter(g => g.name === key);
+    if (named.length === 1) return named[0];
+    if (named.length > 1) fail(`More than one group is named "${key}" (ids: ${named.map(g => g.id).join(", ")}). Use an id.`);
+    return fail(`No group "${key}". Groups: ${listNames(groups.map(g => g.name))}.`);
+}
+/** A surface or a group, by id first and then by name. */
+function findNode(ref: unknown): { surface?: Surface; group?: Group } {
+    const key = String(ref);
+    const id = surfaces.find(s => s.id === key) ?? groups.find(g => g.id === key);
+    if (id) return "yaw" in id ? { surface: id as Surface } : { group: id as Group };
+    const s = surfaces.filter(s => s.name === key), g = groups.filter(g => g.name === key);
+    if (s.length + g.length === 1) return s.length ? { surface: s[0] } : { group: g[0] };
+    if (s.length + g.length > 1) fail(`"${key}" names more than one surface or group. Use an id.`);
+    return fail(`No surface or group "${key}". Groups: ${listNames(groups.map(g => g.name))}. Surfaces: ${listNames(surfaces.map(s => s.name))}.`);
+}
+const nodeId = (ref: unknown): string => { const n = findNode(ref); return (n.surface ?? n.group)!.id; };
+function findClip(ref: unknown): Clip {
+    const key = String(ref);
+    const clip = clips.find(c => c.id === key) ?? clips.find(c => c.name === key);
+    return clip ?? fail(`No clip "${key}". Clips: ${listNames(clips.map(c => c.name))}.`);
+}
+const nameOf = (id: string): string => groups.find(g => g.id === id)?.name ?? surfaces.find(s => s.id === id)?.name ?? clips.find(c => c.id === id)?.name ?? id;
+function sizeOf(s: Surface): Record<string, number> {
+    if (s.kind === "plane") return { width: r3(s.halfW * 2), height: r3(s.halfH * 2) };
+    if (s.kind === "box") return { width: r3(s.halfW * 2), height: r3(s.halfH * 2), depth: r3(s.halfD * 2) };
+    if (s.kind === "cylinder") return { radius: r3(s.radius), height: r3(s.halfH * 2) };
+    return { radius: r3(s.radius) };
+}
+function surfaceInfo(s: Surface): Record<string, unknown> {
+    return { id: s.id, name: s.name, kind: s.kind, parent: s.parentId ? nameOf(s.parentId) : null, position: r3v(s.position), yaw: r3(s.yaw), pitch: r3(s.pitch), roll: r3(s.roll), size: sizeOf(s), visible: s.visible, solid: s.solid, strokes: s.strokes.length };
+}
+function groupInfo(g: Group): Record<string, unknown> {
+    return { id: g.id, name: g.name, parent: g.parentId ? nameOf(g.parentId) : null, position: r3v(g.position), yaw: r3(g.rotation[1]), scale: r3v(g.scale), children: surfaces.filter(s => s.parentId === g.id).length + groups.filter(o => o.parentId === g.id).length };
+}
+function readDims(kind: ShapeKind, dims: Args, base: { halfW: number; halfH: number; halfD: number; radius: number }): { halfW: number; halfH: number; halfD: number; radius: number } {
+    const out = { ...base };
+    const dim = (key: string, allowed: boolean): number | undefined => {
+        const v = dims[key];
+        if (v === undefined) return undefined;
+        if (!allowed) fail(`size.${key} does not apply to a ${kind}.`);
+        if (typeof v !== "number" || !Number.isFinite(v) || v < 0.02 || v > 20000) fail(`size.${key} must be a number from 0.02 to 20000.`);
+        return v;
+    };
+    const w = dim("width", kind === "plane" || kind === "box"), h = dim("height", kind !== "sphere"), d = dim("depth", kind === "box"), r = dim("radius", kind === "cylinder" || kind === "sphere");
+    if (w !== undefined) out.halfW = w / 2;
+    if (h !== undefined) out.halfH = h / 2;
+    if (d !== undefined) out.halfD = d / 2;
+    if (r !== undefined) out.radius = r;
+    return out;
+}
+function editingOnly(): void { if (gameSession) fail("Play is running. Call canvas_stop first."); }
+const LOGIC_RULE_KEYS = ["when", "once", "conditions", "then", "otherwise"];
+
+/** Resolve names in a rule to ids so compileRule only ever sees ids. */
+function resolveRule(raw: Args): Rule {
+    const unknown = Object.keys(raw).filter(k => !LOGIC_RULE_KEYS.includes(k));
+    if (unknown.length) fail(`Unknown rule field(s): ${unknown.join(", ")}.`);
+    const when = raw.when ?? fail("A rule needs when.");
+    if (!["start", "click", "near", "interact"].includes(when.type)) fail('when.type must be "start", "click", "near" or "interact".');
+    const action = (a: Args, where: string) => {
+        if (!a || typeof a !== "object") fail(`${where} must be an object with a "do".`);
+        switch (a.do) {
+            case "message": if (typeof a.text !== "string") fail(`${where}: message needs text.`); return { do: "message" as const, text: a.text };
+            case "show": case "hide": case "teleport": if (a.target === undefined) fail(`${where}: ${a.do} needs a target.`); return { do: a.do as "show" | "hide" | "teleport", target: nodeId(a.target) };
+            case "add": if (typeof a.counter !== "string" || !a.counter.trim()) fail(`${where}: add needs a counter name.`); return { do: "add" as const, counter: a.counter.trim(), amount: a.amount === undefined ? 1 : Number(a.amount) };
+            case "clip": if (a.clip === undefined) fail(`${where}: clip needs a clip.`); return { do: "clip" as const, clip: findClip(a.clip).id };
+            case "wait": return { do: "wait" as const, seconds: Number(a.seconds) };
+            default: return fail(`${where}: unknown action "${a.do}". Use message, show, hide, teleport, add, clip or wait.`);
+        }
+    };
+    return {
+        when: { type: when.type, target: when.type === "start" ? undefined : nodeId(when.target ?? fail(`A "${when.type}" trigger needs when.target.`)), distance: when.distance, prompt: when.prompt },
+        once: raw.once === true,
+        conditions: (raw.conditions ?? []).map((c: Args) => ({ counter: String(c.counter ?? "").trim() || fail("A condition needs a counter."), atLeast: c.atLeast, below: c.below })),
+        then: (raw.then ?? []).map((a: Args, i: number) => action(a, `then[${i}]`)),
+        otherwise: raw.otherwise ? raw.otherwise.map((a: Args, i: number) => action(a, `otherwise[${i}]`)) : undefined,
+    };
+}
+function logicInfo(): Record<string, unknown> {
+    return {
+        nodes: logic.nodes.map(n => ({ id: n.id, kind: n.kind, target: n.target ? nameOf(n.target) : "", text: n.text, seconds: n.seconds, ...(n.variable !== undefined ? { counter: n.variable } : {}), ...(n.amount !== undefined ? { amount: n.amount } : {}), ...(n.op ? { op: n.op } : {}) })),
+        connections: logic.connections.map(c => ({ from: c.fromNode, to: c.toNode })),
+        problems: logicProblems(logic, targetIds(), clips.map(c => c.id)),
+    };
+}
+function worldInfo(): Record<string, unknown> {
+    const p = playerHandle();
+    return { player: world.player ? { id: world.player, name: nameOf(world.player), position: p ? r3v([p.position[0], p.position[2]]) : null } : null, bounds: world.bounds, lighting: world.lighting };
+}
+function statsInfo(): Record<string, unknown> {
+    const PIXEL_BYTES = CANVAS_RES * CANVAS_RES * 4;
+    let ram = 0, save = 2000, painted = 0;
+    for (const s of surfaces) {
+        ram += s.canvas.byteLength + s.cutMask.byteLength + s.layers.reduce((n, l) => n + l.pixels.byteLength, 0) + Object.values(s.bases).reduce((n, b) => n + b.byteLength, 0);
+        let surfaceIsPainted = false;
+        for (const l of s.layers) { if (!uniformFill(l.pixels)) { save += Math.ceil(PIXEL_BYTES / 3) * 4; surfaceIsPainted = true; } }
+        for (const b of Object.values(s.bases)) if (!uniformFill(b)) save += Math.ceil(PIXEL_BYTES / 3) * 4;
+        if (!s.cutMask.every(v => v === s.cutMask[0])) save += Math.ceil(PIXEL_BYTES / 4 / 3) * 4;
+        if (surfaceIsPainted) painted++;
+        save += 700 + s.strokes.reduce((n, st) => n + st.stamps.length * 70, 0);
+    }
+    const mb = (n: number) => Math.round(n / 1048576 * 10) / 10;
+    return {
+        surfaces: surfaces.length, surfaceLimit: 128, groups: groups.length, groupLimit: 128, clips: clips.length, clipLimit: 128,
+        logicNodes: logic.nodes.length, logicNodeLimit: 128, logicWires: logic.connections.length, logicWireLimit: 256,
+        paintedSurfaces: painted, estimatedMemoryMB: mb(ram), estimatedSaveMB: mb(save), saveLimitMB: 256,
+    };
+}
+function clearScene(name: string): void {
+    beginEdit("New scene");
+    for (const s of [...surfaces]) deleteSurface(s);
+    groups = []; clips = []; markedNodes.clear(); activeGroupId = null; selectedClipId = null; selectedStrokeId = null;
+    logic = emptyLogic(); resetWorld();
+    currentSceneId = Entropy.generateUUID(); sceneName = name;
+    history.commit(); savedSceneState = null; pendingSceneAction = null;
+    statusMessage = "New empty scene.";
+}
+function subtreeBounds(id: string): AABB | null {
+    const under = surfacesUnder(id);
+    if (!under.length) return null;
+    const boxes = under.map(s => { s.worldPatches = buildSurfaceWorldPatches(s); return surfaceAABB(s); });
+    return { min: [0, 1, 2].map(i => Math.min(...boxes.map(b => b.min[i]))) as Vec3, max: [0, 1, 2].map(i => Math.max(...boxes.map(b => b.max[i]))) as Vec3 };
+}
+
+const PLAYTEST_DT = 1 / 30;
+const PLAYTEST_MAX_WALK_SECONDS = 60;
+/** Run the same session Play runs, in one call, then put everything back. */
+function runPlaytest(steps: Args[]): Record<string, unknown> {
+    stopPreview(); finishStroke(); resetGesture(); history.commit();
+    const problems = logicProblems(logic, targetIds(), clips.map(c => c.id));
+    if (problems.length) fail(`The logic has a problem: ${problems[0]}`);
+    const run = new GameRun(true);
+    const failures: string[] = [];
+    const transcript: Record<string, unknown>[] = [];
+    const counters = (): Record<string, number> => Object.fromEntries(run.session.vars);
+    const settle = (seconds: number): void => { for (let t = 0; t < seconds - 1e-9; t += PLAYTEST_DT) run.tick(Math.min(PLAYTEST_DT, seconds - t)); };
+    try {
+        run.session.start();
+        run.tick(0);
+        steps.forEach((step, i) => {
+            const keys = Object.keys(step).filter(k => k !== "within");
+            if (keys.length !== 1) fail(`steps[${i}] must have exactly one of walkTo, interact, click, wait, expect.`);
+            const before = run.messages.length;
+            const entry: Record<string, unknown> = { step: i, do: keys[0] };
+            if (keys[0] === "walkTo") {
+                if (!run.hasPlayer) fail("walkTo needs a player: call canvas_set_world first.");
+                const goal = step.walkTo;
+                // A step is 0.14 long at 30 fps, so anything tighter than 0.15 could overshoot forever.
+                const within = Math.max(0.15, typeof step.within === "number" ? step.within : (Array.isArray(goal) ? 0.15 : 1));
+                const targetId = Array.isArray(goal) ? null : nodeId(goal);
+                if (targetId && run.distanceTo(targetId) === null) fail(`steps[${i}] walkTo "${goal}": nothing under it is shown, so there is nothing to walk to.`);
+                const point: XZ | null = Array.isArray(goal) ? ((): XZ => { const v = vec(goal, `steps[${i}].walkTo`, goal.length === 3 ? 3 : 2); return [v[0], v[v.length - 1]]; })() : null;
+                const aim = (): XZ => {
+                    if (point) return point;
+                    const b = subtreeBounds(targetId!)!;
+                    return [(b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2];
+                };
+                // A target the game hides on arrival (a pickup) counts as reached.
+                const arrived = (): boolean => point ? Math.hypot(run.position()![0] - point[0], run.position()![1] - point[1]) <= within : (run.distanceTo(targetId!) ?? 0) <= within;
+                // Sliding along a wall still moves, so "stuck" means no progress toward the goal for a second.
+                let best = Infinity, sinceProgress = 0, time = 0;
+                while (!arrived() && time < PLAYTEST_MAX_WALK_SECONDS && sinceProgress < 1) {
+                    const at = run.position()!, to = aim();
+                    run.walk([to[0] - at[0], to[1] - at[1]], PLAYTEST_DT);
+                    run.tick(PLAYTEST_DT); time += PLAYTEST_DT;
+                    const now = run.position()!, remaining = Math.hypot(to[0] - now[0], to[1] - now[1]);
+                    if (remaining < best - 0.02) { best = remaining; sinceProgress = 0; } else sinceProgress += PLAYTEST_DT;
+                }
+                if (!arrived()) failures.push(`steps[${i}] walkTo ${JSON.stringify(goal)}: ${sinceProgress >= 1 ? "was stopped by a solid surface or the world bounds" : "did not arrive in 60 s"} at [${r3v(run.position()!)}]. Try waypoints around it.`);
+                entry.arrived = arrived();
+            } else if (keys[0] === "interact") { run.interact(); run.tick(0); }
+            else if (keys[0] === "click") { const n = findNode(step.click); const id = (n.surface ?? n.group)!.id; run.click([id, ...(n.surface ? ancestorIds(n.surface) : [])]); run.tick(0); }
+            else if (keys[0] === "wait") { const s = step.wait; if (typeof s !== "number" || s < 0 || s > 600) fail(`steps[${i}].wait must be 0 to 600 seconds.`); settle(s); }
+            else if (keys[0] === "expect") {
+                const e = step.expect ?? {};
+                for (const [name, value] of Object.entries(e.counters ?? {})) { const actual = run.session.vars.get(name) ?? 0; if (actual !== value) failures.push(`steps[${i}] expected ${name} = ${value}, got ${actual}.`); }
+                if (e.message !== undefined && !run.message.includes(String(e.message))) failures.push(`steps[${i}] expected the message to contain "${e.message}", got "${run.message}".`);
+                for (const [ref, want] of Object.entries(e.shown ?? {})) { const shown = surfacesUnder(nodeId(ref)).some(s => s.visible); if (shown !== want) failures.push(`steps[${i}] expected ${ref} shown = ${want}, got ${shown}.`); }
+                if (e.near) { const d = run.distanceTo(nodeId(e.near.target)); if (d === null || d > (e.near.within ?? 1.5)) failures.push(`steps[${i}] expected the player within ${e.near.within ?? 1.5} of ${e.near.target}, distance is ${d === null ? "unknown (hidden)" : r3(d)}.`); }
+            } else fail(`steps[${i}]: unknown step "${keys[0]}". Use walkTo, interact, click, wait or expect.`);
+            if (run.messages.length > before) entry.messages = run.messages.slice(before);
+            entry.position = run.position() ? r3v(run.position()!) : null; entry.counters = counters();
+            transcript.push(entry);
+        });
+        const hidden = surfaces.filter(s => !s.visible).map(s => s.name);
+        return { passed: failures.length === 0, failures, transcript, messages: run.messages, counters: counters(), position: run.position() ? r3v(run.position()!) : null, clipsPlayed: run.clipsPlayed, hiddenByGame: hidden };
+    } finally { run.restore(); }
+}
+
+const TOOL_HANDLERS: Record<CanvasToolName, (args: Args) => unknown> = {
+    canvas_get_scene: () => ({
+        name: sceneName, sceneId: currentSceneId, unsavedChanges: sceneIsDirty(), playing: !!gameSession,
+        surfaces: surfaces.map(surfaceInfo), groups: groups.map(groupInfo), clips: clips.map(c => ({ id: c.id, name: c.name, duration: c.duration, tracks: c.tracks.length })),
+        logic: { nodes: logic.nodes.length, wires: logic.connections.length }, world: worldInfo(),
+    }),
+    canvas_world_stats: () => statsInfo(),
+    canvas_new_scene: a => {
+        editingOnly();
+        if (sceneIsDirty() && surfaces.length && a.confirmDiscard !== true) fail("The open scene has unsaved changes. Save it with canvas_save_scene, or pass confirmDiscard: true to throw them away.");
+        clearScene(typeof a.name === "string" && a.name.trim() ? a.name.trim().slice(0, 80) : "Untitled scene");
+        return { name: sceneName };
+    },
+    canvas_list_scenes: () => ({ scenes: sceneLibrary.entries.map(e => ({ id: e.id, name: e.name })) }),
+    canvas_save_scene: a => {
+        editingOnly();
+        if (typeof a.name === "string" && a.name.trim()) sceneName = a.name.trim().slice(0, 80);
+        if (!saveScene(a.asNew === true)) fail(statusMessage || "Save failed.");
+        return { name: sceneName, id: currentSceneId, message: statusMessage };
+    },
+    canvas_load_scene: a => {
+        editingOnly();
+        const entry = sceneLibrary.entries.find(e => e.id === a.scene) ?? sceneLibrary.entries.find(e => e.name === a.scene);
+        if (!entry) fail(`No saved scene "${a.scene}". Saved: ${listNames(sceneLibrary.entries.map(e => e.name))}.`);
+        if (sceneIsDirty() && surfaces.length && a.confirmDiscard !== true) fail("The open scene has unsaved changes. Save it first, or pass confirmDiscard: true.");
+        selectedSceneId = entry!.id;
+        loadScene();
+        if (pendingSceneAction) pendingSceneAction.run();
+        if (statusMessage.startsWith("Load failed")) fail(statusMessage);
+        return { name: sceneName, surfaces: surfaces.length };
+    },
+    canvas_create_surface: a => {
+        editingOnly();
+        const kind: ShapeKind = a.kind ?? "plane";
+        if (!SHAPE_KINDS.includes(kind)) fail(`kind must be one of ${SHAPE_KINDS.join(", ")}.`);
+        if (surfaces.length >= 128) fail("A scene holds at most 128 surfaces. Check canvas_world_stats.");
+        const dims = readDims(kind, a.size ?? {}, { halfW: DEFAULT_HALF_SIZE, halfH: DEFAULT_HALF_SIZE, halfD: DEFAULT_HALF_DEPTH, radius: DEFAULT_RADIUS });
+        const parent = a.parent !== undefined && a.parent !== null ? findGroup(a.parent) : null;
+        const s = spawnSurface(vec(a.position, "position") as Vec3, a.yaw === undefined ? 0 : angle(a.yaw, "yaw"), kind, dims.halfW, dims.halfH, dims.halfD, dims.radius, {
+            name: uniqueName(typeof a.name === "string" && a.name.trim() ? a.name.trim().slice(0, 80) : `${kind[0].toUpperCase()}${kind.slice(1)}`, surfaceNameTaken),
+            parentId: parent?.id ?? null, pitch: a.pitch === undefined ? 0 : angle(a.pitch, "pitch"), roll: a.roll === undefined ? 0 : angle(a.roll, "roll"),
+            solid: a.solid === true, visible: a.visible === undefined ? true : flag(a.visible, "visible"),
+        });
+        if (a.color !== undefined) paintFlat(s, parseColor(a.color, [255, 255, 255]));
+        return { surface: surfaceInfo(s) };
+    },
+    canvas_update_surface: a => {
+        editingOnly();
+        const s = findSurface(a.surface);
+        beginEdit("Update surface");
+        if (a.color !== undefined && s.strokes.length && a.overwrite !== true) fail(`"${s.name}" has ${s.strokes.length} brush stroke(s); pass overwrite: true to repaint it.`);
+        if (a.parent !== undefined) {
+            const parent = a.parent === null ? null : findGroup(a.parent).id;
+            try { parentNode(s, parent); } catch (e) { fail((e as Error).message); }
+        }
+        if (typeof a.name === "string" && a.name.trim()) { const name = a.name.trim().slice(0, 80); if (name !== s.name) s.name = uniqueName(name, surfaceNameTaken); }
+        if (a.position !== undefined) s.position = [...vec(a.position, "position")] as Vec3;
+        if (a.yaw !== undefined) s.yaw = angle(a.yaw, "yaw");
+        if (a.pitch !== undefined) s.pitch = angle(a.pitch, "pitch");
+        if (a.roll !== undefined) s.roll = angle(a.roll, "roll");
+        if (a.size !== undefined) Object.assign(s, readDims(s.kind, a.size, s));
+        if (a.bend !== undefined) { if (s.kind !== "plane") fail("bend only applies to planes."); if (typeof a.bend !== "number" || Math.abs(a.bend) > 1) fail("bend must be -1 to 1."); s.bend = a.bend; }
+        if (a.solid !== undefined) s.solid = flag(a.solid, "solid");
+        if (a.color !== undefined) { if (a.overwrite === true && s.strokes.length) { s.strokes = []; s.bases = {}; } paintFlat(s, parseColor(a.color, [255, 255, 255])); }
+        if (a.visible !== undefined) setSurfaceVisible(s, flag(a.visible, "visible"));
+        s.worldPatches = buildSurfaceWorldPatches(s);
+        refreshGeometry();
+        return { surface: surfaceInfo(s) };
+    },
+    canvas_fill_surface: a => {
+        editingOnly();
+        const s = findSurface(a.surface);
+        if (s.strokes.length && a.overwrite !== true) fail(`"${s.name}" has ${s.strokes.length} brush stroke(s); pass overwrite: true to repaint it.`);
+        beginEdit("Fill surface");
+        if (s.strokes.length) { s.strokes = []; s.bases = {}; }
+        paintFlat(s, parseColor(a.color, [255, 255, 255]));
+        return { surface: s.name };
+    },
+    canvas_delete: a => {
+        editingOnly();
+        const n = findNode(a.ref);
+        const removedIds = new Set<string>();
+        if (n.surface) { removedIds.add(n.surface.id); deleteSurface(n.surface); }
+        else {
+            const g = n.group!;
+            removedIds.add(g.id);
+            if (a.deleteChildren === true) {
+                const under = (id: string): string[] => [id, ...groups.filter(o => o.parentId === id).flatMap(o => under(o.id))];
+                const doomed = new Set(under(g.id));
+                for (const s of surfaces.filter(s => s.parentId && doomed.has(s.parentId))) { removedIds.add(s.id); deleteSurface(s); }
+                beginEdit("Delete group");
+                groups = groups.filter(o => !doomed.has(o.id)); doomed.forEach(id => removedIds.add(id));
+                for (const clip of clips) clip.tracks = clip.tracks.filter(t => !doomed.has(t.targetId));
+                if (world.player && doomed.has(world.player)) world.player = null;
+                activeGroupId = null;
+            } else { removeGroup(g); if (world.player === g.id) world.player = null; }
+        }
+        refreshGeometry();
+        return { removed: removedIds.size, orphanedLogicNodes: logic.nodes.filter(node => removedIds.has(node.target)).length };
+    },
+    canvas_create_group: a => {
+        editingOnly();
+        if (groups.length >= 128) fail("A scene holds at most 128 groups.");
+        if (typeof a.name !== "string" || !a.name.trim()) fail("name is required.");
+        beginEdit("New group");
+        const parent = a.parent !== undefined && a.parent !== null ? findGroup(a.parent) : null;
+        const g: Group = { ...defaultTransform(), id: Entropy.generateUUID(), name: uniqueName(a.name.trim().slice(0, 80), groupNameTaken), parentId: parent?.id ?? null, frame: identity(),
+            position: a.position === undefined ? [0, 0, 0] : [...vec(a.position, "position")] as Vec3, rotation: [0, a.yaw === undefined ? 0 : angle(a.yaw, "yaw"), 0] };
+        groups.push(g);
+        return { group: groupInfo(g) };
+    },
+    canvas_update_group: a => {
+        editingOnly();
+        const g = findGroup(a.group);
+        beginEdit("Update group");
+        if (a.parent !== undefined) { try { parentNode(g, a.parent === null ? null : findGroup(a.parent).id); } catch (e) { fail((e as Error).message); } }
+        if (typeof a.name === "string" && a.name.trim()) { const name = a.name.trim().slice(0, 80); if (name !== g.name) g.name = uniqueName(name, groupNameTaken); }
+        if (a.position !== undefined) g.position = [...vec(a.position, "position")] as Vec3;
+        if (a.scale !== undefined) { const sc = vec(a.scale, "scale"); if (sc.some(n => n < 0.001)) fail("scale values must be above 0."); g.scale = sc as Vec3; }
+        g.rotation = [a.pitch === undefined ? g.rotation[0] : angle(a.pitch, "pitch"), a.yaw === undefined ? g.rotation[1] : angle(a.yaw, "yaw"), a.roll === undefined ? g.rotation[2] : angle(a.roll, "roll")];
+        for (const s of surfaces) s.worldPatches = buildSurfaceWorldPatches(s);
+        refreshGeometry();
+        return { group: groupInfo(g) };
+    },
+    canvas_list_prefabs: () => ({
+        prefabs: PREFAB_IDS.map(id => ({ id, description: PREFABS[id].description, params: PREFABS[id].params, surfaces: buildPrefab(id, {}).parts.length })),
+    }),
+    canvas_add_prefab: a => {
+        editingOnly();
+        const p = vec(a.position, "position", Array.isArray(a.position) && a.position.length === 3 ? 3 : 2);
+        const at: Vec3 = p.length === 3 ? [p[0], p[1], p[2]] : [p[0], 0, p[1]];
+        const made = placePrefab(String(a.prefab), a.params ?? {}, at, a.yaw === undefined ? 0 : angle(a.yaw, "yaw"), typeof a.name === "string" ? a.name : undefined);
+        return { group: groupInfo(made.group), surfaces: made.made.map(s => ({ id: s.id, name: s.name })), footprintRadius: r3(made.footprint) };
+    },
+    canvas_create_clip: a => {
+        editingOnly();
+        if (typeof a.name !== "string" || !a.name.trim()) fail("name is required.");
+        if (clips.length >= 128) fail("A scene holds at most 128 clips.");
+        if (clips.some(c => c.name === a.name.trim())) fail(`A clip named "${a.name.trim()}" already exists.`);
+        if (typeof a.duration !== "number" || !(a.duration >= 0.1 && a.duration <= 3600)) fail("duration must be 0.1 to 3600 seconds.");
+        beginEdit("New clip");
+        const clip: Clip = { id: Entropy.generateUUID(), name: a.name.trim().slice(0, 80), duration: a.duration, tracks: [] };
+        clips = [...clips, clip];
+        return { clip: { id: clip.id, name: clip.name, duration: clip.duration } };
+    },
+    canvas_set_keyframes: a => {
+        editingOnly();
+        const clip = findClip(a.clip), id = nodeId(a.target);
+        const channel = a.channel as Channel;
+        if (!["x", "y", "z", "pitch", "yaw", "roll", "sx", "sy", "sz"].includes(channel)) fail("channel must be x, y, z, pitch, yaw, roll, sx, sy or sz.");
+        if (!Array.isArray(a.keys) || !a.keys.length || a.keys.length > 200) fail("keys must be a list of 1 to 200 {time, value}.");
+        const times = new Set<number>();
+        for (const k of a.keys) {
+            if (typeof k?.time !== "number" || typeof k?.value !== "number" || !Number.isFinite(k.time) || !Number.isFinite(k.value) || k.time < 0 || k.time > clip.duration) fail(`Each key needs a time from 0 to the clip's ${clip.duration} s and a numeric value.`);
+            if (times.has(k.time)) fail("Two keys share the same time.");
+            if (channel.startsWith("s") && k.value < 0.001) fail("Scale values must be above 0.");
+            times.add(k.time);
+        }
+        beginEdit("Set keyframes");
+        clip.tracks = clip.tracks.filter(t => !(t.targetId === id && t.channel === channel));
+        for (const k of a.keys) setKey(clip, id, channel, k.time, k.value);
+        return { clip: clip.name, target: nameOf(id), channel, keys: a.keys.length };
+    },
+    canvas_delete_clip: a => {
+        editingOnly();
+        const clip = findClip(a.clip);
+        beginEdit("Delete clip");
+        clips = clips.filter(c => c !== clip);
+        if (selectedClipId === clip.id) selectedClipId = clips[0]?.id ?? null;
+        return { orphanedLogicNodes: logic.nodes.filter(n => n.target === clip.id).length };
+    },
+    canvas_get_logic: () => logicInfo(),
+    canvas_add_rule: a => {
+        editingOnly();
+        const rule = resolveRule(a);
+        const next = appendRule(logic, rule, () => Entropy.generateUUID());
+        beginEdit("Add logic rule");
+        const added = next.nodes.length - logic.nodes.length;
+        logic = next;
+        return { nodesAdded: added, totalNodes: logic.nodes.length, problems: logicInfo().problems };
+    },
+    canvas_add_collectible: a => {
+        editingOnly();
+        if (typeof a.counter !== "string" || !a.counter.trim()) fail("counter is required.");
+        const counter = a.counter.trim();
+        const rule = resolveRule({
+            when: { type: "near", target: a.target, distance: a.distance ?? 1.2 }, once: true,
+            then: [{ do: "hide", target: a.target }, { do: "add", counter, amount: a.amount ?? 1 }, { do: "message", text: a.message ?? `Collected: ${counter} {${counter}}` }],
+        });
+        const next = appendRule(logic, rule, () => Entropy.generateUUID());
+        beginEdit("Add collectible");
+        logic = next;
+        return { totalNodes: logic.nodes.length };
+    },
+    canvas_set_logic: a => {
+        editingOnly();
+        if (!Array.isArray(a.nodes)) fail("nodes must be a list.");
+        const base = a.append === true ? logic : emptyLogic();
+        const ids = new Map<string, string>();
+        const nodes: LogicNode[] = a.nodes.map((n: Args, i: number) => {
+            if (!LOGIC_KINDS.includes(n.kind)) fail(`nodes[${i}].kind "${n.kind}" is not one of ${LOGIC_KINDS.join(", ")}.`);
+            const id = Entropy.generateUUID();
+            if (typeof n.id === "string") { if (ids.has(n.id)) fail(`Two nodes use the id "${n.id}".`); ids.set(n.id, id); }
+            const node = logicNode(id, n.kind, Array.isArray(n.position) ? [Number(n.position[0]), Number(n.position[1])] : [30 + (base.nodes.length + i) % 4 * 220, 30 + Math.floor((base.nodes.length + i) / 4) * 110]);
+            if (n.target !== undefined && n.target !== "") node.target = n.kind === "clip" ? findClip(n.target).id : nodeId(n.target);
+            if (n.text !== undefined) node.text = String(n.text);
+            if (n.seconds !== undefined) node.seconds = Number(n.seconds);
+            if (n.variable !== undefined) node.variable = String(n.variable);
+            if (n.amount !== undefined) node.amount = Number(n.amount);
+            if (n.distance !== undefined) node.amount = Number(n.distance);
+            if (n.op !== undefined) node.op = n.op;
+            return node;
+        });
+        const lookup = (ref: unknown): string => ids.get(String(ref)) ?? fail(`Connection refers to an unknown node id "${ref}".`);
+        const connections = (a.connections ?? []).map((c: Args) => ({ fromNode: lookup(c.from), fromPin: "next", toNode: lookup(c.to), toPin: "in" }));
+        const next: LogicGraph = { nodes: [...base.nodes, ...nodes], connections: [...base.connections, ...connections] };
+        try { validateLogic(next); } catch (e) { fail((e as Error).message); }
+        beginEdit("Set gameplay logic");
+        logic = next;
+        return { nodeIds: Object.fromEntries(ids), problems: logicInfo().problems };
+    },
+    canvas_clear_logic: a => { editingOnly(); void a; beginEdit("Clear gameplay logic"); logic = emptyLogic(); return {}; },
+    canvas_set_world: a => {
+        editingOnly();
+        beginEdit("Set world");
+        if (a.player !== undefined) {
+            if (a.player === null) world.player = null;
+            else {
+                const n = findNode(a.player);
+                const node = n.surface ?? n.group!;
+                if (node.parentId) fail("The player must be a root group or surface (not inside another group).");
+                world.player = node.id;
+            }
+        }
+        if (a.bounds !== undefined) { if (typeof a.bounds !== "number" || !(a.bounds >= 1 && a.bounds <= 1000)) fail("bounds must be 1 to 1000."); world.bounds = a.bounds; }
+        return { world: worldInfo() };
+    },
+    canvas_set_lighting: a => {
+        editingOnly();
+        const { preset, ...fields } = a;
+        if (preset !== undefined && !LIGHTING_PRESETS[preset]) fail(`preset must be one of ${LIGHTING_PRESET_NAMES.join(", ")}.`);
+        let next: LightingSettings;
+        try { next = mergeLighting(preset ? cloneLighting(LIGHTING_PRESETS[preset]) : world.lighting, fields); } catch (e) { throw new Error((e as Error).message); }
+        beginEdit("Change lighting");
+        world.lighting = next;
+        applyLighting();
+        return { lighting: world.lighting };
+    },
+    canvas_set_camera: a => {
+        editingOnly();
+        if (a.focus !== undefined) {
+            const bounds = subtreeBounds(nodeId(a.focus));
+            if (!bounds) fail("Nothing to frame: that group has no surfaces.");
+            const b = bounds!;
+            const centre = [0, 1, 2].map(i => (b.min[i] + b.max[i]) / 2) as Vec3;
+            const radius = Math.hypot(...subV(b.max, b.min)) / 2;
+            const distance = typeof a.distance === "number" ? a.distance : Math.max(6, radius * 3);
+            applyView({ position: [centre[0], centre[1] + distance * 0.6, centre[2] + distance * 0.8], target: centre });
+        } else {
+            const view = currentView();
+            applyView({ position: a.position !== undefined ? vec(a.position, "position") as Vec3 : view.position, target: a.target !== undefined ? vec(a.target, "target") as Vec3 : view.target });
+        }
+        return { camera: { position: r3v(currentView().position), target: r3v(currentView().target) } };
+    },
+    canvas_play: () => {
+        if (gameSession) return { playing: true, already: true };
+        startGame();
+        if (!gameSession) fail(statusMessage || "Play could not start.");
+        return { playing: true, walking: !!gameRun?.hasPlayer, message: statusMessage };
+    },
+    canvas_stop: () => { if (gameSession) stopGame(); return { playing: false }; },
+    canvas_get_play_state: () => {
+        if (!gameSession || !gameRun) return { playing: false };
+        const p = gameRun.position();
+        return { playing: true, walking: gameRun.hasPlayer, message: gameRun.message, counters: Object.fromEntries(gameSession.vars), prompt: gameRun.prompt(), player: p ? r3v(p) : null, hiddenByGame: surfaces.filter(s => !s.visible).map(s => s.name) };
+    },
+    canvas_playtest: a => {
+        editingOnly();
+        if (!Array.isArray(a.steps) || a.steps.length > 200) fail("steps must be a list of at most 200 steps.");
+        return runPlaytest(a.steps);
+    },
+    canvas_undo: a => {
+        editingOnly();
+        const n = Math.max(1, Math.min(50, Math.round(typeof a.steps === "number" ? a.steps : 1)));
+        const labels: string[] = [];
+        for (let i = 0; i < n && history.undoLabel; i++) { labels.push(history.undoLabel); undo(); }
+        return { undone: labels };
+    },
+    canvas_redo: () => { editingOnly(); const label = history.redoLabel; if (label) redo(); return { redone: label ?? null }; },
+};
+
+for (const name of CANVAS_TOOL_NAMES) {
+    const definition = CANVAS_TOOLS[name];
+    const allowed = Object.keys(definition.parameters.properties);
+    addon.registerTool({ name, description: definition.description, parameters: definition.parameters }, (args: Args) => {
+        try {
+            if (!lightingBufferId || !historyReady) fail("Canvas Surfaces is still starting. Try again in a moment.");
+            const given = args && typeof args === "object" ? args : {};
+            const extra = Object.keys(given).filter(k => !allowed.includes(k));
+            if (extra.length) fail(`Unknown argument(s): ${extra.join(", ")}. Valid: ${allowed.join(", ") || "(none)"}.`);
+            for (const key of definition.parameters.required ?? []) if (given[key] === undefined) fail(`Missing required argument: ${key}.`);
+            const result = TOOL_HANDLERS[name](given);
+            history.commit();
+            return { success: true, ...(result as object) };
+        } catch (error) {
+            history.cancel(); // roll back anything a half-applied call changed
+
+            return { success: false, error: (error as Error).message };
+        }
     });
 }
 
@@ -2961,21 +3805,20 @@ addon.onInit(() => {
                     { binding: 0, visibility: ["Fragment"], resourceType: "Texture" },
                     { binding: 1, visibility: ["Fragment"], resourceType: "Sampler" },
                     { binding: 2, visibility: ["Fragment"], resourceType: "Uniform" },
+                    { binding: 3, visibility: ["Fragment"], resourceType: "Uniform" },
                 ]
             }
         ]
     });
 
+    lightingBufferId = Entropy.Buffer.create({ size: LIGHTING_FLOATS * 4, usage: "Uniform" });
     // The procedural sky pass (src/core/render_addon_frame.rs) always runs, but only ever gets
     // colors written into it when something sets a sky config - a bare EntropyApp with no
     // world_state level has none, so without this call the pass draws whatever's left in its
     // uniform buffer's default (reads as black). This isn't a clear-color change, it's supplying
     // the config the always-on pass was missing. pending_sun_config is read every frame (never
     // consumed), so one call here is enough for the whole session.
-    Entropy.Lighting.updateSun({
-        horizonColor: [0.62, 0.62, 0.66],
-        zenithColor: [0.36, 0.36, 0.4],
-    });
+    applyLighting();
     spawnGroundGrid();
 
     // Default engine game_mode is `true` (src/app.rs) - the gizmo render pass is gated on
@@ -3005,10 +3848,21 @@ addon.onInit(() => {
 });
 
 addon.onUpdatePlus("Global", (_time: number) => {
-    if (gameSession && Number.isFinite(_time)) {
+    if (gameRun && gameSession && Number.isFinite(_time)) {
+        const run = gameRun;
         const delta = gamePreviousTime === null ? 0 : Math.max(0, _time - gamePreviousTime);
         gamePreviousTime = _time;
-        runGameAction(() => gameSession!.tick(delta));
+        runGameAction(() => {
+            if (run.hasPlayer) {
+                camYaw += ((held("q", "Q") ? 1 : 0) - (held("r", "R") ? 1 : 0)) * 1.8 * delta;
+                run.walk(cameraRelative(moveInput(), camYaw), delta);
+            }
+            run.tick(delta);
+        });
+        if (gameRun === run && run.hasPlayer) {
+            if (run.moved) { refreshGeometry(); run.moved = false; }
+            placeFollowCamera();
+        }
     }
     if (usingStylusClearPending) {
         usingStylusClearPending = false;
