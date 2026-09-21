@@ -4,7 +4,7 @@
 //! them is a choice of what to do with the same arrays.
 //!
 //! A `TierDetector` looks at one window length. The engine keeps several, short to long, because a
-//! detector needs about two periods of the note: a high E4 is 3 ms of signal, a low E2 is 24 ms
+//! detector needs about two periods of the note: a high E4 is 6 ms of signal, a low E2 is 24 ms
 //! (PIT-6). Nothing allocates after construction (RT-1, RT-2).
 
 use super::config::Algorithm;

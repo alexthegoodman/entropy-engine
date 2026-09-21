@@ -259,7 +259,7 @@ impl GuitarEngine {
             sample: now,
             level_db,
             onset,
-            // The 8 ms window lags the pick by up to a hop or two; the rise is first visible one hop back.
+            // The 15 ms level window lags the pick by up to a hop or two; the rise is first visible one hop back.
             onset_sample: now.saturating_sub(self.hop as u64),
             onset_floor_db,
             estimate,
