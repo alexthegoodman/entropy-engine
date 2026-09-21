@@ -441,6 +441,10 @@ export interface ScopedAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A non-fullscreen tab strip inside a window (unlike `Entropy.UI.createTab`, which owns the
+       * whole work area). You own which tab is selected: pass it as `selected`, update it in
+       * `onSelect`, and draw only that tab's widgets after the bar. */
+      tabBar: (windowId: string, config: TabBarConfig) => void;
       /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
        * ring and a glow the caller drives. See `PadGridConfig`. */
       padGrid: (windowId: string, config: PadGridConfig) => void;
@@ -1226,6 +1230,16 @@ export interface TreeNodeConfig {
   detail?: string;
 }
 
+export interface TabBarConfig {
+  /** Stable id for scripted/BDD control; defaults to one derived from draw order. */
+  id?: string;
+  tabs: { id: string; label: string }[];
+  /** The id of the selected tab. */
+  selected: string;
+  /** Fired with the new tab's id when a tab other than the selected one is clicked. */
+  onSelect?: (id: string) => void;
+}
+
 export interface TreeViewConfig {
   id?: string;
   nodes?: TreeNodeConfig[];
@@ -1704,6 +1718,10 @@ export interface EntropyAPI {
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
       treeView: (windowId: string, config: TreeViewConfig) => void;
+      /** A non-fullscreen tab strip inside a window (unlike `Entropy.UI.createTab`, which owns the
+       * whole work area). You own which tab is selected: pass it as `selected`, update it in
+       * `onSelect`, and draw only that tab's widgets after the bar. */
+      tabBar: (windowId: string, config: TabBarConfig) => void;
       /** A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
        * ring and a glow the caller drives. See `PadGridConfig`. */
       padGrid: (windowId: string, config: PadGridConfig) => void;

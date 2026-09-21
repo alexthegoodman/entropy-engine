@@ -1152,6 +1152,19 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A non-fullscreen tab strip inside a window. The addon owns which tab is selected: pass
+            // it as `selected`, update it in `onSelect`, and draw only that tab's widgets after it.
+            tabBar: (windowId, config) => {
+                const id = nextWidgetId(windowId, "tabbar", config?.id);
+                ops.op_ui_widget_tab_bar(windowId, config?.tabs || [], config?.selected || "", id);
+
+                if (config?.onSelect) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        if (parts[0] === "TABBAR_SELECTED") config.onSelect(parts.slice(2).join("|"));
+                    });
+                }
+            },
             snarl: (windowId, config) => {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const id = nextWidgetId(windowId, "snarl", config?.id);
@@ -1326,7 +1339,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("TABBAR_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid widget id
                 payload = event; // pass the whole event to the listener

@@ -2077,7 +2077,9 @@ let keyframeWindowId: string;
 function setupUI(): void {
     uiWindowId = Entropy.UI.createWindow({
         title: "Canvas Surfaces",
-        width: 310,
+        // 330 less the 12 px window margins and a 10 px scrollbar leaves 296 for the tab bar, which
+        // is what the five tab labels need on one line (see tests/features/tab_bar.feature).
+        width: 330,
         height: Math.max(420, Entropy.Window.getSize()[1] - 40),
         x: 16,
         y: 16,
@@ -2085,14 +2087,14 @@ function setupUI(): void {
     });
     layersWindowId = uiWindowId;
     // A second window rather than a widget stuffed into the first - a full-width timeline reads
-    // far better than one squeezed into a 310px sidebar, and it needs to stay visible while the
+    // far better than one squeezed into a 330px sidebar, and it needs to stay visible while the
     // sidebar's own Keyframes group (still the place to pick a channel and set a precise value)
     // is scrolled elsewhere.
     keyframeWindowId = Entropy.UI.createWindow({
         title: "Canvas workspace",
-        width: Math.max(600, Entropy.Window.getSize()[0] - 370),
+        width: Math.max(600, Entropy.Window.getSize()[0] - 390),
         height: 480,
-        x: 342,
+        x: 362,
         y: Math.max(16, Entropy.Window.getSize()[1] - 505),
         onRender: renderKeyframeTimelineUI
     });
@@ -2231,7 +2233,7 @@ function renderAnimationUI(): void {
     const button = (id: string, text: string, onClick: () => void) => W.button(uiWindowId, { id, text, onClick });
     const slider = (id: string, label: string, value: number, min: number, max: number, change: (value: number) => void) => W.slider(uiWindowId, { id, label, value, min, max, onChange: value => { const n = Number(value); if (Number.isFinite(n)) change(Math.max(min, Math.min(max, n))); } });
 
-    W.label(uiWindowId, { text: preview ? "Previewing a clip - Return to Editing Pose before drawing." : "Click a part to select it. Check Mark to build a multi-part group." });
+    W.label(uiWindowId, { text: preview ? "Previewing. Return to the editing pose to draw." : "Click a part to select it. Check Mark to build a multi-part group." });
     button("animation_stop", "Return to Editing Pose", stopPreview);
 
     W.label(uiWindowId, { text: "Hierarchy", bold: true });
@@ -2376,7 +2378,7 @@ function parseKeyframeRowId(rowId: string): [string, Channel] {
     return [rowId.slice(0, sep), rowId.slice(sep + 2) as Channel];
 }
 
-/** A real dopesheet for the clip currently selected in Groups & animation, in its own window -
+/** A real dopesheet for the clip currently selected in the Animate tab, in its own window -
  * every existing track shown as a row, not just whichever part happens to be selected right now.
  * `entropy_gui::KeyframeTimeline` only knows a keyframe's time, not its value (see the widget's
  * own `KeyframeConfig`), so precise value entry stays in the sidebar's Keyframes group; this
@@ -2390,8 +2392,8 @@ function renderKeyframeTimelineUI(): void {
     }
     const W = Entropy.UI.Widget;
     const clip = currentClip();
-    if (!clip) { W.label(keyframeWindowId, { text: "No clip selected. Create or select one in the Canvas Surfaces window's Groups & animation section." }); return; }
-    if (!clip.tracks.length) { W.label(keyframeWindowId, { text: `${clip.name}: no keyframes yet. Set one in Groups & animation to see it here.` }); return; }
+    if (!clip) { W.label(keyframeWindowId, { text: "No clip selected. Create or select one in the Canvas Surfaces window's Animate tab." }); return; }
+    if (!clip.tracks.length) { W.label(keyframeWindowId, { text: `${clip.name}: no keyframes yet. Set one in the Animate tab to see it here.` }); return; }
 
     W.keyframeTimeline(keyframeWindowId, {
         id: "clip_keyframe_timeline",
@@ -2444,32 +2446,31 @@ function renderKeyframeTimelineUI(): void {
 }
 
 function renderLayersUI(): void {
-    Entropy.UI.Widget.label(layersWindowId, { text: "Surfaces", bold: true });
-    Entropy.UI.Widget.separator(layersWindowId);
-
     if (surfaces.length === 0) {
-        Entropy.UI.Widget.label(layersWindowId, { text: "None yet - add one." });
+        Entropy.UI.Widget.label(layersWindowId, { text: "None yet - add one above." });
         return;
     }
 
+    // One row per surface: the name selects it, the other two act on it.
     for (const s of surfaces) {
         const isActive = s.id === activeSurfaceId;
-        Entropy.UI.Widget.button(layersWindowId, {
-            text: (isActive ? "> " : "  ") + s.name + (s.visible ? "" : " (hidden)"),
-            id: `layer_select_${s.id}`,
-            onClick: () => selectSurface(s)
+        Entropy.UI.Widget.horizontal(layersWindowId, () => {
+            Entropy.UI.Widget.button(layersWindowId, {
+                text: (isActive ? "> " : "  ") + s.name + (s.visible ? "" : " (hidden)"),
+                id: `layer_select_${s.id}`,
+                onClick: () => selectSurface(s)
+            });
+            Entropy.UI.Widget.button(layersWindowId, {
+                text: s.visible ? "Hide" : "Show",
+                id: `layer_toggle_${s.id}`,
+                onClick: () => setSurfaceVisible(s, !s.visible)
+            });
+            Entropy.UI.Widget.button(layersWindowId, {
+                text: "Delete",
+                id: `layer_delete_${s.id}`,
+                onClick: () => deleteSurface(s)
+            });
         });
-        Entropy.UI.Widget.button(layersWindowId, {
-            text: s.visible ? "  Hide" : "  Show",
-            id: `layer_toggle_${s.id}`,
-            onClick: () => setSurfaceVisible(s, !s.visible)
-        });
-        Entropy.UI.Widget.button(layersWindowId, {
-            text: "  Delete",
-            id: `layer_delete_${s.id}`,
-            onClick: () => deleteSurface(s)
-        });
-        Entropy.UI.Widget.separator(layersWindowId);
     }
 }
 
@@ -2596,13 +2597,25 @@ function addSurfaceFromPalette(): void {
         pendingWidth / 2, pendingHeight / 2, pendingDepth / 2, pendingRadius);
 }
 
+type PanelTab = "tool" | "surfaces" | "animate" | "scene" | "help";
+const PANEL_TABS: { id: PanelTab; label: string }[] = [
+    { id: "tool", label: "Tool" }, { id: "surfaces", label: "Surfaces" }, { id: "animate", label: "Animate" },
+    { id: "scene", label: "Scene" }, { id: "help", label: "Help" },
+];
+/** Which page of the sidebar is showing. UI-only state: never saved, never in undo history. */
+let panelTab: PanelTab = "tool";
+
+/** What stays visible on every tab: play, the two workspace windows, the scene's name and status,
+ * undo, and the tool mode (which changes what the viewport does, so it must not hide behind a
+ * tab). Everything else is on a page of the tab bar underneath. */
 function renderUI(): void {
     const W = Entropy.UI.Widget;
     W.horizontal(uiWindowId, () => {
         W.button(uiWindowId, { id: "game_play", text: gameSession ? "Stop" : "Play", onClick: () => gameSession ? stopGame() : startGame() });
         if (!gameSession) {
+            // "Timeline" not "Animate": the Animate tab authors clips, this opens the dopesheet window.
             W.button(uiWindowId, { id: "workspace_logic", text: workspaceVisible && workspace === "logic" ? "> Logic" : "Logic", onClick: () => showWorkspace("logic") });
-            W.button(uiWindowId, { id: "workspace_animation", text: workspaceVisible && workspace === "animation" ? "> Animate" : "Animate", onClick: () => showWorkspace("animation") });
+            W.button(uiWindowId, { id: "workspace_animation", text: workspaceVisible && workspace === "animation" ? "> Timeline" : "Timeline", onClick: () => showWorkspace("animation") });
         }
     });
     if (gameSession) {
@@ -2612,83 +2625,66 @@ function renderUI(): void {
         W.label(uiWindowId, { text: "Esc or Stop returns to editing." });
         return;
     }
-    W.label(uiWindowId, { text: "Add a surface > Draw > Logic > Play" });
-    W.horizontal(uiWindowId, () => {
-        W.button(uiWindowId, { id: "quick_surface", text: "+ Surface", onClick: addSurfaceFromPalette });
-        W.button(uiWindowId, { id: "quick_save", text: "Save scene", onClick: () => { saveScene(); } });
-    });
-    W.button(uiWindowId, { id: "playable_example", text: "Open playable example", onClick: createPlayableExample });
-    Entropy.UI.Widget.label(uiWindowId, { text: practiceSurface ? "PRACTICE ? not saved" : `${sceneName}${sceneIsDirty() ? " *" : ""}`, bold: true });
-    if (statusMessage) Entropy.UI.Widget.label(uiWindowId, { text: statusMessage });
+    W.label(uiWindowId, { text: practiceSurface ? "PRACTICE - not saved" : `${sceneName}${sceneIsDirty() ? " *" : ""}`, bold: true });
+    if (statusMessage) W.label(uiWindowId, { text: statusMessage });
     if (pendingSceneAction) {
-        Entropy.UI.Widget.label(uiWindowId, { text: `${pendingSceneAction.label}? Unsaved changes.` });
-        Entropy.UI.Widget.button(uiWindowId, { text: "Save & continue", id: "scene_confirm_save", onClick: () => { if (saveScene()) pendingSceneAction?.run(); } });
-        Entropy.UI.Widget.horizontal(uiWindowId, () => {
-            Entropy.UI.Widget.button(uiWindowId, { text: "Discard & continue", id: "scene_confirm_discard", onClick: () => pendingSceneAction?.run() });
-            Entropy.UI.Widget.button(uiWindowId, { text: "Cancel", id: "scene_confirm_cancel", onClick: () => { pendingSceneAction = null; } });
+        W.label(uiWindowId, { text: `${pendingSceneAction.label}? Unsaved changes.` });
+        W.button(uiWindowId, { text: "Save & continue", id: "scene_confirm_save", onClick: () => { if (saveScene()) pendingSceneAction?.run(); } });
+        W.horizontal(uiWindowId, () => {
+            W.button(uiWindowId, { text: "Discard & continue", id: "scene_confirm_discard", onClick: () => pendingSceneAction?.run() });
+            W.button(uiWindowId, { text: "Cancel", id: "scene_confirm_cancel", onClick: () => { pendingSceneAction = null; } });
         });
     }
-    Entropy.UI.Widget.horizontal(uiWindowId, () => {
-        Entropy.UI.Widget.button(uiWindowId, { text: "Undo", id: "undo", onClick: undo });
-        Entropy.UI.Widget.button(uiWindowId, { text: "Redo", id: "redo", onClick: redo });
+    W.horizontal(uiWindowId, () => {
+        W.button(uiWindowId, { text: "Undo", id: "undo", onClick: undo });
+        W.button(uiWindowId, { text: "Redo", id: "redo", onClick: redo });
     });
-    Entropy.UI.Widget.label(uiWindowId, { text: history.undoLabel ? `Undo: ${history.undoLabel}` : "No edits to undo" });
-    Entropy.UI.Widget.label(uiWindowId, { text: history.redoLabel ? `Redo: ${history.redoLabel}` : "" });
-    Entropy.UI.Widget.horizontal(uiWindowId, () => {
-        Entropy.UI.Widget.button(uiWindowId, {
-            text: (mode === "draw" ? "> " : "  ") + "Draw",
-            id: "mode_draw",
-            onClick: () => setMode("draw")
-        });
-        Entropy.UI.Widget.button(uiWindowId, {
-            text: (mode === "move" ? "> " : "  ") + "Move",
-            id: "mode_move",
-            onClick: () => setMode("move")
-        });
-        Entropy.UI.Widget.button(uiWindowId, {
-            text: (mode === "cut" ? "> " : "  ") + "Cut",
-            id: "mode_cut",
-            onClick: () => setMode("cut")
-        });
+    W.label(uiWindowId, { text: history.undoLabel ? `Undo: ${history.undoLabel}` : "No edits to undo" });
+    if (history.redoLabel) W.label(uiWindowId, { text: `Redo: ${history.redoLabel}` });
+    W.horizontal(uiWindowId, () => {
+        for (const [id, label] of [["draw", "Draw"], ["move", "Move"], ["cut", "Cut"]] as const)
+            W.button(uiWindowId, { text: (mode === id ? "> " : "  ") + label, id: `mode_${id}`, onClick: () => setMode(id) });
     });
-    Entropy.UI.Widget.horizontal(uiWindowId, () => {
-        Entropy.UI.Widget.button(uiWindowId, { text: "Focus", id: "focus_surface", onClick: () => focusSurface(false) });
-        Entropy.UI.Widget.button(uiWindowId, { text: "Align", id: "align_surface", onClick: () => focusSurface(true) });
-        Entropy.UI.Widget.button(uiWindowId, { text: "Return", id: "return_view", onClick: restoreView });
-    });
-    Entropy.UI.Widget.separator(uiWindowId);
+    W.separator(uiWindowId);
 
+    W.tabBar(uiWindowId, { id: "panel_tabs", tabs: PANEL_TABS, selected: panelTab, onSelect: id => { panelTab = id as PanelTab; } });
+    if (panelTab === "tool") renderToolTab();
+    else if (panelTab === "surfaces") renderSurfacesTab();
+    else if (panelTab === "animate") renderAnimationUI();
+    else if (panelTab === "scene") renderSceneTab();
+    else renderHelpTab();
+}
+
+/** The Tool tab follows the mode row: brush for Draw, the selected surface's transform for Move,
+ * cutting instructions for Cut. */
+function renderToolTab(): void {
     if (mode === "draw") {
-        // Collapsed by default, same as Palette/Tablet tuning/Paint layers below it - this used
-        // to be seven always-visible rows eating the vertical space every other section
-        // (including the hierarchy tree) has to share on a fixed-height panel.
-        Entropy.UI.Widget.collapsingHeader(uiWindowId, `Brush: ${currentBrush().name}`, () => {
-            Entropy.UI.Widget.horizontal(uiWindowId, () => {
-                for (let i = 0; i < BRUSHES.length; i++) {
-                    Entropy.UI.Widget.button(uiWindowId, {
-                        text: (i === brushIndex ? "> " : "") + ["Pencil", "Ink", "Air", "Erase"][i],
-                        id: `brush_btn_${i}`,
-                        onClick: () => { brushIndex = i; }
-                    });
-                }
-            });
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
-                onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
-            });
-            Entropy.UI.Widget.colorInput(uiWindowId, {
-                label: "Color", color: [...paintSettings.color.map(n => n / 255), paintSettings.opacity],
-                onChange: values => {
-                    if (!Array.isArray(values) || values.length !== 4 || !values.every(Number.isFinite)) return;
-                    chooseColor(values.slice(0, 3).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255)) as RGB);
-                    paintSettings.opacity = Math.max(0.01, Math.min(1, values[3]));
-                },
-            });
-            Entropy.UI.Widget.slider(uiWindowId, { label: "Opacity", value: paintSettings.opacity, min: 0.01, max: 1, id: "brush_opacity", onChange: value => { paintSettings.opacity = Number(value); preferencesDirty = true; } });
-            Entropy.UI.Widget.button(uiWindowId, { text: pickingColor ? "Pick a surface color (cancel)" : "Eyedropper", id: "eyedropper", onClick: () => { pickingColor = !pickingColor; } });
-            const drawingLayer = activeSurface()?.layers.find(layer => layer.id === activeSurface()?.activeLayerId);
-            Entropy.UI.Widget.label(uiWindowId, { text: drawingLayer ? `Layer: ${drawingLayer.name}${drawingLayer.locked ? " (locked)" : !drawingLayer.visible ? " (hidden)" : ""}` : "No paint layer" });
-        }, "brush_header");
+        Entropy.UI.Widget.label(uiWindowId, { text: `Brush: ${currentBrush().name}`, bold: true });
+        Entropy.UI.Widget.horizontal(uiWindowId, () => {
+            for (let i = 0; i < BRUSHES.length; i++) {
+                Entropy.UI.Widget.button(uiWindowId, {
+                    text: (i === brushIndex ? "> " : "") + ["Pencil", "Ink", "Air", "Erase"][i],
+                    id: `brush_btn_${i}`,
+                    onClick: () => { brushIndex = i; }
+                });
+            }
+        });
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "Size", value: sizeMultiplier, min: 0.1, max: 3.0, id: "size_slider",
+            onChange: (v: string) => { sizeMultiplier = parseFloat(v); }
+        });
+        Entropy.UI.Widget.colorInput(uiWindowId, {
+            label: "Color", color: [...paintSettings.color.map(n => n / 255), paintSettings.opacity],
+            onChange: values => {
+                if (!Array.isArray(values) || values.length !== 4 || !values.every(Number.isFinite)) return;
+                chooseColor(values.slice(0, 3).map(n => Math.round(Math.max(0, Math.min(1, n)) * 255)) as RGB);
+                paintSettings.opacity = Math.max(0.01, Math.min(1, values[3]));
+            },
+        });
+        Entropy.UI.Widget.slider(uiWindowId, { label: "Opacity", value: paintSettings.opacity, min: 0.01, max: 1, id: "brush_opacity", onChange: value => { paintSettings.opacity = Number(value); preferencesDirty = true; } });
+        Entropy.UI.Widget.button(uiWindowId, { text: pickingColor ? "Pick a surface color (cancel)" : "Eyedropper", id: "eyedropper", onClick: () => { pickingColor = !pickingColor; } });
+        const drawingLayer = activeSurface()?.layers.find(layer => layer.id === activeSurface()?.activeLayerId);
+        Entropy.UI.Widget.label(uiWindowId, { text: drawingLayer ? `Layer: ${drawingLayer.name}${drawingLayer.locked ? " (locked)" : !drawingLayer.visible ? " (hidden)" : ""}` : "No paint layer" });
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Palette", renderPalette);
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Tablet tuning", renderBrushTuning);
         Entropy.UI.Widget.collapsingHeader(uiWindowId, "Paint layers", renderPaintLayers);
@@ -2707,7 +2703,8 @@ function renderUI(): void {
     } else {
         const s = activeGroupId ? null : activeSurface();
         if (!s) {
-            Entropy.UI.Widget.label(uiWindowId, { text: activeGroupId ? "Edit this group in Groups & animation." : "No surface selected - click one." });
+            Entropy.UI.Widget.label(uiWindowId, { text: activeGroupId ? "Edit this group in the Animate tab." : "No surface selected - click one." });
+            if (activeGroupId) Entropy.UI.Widget.button(uiWindowId, { id: "open_animate_tab", text: "Open Animate tab", onClick: () => { panelTab = "animate"; } });
         } else {
             Entropy.UI.Widget.label(uiWindowId, { text: `Selected: ${s.name} (${s.kind})` });
             Entropy.UI.Widget.label(uiWindowId, {
@@ -2807,67 +2804,83 @@ function renderUI(): void {
             });
         }
     }
+}
 
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Add surface", () => {
-        // Cycling button, not a dropdown - the same call this codebase's other demos already made
-        // (see ml_graph_demo_addon.ts's dataset/activation pickers): this GUI kit's dropdown payload
-        // format wasn't worth depending on for a same-session feature with only 4 fixed choices.
-        Entropy.UI.Widget.button(uiWindowId, {
-            text: `Shape: ${pendingKind}`,
-            id: "pending_kind_cycle",
-            onClick: () => { pendingKind = SHAPE_KINDS[(SHAPE_KINDS.indexOf(pendingKind) + 1) % SHAPE_KINDS.length]; }
+/** Surfaces tab: create one, frame the selected one in the camera, and the list of every surface. */
+function renderSurfacesTab(): void {
+    const W = Entropy.UI.Widget;
+    W.label(uiWindowId, { text: "New surface", bold: true });
+    // Cycling button, not a dropdown - the same call this codebase's other demos already made
+    // (see ml_graph_demo_addon.ts's dataset/activation pickers): this GUI kit's dropdown payload
+    // format wasn't worth depending on for a same-session feature with only 4 fixed choices.
+    Entropy.UI.Widget.button(uiWindowId, {
+        text: `Shape: ${pendingKind}`,
+        id: "pending_kind_cycle",
+        onClick: () => { pendingKind = SHAPE_KINDS[(SHAPE_KINDS.indexOf(pendingKind) + 1) % SHAPE_KINDS.length]; }
+    });
+    if (pendingKind === "plane" || pendingKind === "box") {
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Width", value: pendingWidth, min: 0.5, max: 8, id: "pending_w_slider",
+            onChange: (v: string) => { pendingWidth = parseFloat(v); }
         });
-        if (pendingKind === "plane" || pendingKind === "box") {
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Width", value: pendingWidth, min: 0.5, max: 8, id: "pending_w_slider",
-                onChange: (v: string) => { pendingWidth = parseFloat(v); }
-            });
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
-                onChange: (v: string) => { pendingHeight = parseFloat(v); }
-            });
-        }
-        if (pendingKind === "box") {
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Depth", value: pendingDepth, min: 0.5, max: 8, id: "pending_d_slider",
-                onChange: (v: string) => { pendingDepth = parseFloat(v); }
-            });
-        }
-        if (pendingKind === "cylinder") {
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
-                onChange: (v: string) => { pendingRadius = parseFloat(v); }
-            });
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
-                onChange: (v: string) => { pendingHeight = parseFloat(v); }
-            });
-        }
-        if (pendingKind === "sphere") {
-            Entropy.UI.Widget.slider(uiWindowId, {
-                label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
-                onChange: (v: string) => { pendingRadius = parseFloat(v); }
-            });
-        }
-        Entropy.UI.Widget.button(uiWindowId, {
-            text: "+ New Surface",
-            id: "new_surface",
-            onClick: addSurfaceFromPalette
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
+            onChange: (v: string) => { pendingHeight = parseFloat(v); }
         });
+    }
+    if (pendingKind === "box") {
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Depth", value: pendingDepth, min: 0.5, max: 8, id: "pending_d_slider",
+            onChange: (v: string) => { pendingDepth = parseFloat(v); }
+        });
+    }
+    if (pendingKind === "cylinder") {
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
+            onChange: (v: string) => { pendingRadius = parseFloat(v); }
+        });
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Height", value: pendingHeight, min: 0.5, max: 8, id: "pending_h_slider",
+            onChange: (v: string) => { pendingHeight = parseFloat(v); }
+        });
+    }
+    if (pendingKind === "sphere") {
+        Entropy.UI.Widget.slider(uiWindowId, {
+            label: "New Radius", value: pendingRadius, min: 0.25, max: 4, id: "pending_r_slider",
+            onChange: (v: string) => { pendingRadius = parseFloat(v); }
+        });
+    }
+    Entropy.UI.Widget.button(uiWindowId, {
+        text: "+ New Surface",
+        id: "new_surface",
+        onClick: addSurfaceFromPalette
+    });
+    W.label(uiWindowId, { text: `Surfaces (${surfaces.length})`, bold: true });
+    W.horizontal(uiWindowId, () => {
+        W.button(uiWindowId, { text: "Focus", id: "focus_surface", onClick: () => focusSurface(false) });
+        W.button(uiWindowId, { text: "Align", id: "align_surface", onClick: () => focusSurface(true) });
+        W.button(uiWindowId, { text: "Return", id: "return_view", onClick: restoreView });
+    });
+    renderLayersUI();
+}
 
-    });
-    // Open by default (id pinned rather than left to the frame-counter fallback) - this is core
-    // enough workflow that requiring a click to even discover it first defeats the point of the
-    // hierarchy/labelling cleanup this panel just went through.
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Groups & animation", renderAnimationUI, "groups_animation_header", true);
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Scenes & export", renderSceneLibrary);
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Surfaces", renderLayersUI);
-    Entropy.UI.Widget.collapsingHeader(uiWindowId, "Shortcuts", () => {
-        for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Ctrl+S Save scene", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
-            Entropy.UI.Widget.label(uiWindowId, { text });
-    });
-    Entropy.UI.Widget.separator(uiWindowId);
-    Entropy.UI.Widget.label(uiWindowId, { text: `${surfaces.length} surface(s)` });
+/** Scene tab: the playable example, then save, load and export. */
+function renderSceneTab(): void {
+    Entropy.UI.Widget.button(uiWindowId, { id: "playable_example", text: "Open playable example", onClick: createPlayableExample });
+    renderSceneLibrary();
+}
+
+function renderHelpTab(): void {
+    const W = Entropy.UI.Widget;
+    W.label(uiWindowId, { text: "Add a surface > Draw > Logic > Play", bold: true });
+    W.label(uiWindowId, { text: "Tool: brush, transform, cut for the mode above." });
+    W.label(uiWindowId, { text: "Surfaces: add, focus, hide, delete." });
+    W.label(uiWindowId, { text: "Animate: groups, clips and keyframes." });
+    W.label(uiWindowId, { text: "Scene: save, load, export." });
+    W.separator(uiWindowId);
+    W.label(uiWindowId, { text: "Shortcuts", bold: true });
+    for (const text of ["B Draw | V Move | [ ] Size", "Ctrl+Z Undo | Ctrl+Shift+Z Redo", "F Focus | Shift+F Align", "Ctrl+S Save scene", "Esc Return view / cancel cut", "Right-drag Orbit | Wheel Zoom", "Hover ring shows full-pressure size"])
+        W.label(uiWindowId, { text });
 }
 
 // A ground-plane reference grid, drawn as one addon-owned mesh reusing the CanvasSurface pipeline

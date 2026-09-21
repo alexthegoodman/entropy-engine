@@ -71,7 +71,7 @@ fn canvas_live_feature() {
     let result = read(&result_path);
     assert_eq!(result["status"], "passed", "{result:#}");
     let artifacts = result["artifacts"].as_array().unwrap();
-    assert_eq!(artifacts.len(), 6);
+    assert_eq!(artifacts.len(), 9);
     for artifact in artifacts {
         let bytes = fs::read(artifact.as_str().unwrap()).expect("rendered screenshot exists");
         assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");

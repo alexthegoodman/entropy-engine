@@ -43,6 +43,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     let init: () => void;
     let update: () => void;
     let render: () => void;
+    let tabBar: { tabs: { id: string; label: string }[]; selected: string; onSelect: (id: string) => void } | null;
     let api: any;
     let overUI: boolean;
     let savedIndex: any;
@@ -50,7 +51,14 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     let textInputs: Map<string, (value: string) => void>;
     let colorInput: (value: number[]) => void;
     const emit = (name: string, ...args: any[]) => listeners[name]?.forEach(fn => fn(...args));
-    const click = (id: string) => { render(); expect(buttons.has(id)).toBe(true); buttons.get(id)!(); update(); };
+    // A control on another tab is reached the way a person reaches it: open tabs until it shows.
+    const reveal = (present: () => boolean) => {
+        render();
+        if (present() || !tabBar) return;
+        for (const tab of [...tabBar.tabs]) { tabBar!.onSelect(tab.id); render(); if (present()) return; }
+    };
+    const click = (id: string) => { reveal(() => buttons.has(id)); expect(buttons.has(id), id).toBe(true); buttons.get(id)!(); update(); };
+    const input = (id: string) => { reveal(() => textInputs.has(id)); expect(textInputs.has(id), id).toBe(true); return textInputs.get(id)!; };
     const pixels = () => {
         const mesh = [...meshes.values()].find(m => m.id.startsWith("canvas_surface_"));
         return textures.get(mesh.bindings[0].resource.value.id)!;
@@ -81,6 +89,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             group: (id: string, fn: (id: string) => void) => fn(id),
             collapsingHeader: (id: string, _title: string, fn: (id: string) => void) => fn(id),
             treeView: vi.fn(),
+            tabBar: (_id: string, c: any) => { tabBar = c; },
         };
         api = {
             AddonAtom: { register: () => ({ onInit: (fn: () => void) => { init = fn; }, onUpdatePlus: (_name: string, fn: () => void) => { update = fn; }, IO: { save: (data: any) => { savedIndex = structuredClone(data); }, load: () => savedIndex },
@@ -95,7 +104,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
             Controls: { enable: vi.fn(), disable: vi.fn() },
             // setupUI() now creates a second window for the keyframe timeline - only the first
             // (the main sidebar) is what these tests drive via render()/update().
-            UI: { setWindowVisible: vi.fn(), createWindow: (c: any) => { if (!render) render = c.onRender; return "tools"; }, Widget: widget },
+            UI: { setWindowVisible: vi.fn(), createWindow: (c: any) => { if (!render) render = () => { buttons.clear(); sliders.clear(); textInputs.clear(); tabBar = null; c.onRender(); }; return "tools"; }, Widget: widget },
             Window: { getSize: () => [1400, 900] },
             Pipeline: { create: () => "pipeline" }, Lighting: { updateSun: vi.fn() },
             setGameMode: vi.fn(), println: vi.fn(), generateUUID: () => String(serial++),
@@ -191,11 +200,11 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     });
 
     it("preserves two named scenes and their layer pixels across save/load", () => {
-        textInputs.get("scene_name")!("First sketch"); stroke(); click("save_scene");
+        input("scene_name")("First sketch"); stroke(); click("save_scene");
         const first = pixels().slice(); const firstId = savedIndex.scenes[0].id;
         click("new_scene");
         colorInput([0.9, 0.1, 0.2, 1]); stroke();
-        textInputs.get("scene_name")!("Second sketch"); click("save_scene");
+        input("scene_name")("Second sketch"); click("save_scene");
         const second = pixels().slice(); const secondId = savedIndex.scenes[1].id;
         expect(savedIndex.scenes).toHaveLength(2);
         click(`scene_select_${firstId}`); click("load_scene");
@@ -208,7 +217,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
     });
 
     it("requires a decision before switching away from unsaved artwork", () => {
-        textInputs.get("scene_name")!("Saved scene"); click("save_scene");
+        input("scene_name")("Saved scene"); click("save_scene");
         stroke(); const painted = pixels().slice();
         click("new_scene"); click("scene_confirm_cancel");
         expect(Buffer.from(pixels()).equals(Buffer.from(painted))).toBe(true);
@@ -232,7 +241,7 @@ describe("Canvas Surfaces workflow using the real addon callbacks", () => {
         colorInput([1, 0, 0, 1]); stroke();
         click("paint_add_color"); colorInput([0, 0, 1, 1]); stroke(); const painted = pixels().slice();
         render(); const ids = [...buttons.keys()].filter(id => id.startsWith("paint_lock_"));
-        const top = ids.at(-1)!;
+        const top = ids[0]; // the panel lists the top layer first
         click(top); stroke(); expect(Buffer.from(pixels()).equals(Buffer.from(painted))).toBe(true);
         click(top.replace("paint_lock_", "paint_visible_")); expect(Buffer.from(pixels()).equals(Buffer.from(painted))).toBe(false);
         click("undo"); expect(Buffer.from(pixels()).equals(Buffer.from(painted))).toBe(true);

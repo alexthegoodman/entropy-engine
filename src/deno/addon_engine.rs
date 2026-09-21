@@ -86,7 +86,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -210,6 +210,7 @@ extension!(
         op_ui_widget_tracks,
         op_ui_widget_kanban,
         op_ui_widget_tree_view,
+        op_ui_widget_tab_bar,
         op_ui_widget_pad_grid,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
@@ -4486,6 +4487,20 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             crate::entropy_gui::TreeEvent::Marked(node, value) => {
                                 events_to_push.push(format!("TREEVIEW_MARKED|{}|{}|{}", tree_id, node, value));
+                            }
+                        }
+                    }
+                }
+                UiWidget::TabBar { id: bar_id, tabs, selected } => {
+                    let tabs_data: Vec<crate::entropy_gui::Tab> = tabs
+                        .iter()
+                        .map(|t| crate::entropy_gui::Tab::new(t.id.clone(), t.label.clone()))
+                        .collect();
+                    let resp = crate::entropy_gui::TabBar::new(bar_id.as_str()).show(ui, &tabs_data, selected);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::TabBarEvent::Selected(tab) => {
+                                events_to_push.push(format!("TABBAR_SELECTED|{}|{}", bar_id, tab));
                             }
                         }
                     }

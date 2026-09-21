@@ -412,6 +412,14 @@ pub struct TreeNodeConfig {
     pub detail: Option<String>,
 }
 
+/// One tab of `Widget.tabBar` - see `entropy_gui::TabBar`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TabBarItemConfig {
+    pub id: String,
+    pub label: String,
+}
+
 /// One pad of `Widget.padGrid` - see `entropy_gui::PadGrid`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -567,6 +575,9 @@ pub enum UiWidget {
         /// Fixed width in points; omit to fill the row.
         width: Option<f32>,
     },
+    /// A non-fullscreen tab strip - see `entropy_gui::widgets_tabs`. The caller owns which tab is
+    /// selected and draws that tab's widgets itself.
+    TabBar { id: String, tabs: Vec<TabBarItemConfig>, selected: String },
     /// A drum-machine pad bank - see `entropy_gui::widgets_pads`.
     PadGrid { id: String, config: PadGridConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
@@ -3491,6 +3502,19 @@ pub fn op_ui_widget_tree_view(
         let max_height = if max_height > 0.0 { Some(max_height as f32) } else { None };
         let width = if width > 0.0 { Some(width as f32) } else { None };
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TreeView { id, nodes, max_height, width });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_tab_bar(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] tabs: Vec<TabBarItemConfig>,
+    #[string] selected: String,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::TabBar { id, tabs, selected });
     }
 }
 

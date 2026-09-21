@@ -1,4 +1,6 @@
 Feature: Build and play an interactive painted scene in the real engine
+  # The sidebar is tabbed: new_surface is on the Surfaces tab, save_scene, load_scene and
+  # playable_example on the Scene tab, which stays selected for the rest of the run.
   Scenario: Author graph properties and wires, save, play, stop and reload
     Given the real canvas demo is running in test mode
     When I advance 30 frames
@@ -6,10 +8,14 @@ Feature: Build and play an interactive painted scene in the real engine
     And I send pointer "move" at "740" "440"
     And I send pointer "up" at "740" "440"
     And I advance 4 frames
-    And I click "quick_surface"
+    And I click "TABBAR_SELECTED|panel_tabs|surfaces"
+    And I advance 3 frames
+    And I click "new_surface"
     And I advance 4 frames
+    And I click "TABBAR_SELECTED|panel_tabs|scene"
+    And I advance 3 frames
     And I set "scene_name" to "BDD painted surfaces"
-    And I click "quick_save"
+    And I click "save_scene"
     And I advance 8 frames
     Then I capture "canvas-logic-painted"
     When I click "playable_example"
