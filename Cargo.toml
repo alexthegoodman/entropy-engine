@@ -42,6 +42,14 @@ harness = false
 name = "window_layers_bdd"
 harness = false
 
+[[test]]
+name = "guitar_engine_bdd"
+harness = false
+
+[[test]]
+name = "guitar_live_bdd"
+harness = false
+
 [dependencies]
 # For dependencies that use getrandom 0.2
 getrandom_v2 = { package = "getrandom", version = "0.2", features = ["js"] }
@@ -159,6 +167,12 @@ rfd = "0.17.2"
 # our audio output) and no process-isolation helper binary. Its own directory scan misses the
 # single-file .vst3 layout Windows installers use, so scanning is done in src/audio/vst3.rs.
 vst3-host = { version = "0.9.0", default-features = false }
+# Live guitar input (src/guitar_live). rodio 0.21 already pulls in this cpal for output; naming it
+# here gives us the input side of the same host. ASIO is opt-in (`--features asio`): it needs the
+# Steinberg SDK (CPAL_ASIO_DIR) and LLVM at build time, so the default build stays WASAPI.
+cpal = "0.16"
+# Lock-free single-producer single-consumer queue between the input callback and the router.
+rtrb = "0.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = ["Window", "Navigator", "Location"] }
@@ -171,3 +185,6 @@ js-sys = "0.3.83"
 # Native Gherkin runner for black-box behavior scenarios. The test binary, rather than libtest,
 # owns execution so readable feature output and screenshot hooks stay available in CI.
 cucumber = "0.23.0"
+
+[features]
+asio = ["cpal/asio"]

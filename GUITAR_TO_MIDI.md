@@ -372,3 +372,49 @@ These come from reading Entropy's public README only; they need checking against
 Ultimately, we do want users to be able to play VST3 instruments with their guitar, just as they can play one of our built-in synths with their guitar.
 
 For testing, get as far as you can on your own, then I will test by hooking up my real guitar to the computer.
+---
+
+## 11. Implementation status and measured results (2026-09-20)
+
+Written after the first implementation session. Nothing here was measured with a real guitar yet: every accuracy and latency number below is from the synthetic corpus (`src/guitar/testsig.rs`), and the capture-device check ran on a webcam microphone because no interface was attached. All numbers are `--release`; the benchmark binary prints its build profile.
+
+**Where it lives.** Engine core `src/guitar/` (no UI, no backend, no allocation after `new`). Live layer `src/guitar_live/` (cpal input, lock-free queue, router thread, sustained built-in voice, recorder, calibration). Addon ops `src/deno/guitar_ops.rs`, JS `Entropy.Guitar`, DAW panel `examples/studio-bundle/src/apps/daw_guitar.ts` and `daw_synth_addon.ts`.
+
+**Answers to section 10.**
+1. *Event path.* The old path renders fixed-length notes, so a new sustained, bendable voice (`guitar_live/voice.rs`) was added. VST3 gained held notes and pitch bend (`Vst3Sender`, usable from any thread; the plugin registry itself is main-thread only).
+2. *Audio input.* None existed (rodio is output only). cpal 0.16, the same version rodio uses, is now a direct dependency.
+3. *ASIO licensing.* Not resolved. ASIO is an opt-in cargo feature (`--features asio`) that needs the Steinberg SDK at build time. Not built or tested; the default build is WASAPI.
+4. *Placement.* Same crate, separate modules; `src/guitar` builds and tests without any of the rest.
+5. *Recording.* The DAW's note cells have no bend field, so a take keeps pitch, velocity and timing (quantized, latency-compensated) and drops bends. The recorder itself keeps them.
+6. *Bend range.* The built-in voice is kept in sync. A VST3 instrument has its own range setting, which the panel reminds you to match.
+7. *Persistence.* Settings are saved inside the DAW project (`project.guitar`), tolerant of unknown or missing fields.
+8. *Corpus.* Synthetic only so far. A recorded, labeled corpus is still needed.
+
+**Design decisions the measurements forced.**
+- Detector: YIN and MPM share an FFT autocorrelation front end. Both reach 100% on the clean corpus; they differ on octave-ambiguous signals (YIN 40% correct on low notes with a weak fundamental and weak odd partials, MPM 80%, before the fixes below). YIN is the default.
+- Window lengths adapt to pitch (PIT-6): 7 windows from 262 to 1234 samples (spacing 1.35, window 0.8 of the longest lag). Finer spacing (1.25) was faster but dropped mid-register accuracy to 94.7%, because a period sitting at a window's largest lag leaves no room to interpolate.
+- Octave errors: a shallow first dip yields to a much deeper dip at a multiple lag, and an unsure estimate waits for a window long enough to see two of its periods. Each alone is not enough (60% to 40%, and 0% errors but slower); together 100% with no latency cost.
+- Level window is 15 ms, not 8. Under one period of a low string, a weak-fundamental note rippled by more than the onset threshold and re-triggered every 40 to 80 ms.
+- A same-pitch re-pick is confirmed 35 ms after the onset and only if the level is still raised, so a fret-hand slap does not re-trigger a ringing note.
+- A gate below the room's noise floor leaves decayed notes hanging (the level never drops under the close threshold). Calibration puts the gate above the room; both tiers test this with a control.
+
+**Results, Balanced mode, synthetic corpus, 48 kHz, 128-sample buffers** (`cargo run --release --bin guitar_bench`):
+
+| Register | Correct | Latency p50 / p95 (pick to Note On, engine only) | Spec target (5.1) |
+| --- | --- | --- | --- |
+| Low E2-G#2 | 100% | 30.7 / 32.0 ms | 40 ms met |
+| Mid A2-D#4 | 100% | 14.7 / 22.7 ms | 20 ms **missed by 2.7 ms** at the bottom of the register (110 Hz needs 18 ms of signal by itself) |
+| High E4-E6 | 100% | 9.3 / 9.3 ms | 15 ms met |
+
+Fast mode: 6.7 ms high, 12 / 28 ms mid, 28 ms low, but 93.3% correct on low notes. Accurate: 13.3 / 18.7 / 34.7 ms p50. CPU (5.2): mean 0.7-0.8%, p99.9 2.2-6.5% of a 128-sample period across runs on an i5-12500 (the tail moves between runs; the live pipeline in a callback averaged 14.7 us). Allocations on the audio path: 0 in all three modes (`tests/guitar_no_alloc.rs`). 80 random recordings (28,462 events) and nine hostile inputs (NaN, infinities, DC, Nyquist, clipping, denormals) all produce well-formed event streams. Not run: the 2-hour soak, the external loopback rig, CI.
+
+**Known limits (each has a scenario that pins it).**
+- A re-pick that adds under 6 dB over a still-ringing string of the same pitch is not heard as a pick.
+- Soft picks below about -37 dBFS peak play nothing until calibrated (default gate).
+- Slides commit a note where they slow down, so a fast slide can split into two notes; the pitch you hear is still right because the bend carries the rest.
+- Monophonic only: two strings ringing together confuse it (the take scenario mutes each string, as a player would).
+- Bends are not stored in DAW patterns.
+
+**Measured on hardware.** On this machine WASAPI shared mode ignores the requested buffer size: asked for 128, 256 and 512 frames, every callback was 160 frames at 16 kHz, a fixed 10 ms. That is the latency floor of the WASAPI path, against the 2.67 ms of the spec's reference conditions. Pick to sound in a DAW track, engine plus router plus voice plus mixer, measured 9.4 to 16.6 ms (median 14.1 ms); the capture and output devices' own buffers come on top. The panel shows the measured buffer, not the requested one.
+
+**Live checks still to do by hand, with a guitar.** Play single notes across the neck and watch the diagnostics; hold and mute a note; vibrato and a whole-tone bend; a slide; play Vital or Massive and check the bend range; record a take; unplug the cable mid-note; run Calibrate room then Calibrate playing; note the pick-to-sound feel in each mode. Report anything that reads wrong with the note, the mode and the diagnostics line.

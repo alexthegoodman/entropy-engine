@@ -49,6 +49,8 @@ pub mod game_ui;
 pub mod deno;
 pub mod mcp;
 pub mod audio;
+pub mod guitar;
+pub mod guitar_live;
 pub mod alpha;
 pub mod yumon;
 pub mod ml_graph;

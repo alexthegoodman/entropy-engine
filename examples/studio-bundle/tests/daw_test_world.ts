@@ -62,6 +62,7 @@ export function createWorld(initialSaved?: unknown) {
         sampleExports: [] as any[][],
         sliders: [] as any[],
         windowVisible: {} as Record<string, boolean>,
+        windowTitles: {} as Record<string, string>,
         padGrids: new Map<string, any>(),
         trees: new Map<string, any>(),
         lastCreatedTrackId: "",
@@ -147,7 +148,7 @@ export function createWorld(initialSaved?: unknown) {
         Addon: { register: () => addonApi },
         UI: {
             Widget: widgets,
-            createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); return `window-${windowRenders.length}`; },
+            createWindow: (cfg: any) => { windowRenders.push(cfg.onRender); const id = `window-${windowRenders.length}`; w.windowTitles[id] = cfg.title; return id; },
             setWindowVisible: (id: string, visible: boolean) => { w.windowVisible[id] = visible; },
         },
         Window: { getSize: () => [1400, 900] },

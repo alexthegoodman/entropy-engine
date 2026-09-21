@@ -35,6 +35,19 @@ import {
     triggersAt,
 } from "./daw_arrangement";
 import type { DrumPad, ListDirResult, SampleInfo } from "./daw_rack";
+import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
+import {
+    GUITAR_MODES,
+    GUITAR_WAVEFORMS,
+    SignalHints,
+    defaultGuitarPrefs,
+    diagnosticsLines,
+    levelBar,
+    noteName as guitarNoteName,
+    readGuitarPrefs,
+    startConfig as guitarStartConfig,
+    takeToPattern,
+} from "./daw_guitar";
 import {
     MAX_PADS,
     addPad,
@@ -170,6 +183,8 @@ interface DAWProject {
     arrangement: ArrClip[];
     tracks: Track[];
     activeTrackId: string | null;
+    // Guitar Input settings (see daw_guitar.ts). Optional: a project saved before it existed has none.
+    guitar?: GuitarPrefs;
 }
 
 function defaultSynthVoice(waveform = "saw"): VoiceParams {
@@ -836,6 +851,268 @@ function setRackVisible(visible: boolean) {
     if (rackWindowId) Entropy.UI.setWindowVisible(rackWindowId, visible);
 }
 
+// --- Guitar input ------------------------------------------------------------------------------
+// The engine is Rust (src/guitar, GUITAR_TO_MIDI.md) and this is only its panel: choose an input,
+// start it, watch what it hears, and record a take into a new track. Notes play the built-in voice on
+// the chosen track, or that track's VST3 instrument when it has one. Nothing per-buffer comes to JS.
+
+let guitarWindowId: string | null = null;
+let guitarVisible = false;
+let guitarStatus: any = { running: false };
+let guitarDevices: { host: string; name: string; channels: number; defaultSampleRate: number; isDefault: boolean }[] = [];
+let guitarMessage = "";
+let guitarPolledAt = 0;
+let guitarRecording = false;
+const guitarHints = new SignalHints();
+
+function guitarPrefs(): GuitarPrefs {
+    if (!project.guitar) project.guitar = defaultGuitarPrefs();
+    return project.guitar;
+}
+
+function setGuitarVisible(visible: boolean) {
+    guitarVisible = visible;
+    if (guitarWindowId) Entropy.UI.setWindowVisible(guitarWindowId, visible);
+    if (visible && guitarDevices.length === 0) refreshGuitarDevices();
+    // The drum rack is wide and starts at the top left, which is where this panel opens: showing one
+    // hides the other rather than leaving the rack over half of the guitar controls.
+    if (visible && rackVisible) setRackVisible(false);
+}
+
+function refreshGuitarDevices() {
+    guitarDevices = addon.Guitar.listInputs().devices;
+    guitarMessage = guitarDevices.length === 0
+        ? "No audio inputs found. Plug in the interface or cable, then Refresh."
+        : `${guitarDevices.length} input${guitarDevices.length === 1 ? "" : "s"} found.`;
+}
+
+// Where the notes go: the target track's VST3 instrument if it has a working one, else the built-in
+// voice on its bus.
+function guitarOutput(prefs: GuitarPrefs): Record<string, unknown> {
+    const track = project.tracks.find(t => t.id === prefs.targetTrackId && t.kind === "synth")
+        ?? project.tracks.find(t => t.kind === "synth");
+    if (!track) return {};
+    if (track.instrument && vst3Runtime[track.id]?.ok) return { vst3Track: track.id, vst3Channel: 0 };
+    return { trackId: track.id, waveform: prefs.waveform };
+}
+
+function startGuitar() {
+    const prefs = guitarPrefs();
+    const out = guitarOutput(prefs);
+    if (Object.keys(out).length === 0) {
+        guitarMessage = "Add a synth track to play the guitar on first.";
+        return;
+    }
+    const r = addon.Guitar.start({ ...guitarStartConfig(prefs), ...out });
+    if (!r.ok) {
+        guitarMessage = r.error ?? "The input would not start.";
+        guitarStatus = { running: false };
+        return;
+    }
+    guitarHints.reset();
+    const o = r.opened!;
+    guitarMessage = `Listening on ${o.device} (${o.host}) at ${o.sampleRate} Hz.` + (o.notes.length ? " " + o.notes.join(" ") : "");
+}
+
+function stopGuitar() {
+    if (guitarRecording) finishGuitarTake();
+    addon.Guitar.stop();
+    guitarStatus = { running: false };
+    guitarMessage = "Stopped. Any held note was released.";
+}
+
+// A saved device that is missing stays in the settings and is shown as unavailable.
+function pushGuitarSettings(patch: Record<string, unknown>) {
+    scheduleSave();
+    if (guitarStatus.running) {
+        const r = addon.Guitar.set(patch);
+        if (!r.ok) guitarMessage = r.error ?? "Could not change that setting.";
+    }
+}
+
+function finishGuitarTake() {
+    guitarRecording = false;
+    const r = addon.Guitar.record("stop");
+    const notes = r.notes ?? [];
+    const take = takeToPattern(notes, project.bpm, project.stepsPerBeat);
+    if (!take) {
+        guitarMessage = "Nothing was played, so there is no take to keep.";
+        return;
+    }
+    const n = project.tracks.filter(t => t.name.startsWith("Guitar take")).length + 1;
+    const track = addTrack("synth", undefined, `Guitar take ${n}`);
+    track.scale = "chromatic";
+    track.rootNote = take.rootNote;
+    track.rows = take.rows;
+    const pattern = track.patterns[0];
+    pattern.steps = take.steps;
+    pattern.notes = take.cells.map(c => ({ row: c.row, step: c.step, length: c.length, velocity: c.velocity }));
+    createClip(project.arrangement, {
+        trackId: track.id, patternId: pattern.id, startStep: 0, lengthSteps: take.steps
+    }, songSteps(project), newId);
+    persist();
+    guitarMessage = `Recorded ${take.cells.length} note${take.cells.length === 1 ? "" : "s"} into "${track.name}"` +
+        (take.bendPoints ? `. ${take.bendPoints} bend points were played but the step grid cannot store bends.` : ".") +
+        (take.dropped ? ` ${take.dropped} notes fell outside ${take.rows} rows and were left out.` : "");
+}
+
+function pollGuitar() {
+    const now = Date.now();
+    if (now - guitarPolledAt < 80) return;
+    guitarPolledAt = now;
+    if (!guitarStatus.running && !guitarVisible) return;
+    const st = addon.Guitar.status() as any;
+    if (!st.running && guitarStatus.running) {
+        guitarMessage = st.deviceLost
+            ? "The input device went away. Held notes were released. Plug it back in and press Start."
+            : "The input stopped.";
+        guitarRecording = false;
+    }
+    guitarStatus = st;
+    if (!st.running || !st.diagnostics) return;
+    guitarHints.update(st.diagnostics.note !== null, st.diagnostics.levelDb);
+    if (st.bufferNote) guitarMessage = st.bufferNote;
+    const fin = st.calibration?.finished;
+    if (fin) {
+        const prefs = guitarPrefs();
+        const s = st.settings;
+        if (fin === "room") { prefs.gateOpenDb = s.gateOpenDb; prefs.gateCloseDb = s.gateCloseDb; guitarMessage = `Room measured: the gate now opens at ${s.gateOpenDb.toFixed(1)} dBFS.`; }
+        else if (fin === "playing") { prefs.velocityFloorDb = s.velocityFloorDb; prefs.velocityCeilDb = s.velocityCeilDb; guitarMessage = `Playing measured: velocity runs from ${s.velocityFloorDb.toFixed(1)} to ${s.velocityCeilDb.toFixed(1)} dBFS.`; }
+        else guitarMessage = "Calibration heard nothing usable. Try again, playing a few soft and hard notes.";
+        scheduleSave();
+    }
+}
+
+function renderGuitarWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const prefs = guitarPrefs();
+    const running = !!guitarStatus.running;
+    const synthTracks = project.tracks.filter(t => t.kind === "synth");
+
+    // Input
+    const deviceOptions = ["Default input", ...guitarDevices.map(d => `${d.name}  [${d.host}, ${d.channels} ch]`)];
+    let deviceIndex = 0;
+    if (prefs.device) {
+        deviceIndex = guitarDevices.findIndex(d => d.name === prefs.device && (!prefs.host || d.host === prefs.host)) + 1;
+        if (deviceIndex === 0) { deviceOptions.push(`${prefs.device}  (not connected)`); deviceIndex = deviceOptions.length - 1; }
+    }
+    W.horizontal(win, (tid: string) => {
+        W.button(tid, { text: "Refresh inputs", id: "guitar_refresh", onClick: () => { refreshGuitarDevices(); } });
+        W.dropdown(tid, {
+            label: "Input", id: "guitar_device", options: deviceOptions, selectedIndex: deviceIndex,
+            onChange: (idx: string) => {
+                const i = parseInt(idx, 10);
+                const d = i >= 1 ? guitarDevices[i - 1] : undefined;
+                if (i === 0) { delete prefs.device; delete prefs.host; }
+                else if (d) { prefs.device = d.name; prefs.host = d.host; }
+                scheduleSave();
+            }
+        });
+        W.numericInput(tid, {
+            label: "Channel", id: "guitar_channel", value: prefs.channel + 1,
+            onChange: (v: string) => { prefs.channel = Math.max(0, Math.round(parseFloat(v) || 1) - 1); scheduleSave(); }
+        });
+    });
+
+    // Where the notes go
+    W.horizontal(win, (tid: string) => {
+        const target = synthTracks.findIndex(t => t.id === prefs.targetTrackId);
+        W.dropdown(tid, {
+            label: "Play on", id: "guitar_target", options: synthTracks.length ? synthTracks.map(t => t.name) : ["(no synth track)"],
+            selectedIndex: Math.max(0, target),
+            onChange: (idx: string) => {
+                prefs.targetTrackId = synthTracks[parseInt(idx, 10)]?.id ?? null;
+                scheduleSave();
+                if (running) addon.Guitar.target(guitarOutput(prefs));
+            }
+        });
+        W.dropdown(tid, {
+            label: "Voice", id: "guitar_waveform", options: [...GUITAR_WAVEFORMS], selectedIndex: GUITAR_WAVEFORMS.indexOf(prefs.waveform),
+            onChange: (idx: string) => {
+                prefs.waveform = GUITAR_WAVEFORMS[parseInt(idx, 10)] ?? "saw";
+                scheduleSave();
+                if (running) addon.Guitar.target(guitarOutput(prefs));
+            }
+        });
+    });
+    const outTrack = project.tracks.find(t => t.id === (guitarOutput(prefs) as any).vst3Track);
+    if (outTrack) W.label(win, { text: `${outTrack.name} has a VST3 instrument, so the guitar plays that. Set its pitch-bend range to ${prefs.bendRange} semitones.` });
+
+    W.horizontal(win, (tid: string) => {
+        W.button(tid, { text: running ? "■ Stop" : "▶ Start", id: "guitar_toggle", onClick: () => { running ? stopGuitar() : startGuitar(); } });
+        W.button(tid, { text: "All notes off", id: "guitar_all_off", onClick: () => { addon.Guitar.releaseAll(); } });
+        if (running) {
+            W.button(tid, {
+                text: guitarRecording ? "■ Stop and keep take" : "● Record take", id: "guitar_record",
+                onClick: () => {
+                    if (guitarRecording) { finishGuitarTake(); return; }
+                    const r = addon.Guitar.record("start");
+                    guitarRecording = !!r.ok;
+                    if (!r.ok) guitarMessage = r.error ?? "Could not start a take.";
+                }
+            });
+        }
+    });
+    W.label(win, { text: running ? "Status: listening" : "Status: stopped", bold: true });
+    if (guitarMessage) W.label(win, { text: guitarMessage });
+
+    // Signal
+    if (running && guitarStatus.diagnostics) {
+        const d = guitarStatus.diagnostics as GuitarDiag;
+        W.label(win, { text: `Input ${levelBar(d.inputPeakDb)} ${d.inputPeakDb.toFixed(1)} dBFS${d.clipped ? "   CLIPPING - turn the input down" : ""}`, bold: true });
+        if (guitarHints.tooQuiet()) W.label(win, { text: "Signal too low: your notes peak under -30 dBFS. Raise the gain on the interface or the cable." });
+        if (d.overruns > 0) W.label(win, { text: `The audio callback ran long ${d.overruns} times. Try the Accurate mode or a larger buffer.` });
+        if (guitarStatus.calibration?.busy) W.label(win, { text: `Calibrating: ${guitarStatus.calibration.state}...`, bold: true });
+    }
+
+    // Response
+    W.horizontal(win, (tid: string) => {
+        W.label(tid, { text: "Response:", bold: true });
+        GUITAR_MODES.forEach(m => {
+            W.button(tid, {
+                text: (prefs.mode === m ? "● " : "") + m[0].toUpperCase() + m.slice(1), id: "guitar_mode_" + m,
+                onClick: () => { prefs.mode = m; pushGuitarSettings({ mode: m }); }
+            });
+        });
+    });
+    W.slider(win, {
+        label: "Sensitivity", value: prefs.sensitivity, min: 0, max: 1,
+        onChange: (v: string) => { prefs.sensitivity = parseFloat(v); pushGuitarSettings({ sensitivity: prefs.sensitivity }); }
+    });
+    W.slider(win, {
+        label: "Gate opens at (dBFS)", value: prefs.gateOpenDb ?? -46, min: -70, max: -20,
+        onChange: (v: string) => {
+            const open = parseFloat(v);
+            prefs.gateOpenDb = open;
+            prefs.gateCloseDb = open - 8;
+            pushGuitarSettings({ gateOpenDb: open, gateCloseDb: open - 8 });
+        }
+    });
+    W.horizontal(win, (tid: string) => {
+        W.numericInput(tid, {
+            label: "Bend range (semitones)", id: "guitar_bend_range", value: prefs.bendRange,
+            onChange: (v: string) => { prefs.bendRange = Math.min(12, Math.max(1, Math.round(parseFloat(v) || 2))); pushGuitarSettings({ bendRange: prefs.bendRange }); }
+        });
+        W.numericInput(tid, {
+            label: "A4 (Hz)", id: "guitar_reference", value: prefs.referencePitch,
+            onChange: (v: string) => { prefs.referencePitch = Math.min(494, Math.max(392, parseFloat(v) || 440)); pushGuitarSettings({ referencePitch: prefs.referencePitch }); }
+        });
+    });
+    W.horizontal(win, (tid: string) => {
+        W.button(tid, { text: "Calibrate room (3 s, stay silent)", id: "guitar_cal_room", onClick: () => { if (running) addon.Guitar.calibrate(false, 3); } });
+        W.button(tid, { text: "Calibrate playing (5 s, soft and hard notes)", id: "guitar_cal_play", onClick: () => { if (running) addon.Guitar.calibrate(true, 5); } });
+    });
+
+    // What the engine hears
+    if (running && guitarStatus.diagnostics) {
+        W.collapsingHeader(win, "Diagnostics", (tid: string) => {
+            diagnosticsLines(guitarStatus.diagnostics as GuitarDiag, prefs.bendRange).forEach(line => W.label(tid, { text: line }));
+            const d = guitarStatus.diagnostics as GuitarDiag;
+            if (d.note !== null) W.label(tid, { text: `Sounding ${guitarNoteName(d.note)}`, bold: true });
+        }, "guitar_diagnostics", true);
+    }
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -1294,6 +1571,7 @@ function restoreSavedProject() {
     // A project from before drum racks has no `rack`: it gets the five built-in pads it always had.
     for (const t of saved.tracks) if (t.kind === "drum") ensureRack(t);
     project = saved as DAWProject;
+    if (saved.guitar) project.guitar = readGuitarPrefs(saved.guitar);
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
         project.activeTrackId = project.tracks[0].id;
     }
@@ -1483,6 +1761,11 @@ addon.onInit(async () => {
                     text: rackVisible ? "Hide Drum Rack" : "Show Drum Rack",
                     id: "toggle_rack",
                     onClick: () => { setRackVisible(!rackVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: guitarStatus.running ? "🎸 Guitar (on)" : (guitarVisible ? "Hide Guitar Input" : "🎸 Guitar Input"),
+                    id: "toggle_guitar",
+                    onClick: () => { setGuitarVisible(!guitarVisible); }
                 });
             });
             const bpmValue = parseFloat(bpmDraft);
@@ -2003,7 +2286,19 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(rackWindowId, rackVisible);
 
+    // The guitar input, top right, hidden until asked for. Drag it anywhere.
+    guitarWindowId = Entropy.UI.createWindow({
+        title: "Guitar Input",
+        width: 620,
+        height: 590,
+        x: Math.max(16, screenW - 636),
+        y: 56,
+        onRender: () => renderGuitarWindow(guitarWindowId!)
+    });
+    Entropy.UI.setWindowVisible(guitarWindowId, guitarVisible);
+
     const onFrame = () => {
+        pollGuitar();
         // A plugin's patch changes inside its own editor window, where the DAW sees nothing. The
         // host snapshots its state when the editor closes or a parameter edit settles, and this
         // collects it into the project. The peak meter drains here too.

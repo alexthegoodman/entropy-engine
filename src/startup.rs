@@ -254,6 +254,7 @@ impl BrowserBddDriver {
                 Ok("arrangement") => include_str!("../tests/features/daw_arrangement_live.feature"),
                 Ok("analyzer") => include_str!("../tests/features/daw_analyzer_live.feature"),
                 Ok("rack") => include_str!("../tests/features/daw_rack_live.feature"),
+                Ok("guitar") => include_str!("../tests/features/daw_guitar_live.feature"),
                 _ => include_str!("../tests/features/vst3_live.feature"),
             }
         } else if canvas {
@@ -1439,6 +1440,9 @@ impl ApplicationHandler<UserEvent> for Application {
 
     #[cfg(not(any(android_platform, ios_platform)))]
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // The guitar input ends first, so it stops sending notes and releases the ones it holds
+        // (spec EVT-6) before the plugins they play are torn down.
+        crate::deno::guitar_ops::shutdown();
         // Plugins are torn down on this thread, before the audio engine goes away (see
         // `audio::vst3::unload_all`).
         crate::audio::vst3::unload_all();

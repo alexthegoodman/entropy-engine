@@ -295,6 +295,12 @@ Host installed VST3 instruments on a track bus. This API is Windows-only. Create
 | `Vst3.pollState(trackId)` / `saveState(trackId)` | Reads base64 plugin state for persistence. |
 | `Vst3.findParameters` / `setParameter` | Searches the plugin's exposed parameters and writes a normalized value. |
 | `Vst3.takePeak(trackId)` / `stats()` | Reads a track's recent output peak or runtime statistics for all hosted plugins. |
+| `Guitar.listInputs()` | Lists audio inputs on every host cpal has (WASAPI by default) with channel count and default rate. |
+| `Guitar.start({ device?, channel?, sampleRate?, bufferFrames?, mode?, trackId?, waveform?, vst3Track?, ... })` / `stop()` | Opens an input and turns a monophonic guitar into note events (Note On/Off, velocity, 14-bit pitch bend). Notes play the built-in voice on a track and/or a hosted VST3 instrument. Returns what the driver actually granted, including anything it would not do as asked. |
+| `Guitar.set(settings)` / `target(target)` | Changes mode (`fast`/`balanced`/`accurate`), sensitivity, gate, bend range, reference pitch or the output while playing. |
+| `Guitar.status()` | One snapshot for a panel: level, detected note/frequency/cents/confidence, tracker state, callback timing and errors. |
+| `Guitar.calibrate(playing, seconds?)` | Listens to the room (sets the gate) or to soft and hard notes (sets the velocity range). |
+| `Guitar.record("start" \| "stop")` | A take: notes with latency-compensated times and bend points. |
 
 </details>
 

@@ -393,6 +393,7 @@ export interface ScopedAPI {
     destroy: (effectId: string) => void;
   };
   Vst3: Vst3API;
+  Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
       id?: string | null;
@@ -874,6 +875,146 @@ interface Vst3API {
   /** Linear peak rendered since the previous call (for a level meter), or null with no instrument. */
   takePeak: (trackId: string) => number | null;
   stats: () => Vst3Stats[];
+}
+
+/** One audio input device, from `Guitar.listInputs`. */
+interface GuitarInputDevice {
+  host: string;
+  name: string;
+  channels: number;
+  defaultSampleRate: number;
+  isDefault: boolean;
+}
+
+/** Settings that can change while the guitar input is running. Anything left out keeps its value. */
+interface GuitarSettings {
+  /** How much latency to trade for stability. */
+  mode?: "fast" | "balanced" | "accurate";
+  /** 0..1, 0.5 neutral. Higher accepts less certain pitches and smaller picks. */
+  sensitivity?: number;
+  /** dBFS of the 15 ms RMS. The gate opens above `gateOpenDb` and closes below `gateCloseDb`. */
+  gateOpenDb?: number;
+  gateCloseDb?: number;
+  /** Pitch-bend range in semitones each way, 1-12. A VST3 instrument must be set to the same range. */
+  bendRange?: number;
+  /** A4 in Hz. */
+  referencePitch?: number;
+  inputGainDb?: number;
+  onsetDb?: number;
+  velocityFloorDb?: number;
+  velocityCeilDb?: number;
+  velocityGamma?: number;
+}
+
+interface GuitarStartConfig extends GuitarSettings {
+  /** Host name from `listInputs` (WASAPI by default on Windows; ASIO with the `asio` cargo feature). */
+  host?: string;
+  device?: string;
+  /** Zero-based input channel to read as the guitar. */
+  channel?: number;
+  /** Default 48000. The driver may run at another rate; see `opened.notes`. */
+  sampleRate?: number;
+  /** Default 128. The driver may not honor it; see `opened.bufferFrames` and `opened.notes`. */
+  bufferFrames?: number;
+  /** Play the built-in voice on this track's bus (the bus must exist). */
+  trackId?: string;
+  waveform?: "sine" | "triangle" | "saw" | "square";
+  /** Play the VST3 instrument hosted on this track, on MIDI channel `vst3Channel` (0-15). */
+  vst3Track?: string;
+  vst3Channel?: number;
+}
+
+interface GuitarOpened {
+  host: string;
+  device: string;
+  sampleRate: number;
+  channels: number;
+  /** null when the driver chose its own buffer size. */
+  bufferFrames: number | null;
+  sampleFormat: string;
+  /** Anything asked for that the driver would not do, and what it did instead. */
+  notes: string[];
+}
+
+interface GuitarDiagnostics {
+  levelDb: number;
+  /** Input peak since the previous status call. */
+  inputPeakDb: number;
+  /** Latched when the input reached -1 dBFS. */
+  clipped: boolean;
+  freqHz: number;
+  confidence: number;
+  /** MIDI note number while a note sounds. */
+  note: number | null;
+  /** Cents from the note's center, or from the nearest note when none sounds. */
+  cents: number;
+  state: "silent" | "attack" | "playing" | "release";
+  velocity: number;
+  /** 14-bit, 8192 is center. */
+  bend: number;
+  /** Pick to Note On inside the engine for the last note. The device's own buffers are extra. */
+  pipelineLatencyMs: number;
+  /** One input buffer. */
+  bufferMs: number;
+  bufferFrames: number;
+  sampleRate: number;
+  callbacks: number;
+  /** Callbacks whose work took longer than the audio they covered. */
+  overruns: number;
+  /** Errors the audio backend reported, xruns among them. */
+  streamErrors: number;
+  maxCallbackUs: number;
+  meanCallbackUs: number;
+  droppedBends: number;
+  /** Note events that did not fit the queue. Should stay 0. */
+  droppedEvents: number;
+  notes: number;
+  noiseRejects: number;
+  octaveRejects: number;
+  octaveCorrections: number;
+  slides: number;
+  repicks: number;
+}
+
+interface GuitarStatus {
+  running: boolean;
+  deviceLost?: boolean;
+  opened?: GuitarOpened;
+  recording?: boolean;
+  /** Set when the driver's real callback size differs from what was asked for (WASAPI shared mode runs
+   * on its own 10 ms period whatever the request says). */
+  bufferNote?: string | null;
+  calibration?: { state: string; busy: boolean; finished: "room" | "playing" | "failed" | null };
+  settings?: Required<Pick<GuitarSettings, "mode" | "sensitivity" | "gateOpenDb" | "gateCloseDb" | "bendRange" | "referencePitch" | "inputGainDb" | "velocityFloorDb" | "velocityCeilDb">>;
+  diagnostics?: GuitarDiagnostics;
+}
+
+/** One note of a recorded take. Times are seconds from `record("start")` and already corrected for
+ * detection latency; `bends` are `[seconds, cents from the note]`. */
+interface GuitarRecordedNote {
+  note: number;
+  velocity: number;
+  startS: number;
+  endS: number;
+  bends: [number, number][];
+}
+
+/** Guitar-to-MIDI: a real-time monophonic pitch tracker on an audio input (see GUITAR_TO_MIDI.md).
+ * Notes play the built-in voice on a track and/or a hosted VST3 instrument. Calls report failure as
+ * `{ ok: false, error }` rather than throwing. */
+interface GuitarAPI {
+  listInputs: () => { devices: GuitarInputDevice[]; hosts: string[] };
+  start: (config?: GuitarStartConfig) => { ok: boolean; error?: string; opened?: GuitarOpened };
+  stop: () => { ok: boolean };
+  set: (settings: GuitarSettings) => { ok: boolean; error?: string };
+  /** An empty `trackId` or `vst3Track` switches that output off. */
+  target: (target: { trackId?: string; waveform?: "sine" | "triangle" | "saw" | "square"; vst3Track?: string; vst3Channel?: number }) => { ok: boolean; error?: string };
+  status: () => GuitarStatus;
+  /** `playing = false` listens to the room (default 3 s) and sets the gate; `playing = true` listens to
+   * soft and hard notes (default 5 s) and sets the velocity range. */
+  calibrate: (playing: boolean, seconds?: number) => { ok: boolean; error?: string };
+  record: (action: "start" | "stop") => { ok: boolean; error?: string; notes?: GuitarRecordedNote[] };
+  releaseAll: () => { ok: boolean };
 }
 
 /** Config for `Audio.ensureTrackBus` - creates a track's persistent mixing bus on first call,
@@ -1880,6 +2021,7 @@ export interface EntropyAPI {
     destroy: (effectId: string) => void;
   };
   Vst3: Vst3API;
+  Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;
   onGameStarted: (callback: (gameName: string) => void) => void;

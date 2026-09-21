@@ -3,4 +3,5 @@ pub mod addon_ops;
 pub mod html_css;
 pub mod html_layout;
 pub mod net;
+pub mod guitar_ops;
 pub mod vst3_ops;

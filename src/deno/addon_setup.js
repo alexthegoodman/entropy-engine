@@ -178,6 +178,34 @@ const vst3API = {
     stats: () => ops.op_vst3_stats()
 };
 
+// Guitar-to-MIDI (src/guitar_live, spec GUITAR_TO_MIDI.md): a real-time monophonic pitch tracker on an
+// audio input. Notes play the built-in voice on a track's bus and/or a hosted VST3 instrument. Every
+// call returns {ok, error?, ...}; a device that will not open is reported, not thrown. Nothing
+// per-sample or per-buffer crosses into JS: status() is a small snapshot of what the engine decided.
+const guitarAPI = {
+    // {devices: [{host, name, channels, defaultSampleRate, isDefault}], hosts: string[]}
+    listInputs: () => ops.op_guitar_list_inputs(),
+    // config: {host?, device?, channel? (0-based), sampleRate?, bufferFrames?, mode? ("fast"|"balanced"|
+    // "accurate"), sensitivity?, gateOpenDb?, gateCloseDb?, bendRange? (1-12 semitones), referencePitch?,
+    // inputGainDb?, trackId? (play the built-in voice on this track), waveform?, vst3Track?, vst3Channel?}.
+    // Returns {ok, opened: {host, device, sampleRate, channels, bufferFrames, sampleFormat, notes[]}}
+    // where `notes` lists anything the driver would not do as asked (rate, buffer).
+    start: (config) => ops.op_guitar_start(config ?? {}),
+    stop: () => ops.op_guitar_stop(),
+    // Same fields as start's settings; takes effect within one input buffer.
+    set: (config) => ops.op_guitar_set(config ?? {}),
+    // {trackId?, waveform?, vst3Track?, vst3Channel?}; an empty trackId or vst3Track switches that output off.
+    target: (target) => ops.op_guitar_target(target ?? {}),
+    status: () => ops.op_guitar_status(),
+    // playing=false listens to the room and sets the gate; playing=true listens to soft and hard notes
+    // and sets the velocity range. status().calibration.finished reports the result once.
+    calibrate: (playing, seconds) => ops.op_guitar_calibrate({ playing: !!playing, seconds: seconds ?? null }),
+    // record("start") arms a take; record("stop") returns {ok, notes: [{note, velocity, startS, endS,
+    // bends: [[seconds, cents]]}]}.
+    record: (action) => ops.op_guitar_record(action),
+    releaseAll: () => ops.op_guitar_release_all()
+};
+
 // A shared, reusable effect registry - create an effect once (createDelay/createReverb), then
 // attach it to one or more track buses by id via Entropy.Audio.ensureTrackBus's `effectIds`
 // instead of baking delay/reverb fields into every note/track config. See the doc comment above
@@ -730,6 +758,8 @@ globalThis.Entropy = {
                 Audio: audioAPI,
                 AudioEffect: audioEffectAPI,
                 Vst3: vst3API,
+    Guitar: guitarAPI,
+                Guitar: guitarAPI,
                 IO: {
                     save: (data) => {
                         ops.op_println(String("Saving Data: " + metadata.name));

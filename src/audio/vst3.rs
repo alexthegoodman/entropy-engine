@@ -149,7 +149,11 @@ pub fn scan_plugins(dirs: &[PathBuf]) -> (Vec<Vst3PluginEntry>, Vec<String>) {
 
 enum Command {
     NoteOn { channel: u8, note: u8, velocity: u8, hold_frames: u64 },
+    /// A note that lasts until its own `NoteOff`: what a live player (the guitar input) sends.
+    NoteOnHeld { channel: u8, note: u8, velocity: u8 },
     NoteOff { channel: u8, note: u8 },
+    /// 14-bit pitch bend, 8192 is center.
+    PitchBend { channel: u8, value: u16 },
     AllNotesOff,
 }
 
@@ -221,8 +225,18 @@ impl Vst3Source {
                     }
                     self.pending_offs.push(PendingOff { frames_left: hold_frames, channel, note });
                 }
+                Command::NoteOnHeld { channel, note, velocity } => {
+                    let event = MidiEvent::NoteOn { channel: channel_from_index(channel), note, velocity };
+                    if p.send_midi_event_at(event, 0).is_ok() {
+                        self.shared.notes_sent.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
                 Command::NoteOff { channel, note } => {
                     let event = MidiEvent::NoteOff { channel: channel_from_index(channel), note, velocity: 0 };
+                    let _ = p.send_midi_event_at(event, 0);
+                }
+                Command::PitchBend { channel, value } => {
+                    let event = MidiEvent::PitchBend { channel: channel_from_index(channel), value: value.min(16383) };
                     let _ = p.send_midi_event_at(event, 0);
                 }
                 Command::AllNotesOff => {
@@ -310,6 +324,37 @@ impl Drop for Vst3Source {
 }
 
 // --- Main-thread side --------------------------------------------------------------------------
+
+/// A handle that can queue notes for one plugin from any thread. The `Vst3Instrument` itself is
+/// main-thread only (plugins are thread-affine, so the registry below is a `thread_local!`); the
+/// command queue it feeds is not, and is all a live player needs. Get one on the main thread with
+/// `Vst3Instrument::sender`, then move it to whichever thread plays.
+#[derive(Clone)]
+pub struct Vst3Sender {
+    shared: Arc<Vst3Shared>,
+}
+
+impl Vst3Sender {
+    fn push(&self, cmd: Command) {
+        self.shared.commands.lock().unwrap().push(cmd);
+    }
+
+    pub fn note_on_held(&self, channel: u8, note: u8, velocity: u8) {
+        self.push(Command::NoteOnHeld { channel, note: note.min(127), velocity: velocity.clamp(1, 127) });
+    }
+
+    pub fn note_off(&self, channel: u8, note: u8) {
+        self.push(Command::NoteOff { channel, note: note.min(127) });
+    }
+
+    pub fn pitch_bend(&self, channel: u8, value: u16) {
+        self.push(Command::PitchBend { channel, value: value.min(16383) });
+    }
+
+    pub fn all_notes_off(&self) {
+        self.push(Command::AllNotesOff);
+    }
+}
 
 pub struct Vst3Instrument {
     pub info: PluginInfo,
@@ -400,6 +445,22 @@ impl Vst3Instrument {
 
     pub fn note_off(&self, channel: u8, note: u8) {
         self.push(Command::NoteOff { channel, note: note.min(127) });
+    }
+
+    /// A thread-safe way to queue notes for this plugin.
+    pub fn sender(&self) -> Vst3Sender {
+        Vst3Sender { shared: self.shared.clone() }
+    }
+
+    /// A note that sounds until `note_off`, for live input where the length is not known yet.
+    pub fn note_on_held(&self, channel: u8, note: u8, velocity: u8) {
+        self.push(Command::NoteOnHeld { channel, note: note.min(127), velocity: velocity.clamp(1, 127) });
+    }
+
+    /// 14-bit pitch bend (0..=16383, 8192 is center). What the plugin does with it depends on its own
+    /// bend range setting.
+    pub fn pitch_bend(&self, channel: u8, value: u16) {
+        self.push(Command::PitchBend { channel, value: value.min(16383) });
     }
 
     pub fn all_notes_off(&self) {
