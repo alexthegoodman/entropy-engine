@@ -15,8 +15,11 @@
 //! * [`WavetableShared`] is what the audio thread reads: for every frame, [`MIP_LEVELS`] band-limited
 //!   copies, in a flat array of `AtomicU32` (f32 bits). Writing and reading are relaxed loads and
 //!   stores, so there is no lock, no allocation and no waiting on either side, and an edit is heard
-//!   on the very next sample of a note that is already sounding. A read that lands mid-update mixes
-//!   old and new samples of one frame for at most a block; that is a click-free blend, not UB.
+//!   on the very next sample of a note that is already sounding. A read that lands mid-update can
+//!   splice old and new samples of one frame, for as long as the rebuild of that frame takes. Each
+//!   float is atomic, so that is not undefined behaviour and a sample is never torn, but a splice is
+//!   a step in the waveform and may be audible as a click; how often that happens has not been
+//!   measured (`tests/wavetable_no_alloc.rs` checks only that the output stays finite and bounded).
 //! * [`WavetableVoice`] is a `rodio::Source` built on the main thread at note-on and dropped by the
 //!   mixer when its release ends.
 //!

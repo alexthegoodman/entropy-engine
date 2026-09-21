@@ -194,7 +194,8 @@ Feature: A wavetable is terrain you sculpt with a mouse or a pen
     And I take a snapshot of the table
     When I press on frame 16 phase 0.1
     And I hold for 12 frames
-    And I release
+    Then I save the picture "terrain-pen-tilt"
+    When I release
     Then I remember how far the height at frame 16 phase 0.16 has risen as "along"
     And I remember how far the height at frame 18 phase 0.1 has risen as "across"
     And "along" is more than "across"
@@ -203,7 +204,8 @@ Feature: A wavetable is terrain you sculpt with a mouse or a pen
     And I take a snapshot of the table
     When I press on frame 16 phase 0.1
     And I hold for 12 frames
-    And I release
+    Then I save the picture "terrain-pen-upright"
+    When I release
     Then I remember how far the height at frame 18 phase 0.1 has risen as "upright across"
     And "upright across" is more than "across"
 

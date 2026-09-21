@@ -54,9 +54,11 @@ pub struct PenTilt {
     pub eraser: bool,
 }
 
-// PEN_MASK_TILT_X / PEN_MASK_TILT_Y / PEN_FLAG_BARREL aren't exposed as named constants by the
-// `windows` crate's Pointer module (unlike the POINTER_MESSAGE_FLAG_* / POINTER_FLAG_* families
-// it does bind) - these are the literal bit values from `winuser.h`.
+// PEN_MASK_TILT_X / PEN_MASK_TILT_Y are not bound by the `windows` crate's Pointer module (unlike the
+// POINTER_MESSAGE_FLAG_* / POINTER_FLAG_* families), so they are the literal bit values from
+// `winuser.h`. PEN_FLAG_BARREL / PEN_FLAG_INVERTED / PEN_FLAG_ERASER (1, 2, 4) are bound, in
+// `Win32::UI::WindowsAndMessaging` as of windows 0.58.0 (checked against that crate's source); an
+// older version of this comment said they were not.
 const PEN_MASK_TILT_X: u32 = 0x00000004;
 const PEN_MASK_TILT_Y: u32 = 0x00000008;
 const PEN_FLAG_BARREL: u32 = 0x00000001;

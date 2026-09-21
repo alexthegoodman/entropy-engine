@@ -280,6 +280,7 @@ fn in_tune(world: &mut SynthWorld, name: String, cents: f32, hz: f32) {
     let mags = steady(x);
     let got = strongest_hz(&mags, N);
     let off = 1200.0 * (got / hz).log2();
+    println!("  PITCH {hz} Hz: read {got:.3} Hz, {off:+.2} cents");
     assert!(off.abs() <= cents, "the strongest partial is at {got:.3} Hz, {off:+.2} cents from {hz} Hz");
 }
 
@@ -288,6 +289,7 @@ fn not_aliased(world: &mut SynthWorld, name: String, f0: f32, floor: f32) {
     let mags = steady(render_of(world, &name));
     let (on, off) = (power_in(&mags, N, f0, true), power_in(&mags, N, f0, false));
     let gap = 10.0 * (on / off.max(1e-30)).log10();
+    println!("  ALIAS {f0} Hz: harmonic sound is {gap:.1} dB above everything else");
     assert!(gap >= floor, "only {gap:.1} dB between the harmonic sound and everything else at {f0} Hz; needed {floor}");
 }
 
@@ -296,6 +298,7 @@ fn is_aliased(world: &mut SynthWorld, name: String, f0: f32, floor: f32) {
     let mags = steady(render_of(world, &name));
     let (on, off) = (power_in(&mags, N, f0, true), power_in(&mags, N, f0, false));
     let gap = 10.0 * (on / off.max(1e-30)).log10();
+    println!("  UNLIMITED {f0} Hz: harmonic sound is only {gap:.1} dB above everything else");
     assert!(gap < floor, "{gap:.1} dB between the harmonic sound and the rest: this is not aliased, so the comparison proves nothing");
 }
 
@@ -303,6 +306,7 @@ fn is_aliased(world: &mut SynthWorld, name: String, f0: f32, floor: f32) {
 fn harmonic_below(world: &mut SynthWorld, h: usize, name: String, f0: f32, floor: f32) {
     let mags = steady(render_of(world, &name));
     let gap = db(harmonic_level(&mags, N, f0, 1) / harmonic_level(&mags, N, f0, h));
+    println!("  HARMONIC {h} of {f0} Hz is {gap:.1} dB below the first");
     assert!(gap >= floor, "harmonic {h} is only {gap:.1} dB below the first; needed {floor}");
 }
 
@@ -310,6 +314,7 @@ fn harmonic_below(world: &mut SynthWorld, h: usize, name: String, f0: f32, floor
 fn harmonic_between(world: &mut SynthWorld, h: usize, name: String, f0: f32, lo: f32, hi: f32) {
     let mags = steady(render_of(world, &name));
     let gap = db(harmonic_level(&mags, N, f0, 1) / harmonic_level(&mags, N, f0, h));
+    println!("  HARMONIC {h} of {f0} Hz is {gap:.2} dB below the first");
     assert!((lo..=hi).contains(&gap), "harmonic {h} is {gap:.2} dB below the first, expected {lo} to {hi}");
 }
 
@@ -390,6 +395,7 @@ fn not_identical(world: &mut SynthWorld, name: String) {
 #[then(expr = "{string} is louder than {string} by between {int} and {int} dB")]
 fn louder_by(world: &mut SynthWorld, a: String, b: String, lo: f32, hi: f32) {
     let gap = db(rms(&left(render_of(world, &a))[4000..20000]) / rms(&left(render_of(world, &b))[4000..20000]));
+    println!("  LOUDER {a} is {gap:.2} dB above {b}");
     assert!((lo..=hi).contains(&gap), "{a} is {gap:.2} dB louder than {b}, expected {lo} to {hi}");
 }
 
@@ -401,12 +407,14 @@ fn energy_above(x: &[f32], hz: f32) -> f32 {
 #[then(expr = "{string} has at least {int} dB less energy above {float} Hz than {string}")]
 fn less_energy(world: &mut SynthWorld, quiet: String, db_less: f32, hz: f32, loud: String) {
     let gap = 10.0 * (energy_above(render_of(world, &loud), hz) / energy_above(render_of(world, &quiet), hz).max(1e-30)).log10();
+    println!("  FILTER {quiet} has {gap:.1} dB less energy above {hz} Hz");
     assert!(gap >= db_less, "only {gap:.1} dB less energy above {hz} Hz; needed {db_less}");
 }
 
 #[then(expr = "{string} lasts between {float} and {float} seconds")]
 fn lasts(world: &mut SynthWorld, name: String, lo: f32, hi: f32) {
     let secs = render_of(world, &name).len() as f32 / 2.0 / SR;
+    println!("  LASTS {secs:.3} s");
     assert!((lo..=hi).contains(&secs), "the note lasts {secs:.3} s, expected {lo} to {hi}");
 }
 
@@ -473,6 +481,7 @@ fn wav_pitches(world: &mut SynthWorld, first: f32, second: f32) {
         let n = 8192;
         let mags = spectrum(&mono, 0, n);
         let got = strongest_hz(&mags, n);
+        println!("  BOUNCE note at {t} s read {got:.2} Hz (expected {hz})");
         assert!((got - hz).abs() < 3.0, "the note at {t} s is at {got:.1} Hz, expected {hz}");
     }
     let _ = TABLE_SIZE;
