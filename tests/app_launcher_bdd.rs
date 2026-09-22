@@ -164,6 +164,17 @@ async fn main() {
 
     let result: serde_json::Value = serde_json::from_slice(&std::fs::read(&result_path).expect("live result JSON")).expect("valid result JSON");
     assert_eq!(result["status"], "passed", "{result:#}");
+
+    // System.launchExample really created a process (the last live scenario clicks "Open" on
+    // theme-gallery), and it keeps running as its own window after this test's own driven window
+    // has already closed. Kill it now, before any assertion below can panic: every assertion
+    // after this point used to run first, so a failure among them (as happened the first time
+    // this test was run for real - see the glass-panel assertion below) left that real window
+    // stranded on the desktop with nothing left in this process to close it.
+    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(data.join("App Launcher.json")).expect("persisted launcher state")).unwrap();
+    let launched_pid = saved["lastLaunch"]["pid"].as_u64().map(|pid| pid as u32);
+    let killed = launched_pid.map(|pid| Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output().expect("taskkill runs"));
+
     let artifacts: Vec<String> = result["artifacts"].as_array().expect("artifact array").iter().map(|a| a.as_str().unwrap().to_string()).collect();
     assert_eq!(artifacts.len(), 5, "{artifacts:?}");
     for artifact in &artifacts {
@@ -175,11 +186,12 @@ async fn main() {
     let scale = result["actions"].as_array().unwrap().iter()
         .find_map(|action| action["scaleFactor"].as_f64())
         .expect("the driver records the scale factor with every capture");
-    // The bottom of the launcher's "Indie Machine" panel (placed at 610,32, sized 290x240): far
-    // enough below its two lines of text that nothing but the panel's own background is there.
+    // The bottom of the launcher's "Indie Machine" panel (placed at 610,32, sized 290x260): far
+    // enough below its title, two posts and separator that nothing but the panel's own
+    // background is there.
     let px = |x: f64, y: f64| ((x * scale).round() as u32, (y * scale).round() as u32);
-    let (x0, y0) = px(620.0, 214.0);
-    let (x1, y1) = px(890.0, 264.0);
+    let (x0, y0) = px(620.0, 234.0);
+    let (x1, y1) = px(890.0, 284.0);
     let rect = (x0, y0, x1, y1);
 
     let (mean, spread) = region_stats(&shot("launcher-01-home"), rect);
@@ -191,14 +203,14 @@ async fn main() {
     assert!(spread > 1.5, "the glass panel's body is flat ({spread:.2}) - it is not sampling the blur target");
     assert!(drift > 0.5, "the glass panel did not change when the scene behind it moved ({drift:.2})");
 
-    // System.launchExample really created a process: the launcher persisted the pid it got back,
-    // and that pid is still a live process this can kill.
-    let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(data.join("App Launcher.json")).expect("persisted launcher state")).unwrap();
+    // The launcher persisted the pid it got back from launchExample, and the taskkill run above
+    // (before any of the assertions above this point could panic and strand it) proves that pid
+    // was a real, live process.
     assert_eq!(saved["installed"].as_array().unwrap().iter().filter(|n| *n == "stylus-drawing").count(), 1, "Install must persist: {saved:#}");
     assert_eq!(saved["lastLaunch"]["name"], "theme-gallery", "{saved:#}");
-    let pid = saved["lastLaunch"]["pid"].as_u64().expect("a pid") as u32;
+    let pid = launched_pid.expect("a pid");
     assert!(pid > 0);
-    let killed = Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output().expect("taskkill runs");
+    let killed = killed.expect("a pid was present, so taskkill must have run");
     assert!(killed.status.success(), "pid {pid} was not a live process: {}", String::from_utf8_lossy(&killed.stderr));
 
     println!("  ✔ {} composed PNG checkpoints written", artifacts.len());

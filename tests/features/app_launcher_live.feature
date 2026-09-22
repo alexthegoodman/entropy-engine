@@ -9,9 +9,10 @@ Feature: The app launcher's glass home screen, live
 
   Scenario: The home screen comes up over the drifting backdrop
     Given the real app launcher is running in test mode
-    # The RSS fetch is polled once per rendered frame and usually fails here (the Indie Machine
-    # dev server is not running in CI), so this waits long enough for the panel to settle on
-    # either the posts or the honest "couldn't reach" line before anything is captured.
+    # The RSS fetch hits the real https://indie-machine.com/rss.xml and is polled once per
+    # rendered frame; it may still fail here if this machine has no network access (a sandboxed
+    # CI runner, for instance), so this waits long enough for the panel to settle on either the
+    # real posts or the honest "couldn't reach" line before anything is captured.
     When I advance 150 frames
     Then I see the label "Installed"
     And I see the label "DAW"
