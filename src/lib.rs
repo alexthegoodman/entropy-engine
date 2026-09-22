@@ -54,3 +54,30 @@ pub mod guitar_live;
 pub mod alpha;
 pub mod yumon;
 pub mod ml_graph;
+
+/// Every example `src/bin/example.rs` can dispatch, in the order its usage message lists them.
+/// This lives in the library rather than in that binary because `op_launch_example` validates
+/// against it: it is the whole fence between an addon naming an app to start and an addon naming
+/// an arbitrary program, so both sides have to read the same list.
+#[cfg(target_os = "windows")]
+pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
+    "app-launcher",
+    "canvas-surface-demo",
+    "cc-manager",
+    "daw",
+    "doc-editor-demo",
+    "fft-river",
+    "fft-water",
+    "game2d",
+    "html-ui-demo",
+    "keyframe-tracks-demo",
+    "level-editor-2d",
+    "light-hive",
+    "mcp-tools-demo",
+    "media-player",
+    "ml-graph-demo",
+    "node-graph",
+    "stylus-drawing",
+    "theme-gallery",
+    "video-export-demo",
+];

@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -403,6 +403,7 @@ export interface ScopedAPI {
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
   Icons: IconsAPI;
+  System: SystemAPI;
   Guitar: GuitarAPI;
   Particles: {
     createHair: (config: {
@@ -671,6 +672,10 @@ export interface WindowConfig {
   x?: number;
   y?: number;
   resizable?: boolean;
+  // Paint a blurred copy of the frame behind this window instead of the theme's opaque window
+  // fill. Only has a backdrop to sample when the host app opted into the blur pass with
+  // `EntropyApp::with_glass_blur(true)` (see src/bin/example.rs's "app-launcher").
+  glass?: boolean;
   onRender?: () => void;
   [key: string]: unknown;
 }
@@ -810,6 +815,34 @@ export interface RenderPatternWavResult {
   durationSeconds: number;
   /** Set when `success` is false - e.g. the user cancelled the save dialog. */
   error?: string;
+  /** One message per VST3 track that could not be rendered (bad path, state that would not
+   * load) - the rest of the export still succeeds without it. */
+  vst3Warnings: string[];
+}
+
+/** One scheduled note for a VST3 track in an offline render - see `Audio.renderPatternToWav`. */
+export interface Vst3RenderNoteConfig {
+  /** Seconds from the start of the render. */
+  startTime: number;
+  /** Seconds until the note-off. */
+  duration: number;
+  /** 0-127. */
+  note: number;
+  /** 0-127, default 100. */
+  velocity?: number;
+  /** 0-15, default 0. */
+  channel?: number;
+}
+
+/** A VST3-hosted track's notes for an offline render - see `Audio.renderPatternToWav`. Rendered
+ * through its own fresh, temporary plugin instance, separate from whatever the same plugin has
+ * loaded live on the track's bus. */
+export interface Vst3RenderTrackConfig {
+  /** A `.vst3` path, as returned by `Vst3.scan` or stored on the track's instrument. */
+  path: string;
+  /** Base64 from `Vst3.saveState`/`Vst3.pollState`; omit to render the plugin's default patch. */
+  state?: string | null;
+  notes: Vst3RenderNoteConfig[];
 }
 
 export interface DelayEffectConfig {
@@ -1492,6 +1525,14 @@ export type IconStyle = "regular" | "bold" | "fill";
 /** Phosphor icons as characters. Put the string in any label: `W.button(h, { text: Icons.label("play", "Play") })`,
  * or `text: Icons.get("play")` for an icon-only button. Each weight is drawn by the same widgets with no
  * extra option. An unknown name logs once and returns "". */
+/** Starting another Entropy example app as its own OS process. The only program it can ever run is
+ * this same executable, with one of Entropy's `LAUNCHABLE_EXAMPLES` names as its only argument. */
+export interface SystemAPI {
+  /** Starts `name` as a new process and returns its pid. Throws if `name` is not a launchable
+   * example. The pid is the only handle - nothing here can poll, wait on or close the child. */
+  launchExample: (name: string) => number;
+}
+
 export interface IconsAPI {
   /** The character that draws `name` (default style "regular"). Known limit: "bold" and "fill" take space but draw blank in the real window, so use "regular". */
   get: (name: IconName, style?: IconStyle) => string;
@@ -2171,7 +2212,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2217,6 +2258,7 @@ export interface EntropyAPI {
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
   Icons: IconsAPI;
+  System: SystemAPI;
   Guitar: GuitarAPI;
   println: (msg: unknown) => void;
   generateUUID: () => string;

@@ -1724,16 +1724,48 @@ function buildWavetableEvents(): any[] {
     return events;
 }
 
-function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string } {
+// The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
+// each track is rendered through its own fresh, temporary plugin instance - separate from whatever
+// the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
+// the plugin is currently loaded, so the bounce matches what is actually sounding rather than
+// whatever was last saved to the project. A track whose plugin was never successfully loaded this
+// session falls back to the state stored on the track (still correct for a project just reopened).
+function buildVst3Events(): { path: string; state: string | null; notes: any[] }[] {
+    const sd = stepDuration();
+    const byTrack = new Map<string, { path: string; state: string | null; notes: any[] }>();
+
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!track.instrument) continue;
+        let entry = byTrack.get(track.id);
+        if (!entry) {
+            const liveState = vst3Runtime[track.id]?.ok ? addon.Vst3.saveState(track.id) : null;
+            entry = { path: track.instrument.path, state: liveState ?? track.instrument.state ?? null, notes: [] };
+            byTrack.set(track.id, entry);
+        }
+        entry.notes.push({
+            startTime: placed.startStep * sd,
+            duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
+            note: midiForRow(track, placed.note.row),
+            velocity: Math.max(1, Math.min(127, Math.round(placed.note.velocity * 127))),
+            channel: 0
+        });
+    }
+
+    return Array.from(byTrack.values());
+}
+
+function exportPatternToWav(): { success: boolean; path?: string; durationSeconds?: number; error?: string; vst3Warnings?: string[] } {
     const events = buildPatternEvents();
     const sampleEvents = buildSampleEvents();
     const wavetableEvents = buildWavetableEvents();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents);
-    const skipped = project.tracks.filter(t => t.instrument).length;
+    const vst3Events = buildVst3Events();
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, vst3Events);
     const lost = Object.keys(sampleMissing).length;
+    const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
         ? `Exported ${result.durationSeconds.toFixed(2)}s to ${result.path}`
-            + (skipped > 0 ? ` (${skipped} VST3 track${skipped === 1 ? "" : "s"} not included - plugins render live only)` : "")
+            + (vst3Failed > 0 ? ` (${vst3Failed} VST3 track${vst3Failed === 1 ? "" : "s"} could not be rendered: ${result.vst3Warnings!.join("; ")})` : "")
             + (lost > 0 ? ` (${lost} missing sample file${lost === 1 ? "" : "s"} left out)` : "")
         : `Export failed: ${result.error}`;
     return result;

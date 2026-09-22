@@ -335,7 +335,7 @@ pub fn render_events_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<f64, String> {
-    render_events_full_to_wav(events, sample_events, &[], sample_rate, output_path)
+    render_events_full_to_wav(events, sample_events, &[], &[], sample_rate, output_path).map(|(seconds, _)| seconds)
 }
 
 /// One scheduled note of a wavetable track in an offline render: the table it reads, and the note.
@@ -346,16 +346,21 @@ pub struct WavetableEvent {
     pub params: WavetableParams,
 }
 
-/// `render_events_to_wav` plus wavetable notes. A wavetable note is rendered by the same
-/// `WavetableVoice` the live path plays, from the table's current contents, so a bounce sounds like
-/// what was sculpted. A note whose table no longer exists is skipped, like a pad whose file is gone.
+/// `render_events_to_wav` plus wavetable notes and VST3 instrument tracks. A wavetable note is
+/// rendered by the same `WavetableVoice` the live path plays, from the table's current contents, so
+/// a bounce sounds like what was sculpted. A note whose table no longer exists is skipped, like a
+/// pad whose file is gone. Each `Vst3RenderTrack` is rendered through its own fresh plugin instance
+/// (see `vst3::render_offline_track`); a track whose plugin fails to load or start is left out of
+/// the mix and reported back in the second element of the returned tuple, rather than failing the
+/// whole export.
 pub fn render_events_full_to_wav(
     events: &[NoteEvent],
     sample_events: &[SampleEvent],
     wavetable_events: &[WavetableEvent],
+    vst3_tracks: &[vst3::Vst3RenderTrack],
     sample_rate: u32,
     output_path: &Path,
-) -> Result<f64, String> {
+) -> Result<(f64, Vec<String>), String> {
     let sr = sample_rate as f32;
 
     let mut voice_bufs: Vec<(usize, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
@@ -408,6 +413,11 @@ pub fn render_events_full_to_wav(
         voice_bufs.push((start_sample, buf));
     }
 
+    for track in vst3_tracks {
+        let end_frames = (track.end_seconds() * sr as f64).ceil() as usize;
+        total_frames = std::cmp::Ord::max(total_frames, end_frames);
+    }
+
     // A pattern with no notes at all still produces a (silent, 1-frame) file rather than
     // erroring - an empty export is a legitimate, if useless, thing to ask for.
     total_frames = std::cmp::Ord::max(total_frames, 1);
@@ -418,6 +428,24 @@ pub fn render_events_full_to_wav(
         for i in 0..frames {
             master[(start_sample + i) * 2] += buf[i * 2];
             master[(start_sample + i) * 2 + 1] += buf[i * 2 + 1];
+        }
+    }
+
+    let mut vst3_warnings = Vec::new();
+    for track in vst3_tracks {
+        match vst3::render_offline_track(track, total_frames) {
+            Ok(mut buf) => {
+                if sample_rate != vst3::SAMPLE_RATE && !buf.is_empty() {
+                    let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+                    buf = samples::resample(stereo, vst3::SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
+                }
+                let frames = std::cmp::Ord::min(buf.len() / 2, total_frames);
+                for i in 0..frames {
+                    master[i * 2] += buf[i * 2];
+                    master[i * 2 + 1] += buf[i * 2 + 1];
+                }
+            }
+            Err(e) => vst3_warnings.push(format!("{}: {e}", track.plugin_path.display())),
         }
     }
 
@@ -442,7 +470,7 @@ pub fn render_events_full_to_wav(
     }
     writer.finalize().map_err(|e| e.to_string())?;
 
-    Ok(total_frames as f64 / sample_rate as f64)
+    Ok((total_frames as f64 / sample_rate as f64, vst3_warnings))
 }
 
 // --- Generic, shareable audio effects (Entropy.AudioEffect) -----------------------------------

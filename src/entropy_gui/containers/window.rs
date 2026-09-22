@@ -8,9 +8,18 @@ use crate::entropy_gui::geometry::{pos2, vec2, Align, Align2, CursorIcon, FontId
 use crate::entropy_gui::id::Id;
 use crate::entropy_gui::painter::{DrawTarget, Painter};
 use crate::entropy_gui::response::Sense;
+use crate::entropy_gui::draw_list::TextureId;
 use crate::entropy_gui::ui::{interact, InnerResponse, Ui};
 
 const TITLE_BAR_HEIGHT: f32 = 28.0;
+
+/// Laid over the blurred backdrop of a `glass` window: the blur alone has no contrast of its own,
+/// so text on it would sit on whatever the scene happened to be. Dark and translucent, matching
+/// `render_egui.rs`'s own glass tint for Studio's dock chrome.
+const GLASS_TINT: Color32 = Color32::from_rgba_unmultiplied(0x0D, 0x0B, 0x14, 0x96);
+/// Same tint again over the title bar, so the bar still reads as a distinct strip on glass
+/// instead of disappearing into the body.
+const GLASS_TITLE_TINT: Color32 = Color32::from_rgba_unmultiplied(0x0D, 0x0B, 0x14, 0x6E);
 
 pub struct Window<'open> {
     title: String,
@@ -19,11 +28,20 @@ pub struct Window<'open> {
     default_size: Vec2,
     default_pos: Option<Pos2>,
     open: Option<&'open mut bool>,
+    glass: Option<TextureId>,
 }
 
 impl<'open> Window<'open> {
     pub fn new(title: impl Into<String>) -> Self {
-        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), default_pos: None, open: None }
+        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), default_pos: None, open: None, glass: None }
+    }
+    /// Paint a blurred copy of the frame behind this window instead of the theme's opaque
+    /// `window_fill`. `texture_id` is the glass blur target (see `core::glass_blur`); it is only
+    /// redrawn when the app opted into the blur pass, so passing an id from an app that did not
+    /// shows the pass's clear color rather than the scene.
+    pub fn glass(mut self, texture_id: TextureId) -> Self {
+        self.glass = Some(texture_id);
+        self
     }
     pub fn id(mut self, id: Id) -> Self {
         self.id = Some(id);
@@ -101,9 +119,20 @@ impl<'open> Window<'open> {
         let title_rect = Rect::from_min_max(new_rect.min, pos2(new_rect.max.x, new_rect.min.y + TITLE_BAR_HEIGHT));
         let style = ctx.style();
         let painter = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Overlay);
-        painter.rect_filled(new_rect, style.visuals.window_corner_radius, style.visuals.window_fill);
+        if let Some(texture_id) = self.glass {
+            // The blur target covers the whole screen, so the slice to sample is this window's
+            // rect expressed in 0..1 screen coordinates - same mapping as `paint_glass_backdrop`.
+            let uv = Rect::from_min_max(
+                pos2((new_rect.min.x - screen.min.x) / screen.width().max(1.0), (new_rect.min.y - screen.min.y) / screen.height().max(1.0)),
+                pos2((new_rect.max.x - screen.min.x) / screen.width().max(1.0), (new_rect.max.y - screen.min.y) / screen.height().max(1.0)),
+            );
+            painter.image_rounded(texture_id, new_rect, style.visuals.window_corner_radius, uv, Color32::WHITE);
+            painter.rect_filled(new_rect, style.visuals.window_corner_radius, GLASS_TINT);
+        } else {
+            painter.rect_filled(new_rect, style.visuals.window_corner_radius, style.visuals.window_fill);
+        }
         painter.rect_stroke(new_rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
-        painter.rect_filled(title_rect, style.visuals.window_corner_radius, style.visuals.widgets.open.bg_fill);
+        painter.rect_filled(title_rect, style.visuals.window_corner_radius, if self.glass.is_some() { GLASS_TITLE_TINT } else { style.visuals.widgets.open.bg_fill });
         let text_color = style.visuals.override_text_color.unwrap_or(Color32::WHITE);
         painter.text(pos2(title_rect.min.x + 10.0, title_rect.center().y), Align2::LEFT_CENTER, &self.title, FontId::proportional(13.0), text_color);
 

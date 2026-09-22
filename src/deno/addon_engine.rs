@@ -73,7 +73,7 @@ use crate::deno::addon_ops::{
     op_addon_on_cleanup, 
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
-    op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility,
+    op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility, op_launch_example,
     op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
@@ -266,6 +266,7 @@ extension!(
         op_ui_set_theme,
         op_addon_save_data,
         op_addon_save_image,
+        op_launch_example,
         op_io_list_models,
         op_io_pick_and_import_model,
         op_script_list,
@@ -664,6 +665,7 @@ impl AddonEngine {
             registered_tools: HashMap::new(),
             op_addon_on_all_projects_loaded_callbacks: Vec::new(),
             egui_textures: HashMap::new(),
+            glass_blur_texture_id: None,
             input_events: Vec::new(),
             pressed_keys: HashSet::new(),
             mouse_position: [0.0, 0.0],
@@ -3733,6 +3735,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         .default_size([config.default_size.width, config.default_size.height]);
                     if let Some(pos) = config.default_pos {
                         window = window.default_pos(pos);
+                    }
+                    if config.glass {
+                        if let Some(texture_id) = context.glass_blur_texture_id {
+                            window = window.glass(texture_id);
+                        }
                     }
                     window
                         .open(&mut open)

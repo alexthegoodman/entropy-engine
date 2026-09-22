@@ -211,6 +211,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | Call | What it does |
 |---|---|
 | `UI.createWindow(config)` / `UI.createTab(config)` | Opens a floating window or a tab within Studio's shell, returning an id you pass to every `Widget.*` call to draw into it. A floating window takes the pointer (clicks, drags, wheel) from every panel or earlier window beneath it. |
+| `UI.createWindow({ glass: true })` | Frosted glass: the window samples a blurred copy of the frame behind it instead of the theme's opaque fill. Needs the host app to run the blur pass (`EntropyApp::with_glass_blur(true)`), otherwise there is nothing in the target to sample. |
 | `UI.drawRect` / `UI.drawText` | Draws a raw rectangle or text string directly in screen space for HUD overlays outside the widget system. |
 | `UI.clear()` | Clears drawn HUD elements. |
 | `UI.setTheme(config)` | Overrides colors, corner radius, spacing, and padding for your addon's UI. Every field is optional; unset fields use the default theme. |
@@ -273,7 +274,7 @@ Reading raw input, moving the camera, and ready-made camera control schemes so y
 | `Audio.playSynth(config)` | Plays a synthesized waveform (sine/square/saw/noise) with a frequency, duration, filter cutoff, and gain for quick one-shot sound effects without audio files. |
 | `Audio.playNote(config)` | Like `playSynth`, but with a full ADSR envelope (attack/decay/sustain/release), resonance, and named drum voices (kick/snare/hihat/clap/tom) for music and rhythm tools such as the piano-roll widget. |
 | `Audio.playTestTone()` | Plays a fixed test tone, useful for confirming audio output is wired up at all. |
-| `Audio.renderPatternToWav(events, suggestedName?, sampleEvents?, wavetableEvents?)` | Renders scheduled note events, and optional sample hits (`{startTime, path, gain, semitones, start, end, hold}`) and wavetable notes (`{table, startTime, freq, duration, ...}`), to a WAV file without live playback, then opens a native save dialog. |
+| `Audio.renderPatternToWav(events, suggestedName?, sampleEvents?, wavetableEvents?, vst3Events?)` | Renders scheduled note events, and optional sample hits (`{startTime, path, gain, semitones, start, end, hold}`), wavetable notes (`{table, startTime, freq, duration, ...}`), and VST3 track notes (`{path, state?, notes: [{startTime, duration, note, velocity?, channel?}]}`, one entry per hosted instrument track, each rendered through its own fresh plugin instance), to a WAV file without live playback, then opens a native save dialog. Returns `{success, path?, durationSeconds, error?, vst3Warnings}` - a VST3 track that fails to render (bad path, state that would not load) is left out and reported in `vst3Warnings` rather than failing the whole export. |
 | `Audio.ensureTrackBus(trackId, config)` / `removeTrackBus(trackId)` | Creates or updates a persistent track bus with gain, mute, solo, and an ordered effect chain, or tears it down. Bus changes apply to notes already ringing. |
 | `Audio.playNoteOnTrack(trackId, config)` | Plays a note through an existing track bus so its gain, mute, solo, and effects apply. |
 | `Audio.playWavetableOnTrack(trackId, config)` | Plays one timed wavetable note through a track bus. `config`: `table`, `freq`, `velocity`, `gain`, `position` (0-1 across the frames), `lfoRate`/`lfoDepth`, `sweep`/`sweepTime`, `velToPosition`, `unison` (1-7), `detuneCents`, `spread`, `cutoff`, `resonance`, ADSR, `duration`. The note reads the table as it is at every sample, so sculpting changes a note already sounding. Returns `{ok, error?}`. |
@@ -406,6 +407,7 @@ A lookup registry so addons (or Studio itself) can find and use each other's edi
 | `println(msg)` | Logs a message from your addon's JS runtime out to the Rust console. |
 | `generateUUID()` | Generates a UUID required for id fields that must be UUID-parseable, such as `Model.load`'s `id`. |
 | `Window.getSize()` | Returns the current window's pixel dimensions. |
+| `System.launchExample(name)` | Starts one of this build's own example apps as a separate process (this same executable, `name` as its only argument). `name` must be in `entropy_engine::LAUNCHABLE_EXAMPLES` or the call throws. Fire-and-forget: no handle is kept. |
 | `setGameMode(enabled)` | Toggles whether the app is in "playing" mode vs. editing/authoring mode. |
 | `onGameStarted(fn)` / `onGameStopped(fn)` | Fires when a named game (registered via `Composer.registerGame`) starts or stops. |
 | `onProjectChanged(fn)` / `onAllProjectsLoaded(fn)` | Addon-scoped hooks that fire when the active project changes, or once every project in a multi-project setup has loaded. |

@@ -254,6 +254,31 @@ pub struct DirectionalLightUniform {
     pub _padding2: u32,
 }
 
+/// Whether this frame re-blurs itself into the glass backdrop target (`core::glass_blur`).
+/// Entropy Studio's own chrome (`!game_mode`) is built out of glass panels and always needs it;
+/// an embedded app runs it only when it asked for it, since an app with no glass window would
+/// otherwise pay for a full-screen downsample and blur every frame for nothing.
+pub fn glass_blur_pass_runs(game_mode: bool, glass_blur_enabled: bool) -> bool {
+    !game_mode || glass_blur_enabled
+}
+
+#[cfg(test)]
+mod glass_blur_gating_tests {
+    use super::glass_blur_pass_runs;
+
+    #[test]
+    fn an_embedded_app_only_blurs_when_it_asked_to() {
+        assert!(!glass_blur_pass_runs(true, false));
+        assert!(glass_blur_pass_runs(true, true));
+    }
+
+    #[test]
+    fn studio_chrome_always_blurs() {
+        assert!(glass_blur_pass_runs(false, false));
+        assert!(glass_blur_pass_runs(false, true));
+    }
+}
+
 pub struct EntropyPipeline {
     // pub device: Option<wgpu::Device>,
     // pub queue: Option<wgpu::Queue>,
@@ -2011,7 +2036,7 @@ impl EntropyPipeline {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub fn render_display_frame(&mut self, game_mode: bool) {}
+    pub fn render_display_frame(&mut self, game_mode: bool, glass_blur_enabled: bool) {}
 
     #[cfg(target_os = "windows")]
     fn publish_video_export_result(&mut self, result: Result<crate::video_export::exporter::VideoExportResult, String>) {
@@ -2029,7 +2054,7 @@ impl EntropyPipeline {
     }
 
     #[cfg(target_os = "windows")]
-    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool) {
+    pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool, glass_blur_enabled: bool) {
         // Video export advances by exactly one captured frame per real call here, not all at
         // once - an earlier version rendered every requested frame in a single blocking loop,
         // which meant the window (and the addon's own JS onUpdatePlus) froze for the export's
@@ -2192,7 +2217,7 @@ impl EntropyPipeline {
         // Re-blur the frame we just drew into a small offscreen target so the glass
         // panels (painted next, in the egui pass) have something to sample as their
         // backdrop - see glass_blur.rs and render_egui.rs's paint_glass_backdrop.
-        if !game_mode {
+        if glass_blur_pass_runs(game_mode, glass_blur_enabled) {
             let mut blur_encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("glass blur encoder"),
             });

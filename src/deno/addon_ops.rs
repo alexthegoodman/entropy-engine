@@ -46,7 +46,10 @@ use crate::core::custom_mesh::CustomMesh;
 use crate::shape_primitives::polygon::{Polygon, Stroke};
 use crate::renderer_text::text_due::{TextRenderer, TextRendererConfig};
 use crate::audio::AudioEngine;
+use crate::audio::vst3;
 use crate::helpers::utilities::get_project_dir;
+use base64::engine::general_purpose::STANDARD as B64;
+use base64::Engine as _;
 
 /// Resolves the directory addon-facing save/load ops (`op_addon_save_data`, `op_script_read`,
 /// etc.) should read and write under. An embedded app's dev-controlled `data_dir` takes
@@ -247,6 +250,12 @@ pub struct UiWindowConfig {
     // Unset centers the window on screen (previous, and still default, behavior).
     #[serde(default)]
     pub default_pos: Option<[f32; 2]>,
+
+    /// Paint a blurred copy of the frame behind this window instead of the theme's opaque
+    /// window fill. Needs `EntropyApp::with_glass_blur(true)`, which is what actually keeps the
+    /// blur target up to date; without it the window samples a target nothing ever draws into.
+    #[serde(default)]
+    pub glass: bool,
 
 }
 
@@ -1102,6 +1111,10 @@ pub struct AddonContext {
     pub pending_alpha_models: Vec<(String, AlphaModelConfig)>,
     pub registered_tools: HashMap<String, (ToolDefinition, v8::Global<v8::Function>)>,
     pub egui_textures: HashMap<String, egui::TextureId>,
+    /// The offscreen blurred copy of this frame's scene (`core::glass_blur`), registered with the
+    /// egui renderer in `WindowState::new` and handed down from there. `None` until that runs, and
+    /// whatever it points at is only redrawn when `RunConfig::glass_blur_enabled` is set.
+    pub glass_blur_texture_id: Option<egui::TextureId>,
     pub input_events: Vec<InputEvent>,
     pub pressed_keys: HashSet<String>,
     pub mouse_position: [f32; 2],
@@ -1499,6 +1512,32 @@ pub fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[s
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
     }
+}
+
+/// Starts one of this build's own example apps as a separate OS process and answers its pid.
+/// The fence is `LAUNCHABLE_EXAMPLES`: `name` is compared against that fixed list before anything
+/// reaches `Command`, and the program run is always this same executable with `name` as its only
+/// argument, never a path an addon supplied. The child's handle is dropped straight away - the pid
+/// is all the caller ever gets, so nothing here waits on, watches or stops what it started.
+#[cfg(target_os = "windows")]
+pub fn launch_example(name: &str) -> Result<u32, String> {
+    if !crate::LAUNCHABLE_EXAMPLES.contains(&name) {
+        return Err(format!("\"{name}\" is not a launchable example"));
+    }
+    let exe = std::env::current_exe().map_err(|e| format!("Could not resolve this executable: {e}"))?;
+    let mut command = std::process::Command::new(exe);
+    command.arg(name);
+    for variable in crate::startup::BDD_DRIVER_ENV_VARS {
+        command.env_remove(variable);
+    }
+    let child = command.spawn().map_err(|e| format!("Could not launch \"{name}\": {e}"))?;
+    Ok(child.id())
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_launch_example(#[string] name: String) -> Result<u32, deno_error::JsErrorBox> {
+    launch_example(&name).map_err(deno_error::JsErrorBox::generic)
 }
 
 #[op2(fast)]
@@ -2381,6 +2420,36 @@ pub struct SampleEventConfig {
     pub params: SampleParamsConfig,
 }
 
+fn default_vst3_note_velocity() -> u8 {
+    100
+}
+
+/// One scheduled note for one VST3 track in an offline render - see `Vst3RenderTrackConfig`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Vst3RenderNoteConfig {
+    pub start_time: f64,
+    pub duration: f64,
+    pub note: u8,
+    #[serde(default = "default_vst3_note_velocity")]
+    pub velocity: u8,
+    #[serde(default)]
+    pub channel: u8,
+}
+
+/// A VST3-hosted track's notes for an offline render (see `op_audio_render_pattern_wav`). Each
+/// track gets its own fresh, temporary plugin instance (`vst3::render_offline_track`) - separate
+/// from whatever the same plugin has loaded live on this track's bus.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct Vst3RenderTrackConfig {
+    pub path: String,
+    /// Base64 from `Vst3.saveState`/`Vst3.pollState`; omit to render the plugin's default patch.
+    #[serde(default)]
+    pub state: Option<String>,
+    pub notes: Vec<Vst3RenderNoteConfig>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct GlbMeshExportConfig {
@@ -2475,6 +2544,10 @@ pub struct RenderPatternWavResult {
     pub path: Option<String>,
     pub duration_seconds: f64,
     pub error: Option<String>,
+    /// One entry per VST3 track that could not be rendered (bad path, state that would not load,
+    /// plugin failed to start) - the rest of the export still succeeds without it.
+    #[serde(default)]
+    pub vst3_warnings: Vec<String>,
 }
 
 #[op2]
@@ -2485,6 +2558,7 @@ pub fn op_audio_render_pattern_wav(
     #[string] suggested_name: String,
     #[serde] sample_events: Vec<SampleEventConfig>,
     #[serde] wavetable_events: Vec<crate::deno::wavetable_ops::WavetableNoteConfig>,
+    #[serde] vst3_events: Vec<Vst3RenderTrackConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2492,6 +2566,7 @@ pub fn op_audio_render_pattern_wav(
             path: None,
             duration_seconds: 0.0,
             error: Some("Context not available".to_string()),
+            vst3_warnings: Vec::new(),
         };
     }
 
@@ -2506,6 +2581,7 @@ pub fn op_audio_render_pattern_wav(
             path: None,
             duration_seconds: 0.0,
             error: Some("Export cancelled".to_string()),
+            vst3_warnings: Vec::new(),
         };
     };
 
@@ -2542,18 +2618,39 @@ pub fn op_audio_render_pattern_wav(
 
     let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
 
-    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, 44100, &output_path) {
-        Ok(duration_seconds) => RenderPatternWavResult {
+    let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
+        .into_iter()
+        .map(|t| vst3::Vst3RenderTrack {
+            plugin_path: PathBuf::from(t.path),
+            state: t.state.and_then(|b64| B64.decode(b64).ok()),
+            notes: t
+                .notes
+                .into_iter()
+                .map(|n| vst3::OfflineNoteEvent {
+                    start_time: n.start_time,
+                    duration: n.duration,
+                    channel: n.channel,
+                    note: n.note,
+                    velocity: n.velocity,
+                })
+                .collect(),
+        })
+        .collect();
+
+    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, &vst3_tracks, 44100, &output_path) {
+        Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
             duration_seconds,
             error: None,
+            vst3_warnings,
         },
         Err(e) => RenderPatternWavResult {
             success: false,
             path: None,
             duration_seconds: 0.0,
             error: Some(e),
+            vst3_warnings: Vec::new(),
         },
     }
 }
@@ -5104,5 +5201,28 @@ pub fn op_yumon_tick(state: &mut OpState, #[string] name: String) -> Result<Yumo
         })
     } else {
         Err(deno_error::JsErrorBox::generic("Yumon simulation not found"))
+    }
+}
+
+#[cfg(all(test, target_os = "windows"))]
+mod launch_example_tests {
+    /// Everything that reaches `Command` in `op_launch_example` goes through this check first, so
+    /// the only strings an addon can turn into a process are the ones on the list.
+    #[test]
+    fn only_a_listed_example_gets_past_the_allow_list() {
+        for name in ["notepad", "cmd", "daw.exe", "../../evil", "daw && calc", "", "DAW"] {
+            assert!(!crate::LAUNCHABLE_EXAMPLES.contains(&name), "{name:?} must not be launchable");
+        }
+        assert!(crate::LAUNCHABLE_EXAMPLES.contains(&"theme-gallery"));
+        assert!(crate::LAUNCHABLE_EXAMPLES.contains(&"app-launcher"));
+    }
+
+    /// Nothing is spawned on this path: the refusal happens before `Command` is even built.
+    #[test]
+    fn launching_a_name_that_is_not_on_the_list_is_refused() {
+        for name in ["notepad", "cmd", "../../evil", "daw && calc"] {
+            let error = super::launch_example(name).expect_err("an unlisted name must be refused");
+            assert!(error.contains("not a launchable example"), "{error}");
+        }
     }
 }

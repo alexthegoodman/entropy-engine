@@ -80,6 +80,10 @@ export function createWorld(initialSaved?: unknown) {
         nextVoice: 1,
         wavetableExports: [] as any[][],
         removedTables: [] as string[],
+        // What the WAV export was handed for VST3 tracks, and the vst3Warnings the fake render
+        // should hand back on the next export call (reset to [] after each export).
+        vst3Exports: [] as any[][],
+        nextVst3Warnings: [] as string[],
         // The guitar input: what the panel started it with, every later `target`, and every position
         // pushed to the running voice. `running` is what `status` reports.
         guitar: { running: false, starts: [] as any[], targets: [] as any[], positions: [] as number[] },
@@ -146,11 +150,14 @@ export function createWorld(initialSaved?: unknown) {
                 const n = w.heldNotes.get(voice);
                 if (n && !n.released) n.position = position;
             },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[]) => {
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], vst3Events?: any[]) => {
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
                 w.wavetableExports.push(wavetableEvents ?? []);
-                return { success: true, path: "test.wav", durationSeconds: 1 };
+                w.vst3Exports.push(vst3Events ?? []);
+                const vst3Warnings = w.nextVst3Warnings;
+                w.nextVst3Warnings = [];
+                return { success: true, path: "test.wav", durationSeconds: 1, vst3Warnings };
             },
             loadSample: (path: string) => w.samples[path]
                 ? { ok: true, ...w.samples[path] }
@@ -249,6 +256,7 @@ export function createWorld(initialSaved?: unknown) {
         Vst3: {
             unload: () => {}, load: () => ({ ok: false, error: "no plugins in the test world" }),
             scan: () => ({ plugins: [], skipped: [] }), noteOn: () => {}, pollState: () => null,
+            saveState: () => null,
             takePeak: () => null, openEditor: () => ({ ok: false }), closeEditor: () => {}, allNotesOff: () => {},
         },
     };

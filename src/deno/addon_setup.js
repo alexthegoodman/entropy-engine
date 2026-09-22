@@ -67,7 +67,11 @@ const audioAPI = {
     },
     // Renders a whole list of pre-scheduled note events offline to a WAV file (opens a native
     // save dialog engine-side); see `op_audio_render_pattern_wav` for the shape of `events`.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents) => {
+    // vst3Events: [{path, state? (base64), notes: [{startTime, duration, note, velocity?, channel?}]}] -
+    // each track is rendered through its own fresh plugin instance, separate from anything already
+    // loaded live on that track's bus. Result gains `vst3Warnings`: one message per track that could
+    // not be rendered (bad path, state that would not load) - the rest of the export still succeeds.
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, vst3Events) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -91,7 +95,17 @@ const audioAPI = {
             startTime: e.startTime || 0.0,
             path: e.path,
             params: sampleParams(e)
-        })), wavetableEvents || []);
+        })), wavetableEvents || [], (vst3Events || []).map(t => ({
+            path: t.path,
+            state: t.state ?? null,
+            notes: (t.notes || []).map(n => ({
+                startTime: n.startTime || 0.0,
+                duration: n.duration ?? 0.5,
+                note: n.note,
+                velocity: n.velocity ?? 100,
+                channel: n.channel ?? 0
+            }))
+        })));
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
     // Creates the bus on first call for a given trackId, or updates its gain/mute/solo/effect
@@ -193,6 +207,13 @@ const iconsAPI = {
     label: (name, text, style = "regular") => iconsAPI.get(name, style) + " " + text,
     has: (name) => _loadIcons().byName.has(name),
     names: () => Array.from(_loadIcons().byName.keys()),
+};
+
+const systemAPI = {
+    // Starts one of this build's own example apps as a separate process and returns its pid.
+    // `name` must be one of Entropy's LAUNCHABLE_EXAMPLES (src/lib.rs); anything else throws.
+    // The pid is the only handle: nothing here can poll, wait on or close the child.
+    launchExample: (name) => ops.op_launch_example(name),
 };
 
 const wavetableAPI = {
@@ -845,6 +866,7 @@ globalThis.Entropy = {
                 Vst3: vst3API,
                 Wavetable: wavetableAPI,
                 Icons: iconsAPI,
+                System: systemAPI,
     Guitar: guitarAPI,
                 Guitar: guitarAPI,
                 IO: {
@@ -982,7 +1004,8 @@ globalThis.Entropy = {
                 title: config.title || "",
                 resizable: config.resizable !== undefined ? config.resizable : true,
                 defaultSize: { width: config.width || 400, height: config.height || 300 },
-                defaultPos: (config.x !== undefined && config.y !== undefined) ? [config.x, config.y] : null
+                defaultPos: (config.x !== undefined && config.y !== undefined) ? [config.x, config.y] : null,
+                glass: config.glass === true
             }, config.onRender);
             return windowId;
         },
@@ -1736,6 +1759,7 @@ globalThis.Entropy = {
     Vst3: vst3API,
     Wavetable: wavetableAPI,
     Icons: iconsAPI,
+    System: systemAPI,
     Video: videoAPI,
     ML: mlAPI,
     println: (msg) => {

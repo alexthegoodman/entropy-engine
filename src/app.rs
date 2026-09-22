@@ -23,6 +23,7 @@ pub struct EntropyApp {
     resizable: Option<bool>,
     hot_reload: bool,
     art_assets_dir: Option<PathBuf>,
+    glass_blur: bool,
 }
 
 impl EntropyApp {
@@ -38,6 +39,7 @@ impl EntropyApp {
             resizable: None,
             hot_reload: false,
             art_assets_dir: None,
+            glass_blur: false,
         }
     }
 
@@ -122,11 +124,21 @@ impl EntropyApp {
         self
     }
 
+    /// Re-blur each frame's rendered scene into the offscreen target that `glass: true` windows
+    /// (see `Entropy.UI.createWindow`) sample as their backdrop. Off by default: the pass costs a
+    /// full-screen downsample plus blur every frame, and an app with no glass window would pay it
+    /// for nothing. Without it a `glass: true` window samples a target nothing ever draws into.
+    pub fn with_glass_blur(mut self, enabled: bool) -> Self {
+        self.glass_blur = enabled;
+        self
+    }
+
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let data_dir = self.data_dir.unwrap_or_else(|| PathBuf::from("./data"));
 
         crate::startup::run_with_config(crate::startup::RunConfig {
             game_mode: true,
+            glass_blur_enabled: self.glass_blur,
             project_id: None,
             start_addon: self.start_addon,
             bundle_path: self.bundle_path,

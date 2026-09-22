@@ -9,6 +9,17 @@ async fn main() {
         let name = env::args().nth(1);
 
         let app = match name.as_deref() {
+            Some("app-launcher") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/app_launcher.js")
+                .with_hot_reload(true)
+                .with_title("Entropy App Launcher")
+                .with_window_size(1400.0, 900.0)
+                // The launcher's panels are `glass: true`, which samples the blur target - dark and
+                // empty unless this app also runs the pass that fills it every frame.
+                .with_glass_blur(true)
+                // Which apps are "installed" is persisted through Entropy.IO.save/load, which needs
+                // a data dir on a standalone EntropyApp (same reasoning as cc-manager below).
+                .with_data_dir(env::var("ENTROPY_LAUNCHER_BDD_DATA").unwrap_or_else(|_| "../app-launcher-data".to_string())),
             Some("canvas-surface-demo") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/canvas_surfaces.js")
                 .with_hot_reload(true)
@@ -120,7 +131,7 @@ async fn main() {
                 }
                 eprintln!("Usage: cargo run --bin example -- <name>\n");
                 eprintln!("Available examples:");
-                for name in EXAMPLES {
+                for name in entropy_engine::LAUNCHABLE_EXAMPLES {
                     eprintln!("  {name}");
                 }
                 std::process::exit(1);
@@ -131,24 +142,3 @@ async fn main() {
     }
 }
 
-#[cfg(target_os = "windows")]
-const EXAMPLES: &[&str] = &[
-    "canvas-surface-demo",
-    "cc-manager",
-    "daw",
-    "doc-editor-demo",
-    "fft-river",
-    "fft-water",
-    "game2d",
-    "html-ui-demo",
-    "keyframe-tracks-demo",
-    "level-editor-2d",
-    "light-hive",
-    "mcp-tools-demo",
-    "media-player",
-    "ml-graph-demo",
-    "node-graph",
-    "stylus-drawing",
-    "theme-gallery",
-    "video-export-demo",
-];

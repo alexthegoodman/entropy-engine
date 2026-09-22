@@ -259,7 +259,8 @@ fn bounce(world: &mut SynthWorld, first: f64, second: f64) {
     let dir = std::env::current_dir().unwrap().join("test-artifacts").join("wavetable-synth");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("bounce.wav");
-    let seconds = entropy_engine::audio::render_events_full_to_wav(&[], &[], &[mk(first, 220.0), mk(second, 330.0)], 44_100, &path).expect("the bounce is written");
+    let (seconds, warnings) = entropy_engine::audio::render_events_full_to_wav(&[], &[], &[mk(first, 220.0), mk(second, 330.0)], &[], 44_100, &path).expect("the bounce is written");
+    assert!(warnings.is_empty(), "unexpected render warnings: {warnings:?}");
     assert!(seconds > second + 0.4, "the file is only {seconds} s long");
     let mut reader = hound::WavReader::open(&path).expect("the WAV can be read back");
     assert_eq!(reader.spec().channels, 2);

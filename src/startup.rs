@@ -64,6 +64,11 @@ const BORDER_SIZE: f64 = 20.;
 #[derive(Default)]
 pub struct RunConfig {
     pub game_mode: bool,
+    /// Run the glass blur pass (`core::glass_blur`) every frame so `glass: true` addon windows
+    /// have a real blurred backdrop to sample. Independent of `game_mode`, which selects whether
+    /// Entropy Studio's own chrome is built; Studio always runs the pass, an embedded app only
+    /// when it opts in (`EntropyApp::with_glass_blur`).
+    pub glass_blur_enabled: bool,
     pub project_id: Option<String>,
     pub start_addon: Option<String>,
     pub bundle_path: Option<PathBuf>,
@@ -109,6 +114,8 @@ struct BrowserBddDriver {
     /// audio is rendered by the real audio thread rather than per app frame, and captures native
     /// plugin editor windows, which are not part of the composited frame.
     daw: bool,
+    /// The app launcher's run (`ENTROPY_LAUNCHER_BDD_RESULT`).
+    launcher: bool,
     wait_until: Option<Instant>,
     editor_captures: Vec<serde_json::Value>,
     /// What the audio engine's own analysis taps reported when a `I record the analysis` step ran,
@@ -155,6 +162,17 @@ enum BrowserBddAction {
 /// from.
 const BROWSER_LIVE_FEATURE_SOURCE: &str = include_str!("../tests/features/browser_live.feature");
 
+/// The variables that put this process under a scripted BDD run (see `BrowserBddDriver`). A
+/// process an app starts must not inherit them: it would build a driver of its own, replay the
+/// parent's script against the wrong app, and overwrite the run's result file. `op_launch_example`
+/// strips these from every child it spawns.
+pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
+    "ENTROPY_BROWSER_BDD_RESULT",
+    "ENTROPY_CANVAS_BDD_RESULT",
+    "ENTROPY_DAW_BDD_RESULT",
+    "ENTROPY_LAUNCHER_BDD_RESULT",
+];
+
 /// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
 /// "browser-go"`) into a driver action. Returns `None` for steps that are real preconditions
 /// with nothing for the driver to do (the opening "Given ... is running in test mode"). Any
@@ -165,6 +183,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
     if text == "the real browser demo is running in test mode"
         || text == "the real canvas demo is running in test mode"
         || text == "the real DAW is running in test mode"
+        || text == "the real app launcher is running in test mode"
     {
         return None;
     }
@@ -259,15 +278,20 @@ impl BrowserBddDriver {
     fn from_environment() -> Option<Self> {
         let daw = std::env::var_os("ENTROPY_DAW_BDD_RESULT").is_some();
         let canvas = !daw && std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
+        let launcher = !daw && !canvas && std::env::var_os("ENTROPY_LAUNCHER_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
             "ENTROPY_CANVAS_BDD_RESULT"
+        } else if launcher {
+            "ENTROPY_LAUNCHER_BDD_RESULT"
         } else {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
         .map(PathBuf::from)?;
-        let source = if daw {
+        let source = if launcher {
+            include_str!("../tests/features/app_launcher_live.feature")
+        } else if daw {
             // The restore run reopens the project the first run saved: same driver, second script.
             match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
                 Ok("restore") => include_str!("../tests/features/vst3_live_restore.feature"),
@@ -292,6 +316,7 @@ impl BrowserBddDriver {
             actions: browser_bdd_actions_from_feature(source),
             canvas,
             daw,
+            launcher,
             wait_until: None,
             editor_captures: Vec::new(),
             analyses: serde_json::Map::new(),
@@ -331,7 +356,7 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas || self.daw {
+        if self.canvas || self.daw || self.launcher {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
         // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
@@ -355,8 +380,8 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas { 90 } else { 30 }) {
-            self.write_result("timeout", Some("live browser BDD exceeded 30 seconds"));
+        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher { 90 } else { 30 }) {
+            self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;
         }
@@ -523,7 +548,9 @@ impl BrowserBddDriver {
                 match window.pipeline.request_ui_screenshot(&path) {
                     Ok(()) => {
                         self.artifacts.push(path.to_string_lossy().into_owned());
-                        self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "requested" }));
+                        // A capture is in physical pixels while every widget rect is in points, so a
+                        // test that wants to read one window's pixels out of a screenshot needs this.
+                        self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "requested", "scaleFactor": window.window.scale_factor() }));
                     }
                     Err(error) => self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "error", "error": error })),
                 }
@@ -578,6 +605,7 @@ pub fn run_with_config(config: RunConfig) -> Result<(), Box<dyn Error>> {
     let mut state = Application::new(
         &event_loop,
         config.game_mode,
+        config.glass_blur_enabled,
         config.project_id,
         config.start_addon,
         config.bundle_path,
@@ -639,6 +667,7 @@ struct Application {
     shift_active: bool,
     last_mouse_position: Option<PhysicalPosition<f64>>,
     game_mode: bool,
+    glass_blur_enabled: bool,
     project_id: Option<String>,
     start_addon: Option<String>,
     bundle_path: Option<PathBuf>,
@@ -657,6 +686,7 @@ impl Application {
     fn new<T>(
         event_loop: &EventLoop<T>,
         game_mode: bool,
+        glass_blur_enabled: bool,
         project_id: Option<String>,
         start_addon: Option<String>,
         bundle_path: Option<PathBuf>,
@@ -711,6 +741,7 @@ impl Application {
             shift_active: false,
             last_mouse_position: None,
             game_mode,
+            glass_blur_enabled,
             project_id,
             start_addon,
             bundle_path,
@@ -1554,6 +1585,7 @@ struct WindowState {
     cursor_hidden: bool,
     gui: Gui,
     game_mode: bool,
+    glass_blur_enabled: bool,
     #[cfg(target_os = "windows")]
     pub webview: Option<wry::WebView>,
 }
@@ -1640,6 +1672,16 @@ impl WindowState {
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();
         surface.configure(&gpu_resources.device, &surface_config);
 
+        // The blur target is registered here, after the addon engine already exists, so hand its
+        // id down to `AddonContext` for `render_ui` to paint `glass: true` windows with.
+        if let Some(editor) = pipeline.export_editor.as_mut() {
+            let op_state = editor.addon_engine.runtime.op_state();
+            let mut op_state = op_state.borrow_mut();
+            if let Some(context) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                context.glass_blur_texture_id = Some(glass_blur_texture_id);
+            }
+        }
+
         let editor = pipeline.export_editor.as_mut().expect("Couldn't get editor");
         let renderer_state = editor.renderer_state.as_mut().expect("Couldn't get renderer state");
         let camera_binding = editor.camera_binding.as_ref().expect("Couldn't get camera binding");
@@ -1707,6 +1749,7 @@ impl WindowState {
             zoom: Default::default(),
             gui,
             game_mode,
+            glass_blur_enabled: app.glass_blur_enabled,
             #[cfg(target_os = "windows")]
             webview,
         };
@@ -1997,7 +2040,7 @@ impl WindowState {
             return Ok(());
         }
 
-        self.pipeline.render_display_frame(&mut self.gui, &self.window, self.game_mode);
+        self.pipeline.render_display_frame(&mut self.gui, &self.window, self.game_mode, self.glass_blur_enabled);
 
         #[cfg(target_os = "windows")]
         if !self.game_mode {

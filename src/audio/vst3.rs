@@ -692,3 +692,111 @@ pub fn editor_window_titles() -> Vec<(String, String)> {
             .collect()
     })
 }
+
+// --- Offline rendering (WAV export) -------------------------------------------------------------
+//
+// A hosted plugin has no analogue of the built-in voices' per-note fundsp graph: it is one
+// continuous stateful processor, not something you can render note-by-note and additively mix.
+// So a track's whole note list is instead fed to a fresh, temporary plugin instance (its own
+// `Vst3Host`, never the one in the per-track registry above) as a sorted MIDI timeline, driven
+// block by block the same way `Vst3Source::render_block` drives the realtime one, but with no
+// mixer, no editor and no thread hop - the plugin is loaded, rendered, and dropped within this one
+// call, on the calling (main) thread, exactly where plugin lifecycle is required to live.
+
+/// A tail added past a track's last note-off so the plugin's own release/reverb/delay can ring
+/// out, matching the reasoning `render_events_to_wav` already uses for the built-in voices.
+pub const OFFLINE_TAIL_SECONDS: f64 = 3.0;
+
+/// One scheduled note for an offline render - see `render_offline_track`.
+#[derive(Clone, Debug)]
+pub struct OfflineNoteEvent {
+    pub start_time: f64,
+    pub duration: f64,
+    pub channel: u8,
+    pub note: u8,
+    pub velocity: u8,
+}
+
+/// A track's plugin plus the notes to play it, for one offline render.
+pub struct Vst3RenderTrack {
+    pub plugin_path: PathBuf,
+    /// A blob from `Vst3Instrument::save_state`; `None` renders the plugin's default patch.
+    pub state: Option<Vec<u8>>,
+    pub notes: Vec<OfflineNoteEvent>,
+}
+
+impl Vst3RenderTrack {
+    /// The last second this track could still be sounding at, `OFFLINE_TAIL_SECONDS` past its
+    /// last note-off. 0 if it has no notes.
+    pub fn end_seconds(&self) -> f64 {
+        let last_off = self.notes.iter().fold(0.0f64, |m, n| m.max(n.start_time.max(0.0) + n.duration.max(0.0)));
+        if self.notes.is_empty() { 0.0 } else { last_off + OFFLINE_TAIL_SECONDS }
+    }
+}
+
+/// Renders `track`'s notes through a fresh instance of its plugin, for exactly `total_frames`
+/// frames at `SAMPLE_RATE`, returning interleaved stereo f32. A plugin that fails to load or start
+/// (missing file, incompatible state) reports an error rather than silently producing silence, so
+/// an export can tell the human which track was left out and why.
+pub fn render_offline_track(track: &Vst3RenderTrack, total_frames: usize) -> Result<Vec<f32>, String> {
+    let mut host = Vst3Host::builder()
+        .sample_rate(SAMPLE_RATE as f64)
+        .block_size(BLOCK_FRAMES)
+        .build()
+        .map_err(|e| format!("VST3 host init failed: {e}"))?;
+    let mut plugin = host.load_plugin(&track.plugin_path).map_err(|e| format!("load failed: {e}"))?;
+    if let Some(bytes) = &track.state {
+        if let Err(e) = plugin.load_state(bytes) {
+            eprintln!("[vst3] {}: state restore failed for offline render, using defaults: {e}", track.plugin_path.display());
+        }
+    }
+    plugin.start_processing().map_err(|e| format!("start_processing failed: {e}"))?;
+
+    #[derive(Clone, Copy)]
+    enum Ev {
+        On(u8, u8, u8),
+        Off(u8, u8),
+    }
+    let mut timeline: Vec<(usize, Ev)> = Vec::with_capacity(track.notes.len() * 2);
+    for n in &track.notes {
+        let on_sample = (n.start_time.max(0.0) * SAMPLE_RATE as f64).round() as usize;
+        let off_sample = ((n.start_time.max(0.0) + n.duration.max(0.0)) * SAMPLE_RATE as f64).round() as usize;
+        timeline.push((on_sample, Ev::On(n.channel, n.note.min(127), n.velocity.clamp(1, 127))));
+        timeline.push((off_sample.max(on_sample + 1), Ev::Off(n.channel, n.note.min(127))));
+    }
+    timeline.sort_by_key(|(sample, _)| *sample);
+
+    let mut bufs = AudioBuffers::new(0, 2, BLOCK_FRAMES, SAMPLE_RATE as f64);
+    let n_blocks = (total_frames + BLOCK_FRAMES - 1) / BLOCK_FRAMES;
+    let mut out = vec![0.0f32; n_blocks * BLOCK_FRAMES * 2];
+    let mut idx = 0usize;
+
+    for block in 0..n_blocks {
+        let block_start = block * BLOCK_FRAMES;
+        let block_end = block_start + BLOCK_FRAMES;
+        while idx < timeline.len() && timeline[idx].0 < block_end {
+            let (sample, event) = timeline[idx];
+            let offset = sample.saturating_sub(block_start).min(BLOCK_FRAMES - 1) as i32;
+            let midi = match event {
+                Ev::On(channel, note, velocity) => MidiEvent::NoteOn { channel: channel_from_index(channel), note, velocity },
+                Ev::Off(channel, note) => MidiEvent::NoteOff { channel: channel_from_index(channel), note, velocity: 0 },
+            };
+            let _ = plugin.send_midi_event_at(midi, offset);
+            idx += 1;
+        }
+
+        bufs.clear();
+        if plugin.process_audio(&mut bufs).is_ok() {
+            let left = &bufs.outputs[0];
+            let right = bufs.outputs.get(1).unwrap_or(left);
+            for i in 0..BLOCK_FRAMES {
+                let (l, r) = (left[i], right[i]);
+                out[(block_start + i) * 2] = if l.is_finite() { l } else { 0.0 };
+                out[(block_start + i) * 2 + 1] = if r.is_finite() { r } else { 0.0 };
+            }
+        }
+    }
+
+    out.truncate(total_frames * 2);
+    Ok(out)
+}

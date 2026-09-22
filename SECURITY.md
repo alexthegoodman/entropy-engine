@@ -36,6 +36,14 @@ Confirm Video.export's outputPath is sandboxed the same way IO.save is.
 Extend the validate-or-fallback (error-scope) pattern from setPointLightShader to Pipeline.createCompute/general shader compilation, if it isn't already uniform.
 Add basic size/rate caps on Buffer.create and dispatch loops as a DoS guard, lowest priority of the five.
 
+## Starting OS processes
+
+Two paths in the engine spawn a process today. Only one of them is gated.
+
+System.launchExample(name) (added with the App Launcher addon) is gated by a fixed allow-list: `op_launch_example` in src/deno/addon_ops.rs compares `name` against `entropy_engine::LAUNCHABLE_EXAMPLES` (src/lib.rs) and rejects anything else before touching `Command`. The program it runs is always `std::env::current_exe()` - this same binary - with `name` as its only argument, so no addon-supplied string ever becomes a program path or an extra argument. Residual: it is fire-and-forget (no handle kept, so a child cannot be observed or killed), there is no rate limit, so an addon can spawn windows in a loop as a DoS, and the allow-list is process-wide rather than per addon.
+
+Widget.hyperlink / any declared `<a href>` is NOT gated, and was undocumented here until now. `entropy_gui::widgets::hyperlink`'s click handler runs `Command::new("cmd").args(["/C", "start", "", &url]).spawn()` directly from widget handling, with no op, no allow-list and no user confirmation. An addon that declares a link therefore already has a one-click way to hand an arbitrary string to the shell's `start` verb, which will open a URL, a file path or a program. This predates the launcher work and is flagged rather than fixed here: the fix wants a real URL-scheme check (http/https only) plus `ShellExecuteW` instead of routing through `cmd`, so the string is never parsed by a command interpreter.
+
 ## Sample browsing (added with the DAW drum rack)
 
 IO.listDir(path) reads folder names, so it is fenced: it answers only for the user's Music folder and for folders the user picked in a native dialog this session (IO.musicDir / IO.pickSampleFolder register them), resolves `..` and symlinks before checking, skips hidden entries, and lists only folders and audio files. Audio.loadSample / playSampleOnTrack / previewSample decode only files with an audio extension and never hand raw file bytes to the addon (it gets levels and a peak envelope). An addon can therefore learn which audio files exist under those roots; it cannot read other files or walk the disk. Two things still worth knowing: a saved project can name a sample path outside those roots (decoding is not root-fenced, only extension-fenced), and the allowed roots are process-wide, not per addon.
