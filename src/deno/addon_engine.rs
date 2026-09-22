@@ -3742,6 +3742,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     let mut window = egui::Window::new(&config.title)
                         .id(egui::Id::new(&id))
                         .resizable(config.resizable)
+                        .decorations(config.decorations)
                         .default_size([config.default_size.width, config.default_size.height]);
                     if let Some(pos) = config.default_pos {
                         window = window.default_pos(pos);
@@ -3940,10 +3941,13 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
         let mut i = 0;
         while i < widgets.len() {
             match &widgets[i] {
-                UiWidget::Label { text, bold } => {
-                    let mut txt = egui::RichText::new(text);
+                UiWidget::Label { text, bold, font_size, alpha } => {
+                    let mut txt = egui::RichText::new(text).alpha(*alpha);
                     if bold.unwrap_or(false) {
                         txt = txt.strong();
+                    }
+                    if let Some(size) = font_size {
+                        txt = txt.font_size(*size);
                     }
                     ui.label(txt);
                 }
@@ -3951,8 +3955,15 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     text,
                     id: btn_id,
                     label: _,
+                    font_size,
+                    alpha,
+                    frame,
                 } => {
-                    if ui.button(text).clicked() {
+                    let mut txt = egui::RichText::new(text).alpha(*alpha);
+                    if let Some(size) = font_size {
+                        txt = txt.font_size(*size);
+                    }
+                    if ui.add(egui::Button::new(txt).frame(*frame)).clicked() {
                         events_to_push.push(btn_id.clone());
                     }
                 }

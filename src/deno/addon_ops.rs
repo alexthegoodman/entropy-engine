@@ -257,6 +257,11 @@ pub struct UiWindowConfig {
     #[serde(default)]
     pub glass: bool,
 
+    /// `false` strips the title bar, outer border stroke and resize handle - see
+    /// `entropy_gui::Window::decorations`. Default `true` keeps every existing window unchanged.
+    #[serde(default = "default_resizable")]
+    pub decorations: bool,
+
 }
 
 
@@ -547,8 +552,8 @@ pub enum UiWidget {
     Oscilloscope { id: String, config: OscilloscopeConfig },
     Spectrum { id: String, config: SpectrumConfig },
     LevelMeter { id: String, config: LevelMeterConfig },
-    Label { text: String, bold: Option<bool> },
-    Button { text: String, id: String, label: String },
+    Label { text: String, bold: Option<bool>, font_size: Option<f32>, alpha: f32 },
+    Button { text: String, id: String, label: String, font_size: Option<f32>, alpha: f32, frame: bool },
     ColorInput { id: String, label: String, color: [f32; 4] },
     Slider { id: String, label: String, value: f32, min: f32, max: f32 },
     Knob { id: String, label: String, value: f32, min: f32, max: f32 },
@@ -3368,16 +3373,18 @@ pub fn op_ui_create_tab(state: &mut OpState, #[string] addon_name: String, #[ser
 }
 
 #[op2(fast)]
-pub fn op_ui_widget_label(state: &mut OpState, #[string] window_id: String, #[string] text: String, bold: bool) {
+pub fn op_ui_widget_label(state: &mut OpState, #[string] window_id: String, #[string] text: String, bold: bool, font_size: f32, alpha: f32) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Label { text, bold: Some(bold) });
+        let font_size = if font_size > 0.0 { Some(font_size) } else { None };
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Label { text, bold: Some(bold), font_size, alpha });
     }
 }
 
 #[op2(fast)]
-pub fn op_ui_widget_button(state: &mut OpState, #[string] window_id: String, #[string] text: String, #[string] id: String) {
+pub fn op_ui_widget_button(state: &mut OpState, #[string] window_id: String, #[string] text: String, #[string] id: String, font_size: f32, alpha: f32, frame: bool) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Button { text: text.clone(), id, label: text });
+        let font_size = if font_size > 0.0 { Some(font_size) } else { None };
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Button { text: text.clone(), id, label: text, font_size, alpha, frame });
     }
 }
 

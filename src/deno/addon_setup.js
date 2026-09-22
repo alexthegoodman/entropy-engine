@@ -1005,7 +1005,8 @@ globalThis.Entropy = {
                 resizable: config.resizable !== undefined ? config.resizable : true,
                 defaultSize: { width: config.width || 400, height: config.height || 300 },
                 defaultPos: (config.x !== undefined && config.y !== undefined) ? [config.x, config.y] : null,
-                glass: config.glass === true
+                glass: config.glass === true,
+                decorations: config.decorations !== false
             }, config.onRender);
             return windowId;
         },
@@ -1027,13 +1028,18 @@ globalThis.Entropy = {
             label: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
                 const bold = typeof config === 'object' ? (config?.bold || false) : false;
-                ops.op_ui_widget_label(windowId, text, bold);
+                const fontSize = typeof config === 'object' ? (config?.fontSize || 0) : 0;
+                const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
+                ops.op_ui_widget_label(windowId, text, bold, fontSize, alpha);
             },
             button: (windowId, config) => {
                 const text = typeof config === 'string' ? config : (config?.text || "");
                 const id = nextWidgetId(windowId, text, config?.id);
+                const fontSize = typeof config === 'object' ? (config?.fontSize || 0) : 0;
+                const alpha = typeof config === 'object' && config?.alpha !== undefined ? config.alpha : 1;
+                const frame = typeof config === 'object' && config?.frame !== undefined ? config.frame : true;
 
-                ops.op_ui_widget_button(windowId, text, id);
+                ops.op_ui_widget_button(windowId, text, id, fontSize, alpha, frame);
                 bindListener('_entropy_event_listeners', id, config?.onClick);
             },
             colorInput: (windowId, config) => {

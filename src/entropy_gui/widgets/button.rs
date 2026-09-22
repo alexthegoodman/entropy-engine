@@ -10,17 +10,25 @@ use super::Widget;
 pub struct Button {
     text: WidgetText,
     enabled: bool,
+    /// `false` draws no background fill or stroke while idle - only the text, plus a subtle
+    /// highlight on hover/press - for an icon-tile-style button that shouldn't look like a
+    /// bordered dialog control (see the app launcher's home-screen grid).
+    frame: bool,
 }
 
 impl Button {
     pub fn new(text: impl Into<WidgetText>) -> Self {
-        Self { text: text.into(), enabled: true }
+        Self { text: text.into(), enabled: true, frame: true }
+    }
+    pub fn frame(mut self, frame: bool) -> Self {
+        self.frame = frame;
+        self
     }
 }
 
 impl Widget for Button {
     fn ui(self, ui: &mut Ui) -> Response {
-        let font = FontId::proportional(DEFAULT_FONT_SIZE);
+        let font = FontId::proportional(self.text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE));
         let padding = ui.style().spacing.button_padding;
         let text_size = Painter::measure_text(ui.ctx(), font, &self.text.0.text);
         let size = vec2(text_size.x + padding.x * 2.0, text_size.y.max(font.size) + padding.y * 2.0).max(ui.style().spacing.interact_size);
@@ -29,12 +37,19 @@ impl Widget for Button {
         let (rect, response) = ui.allocate_response(size, sense);
 
         let visuals = ui.interactive_visuals(response.hovered(), response.clicked());
+        let alpha = self.text.0.alpha;
         let painter = ui.painter();
-        painter.rect_filled(rect, visuals.corner_radius, visuals.bg_fill);
-        if visuals.bg_stroke.width > 0.0 {
-            painter.rect_stroke(rect, visuals.corner_radius, visuals.bg_stroke, StrokeKind::Middle);
+        if self.frame {
+            painter.rect_filled(rect, visuals.corner_radius, visuals.bg_fill.linear_multiply(alpha));
+            if visuals.bg_stroke.width > 0.0 {
+                let mut stroke = visuals.bg_stroke;
+                stroke.color = stroke.color.linear_multiply(alpha);
+                painter.rect_stroke(rect, visuals.corner_radius, stroke, StrokeKind::Middle);
+            }
+        } else if response.hovered() || response.clicked() {
+            painter.rect_filled(rect, visuals.corner_radius, visuals.weak_bg_fill.linear_multiply(alpha));
         }
-        let text_color = self.text.0.color.unwrap_or(visuals.fg_stroke.color);
+        let text_color = self.text.0.color.unwrap_or(visuals.fg_stroke.color).linear_multiply(alpha);
         painter.text(rect.center(), Align2::CENTER_CENTER, &self.text.0.text, font, text_color);
 
         response

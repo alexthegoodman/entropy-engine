@@ -176,7 +176,7 @@ async fn main() {
     let killed = launched_pid.map(|pid| Command::new("taskkill").args(["/PID", &pid.to_string(), "/F"]).output().expect("taskkill runs"));
 
     let artifacts: Vec<String> = result["artifacts"].as_array().expect("artifact array").iter().map(|a| a.as_str().unwrap().to_string()).collect();
-    assert_eq!(artifacts.len(), 5, "{artifacts:?}");
+    assert_eq!(artifacts.len(), 6, "{artifacts:?}");
     for artifact in &artifacts {
         assert!(std::path::Path::new(artifact).is_file(), "missing artifact {artifact}");
     }
@@ -186,12 +186,14 @@ async fn main() {
     let scale = result["actions"].as_array().unwrap().iter()
         .find_map(|action| action["scaleFactor"].as_f64())
         .expect("the driver records the scale factor with every capture");
-    // The bottom of the launcher's "Indie Machine" panel (placed at 610,32, sized 290x260): far
-    // enough below its title, two posts and separator that nothing but the panel's own
-    // background is there.
+    // The launcher is a single `decorations: false` window, 640x580, centered on the 1400x900
+    // host window (380,160)-(1020,740) - see app_launcher_addon.ts's WINDOW_WIDTH/HEIGHT. This
+    // patch sits in the empty margin below the Home grid's one row and its "Latest posts" footer
+    // (both end well above y=600 there), so it is the glass panel's own background with nothing
+    // drawn over it on every Home-screen capture.
     let px = |x: f64, y: f64| ((x * scale).round() as u32, (y * scale).round() as u32);
-    let (x0, y0) = px(620.0, 234.0);
-    let (x1, y1) = px(890.0, 284.0);
+    let (x0, y0) = px(500.0, 600.0);
+    let (x1, y1) = px(900.0, 700.0);
     let rect = (x0, y0, x1, y1);
 
     let (mean, spread) = region_stats(&shot("launcher-01-home"), rect);
@@ -206,6 +208,21 @@ async fn main() {
     // bar was dropped - a scene-position-dependent number, unlike drift, isn't a good invariant).
     assert!(spread > 0.3, "the glass panel's body is perfectly flat ({spread:.2}) - it is not sampling the blur target at all");
     assert!(drift > 0.3, "the glass panel did not change when the scene behind it moved ({drift:.2})");
+
+    // The Discover grid's icon row, one frame after the switch (viewFadeFrame == 1, so alpha and
+    // font_size are both still close to their dim/small starting values) against the same row
+    // nine frames later (viewFadeFrame == 10, fully eased in) - proves the fade-in in
+    // app_launcher_addon.ts's `viewFade()` actually ran frame by frame rather than the grid just
+    // appearing at full brightness on the very first frame.
+    let icon_row = (px(390.0, 250.0), px(730.0, 300.0));
+    let icon_row = (icon_row.0 .0, icon_row.0 .1, icon_row.1 .0, icon_row.1 .1);
+    let (fading_mean, _) = region_stats(&shot("launcher-03a-discover-fading"), icon_row);
+    let (settled_mean, _) = region_stats(&shot("launcher-03-discover"), icon_row);
+    println!("  discover fade-in: icon row mean luma one frame in {fading_mean:.1}, settled {settled_mean:.1}");
+    assert!(
+        settled_mean > fading_mean + 3.0,
+        "the Discover grid did not visibly fade in (one frame in {fading_mean:.1}, settled {settled_mean:.1}) - alpha/fontSize should ease up over VIEW_FADE_FRAMES, not appear instantly"
+    );
 
     // The launcher persisted the pid it got back from launchExample, and the taskkill run above
     // (before any of the assertions above this point could panic and strand it) proves that pid

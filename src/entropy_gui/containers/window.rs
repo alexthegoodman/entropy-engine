@@ -29,11 +29,21 @@ pub struct Window<'open> {
     default_pos: Option<Pos2>,
     open: Option<&'open mut bool>,
     glass: Option<TextureId>,
+    decorations: bool,
 }
 
 impl<'open> Window<'open> {
     pub fn new(title: impl Into<String>) -> Self {
-        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), default_pos: None, open: None, glass: None }
+        Self { title: title.into(), id: None, resizable: true, default_size: vec2(320.0, 240.0), default_pos: None, open: None, glass: None, decorations: true }
+    }
+    /// `false` strips the title bar (no fill, no text, no close button, no drag), the outer
+    /// border stroke and the resize handle, leaving only the rounded background (glass or
+    /// `window_fill`) - a plain floating card for a home-screen-style panel that isn't meant to
+    /// be dragged or resized. The window keeps whatever position/size it was given; there is no
+    /// title bar left to grab, so it stops moving once placed.
+    pub fn decorations(mut self, on: bool) -> Self {
+        self.decorations = on;
+        self
     }
     /// Paint a blurred copy of the frame behind this window instead of the theme's opaque
     /// `window_fill`. `texture_id` is the glass blur target (see `core::glass_blur`); it is only
@@ -83,24 +93,28 @@ impl<'open> Window<'open> {
         });
         let default_rect = Rect::from_min_size(default_min, self.default_size);
         let rect = ctx.memory(|m| m.get_window_rect(id, default_rect));
+        let title_bar_height = if self.decorations { TITLE_BAR_HEIGHT } else { 0.0 };
 
         // Everything below (title bar, close button, body) is this window's layer: it sees the
         // pointer unless a window built after it covers the pointer, and the panels underneath
         // stop seeing the pointer wherever this window sits (see `Context::input`).
         let previous_layer = ctx.enter_layer(id);
 
-        let title_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + TITLE_BAR_HEIGHT));
+        let title_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.min.y + title_bar_height));
 
         // Interact against last frame's rect first so this frame's drag/resize is reflected
-        // immediately in what we paint below (no one-frame lag).
-        let drag_resp = interact(ctx, title_rect, id.with("titlebar"), Sense::drag());
+        // immediately in what we paint below (no one-frame lag). No title bar means nowhere to
+        // grab, so a decorations-off window never drags.
+        let drag_resp = if self.decorations { Some(interact(ctx, title_rect, id.with("titlebar"), Sense::drag())) } else { None };
         let mut new_rect = rect;
-        if drag_resp.dragged() {
-            new_rect = new_rect.translate(drag_resp.drag_delta());
+        if let Some(d) = drag_resp.as_ref() {
+            if d.dragged() {
+                new_rect = new_rect.translate(d.drag_delta());
+            }
         }
 
         let resize_handle = Rect::from_min_size(pos2(rect.max.x - 12.0, rect.max.y - 12.0), vec2(12.0, 12.0));
-        let resize_resp = if self.resizable { Some(interact(ctx, resize_handle, id.with("resize"), Sense::drag())) } else { None };
+        let resize_resp = if self.resizable && self.decorations { Some(interact(ctx, resize_handle, id.with("resize"), Sense::drag())) } else { None };
         if let Some(r) = &resize_resp {
             if r.dragged() {
                 let d = r.drag_delta();
@@ -116,7 +130,7 @@ impl<'open> Window<'open> {
             ctx.memory_mut(|m| m.set_window_rect(id, new_rect));
         }
 
-        let title_rect = Rect::from_min_max(new_rect.min, pos2(new_rect.max.x, new_rect.min.y + TITLE_BAR_HEIGHT));
+        let title_rect = Rect::from_min_max(new_rect.min, pos2(new_rect.max.x, new_rect.min.y + title_bar_height));
         let style = ctx.style();
         let painter = Painter::new(ctx.clone(), Rect::everything(), DrawTarget::Overlay);
         if let Some(texture_id) = self.glass {
@@ -131,17 +145,19 @@ impl<'open> Window<'open> {
         } else {
             painter.rect_filled(new_rect, style.visuals.window_corner_radius, style.visuals.window_fill);
         }
-        painter.rect_stroke(new_rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
-        painter.rect_filled(title_rect, style.visuals.window_corner_radius, if self.glass.is_some() { GLASS_TITLE_TINT } else { style.visuals.widgets.open.bg_fill });
         let text_color = style.visuals.override_text_color.unwrap_or(Color32::WHITE);
-        painter.text(pos2(title_rect.min.x + 10.0, title_rect.center().y), Align2::LEFT_CENTER, &self.title, FontId::proportional(13.0), text_color);
+        if self.decorations {
+            painter.rect_stroke(new_rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
+            painter.rect_filled(title_rect, style.visuals.window_corner_radius, if self.glass.is_some() { GLASS_TITLE_TINT } else { style.visuals.widgets.open.bg_fill });
+            painter.text(pos2(title_rect.min.x + 10.0, title_rect.center().y), Align2::LEFT_CENTER, &self.title, FontId::proportional(13.0), text_color);
+        }
 
-        if self.resizable {
+        if self.resizable && self.decorations {
             let handle = Rect::from_min_size(pos2(new_rect.max.x - 12.0, new_rect.max.y - 12.0), vec2(12.0, 12.0));
             painter.rect_filled(handle, 2u8, style.visuals.widgets.inactive.bg_stroke.color);
         }
 
-        if let Some(open_ref) = self.open.as_mut() {
+        if let (Some(open_ref), true) = (self.open.as_mut(), self.decorations) {
             let close_rect = Rect::from_min_size(pos2(title_rect.max.x - 24.0, title_rect.min.y + 4.0), vec2(20.0, 20.0));
             let close_resp = interact(ctx, close_rect, id.with("close"), Sense::click());
             let close_color = if close_resp.hovered() { style.visuals.widgets.hovered.fg_stroke.color } else { text_color };
@@ -151,7 +167,7 @@ impl<'open> Window<'open> {
             }
         }
 
-        let body = Rect::from_min_max(pos2(new_rect.min.x, new_rect.min.y + TITLE_BAR_HEIGHT), new_rect.max).shrink(8.0);
+        let body = Rect::from_min_max(pos2(new_rect.min.x, new_rect.min.y + title_bar_height), new_rect.max).shrink(8.0);
         let mut ui = Ui::new(ctx.clone(), id, body, Layout::top_down(Align::Min), body, DrawTarget::Overlay);
         let inner = add_contents(&mut ui);
 

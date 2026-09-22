@@ -78,11 +78,18 @@ pub struct RichText {
     pub strong: bool,
     pub italics: bool,
     pub color: Option<Color32>,
+    /// Overrides the widget's default font size (e.g. a big Phosphor glyph on an icon-only
+    /// launcher tile). `None` keeps whatever the drawing widget would otherwise use.
+    pub font_size: Option<f32>,
+    /// Multiplies the drawn color's alpha - `1.0` is fully opaque. Lets a caller fade a label or
+    /// button in/out frame by frame (its own animation timer drives this every frame; there is no
+    /// engine-side tweening) without needing a whole separate "ghost" draw path.
+    pub alpha: f32,
 }
 
 impl RichText {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into(), strong: false, italics: false, color: None }
+        Self { text: text.into(), strong: false, italics: false, color: None, font_size: None, alpha: 1.0 }
     }
     pub fn strong(mut self) -> Self {
         self.strong = true;
@@ -94,6 +101,14 @@ impl RichText {
     }
     pub fn color(mut self, c: Color32) -> Self {
         self.color = Some(c);
+        self
+    }
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.font_size = Some(size);
+        self
+    }
+    pub fn alpha(mut self, a: f32) -> Self {
+        self.alpha = a.clamp(0.0, 1.0);
         self
     }
 }

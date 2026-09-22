@@ -676,6 +676,11 @@ export interface WindowConfig {
   // fill. Only has a backdrop to sample when the host app opted into the blur pass with
   // `EntropyApp::with_glass_blur(true)` (see src/bin/example.rs's "app-launcher").
   glass?: boolean;
+  // `false` strips the title bar, outer border stroke, resize handle and close button, leaving
+  // only the rounded background - a plain floating card for a home-screen-style panel. It also
+  // stops dragging (there is no title bar left to grab), so pair it with a fixed/centered
+  // `default_pos` (or leave x/y unset to center). Default `true`.
+  decorations?: boolean;
   onRender?: () => void;
   [key: string]: unknown;
 }
@@ -689,6 +694,11 @@ export interface TabConfig {
 export interface LabelConfig {
   text: string;
   bold?: boolean;
+  // Overrides the default 14px label font - e.g. a big icon glyph on a launcher tile.
+  fontSize?: number;
+  // Multiplies the drawn text's alpha, 0-1 (default 1). For a caller-driven fade animation -
+  // there is no engine-side tweening, so re-supply a new value every frame.
+  alpha?: number;
 }
 
 export interface UIRectConfig {
@@ -1666,6 +1676,14 @@ export interface ButtonConfig {
   // every frame) - falls back to deriving one from `text` when omitted. Already read at runtime
   // (src/deno/addon_setup.js's Widget.button: `config?.id`) but never declared here before.
   id?: string;
+  // Overrides the default 14px button font - e.g. a big icon glyph on a launcher tile.
+  fontSize?: number;
+  // Multiplies the drawn color's alpha, 0-1 (default 1). For a caller-driven fade animation -
+  // there is no engine-side tweening, so re-supply a new value every frame.
+  alpha?: number;
+  // `false` draws no background fill or border while idle, only a subtle highlight on
+  // hover/press - an icon-tile look instead of a bordered dialog button. Default `true`.
+  frame?: boolean;
 }
 
 export interface HyperlinkConfig {

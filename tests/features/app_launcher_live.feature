@@ -26,9 +26,16 @@ Feature: The app launcher's glass home screen, live
     When I advance 150 frames
     Then I capture "launcher-02-drifted"
 
-  Scenario: Discover installs another app
+  Scenario: Switching to Discover fades and grows the new grid in over a few frames
+    # viewFadeFrame resets to 0 on the click and eases up over VIEW_FADE_FRAMES (10) - see
+    # app_launcher_addon.ts. One frame in, every tile's alpha/fontSize override is still close to
+    # its starting value (dim, slightly shrunk); ten frames later it has settled at full
+    # brightness/size. The two captures below are compared by the harness (region luma) to prove
+    # the fade actually ran frame-by-frame rather than the grid just appearing instantly.
     When I click "show_discover"
-    And I advance 3 frames
+    And I advance 1 frames
+    Then I capture "launcher-03a-discover-fading"
+    When I advance 9 frames
     Then I see the label "Discover"
     And I see the label "Stylus Drawing"
     And I capture "launcher-03-discover"

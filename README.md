@@ -212,11 +212,12 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 |---|---|
 | `UI.createWindow(config)` / `UI.createTab(config)` | Opens a floating window or a tab within Studio's shell, returning an id you pass to every `Widget.*` call to draw into it. A floating window takes the pointer (clicks, drags, wheel) from every panel or earlier window beneath it. |
 | `UI.createWindow({ glass: true })` | Frosted glass: the window samples a blurred copy of the frame behind it instead of the theme's opaque fill. Needs the host app to run the blur pass (`EntropyApp::with_glass_blur(true)`), otherwise there is nothing in the target to sample. |
+| `UI.createWindow({ decorations: false })` | Strips the title bar, outer border and resize handle, leaving only the rounded background - a plain floating card. It also stops dragging, so pair it with a fixed/centered position. Default `true`. |
 | `UI.drawRect` / `UI.drawText` | Draws a raw rectangle or text string directly in screen space for HUD overlays outside the widget system. |
 | `UI.clear()` | Clears drawn HUD elements. |
 | `UI.setTheme(config)` | Overrides colors, corner radius, spacing, and padding for your addon's UI. Every field is optional; unset fields use the default theme. |
 | `UI.selectDialogueOption(index)` | Programmatically picks a dialogue-tree option (see `DialogueSystem` under Behaviors). |
-| `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. |
+| `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. `label`/`button` take optional `fontSize` (default 14) and `alpha` (0-1, for a caller-driven fade - there is no engine-side tweening) overrides; `button` also takes `frame: false` for a borderless icon-tile look (fill/border only appear on hover). |
 | `Widget.slider` / `numericInput` | Drag-to-adjust and type-a-number inputs for numeric values. |
 | `Widget.knob` | A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up raises the value, down lowers it); label and value are drawn on the knob itself rather than beside it. |
 | `Widget.dropdown` | A select-one-of-N dropdown. |

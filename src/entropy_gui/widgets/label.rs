@@ -21,10 +21,10 @@ fn label_color(ui: &Ui, wt: &WidgetText) -> Color32 {
 impl Ui {
     pub fn label(&mut self, text: impl Into<WidgetText>) -> Response {
         let text = text.into();
-        let font = FontId::proportional(DEFAULT_FONT_SIZE);
+        let font = FontId::proportional(text.0.font_size.unwrap_or(DEFAULT_FONT_SIZE));
         let size = Painter::measure_text(self.ctx(), font, &text.0.text);
         let (rect, response) = self.allocate_response(vec2(size.x, size.y.max(font.size)), Sense::hover());
-        let color = label_color(self, &text);
+        let color = label_color(self, &text).linear_multiply(text.0.alpha);
         self.painter().text(rect.left_top(), Align2::LEFT_TOP, &text.0.text, font, color);
         response
     }

@@ -1,7 +1,8 @@
-// Entropy App Launcher - a home screen for the other example apps. Two frosted-glass panels
-// (`glass: true`, which samples the engine's real per-frame blur target - see
-// `EntropyApp::with_glass_blur` and `core/glass_blur.rs`) float over a drifting 3D backdrop, so
-// what shows through the glass is the actual scene, blurred, not a flat translucent fill.
+// Entropy App Launcher - a home screen for the other example apps, styled after a phone launcher:
+// one centered, borderless glass panel, icon-and-name tiles with no bordered cards or blurb text,
+// and a flowing procedural backdrop instead of the old flat glow quads. `glass: true` samples the
+// engine's real per-frame blur target (see `EntropyApp::with_glass_blur` and `core/glass_blur.rs`),
+// so what shows through the panel is the actual drifting backdrop, blurred, not a flat fill.
 //
 // Which apps are "installed" is persisted through this addon's own IO.save/load (the app's
 // `.with_data_dir(...)` in src/bin/example.rs decides where). Launching one calls
@@ -13,7 +14,7 @@ import type { IconName, IconStyle } from "../addon";
 
 const addonInfo = {
     name: "App Launcher",
-    version: "1.0.0",
+    version: "2.0.0",
     description: "A glass home screen for Entropy's example apps, with one-click install and launch",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true, graphics: true }
@@ -33,32 +34,33 @@ const withIcon = (name: IconName, text: string, style?: IconStyle): string => En
 interface CatalogEntry {
     name: string;
     title: string;
-    blurb: string;
     icon: IconName;
 }
 
-// Titles, blurbs and icons live here rather than in the engine: `LAUNCHABLE_EXAMPLES` is a
-// security fence and stays a bare list of names. Anything the engine can launch but this catalog
-// does not describe still shows up under its raw name and a generic icon (see `catalogFor`).
+// Titles and icons live here rather than in the engine: `LAUNCHABLE_EXAMPLES` is a security fence
+// and stays a bare list of names. Anything the engine can launch but this catalog does not
+// describe still shows up under its raw name and a generic icon (see `catalogFor`). Blurbs were
+// dropped along with the bordered per-app cards they used to sit in - a phone launcher names an
+// app under its icon and nothing else.
 const CATALOG: CatalogEntry[] = [
-    { name: "daw", title: "DAW", blurb: "Arrangement, wavetable synth, drum racks, VST3", icon: "waveform" },
-    { name: "canvas-surface-demo", title: "Canvas Surfaces", blurb: "Draw on 3D surfaces and wire up gameplay", icon: "cube" },
-    { name: "cc-manager", title: "CC Manager", blurb: "Kanban board backed by a plain JSON file", icon: "kanban" },
-    { name: "doc-editor-demo", title: "Document Editor", blurb: "Paginated rich text with per-run fonts", icon: "file-text" },
-    { name: "fft-water", title: "FFT Water", blurb: "Ocean surface from an FFT on the GPU", icon: "waves" },
-    { name: "fft-river", title: "FFT River", blurb: "Flowing river built on the same spectrum", icon: "wave-sine" },
-    { name: "game2d", title: "2D Arena", blurb: "Sprites, input and collision", icon: "game-controller" },
-    { name: "level-editor-2d", title: "2D Level Editor", blurb: "Tile and entity authoring", icon: "grid-four" },
-    { name: "light-hive", title: "Light Hive", blurb: "Point-light shader presets on a real model", icon: "lightbulb" },
-    { name: "html-ui-demo", title: "HTML UI", blurb: "Real HTML and CSS through taffy", icon: "browser" },
-    { name: "keyframe-tracks-demo", title: "Clip & Curve Editor", blurb: "Keyframe timeline and track view", icon: "bezier-curve" },
-    { name: "mcp-tools-demo", title: "MCP Tools", blurb: "Expose addon functions to an agent", icon: "network" },
-    { name: "media-player", title: "Media Player", blurb: "Hardware-decoded video playback", icon: "monitor-play" },
-    { name: "ml-graph-demo", title: "ML Graph Trainer", blurb: "Build and train a small net", icon: "brain" },
-    { name: "node-graph", title: "Nocode Calculator", blurb: "Node graph editor", icon: "graph" },
-    { name: "stylus-drawing", title: "Stylus Drawing", blurb: "Pressure and tilt from a real pen", icon: "pen-nib" },
-    { name: "theme-gallery", title: "Theme Gallery", blurb: "Every widget in every theme", icon: "palette" },
-    { name: "video-export-demo", title: "Video Export", blurb: "Render the scene out to H.264", icon: "film-strip" },
+    { name: "daw", title: "DAW", icon: "waveform" },
+    { name: "canvas-surface-demo", title: "Canvas Surfaces", icon: "cube" },
+    { name: "cc-manager", title: "CC Manager", icon: "kanban" },
+    { name: "doc-editor-demo", title: "Document Editor", icon: "file-text" },
+    { name: "fft-water", title: "FFT Water", icon: "waves" },
+    { name: "fft-river", title: "FFT River", icon: "wave-sine" },
+    { name: "game2d", title: "2D Arena", icon: "game-controller" },
+    { name: "level-editor-2d", title: "2D Level Editor", icon: "grid-four" },
+    { name: "light-hive", title: "Light Hive", icon: "lightbulb" },
+    { name: "html-ui-demo", title: "HTML UI", icon: "browser" },
+    { name: "keyframe-tracks-demo", title: "Clip & Curve Editor", icon: "bezier-curve" },
+    { name: "mcp-tools-demo", title: "MCP Tools", icon: "network" },
+    { name: "media-player", title: "Media Player", icon: "monitor-play" },
+    { name: "ml-graph-demo", title: "ML Graph Trainer", icon: "brain" },
+    { name: "node-graph", title: "Nocode Calculator", icon: "graph" },
+    { name: "stylus-drawing", title: "Stylus Drawing", icon: "pen-nib" },
+    { name: "theme-gallery", title: "Theme Gallery", icon: "palette" },
+    { name: "video-export-demo", title: "Video Export", icon: "film-strip" },
 ];
 
 const FALLBACK_ICON: IconName = "app-window";
@@ -71,6 +73,12 @@ const DEFAULT_INSTALLED = ["daw", "canvas-surface-demo", "cc-manager", "theme-ga
 // needed; this is a plain HTTPS GET like any other, unauthenticated, read-only.
 const RSS_URL = "https://indie-machine.com/rss.xml";
 const FEED_ITEMS = 2;
+
+// Tiles are laid out COLS-per-row in plain `horizontal`/`vertical` widget rows (immediate mode,
+// no fixed-width grid primitive exists here) - good enough for the handful of rows this catalog
+// ever needs.
+const COLS = 4;
+const TILE_ICON_SIZE = 30;
 
 interface LauncherState {
     installed: string[];
@@ -94,8 +102,28 @@ let feedError: string | null = null;
 let pendingFeed: string | null = null;
 let backdropAngle = 0;
 
+// Eased fade-in for whichever grid (Installed or Discover) is on screen right now: reset to 0
+// whenever the view is switched and counted back up to FADE_FRAMES in `onUpdatePlus`, so the new
+// screen's tiles fade and grow in over a few frames instead of popping in fully formed. There is
+// no engine-side tweening (`RichText.alpha`/`.font_size` are plain per-frame overrides - see
+// entropy_gui/mod.rs), so this addon owns the timer and recomputes the eased value every frame.
+const VIEW_FADE_FRAMES = 10;
+let viewFadeFrame = VIEW_FADE_FRAMES;
+
+function switchView(discover: boolean) {
+    if (discover === showDiscover) return;
+    showDiscover = discover;
+    viewFadeFrame = 0;
+}
+
+/** Quadratic ease-out, 0 at the first frame after a view switch to 1 once settled. */
+function viewFade(): number {
+    const t = Math.min(1, viewFadeFrame / VIEW_FADE_FRAMES);
+    return 1 - (1 - t) * (1 - t);
+}
+
 function catalogFor(name: string): CatalogEntry {
-    return CATALOG.find((entry) => entry.name === name) ?? { name, title: name, blurb: "", icon: FALLBACK_ICON };
+    return CATALOG.find((entry) => entry.name === name) ?? { name, title: name, icon: FALLBACK_ICON };
 }
 
 function launchable(): string[] {
@@ -118,6 +146,7 @@ function saveState() {
 function install(name: string) {
     if (installed.includes(name)) return;
     installed.push(name);
+    launchStatus = withIcon("check-circle", `Installed ${catalogFor(name).title}`);
     saveState();
 }
 
@@ -190,83 +219,126 @@ function pollFeed() {
     if (feed.length === 0) feedError = "The feed came back with no posts.";
 }
 
-// A subdivided grid whose vertex colour fades smoothly from `color` at the centre to pure black
-// at and before its own rectangular boundary (a radial smoothstep falloff), so the mesh's actual
-// geometric edge sits inside solid black and is never visible as a hard seam against the black
-// void behind it (or, once overlapping, against a darker neighbour band) - the engine's "default"
-// mesh pipeline draws fully opaque with no alpha blending, so a real soft edge has to be painted
-// into the vertex colours themselves rather than left to transparency. 12 floats per vertex:
-// position(3), normal(3), uv(2), color(4) - the layout every Entropy.Model.createMesh buffer uses.
-const GLOW_SEGMENTS = 10;
+// --- Backdrop: one flowing procedural surface instead of six flat glow quads -----------------
+//
+// The previous backdrop stamped soft-edged aurora blobs onto a mesh's own vertex colors (a
+// radial smoothstep falloff baked per vertex); blurred behind the glass panels it still read as
+// a handful of separate rectangular quads rather than one continuous field. This version is a
+// single large quad with a real fragment shader: three slow sine fields at different scales
+// stand in for a cheap flow-noise (no texture lookup needed for something this blurred), mapped
+// through a fixed palette and a soft vignette so the mesh's own rectangular edge fades to black
+// rather than showing a seam. `resourceType: "Time"` binds a uniform the engine itself refreshes
+// every frame (see `ResourceType::Time` in src/deno/addon_engine.rs) - no manual Buffer.write
+// needed to animate it.
+const BACKDROP_SHADER = `
+struct Camera {
+    view_proj: mat4x4<f32>,
+    view_pos: vec4<f32>,
+};
+@group(0) @binding(0)
+var<uniform> camera: Camera;
 
-function glowQuad(
-    center: [number, number, number],
-    halfWidth: number,
-    halfHeight: number,
-    color: [number, number, number],
-): { vertices: number[]; indices: number[] } {
-    const [cx, cy, cz] = center;
-    const n = GLOW_SEGMENTS;
-    const vertices: number[] = [];
-    for (let j = 0; j <= n; j++) {
-        const v = j / n;
-        const y = cy + (v - 0.5) * 2 * halfHeight;
-        const dy = (v - 0.5) * 2;
-        for (let i = 0; i <= n; i++) {
-            const u = i / n;
-            const x = cx + (u - 0.5) * 2 * halfWidth;
-            const dx = (u - 0.5) * 2;
-            // 0 at the centre, ~1 at an edge midpoint, ~1.41 at a corner - already fully faded
-            // (falloff 0) well before the true corner, which is what keeps the corner invisible.
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const t = Math.min(1, Math.max(0, 1 - dist));
-            const falloff = t * t * (3 - 2 * t);
-            vertices.push(x, y, cz, 0, 0, 1, u, v, color[0] * falloff, color[1] * falloff, color[2] * falloff, 1);
-        }
-    }
-    const indices: number[] = [];
-    for (let j = 0; j < n; j++) {
-        for (let i = 0; i < n; i++) {
-            const a = j * (n + 1) + i;
-            const b = a + 1;
-            const c = a + (n + 1);
-            const d = c + 1;
-            indices.push(a, b, c, b, d, c);
-        }
-    }
-    return { vertices, indices };
+struct Time { time: f32 };
+@group(2) @binding(0)
+var<uniform> u_time: Time;
+
+struct VertexInput {
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) tex_coords: vec2<f32>,
+    @location(3) color: vec4<f32>,
+};
+
+struct VertexOutput {
+    @builtin(position) clip_position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(in: VertexInput) -> VertexOutput {
+    var out: VertexOutput;
+    // in.position is already world-space (this quad's corners are baked directly, same
+    // convention as canvas_surface_addon's meshes), so no model matrix is needed.
+    out.clip_position = camera.view_proj * vec4<f32>(in.position, 1.0);
+    out.uv = in.tex_coords;
+    return out;
 }
 
-// Overlapping soft glows in aurora colours at a few depths. Deliberately large: the glass panels
-// blur whatever lands behind them, and small high-contrast detail just turns to mush, while broad
-// colour fields stay readable as colour.
-const BACKDROP: { id: string; center: [number, number, number]; w: number; h: number; color: [number, number, number] }[] = [
-    { id: "launcher_band_deep", center: [0, 0, -9], w: 40, h: 26, color: [0.16, 0.10, 0.32] },
-    { id: "launcher_band_violet", center: [-6, 2.5, -6], w: 20, h: 13, color: [0.55, 0.20, 0.85] },
-    { id: "launcher_band_teal", center: [7, -1.5, -5], w: 19, h: 11, color: [0.10, 0.70, 0.72] },
-    { id: "launcher_band_rose", center: [2, 5.0, -4], w: 22, h: 9, color: [0.95, 0.35, 0.45] },
-    { id: "launcher_band_amber", center: [-3, -5.5, -3], w: 24, h: 10, color: [0.98, 0.65, 0.25] },
-    { id: "launcher_band_indigo", center: [9, 4.5, -2], w: 14, h: 14, color: [0.25, 0.30, 0.95] },
-];
+fn palette(t: f32) -> vec3<f32> {
+    // Deep indigo -> violet -> teal -> rose, matching applyTheme's accent colors below.
+    let c0 = vec3<f32>(0.035, 0.03, 0.09);
+    let c1 = vec3<f32>(0.40, 0.16, 0.60);
+    let c2 = vec3<f32>(0.10, 0.55, 0.58);
+    let c3 = vec3<f32>(0.80, 0.34, 0.42);
+    let a = smoothstep(0.0, 0.4, t);
+    let b = smoothstep(0.35, 0.7, t);
+    let c = smoothstep(0.65, 1.0, t);
+    var col = mix(c0, c1, a);
+    col = mix(col, c2, b);
+    col = mix(col, c3, c);
+    return col;
+}
+
+@fragment
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    let p = (in.uv - vec2<f32>(0.5, 0.5)) * vec2<f32>(2.0, 1.5);
+    let t = u_time.time;
+
+    var flow = sin(p.x * 1.6 + t * 0.18) * 0.5;
+    flow += sin(p.y * 2.1 - t * 0.13 + p.x * 0.6) * 0.35;
+    flow += sin(length(p) * 2.6 - t * 0.22) * 0.4;
+    flow = flow * 0.5 + 0.5;
+
+    var col = palette(clamp(flow, 0.0, 1.0));
+
+    // Soft vignette: fades to near-black well inside the quad's true edge, so the rectangular
+    // mesh boundary itself is never visible against the void behind it.
+    let vign = smoothstep(1.25, 0.15, length(p));
+    col *= vign;
+
+    return vec4<f32>(col, 1.0);
+}
+`;
 
 function buildBackdrop() {
-    for (const band of BACKDROP) {
-        const mesh = glowQuad(band.center, band.w / 2, band.h / 2, band.color);
-        Entropy.Model.createMesh({
-            id: band.id,
-            position: [0, 0, 0],
-            vertexData: mesh.vertices,
-            indexData: mesh.indices,
-            pipelineId: "default",
-        } as any);
-    }
+    const pipelineId = Entropy.Pipeline.create({
+        name: "LauncherBackdrop",
+        layout: "mesh",
+        pbr: false,
+        vertexShader: BACKDROP_SHADER,
+        fragmentShader: BACKDROP_SHADER,
+        extraBindGroups: [
+            { entries: [{ binding: 0, visibility: ["Fragment"], resourceType: "Uniform" }] },
+        ],
+    } as any);
+
+    // One big quad, comfortably larger than the camera's drift range so it fills the view at
+    // every angle `driftCamera` reaches. Vertex order/winding matches the old glowQuad grid
+    // (bottom-left, bottom-right, top-left, top-right; two triangles sharing the BR-TL edge).
+    const hw = 26, hh = 16, z = -11;
+    const vertexData = [
+        -hw, -hh, z, 0, 0, 1, 0, 0, 1, 1, 1, 1,
+        hw, -hh, z, 0, 0, 1, 1, 0, 1, 1, 1, 1,
+        -hw, hh, z, 0, 0, 1, 0, 1, 1, 1, 1, 1,
+        hw, hh, z, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+    ];
+    const indexData = [0, 1, 2, 1, 3, 2];
+
+    Entropy.Model.createMesh({
+        id: "launcher_backdrop",
+        position: [0, 0, 0],
+        vertexData,
+        indexData,
+        pipelineId,
+        bindings: [{ group: 2, binding: 0, resource: { type: "Time" } }],
+    } as any);
 
     Entropy.Lighting.updateSun({
-        horizonColor: [0.16, 0.09, 0.30],
-        zenithColor: [0.03, 0.02, 0.10],
+        horizonColor: [0.12, 0.08, 0.22],
+        zenithColor: [0.02, 0.02, 0.06],
         sunDirection: [0.1, 0.25, 1.0],
         sunColor: [1.0, 0.92, 0.85],
-        sunIntensity: 5.0,
+        sunIntensity: 3.0,
     });
 }
 
@@ -278,7 +350,7 @@ function hex(h: string, a = 1): [number, number, number, number] {
 }
 
 // A dark, violet-accented theme that matches the aurora backdrop showing through the glass
-// panels, with rounder corners than the default Slate so the whole window reads as one glassy
+// panel, with rounder corners than the default Slate so the whole window reads as one glassy
 // object rather than a themed dialog sitting on top of a scene.
 function applyTheme() {
     Entropy.UI.setTheme({
@@ -288,16 +360,16 @@ function applyTheme() {
         border: hex("#4A3F7A", 0.55),
         text: hex("#F1EEFB"),
         accent: hex("#B98CF2"),
-        cornerRadius: 12,
-        windowCornerRadius: 16,
-        itemSpacing: 10,
-        buttonPadding: [12, 6],
+        cornerRadius: 14,
+        windowCornerRadius: 22,
+        itemSpacing: 12,
+        buttonPadding: [10, 6],
     });
 }
 
-// A slow drift rather than a still image: it is what makes the frosted panels read as glass
+// A slow drift rather than a still image: it is what makes the frosted panel read as glass
 // instead of a static texture, and it is also what the live BDD tier measures (the pixels behind
-// a glass panel have to change when the scene does).
+// the panel have to change when the scene does).
 const DRIFT_RADIUS = 2.2;
 const DRIFT_SPEED = 0.012;
 
@@ -308,99 +380,128 @@ function driftCamera() {
     );
 }
 
+// A fresh window title (not "App Launcher"/"Entropy Apps" from earlier revisions) means a fresh
+// `entropy_gui` memory slot: the window is never dragged (see `decorations: false` below), so it
+// always opens centered instead of possibly reusing an old, dragged-off-center cached rect.
+let winId: string;
+const WINDOW_WIDTH = 640;
+const WINDOW_HEIGHT = 580;
+
 function setupUI() {
-    const apps = Entropy.UI.createWindow({
-        title: withIcon("squares-four", "Entropy Apps"),
-        width: 560,
-        height: 500,
-        x: 32,
-        y: 32,
+    winId = Entropy.UI.createWindow({
+        title: "Entropy",
+        width: WINDOW_WIDTH,
+        height: WINDOW_HEIGHT,
+        resizable: false,
+        // No title bar, no border stroke, no resize handle - see entropy_gui::Window::decorations.
+        // Leaving x/y unset centers the panel on screen, same as every other window here; without
+        // a title bar to drag, it stays centered for the life of the run.
+        decorations: false,
         glass: true,
-        onRender: () => renderApps(apps),
-    });
-    const news = Entropy.UI.createWindow({
-        title: withIcon("rss", "Indie Machine"),
-        width: 290,
-        height: 260,
-        x: 610,
-        y: 32,
-        glass: true,
-        onRender: () => renderNews(news),
+        onRender: () => renderApps(winId),
     });
 }
 
 // An icon beside a title, each its own `Widget.label` so the title's text stays exactly what it
 // was (the live BDD tier's "I see the label" step matches a label's full text, not a substring -
-// see the doc comment on `icon`/`withIcon` above).
-function titleRow(win: string, name: IconName, title: string) {
+// see the doc comment on `icon`/`withIcon` above). An optional trailing borderless button (the
+// Home/Discover toggle) rides in the same row instead of getting a whole line of its own.
+function titleRow(win: string, name: IconName, title: string, trailing?: { id: string; text: string; onClick: () => void }) {
     Entropy.UI.Widget.horizontal(win, (row) => {
         Entropy.UI.Widget.label(row, { text: icon(name) });
         Entropy.UI.Widget.label(row, { text: title, bold: true });
+        if (trailing) {
+            Entropy.UI.Widget.button(row, { id: trailing.id, text: trailing.text, frame: false, onClick: trailing.onClick });
+        }
     });
+}
+
+/** One phone-launcher-style tile: a big borderless icon button with the app's name below it - no
+ * bordered card, no blurb. `fade` eases 0..1 (see `viewFade`) so a freshly switched-to screen's
+ * tiles grow and fade in instead of appearing fully formed. */
+function renderTile(win: string, entry: CatalogEntry, buttonId: string, onTap: () => void, removeId?: string) {
+    const fade = viewFade();
+    Entropy.UI.Widget.vertical(win, (col) => {
+        Entropy.UI.Widget.button(col, {
+            id: buttonId,
+            text: icon(entry.icon),
+            fontSize: TILE_ICON_SIZE * (0.85 + 0.15 * fade),
+            alpha: fade,
+            frame: false,
+            onClick: onTap,
+        });
+        Entropy.UI.Widget.label(col, { text: entry.title, alpha: fade });
+        if (removeId) {
+            Entropy.UI.Widget.button(col, {
+                id: removeId,
+                text: icon("x-circle"),
+                fontSize: 12,
+                alpha: fade * 0.7,
+                frame: false,
+                onClick: () => uninstall(entry.name),
+            });
+        }
+    });
+}
+
+function renderGrid(win: string, names: string[], tile: (name: string) => { id: string; onTap: () => void; removeId?: string }) {
+    for (let i = 0; i < names.length; i += COLS) {
+        Entropy.UI.Widget.horizontal(win, (row) => {
+            for (const name of names.slice(i, i + COLS)) {
+                const entry = catalogFor(name);
+                const t = tile(name);
+                renderTile(row, entry, t.id, t.onTap, t.removeId);
+            }
+        });
+    }
 }
 
 function renderApps(win: string) {
     pollFeed();
 
-    titleRow(win, showDiscover ? "compass" : "squares-four", showDiscover ? "Discover" : "Installed");
+    titleRow(win, showDiscover ? "compass" : "squares-four", showDiscover ? "Discover" : "Installed", {
+        id: showDiscover ? "show_home" : "show_discover",
+        text: showDiscover ? withIcon("house", "Home") : withIcon("compass", "Discover"),
+        onClick: () => switchView(!showDiscover),
+    });
+    Entropy.UI.Widget.separator(win);
 
     if (showDiscover) {
         const missing = launchable().filter((name) => !installed.includes(name));
         if (missing.length === 0) {
             Entropy.UI.Widget.label(win, { text: "Everything in this build is installed." });
+        } else {
+            renderGrid(win, missing, (name) => ({ id: `install-${name}`, onTap: () => install(name) }));
         }
-        for (const name of missing) {
-            const entry = catalogFor(name);
-            Entropy.UI.Widget.group(win, (w) => {
-                titleRow(w, entry.icon, entry.title);
-                if (entry.blurb) Entropy.UI.Widget.label(w, { text: entry.blurb });
-                Entropy.UI.Widget.button(w, {
-                    id: `install-${name}`,
-                    text: withIcon("download-simple", "Install"),
-                    onClick: () => install(name),
-                });
-            });
+    } else {
+        if (installed.length === 0) {
+            Entropy.UI.Widget.label(win, { text: "No apps installed yet - open Discover above." });
+        } else {
+            renderGrid(win, installed, (name) => ({ id: `launch-${name}`, onTap: () => launch(name), removeId: `uninstall-${name}` }));
         }
-        Entropy.UI.Widget.separator(win);
-        Entropy.UI.Widget.button(win, { id: "show_home", text: withIcon("arrow-left", "Back to home"), onClick: () => { showDiscover = false; } });
-        return;
-    }
-
-    if (installed.length === 0) {
-        Entropy.UI.Widget.label(win, { text: "No apps installed yet - open Discover below." });
-    }
-    for (const name of installed) {
-        const entry = catalogFor(name);
-        Entropy.UI.Widget.group(win, (w) => {
-            titleRow(w, entry.icon, entry.title);
-            if (entry.blurb) Entropy.UI.Widget.label(w, { text: entry.blurb });
-            Entropy.UI.Widget.horizontal(w, (row) => {
-                Entropy.UI.Widget.button(row, { id: `launch-${name}`, text: withIcon("rocket-launch", "Open"), onClick: () => launch(name) });
-                Entropy.UI.Widget.button(row, { id: `uninstall-${name}`, text: withIcon("trash", "Remove"), onClick: () => uninstall(name) });
-            });
-        });
     }
 
     Entropy.UI.Widget.separator(win);
-    Entropy.UI.Widget.button(win, { id: "show_discover", text: withIcon("compass", "Discover more apps"), onClick: () => { showDiscover = true; } });
-    if (launchStatus) Entropy.UI.Widget.label(win, { text: launchStatus });
+    renderNews(win);
+    if (launchStatus) Entropy.UI.Widget.label(win, { text: launchStatus, alpha: 0.85 });
 }
 
 function renderNews(win: string) {
     titleRow(win, "rss", "Latest posts");
     if (feedError) {
         Entropy.UI.Widget.label(win, { text: withIcon("warning-circle", "Couldn't reach indie-machine.com") });
-        Entropy.UI.Widget.button(win, { id: "retry_feed", text: withIcon("arrow-clockwise", "Retry"), onClick: () => startFeedFetch() });
+        Entropy.UI.Widget.button(win, { id: "retry_feed", text: withIcon("arrow-clockwise", "Retry"), frame: false, onClick: () => startFeedFetch() });
         return;
     }
     if (feed.length === 0) {
-        Entropy.UI.Widget.label(win, { text: pendingFeed ? "Loading..." : "No posts yet." });
+        Entropy.UI.Widget.label(win, { text: pendingFeed ? "Loading..." : "No posts yet.", alpha: 0.7 });
         return;
     }
-    feed.forEach((post, index) => {
-        Entropy.UI.Widget.hyperlink(win, { id: `feed-${post.link}`, text: withIcon("arrow-square-out", post.title), url: post.link });
-        Entropy.UI.Widget.label(win, { text: withIcon("clock", formatDate(post.date)) });
-        if (index < feed.length - 1) Entropy.UI.Widget.separator(win);
+    feed.forEach((post) => {
+        Entropy.UI.Widget.horizontal(win, (row) => {
+            Entropy.UI.Widget.hyperlink(row, { id: `feed-${post.link}`, text: withIcon("arrow-square-out", post.title), url: post.link });
+            Entropy.UI.Widget.label(row, { text: withIcon("clock", formatDate(post.date)), alpha: 0.6 });
+        });
     });
 }
 
@@ -416,4 +517,5 @@ addon.onInit(async () => {
 addon.onUpdatePlus("Global", (_time: number) => {
     backdropAngle += DRIFT_SPEED;
     driftCamera();
+    if (viewFadeFrame < VIEW_FADE_FRAMES) viewFadeFrame++;
 });
