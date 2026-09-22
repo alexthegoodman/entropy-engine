@@ -449,6 +449,10 @@ export interface ScopedAPI {
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
       kanban: (windowId: string, config: KanbanConfig) => void;
+      /** A spreadsheet grid: lettered column headers, numbered rows, one selected cell with
+       * arrow-key/Tab/Enter navigation, and an optional colored border per cell. No inline
+       * editing - drive a cell's content through your own textInput bound to `selected`. */
+      sheetGrid: (windowId: string, config: SheetGridConfig) => void;
       /** A Figma/VS Code-style outliner: real indented rows, a native disclosure triangle,
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */
@@ -1285,6 +1289,43 @@ export interface KanbanConfig {
   onBackgroundClicked?: () => void;
 }
 
+/** One cell of a `Widget.sheetGrid` - only cells with content or a border need an entry; the
+ * grid's own `options.rows`/`options.cols` set its shape. */
+export interface SheetCellConfig {
+  row: number;
+  col: number;
+  text: string;
+  /** Right-aligned like a number; left-aligned otherwise. */
+  numeric?: boolean;
+  /** [r, g, b, a] in 0-1 - an outline drawn around the whole cell, for marking which data
+   * belongs to which axis of a chart or otherwise grouping cells visually. */
+  border?: [number, number, number, number];
+  /** Draws `text` in an error color instead of the normal one (a failed formula). */
+  error?: boolean;
+}
+
+export interface SheetGridOptions {
+  rows?: number;
+  cols?: number;
+  colWidth?: number;
+  rowHeight?: number;
+  /** Caps the grid at this height and scrolls the rows inside it; the column header row stays
+   * fixed above the scroll region. Omit to size the grid to fit every row. */
+  maxHeight?: number;
+}
+
+export interface SheetGridConfig {
+  id?: string;
+  cells?: SheetCellConfig[];
+  selected?: { row: number; col: number };
+  options?: SheetGridOptions;
+  /** Fired on a cell click, or on arrow-key/Tab/Enter navigation while a cell is already
+   * selected. Use it both for selection and to re-target your own formula bar. */
+  onCellSelected?: (row: number, col: number) => void;
+  /** Fired on Delete/Backspace while a cell is selected - clear its content. */
+  onCellClear?: (row: number, col: number) => void;
+}
+
 /** One row of a `Widget.treeView` - already depth-computed; the widget does not derive
  * hierarchy from parent ids, so a collapsed subtree is just omitted from `nodes` entirely. */
 export interface TreeNodeConfig {
@@ -1939,6 +1980,10 @@ export interface EntropyAPI {
       keyframeTimeline: (windowId: string, config: KeyframeTimelineConfig) => void;
       tracks: (windowId: string, config: TracksConfig) => void;
       kanban: (windowId: string, config: KanbanConfig) => void;
+      /** A spreadsheet grid: lettered column headers, numbered rows, one selected cell with
+       * arrow-key/Tab/Enter navigation, and an optional colored border per cell. No inline
+       * editing - drive a cell's content through your own textInput bound to `selected`. */
+      sheetGrid: (windowId: string, config: SheetGridConfig) => void;
       /** A Figma/VS Code-style outliner: real indented rows, a native disclosure triangle,
        * and a full-row selection highlight - see `TreeNodeConfig`'s own doc comment for how
        * to hand it hierarchy. */

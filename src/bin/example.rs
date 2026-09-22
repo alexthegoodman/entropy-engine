@@ -112,6 +112,15 @@ async fn main() {
                 .with_hot_reload(true)
                 .with_title("Nocode Calculator")
                 .with_window_size(1100.0, 700.0),
+            Some("sheet") => entropy_engine::EntropyApp::new()
+                .with_bundle("examples/studio-bundle/dist/sheet.js")
+                .with_hot_reload(true)
+                .with_title("Sheet")
+                .with_window_size(1400.0, 860.0)
+                // Same reasoning as cc-manager/daw's own with_data_dir: a standalone EntropyApp
+                // has nowhere for Entropy.IO.save/load to go without one, so the sheet (see
+                // sheet_addon.ts's saveSheet/loadSheet) would silently never persist.
+                .with_data_dir(env::var("ENTROPY_SHEET_BDD_DATA").unwrap_or_else(|_| "../sheet-data".to_string())),
             Some("stylus-drawing") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/stylus_drawing.js")
                 .with_title("Stylus Drawing")

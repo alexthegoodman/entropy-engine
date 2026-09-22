@@ -1227,6 +1227,27 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A spreadsheet grid: lettered column headers, numbered rows, one selected cell with
+            // arrow-key/Tab/Enter navigation, and an optional colored border per cell. Editing is
+            // deliberately not built in here - drive a cell's content through your own textInput
+            // bound to `selected` (like a real formula bar), and rebuild `cells` from your own
+            // model each frame; this widget only ever draws the text it is handed.
+            sheetGrid: (windowId, config) => {
+                const cells = config?.cells || [];
+                const selected = config?.selected ? [config.selected.row, config.selected.col] : null;
+                const id = nextWidgetId(windowId, "sheet", config?.id);
+
+                ops.op_ui_widget_sheet_grid(windowId, cells, selected, config?.options ?? {}, id);
+
+                if (config?.onCellSelected || config?.onCellClear) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "SHEET_CELL_SELECTED" && config.onCellSelected) config.onCellSelected(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_CELL_CLEAR" && config.onCellClear) config.onCellClear(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                    });
+                }
+            },
             // A Figma/VS Code-style outliner: one flat, already depth-computed `nodes` array,
             // rendered as real indented rows with a native disclosure triangle and a full-row
             // selection highlight - replaces a hand-stacked list of button()/checkbox() calls
@@ -1493,9 +1514,9 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("TABBAR_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
-                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid widget id
+                id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
             } else if (event.includes("|")) {

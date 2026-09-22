@@ -426,6 +426,31 @@ pub struct TreeNodeConfig {
     pub detail: Option<String>,
 }
 
+/// One cell of `Widget.sheetGrid` - see `entropy_gui::SheetGrid`. Only cells with content or a
+/// border need an entry; the grid's own `rows`/`cols` set its shape.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetCellConfig {
+    pub row: u32,
+    pub col: u32,
+    pub text: String,
+    pub numeric: Option<bool>,
+    /// [r, g, b, a] in 0..1, same convention as `Widget.kanban`'s card colour.
+    pub border: Option<[f32; 4]>,
+    pub error: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SheetGridOptionsConfig {
+    pub rows: Option<u32>,
+    pub cols: Option<u32>,
+    pub col_width: Option<f32>,
+    pub row_height: Option<f32>,
+    /// Caps the grid at this height and scrolls the rows inside it.
+    pub max_height: Option<f32>,
+}
+
 /// One tab of `Widget.tabBar` - see `entropy_gui::TabBar`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -603,6 +628,13 @@ pub enum UiWidget {
         columns: Vec<KanbanColumnConfig>,
         /// (column id, card id) - highlights that card as selected.
         selected: Option<(String, String)>,
+    },
+    SheetGrid {
+        id: String,
+        cells: Vec<SheetCellConfig>,
+        /// (row, col) - highlights that cell as selected.
+        selected: Option<(u32, u32)>,
+        options: SheetGridOptionsConfig,
     },
     /// A Figma/VS Code-style outliner - see `entropy_gui::widgets_tree`. The caller supplies
     /// one flat, already depth-computed list every frame; this widget does not derive
@@ -3622,6 +3654,20 @@ pub fn op_ui_widget_kanban(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Kanban { id, columns, selected });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_sheet_grid(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] cells: Vec<SheetCellConfig>,
+    #[serde] selected: Option<(u32, u32)>,
+    #[serde] options: SheetGridOptionsConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::SheetGrid { id, cells, selected, options });
     }
 }
 

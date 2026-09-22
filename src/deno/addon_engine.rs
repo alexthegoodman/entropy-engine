@@ -92,7 +92,7 @@ use crate::deno::addon_ops::{
     op_ui_clear,
     op_ui_create_tab, op_ui_create_window, op_ui_rect_create, op_ui_text_create, op_ui_widget_button, op_ui_widget_checkbox, op_ui_widget_code_editor, 
     op_ui_widget_collapsing_header, op_ui_widget_color_input, op_ui_widget_dropdown, op_ui_widget_end_collapsing_header, op_ui_widget_end_horizontal, 
-    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
+    op_ui_widget_label, op_ui_widget_mini_map, op_ui_widget_numeric_input, op_ui_widget_piano_roll, op_ui_widget_keyframe_timeline, op_ui_widget_tracks, op_ui_widget_kanban, op_ui_widget_tree_view, op_ui_widget_tab_bar, op_ui_widget_sheet_grid, op_ui_widget_oscilloscope, op_ui_widget_spectrum, op_ui_widget_level_meter, op_audio_analyze, op_ui_widget_separator, op_ui_widget_slider, op_ui_widget_knob, op_ui_widget_snarl,
     op_ui_widget_start_horizontal, op_ui_widget_hyperlink, op_ui_widget_text_input, op_ui_widget_doc_editor, op_doc_editor_toggle_bold,
     op_ui_widget_start_vertical, op_ui_widget_end_vertical, op_ui_widget_start_group, op_ui_widget_end_group,
     op_doc_editor_toggle_italic, op_doc_editor_set_font_family, op_doc_editor_set_font_size, op_doc_editor_set_color, op_doc_editor_set_paginated,
@@ -218,6 +218,7 @@ extension!(
         op_ui_widget_kanban,
         op_ui_widget_tree_view,
         op_ui_widget_tab_bar,
+        op_ui_widget_sheet_grid,
         op_ui_widget_pad_grid,
         op_ui_widget_wavetable,
         op_wavetable_ensure,
@@ -4515,6 +4516,38 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             crate::entropy_gui::KanbanEvent::BackgroundClicked => {
                                 events_to_push.push(format!("KANBAN_BG_CLICKED|{}", kanban_id));
+                            }
+                        }
+                    }
+                }
+                UiWidget::SheetGrid { id: sheet_id, cells, selected, options } => {
+                    let cells_data: Vec<crate::entropy_gui::SheetCell> = cells
+                        .iter()
+                        .map(|c| crate::entropy_gui::SheetCell {
+                            row: c.row,
+                            col: c.col,
+                            text: c.text.clone(),
+                            numeric: c.numeric.unwrap_or(false),
+                            border: c.border.map(egui::Color32::from_rgba_f32),
+                            error: c.error.unwrap_or(false),
+                        })
+                        .collect();
+                    let grid_options = crate::entropy_gui::SheetGridOptions {
+                        rows: options.rows.unwrap_or(20),
+                        cols: options.cols.unwrap_or(10),
+                        col_width: options.col_width.unwrap_or(92.0),
+                        row_height: options.row_height.unwrap_or(22.0),
+                        max_height: options.max_height,
+                    };
+
+                    let resp = crate::entropy_gui::SheetGrid::new(sheet_id.as_str()).options(grid_options).show(ui, &cells_data, *selected);
+                    for event in resp.events {
+                        match event {
+                            crate::entropy_gui::SheetEvent::CellSelected { row, col } => {
+                                events_to_push.push(format!("SHEET_CELL_SELECTED|{}|{}|{}", sheet_id, row, col));
+                            }
+                            crate::entropy_gui::SheetEvent::CellClearRequested { row, col } => {
+                                events_to_push.push(format!("SHEET_CELL_CLEAR|{}|{}|{}", sheet_id, row, col));
                             }
                         }
                     }

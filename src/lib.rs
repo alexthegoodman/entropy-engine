@@ -77,6 +77,7 @@ pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "media-player",
     "ml-graph-demo",
     "node-graph",
+    "sheet",
     "stylus-drawing",
     "theme-gallery",
     "video-export-demo",
