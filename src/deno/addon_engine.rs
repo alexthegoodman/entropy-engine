@@ -2671,7 +2671,17 @@ impl AddonEngine {
                                              config.instance_count.unwrap_or(1),
                                              time_buffer,
                                              &renderer_state.model_bind_group_layout,
-                                             &renderer_state.texture_render_mode_buffer,
+                                             // `Entropy.Model.createMesh` has no way to attach a
+                                             // real albedo/terrain texture, so binding the shared
+                                             // `texture_render_mode_buffer` (mode 1, the 3-way
+                                             // terrain blend gbuffer_fragment.wgsl uses) made every
+                                             // addon-authored mesh sample its 1x1 fallback texture
+                                             // through that blend math instead of showing its own
+                                             // vertex colors - the House model's placeholder mesh
+                                             // (procedural_models/House.rs) hits the identical case
+                                             // and binds `color_render_mode_buffer` (mode 0, plain
+                                             // vertex color) for exactly this reason.
+                                             &renderer_state.color_render_mode_buffer,
                                              &renderer_state.group_bind_group_layout,
                                              camera
                                          );

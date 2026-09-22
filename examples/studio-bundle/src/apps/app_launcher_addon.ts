@@ -190,45 +190,68 @@ function pollFeed() {
     if (feed.length === 0) feedError = "The feed came back with no posts.";
 }
 
-// 12 floats per vertex: position(3), normal(3), uv(2), color(4) - the layout every
-// Entropy.Model.createMesh buffer uses.
-function quad(
+// A subdivided grid whose vertex colour fades smoothly from `color` at the centre to pure black
+// at and before its own rectangular boundary (a radial smoothstep falloff), so the mesh's actual
+// geometric edge sits inside solid black and is never visible as a hard seam against the black
+// void behind it (or, once overlapping, against a darker neighbour band) - the engine's "default"
+// mesh pipeline draws fully opaque with no alpha blending, so a real soft edge has to be painted
+// into the vertex colours themselves rather than left to transparency. 12 floats per vertex:
+// position(3), normal(3), uv(2), color(4) - the layout every Entropy.Model.createMesh buffer uses.
+const GLOW_SEGMENTS = 10;
+
+function glowQuad(
     center: [number, number, number],
     halfWidth: number,
     halfHeight: number,
-    top: [number, number, number],
-    bottom: [number, number, number],
+    color: [number, number, number],
 ): { vertices: number[]; indices: number[] } {
     const [cx, cy, cz] = center;
-    const corners: [number, number, [number, number, number]][] = [
-        [cx - halfWidth, cy - halfHeight, bottom],
-        [cx + halfWidth, cy - halfHeight, bottom],
-        [cx + halfWidth, cy + halfHeight, top],
-        [cx - halfWidth, cy + halfHeight, top],
-    ];
+    const n = GLOW_SEGMENTS;
     const vertices: number[] = [];
-    corners.forEach(([x, y, color], index) => {
-        const uv = [[0, 1], [1, 1], [1, 0], [0, 0]][index];
-        vertices.push(x, y, cz, 0, 0, 1, uv[0], uv[1], color[0], color[1], color[2], 1);
-    });
-    return { vertices, indices: [0, 1, 2, 0, 2, 3] };
+    for (let j = 0; j <= n; j++) {
+        const v = j / n;
+        const y = cy + (v - 0.5) * 2 * halfHeight;
+        const dy = (v - 0.5) * 2;
+        for (let i = 0; i <= n; i++) {
+            const u = i / n;
+            const x = cx + (u - 0.5) * 2 * halfWidth;
+            const dx = (u - 0.5) * 2;
+            // 0 at the centre, ~1 at an edge midpoint, ~1.41 at a corner - already fully faded
+            // (falloff 0) well before the true corner, which is what keeps the corner invisible.
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            const t = Math.min(1, Math.max(0, 1 - dist));
+            const falloff = t * t * (3 - 2 * t);
+            vertices.push(x, y, cz, 0, 0, 1, u, v, color[0] * falloff, color[1] * falloff, color[2] * falloff, 1);
+        }
+    }
+    const indices: number[] = [];
+    for (let j = 0; j < n; j++) {
+        for (let i = 0; i < n; i++) {
+            const a = j * (n + 1) + i;
+            const b = a + 1;
+            const c = a + (n + 1);
+            const d = c + 1;
+            indices.push(a, b, c, b, d, c);
+        }
+    }
+    return { vertices, indices };
 }
 
-// Overlapping wide bands in aurora colours at a few depths. Deliberately large and soft: the
-// glass panels blur whatever lands behind them, and small high-contrast detail just turns to
-// mush, while broad colour fields stay readable as colour.
-const BACKDROP: { id: string; center: [number, number, number]; w: number; h: number; top: [number, number, number]; bottom: [number, number, number] }[] = [
-    { id: "launcher_band_deep", center: [0, 0, -9], w: 34, h: 22, top: [0.11, 0.07, 0.24], bottom: [0.03, 0.02, 0.09] },
-    { id: "launcher_band_violet", center: [-6, 2.5, -6], w: 16, h: 9, top: [0.55, 0.20, 0.85], bottom: [0.16, 0.06, 0.35] },
-    { id: "launcher_band_teal", center: [7, -1.5, -5], w: 15, h: 7, top: [0.10, 0.70, 0.72], bottom: [0.04, 0.22, 0.34] },
-    { id: "launcher_band_rose", center: [2, 5.0, -4], w: 18, h: 5, top: [0.95, 0.35, 0.45], bottom: [0.35, 0.10, 0.28] },
-    { id: "launcher_band_amber", center: [-3, -5.5, -3], w: 20, h: 6, top: [0.98, 0.65, 0.25], bottom: [0.30, 0.14, 0.06] },
-    { id: "launcher_band_indigo", center: [9, 4.5, -2], w: 10, h: 10, top: [0.25, 0.30, 0.95], bottom: [0.06, 0.08, 0.30] },
+// Overlapping soft glows in aurora colours at a few depths. Deliberately large: the glass panels
+// blur whatever lands behind them, and small high-contrast detail just turns to mush, while broad
+// colour fields stay readable as colour.
+const BACKDROP: { id: string; center: [number, number, number]; w: number; h: number; color: [number, number, number] }[] = [
+    { id: "launcher_band_deep", center: [0, 0, -9], w: 40, h: 26, color: [0.16, 0.10, 0.32] },
+    { id: "launcher_band_violet", center: [-6, 2.5, -6], w: 20, h: 13, color: [0.55, 0.20, 0.85] },
+    { id: "launcher_band_teal", center: [7, -1.5, -5], w: 19, h: 11, color: [0.10, 0.70, 0.72] },
+    { id: "launcher_band_rose", center: [2, 5.0, -4], w: 22, h: 9, color: [0.95, 0.35, 0.45] },
+    { id: "launcher_band_amber", center: [-3, -5.5, -3], w: 24, h: 10, color: [0.98, 0.65, 0.25] },
+    { id: "launcher_band_indigo", center: [9, 4.5, -2], w: 14, h: 14, color: [0.25, 0.30, 0.95] },
 ];
 
 function buildBackdrop() {
     for (const band of BACKDROP) {
-        const mesh = quad(band.center, band.w / 2, band.h / 2, band.top, band.bottom);
+        const mesh = glowQuad(band.center, band.w / 2, band.h / 2, band.color);
         Entropy.Model.createMesh({
             id: band.id,
             position: [0, 0, 0],
