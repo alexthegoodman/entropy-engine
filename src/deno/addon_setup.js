@@ -1031,6 +1031,16 @@ globalThis.Entropy = {
                 ops.op_ui_widget_slider(windowId, label, value, min, max, id);
                 bindListener('_entropy_event_listeners', id, config?.onChange);
             },
+            knob: (windowId, config) => {
+                const label = config?.label || "";
+                const value = config?.value || 0;
+                const min = config?.min || 0;
+                const max = config?.max || 100;
+                const id = nextWidgetId(windowId, label, config?.id);
+
+                ops.op_ui_widget_knob(windowId, label, value, min, max, id);
+                bindListener('_entropy_event_listeners', id, config?.onChange);
+            },
             numericInput: (windowId, config) => {
                 const label = config?.label || "";
                 const value = config?.value || 0;

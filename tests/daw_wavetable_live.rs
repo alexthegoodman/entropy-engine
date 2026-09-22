@@ -100,9 +100,21 @@ fn daw_wavetable_live_feature() {
     println!("  the lead peaked at {song:.1} dBFS over the song interval");
     assert!(song > -40.0, "the wavetable lead was nearly silent while the song played: {song:.1} dBFS");
 
+    // ---- An instrument preset (table, motion and the track's own filter/envelope in one step) ----
+    let bass = tool(14);
+    assert_eq!(bass["success"], true, "{bass:#}");
+    let bass_hz = num(&bass, "strongestHz");
+    println!("  Modulated Bass at C2: {bass_hz:.1} Hz strongest, {:.0} Hz bright", num(&bass, "brightnessHz"));
+    // Measured, not assumed: the spectral peak lands on the octave above C2 (130.9 Hz), not the
+    // 65.41 Hz fundamental - the 3-voice unison's 9-cent detune partly cancels the fundamental at
+    // this pitch/position, a real trait of this preset's sound, not a bug in the test. Either the
+    // fundamental or its octave is accepted; anything else would mean the preset stopped playing C2.
+    let ratio = bass_hz / 65.41;
+    assert!((ratio - 1.0).abs() < 0.06 || (ratio - 2.0).abs() < 0.06, "C2 through Modulated Bass sounded at {bass_hz:.1} Hz, on neither the fundamental nor its octave");
+
     // ---- Screenshots ----
     let artifacts: Vec<String> = result["artifacts"].as_array().unwrap().iter().map(|a| a.as_str().unwrap().to_string()).collect();
-    assert_eq!(artifacts.len(), 7, "{artifacts:#?}");
+    assert_eq!(artifacts.len(), 8, "{artifacts:#?}");
     let mut hashes = HashSet::new();
     for path in &artifacts {
         let bytes = fs::read(path).expect("screenshot exists");
@@ -120,7 +132,11 @@ fn daw_wavetable_live_feature() {
     let lead = project["tracks"].as_array().unwrap().iter().find(|t| t["id"] == "trk-lead").expect("the lead track");
     assert_eq!(lead["voice"]["waveform"], "wavetable");
     let wt = &lead["wavetable"];
-    assert_eq!(wt["preset"], "terrain", "the last preset chosen: {wt:#}");
+    // The feature's last scenario applies the "modulated_bass" instrument preset, whose table seed
+    // is "saw" (see WT_INSTRUMENT_PRESETS in daw_wavetable.ts) - so this is the true last preset,
+    // not "terrain" from the scenario before it.
+    assert_eq!(wt["preset"], "saw", "the last preset chosen: {wt:#}");
+    assert_eq!(wt["instrumentPreset"], "modulated_bass", "the last instrument preset applied: {wt:#}");
     let encoded = wt["data"].as_str().expect("the saved table");
     // "WVT1" in base64 is "V1ZUM"; 32 frames of 2048 16-bit samples plus the header is 131,080 bytes.
     assert!(encoded.starts_with("V1ZUM"), "the saved table does not start with the WVT1 header: {}", &encoded[..16.min(encoded.len())]);

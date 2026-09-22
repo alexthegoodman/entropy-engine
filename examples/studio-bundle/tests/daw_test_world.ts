@@ -63,6 +63,7 @@ export function createWorld(initialSaved?: unknown) {
         sampleHits: [] as { id: string; path: string; cfg: any }[],
         sampleExports: [] as any[][],
         sliders: [] as any[],
+        knobs: [] as any[],
         windowVisible: {} as Record<string, boolean>,
         windowTitles: {} as Record<string, string>,
         padGrids: new Map<string, any>(),
@@ -93,6 +94,7 @@ export function createWorld(initialSaved?: unknown) {
         button: (_win: string, c: any) => { w.buttons.set(c.id ?? `text:${c.text}`, c.onClick); w.buttonTexts.set(c.id ?? `text:${c.text}`, c.text); },
         label: (_win: string, c: any) => { w.labels.push(c.text); },
         slider: (_win: string, c: any) => { w.sliders.push(c); }, separator: () => {},
+        knob: (_win: string, c: any) => { w.knobs.push(c); },
         checkbox: (_win: string, c: any) => { w.checkboxes.set(c.id ?? c.label, c); },
         spectrum: (_win: string, c: any) => { w.spectra.set(c.id, c); },
         oscilloscope: (_win: string, c: any) => { w.scopes.set(c.id, c); },
@@ -268,7 +270,7 @@ export function createWorld(initialSaved?: unknown) {
     const render = () => {
         w.buttons.clear(); w.buttonTexts.clear(); w.headers = []; w.textInputs.clear(); w.numerics.clear(); w.dropdowns.clear();
         w.checkboxes.clear(); w.spectra.clear(); w.scopes.clear(); w.meters.clear();
-        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.wavetableViews.clear();
+        w.padGrids.clear(); w.trees.clear(); w.sliders = []; w.knobs = []; w.wavetableViews.clear();
         w.labels = []; w.piano = null; w.arrangement = null;
         tabRender?.();
         windowRenders.forEach(fn => fn());

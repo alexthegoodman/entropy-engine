@@ -41,6 +41,9 @@ import {
     WT_OPS,
     WT_PRESETS,
     WT_WAVEFORM,
+    WT_INSTRUMENT_PRESETS,
+    instrumentPresetFolders,
+    instrumentPresetById,
     defaultWavetable,
     describeSettings as describeWavetable,
     noteConfig as wavetableNoteConfig,
@@ -486,7 +489,29 @@ function setWavetablePosition(track: Track, position: number) {
 function loadWavetablePreset(track: Track, preset: string) {
     const r = addon.Wavetable.ensure(track.id, { preset });
     if (!r.ok) { wtStatus = r.error ?? "That preset could not be loaded."; return; }
-    trackWavetable(track).preset = preset;
+    const wt = trackWavetable(track);
+    wt.preset = preset;
+    // A bare waveform start clears whatever full patch was applied before - the table no longer
+    // matches its settings, and a stale "Modulated Bass" label on a hand-cleared sine would lie.
+    wt.instrumentPreset = undefined;
+    saveTrackWavetable(track);
+}
+
+// A full patch: the table it is built from plus the motion/voice settings that make it read as
+// "bass" or "strings" rather than a bare waveform (see WT_INSTRUMENT_PRESETS in daw_wavetable.ts).
+// Applying one is exactly loadWavetablePreset's table load, plus the settings and the track's own
+// Voice fields (filter, envelope) in one step.
+function applyInstrumentPreset(track: Track, presetId: string) {
+    const preset = instrumentPresetById(presetId);
+    if (!preset) { wtStatus = `Unknown instrument preset "${presetId}".`; return; }
+    const r = addon.Wavetable.ensure(track.id, { preset: preset.table });
+    if (!r.ok) { wtStatus = r.error ?? "That preset could not be loaded."; return; }
+    const wt = trackWavetable(track);
+    wt.preset = preset.table;
+    wt.instrumentPreset = preset.id;
+    Object.assign(wt, preset.settings);
+    Object.assign(track.voice, preset.voice);
+    wtStatus = "";
     saveTrackWavetable(track);
 }
 
@@ -1345,6 +1370,23 @@ function setWavetableVisible(visible: boolean) {
     if (wavetableWindowId) Entropy.UI.setWindowVisible(wavetableWindowId, visible);
 }
 
+// Folders start collapsed except the first, so a track that has never touched presets opens on
+// one short, readable list rather than all ten at once.
+const wtPresetCollapsed = new Set<string>(instrumentPresetFolders().slice(1).map(g => g.folder));
+
+function wtPresetTreeNodes(wt: WavetableSettings) {
+    const nodes: { id: string; label: string; depth: number; hasChildren: boolean; expanded?: boolean; selected?: boolean; detail?: string }[] = [];
+    for (const group of instrumentPresetFolders()) {
+        const collapsed = wtPresetCollapsed.has(group.folder);
+        nodes.push({ id: `folder:${group.folder}`, label: group.folder, depth: 0, hasChildren: true, expanded: !collapsed });
+        if (collapsed) continue;
+        for (const p of group.presets) {
+            nodes.push({ id: p.id, label: p.label, depth: 1, hasChildren: false, selected: wt.instrumentPreset === p.id });
+        }
+    }
+    return nodes;
+}
+
 function renderWavetableWindow(win: string) {
     const track = getActiveTrack();
     if (!track || track.kind !== "synth" || track.instrument) {
@@ -1424,20 +1466,58 @@ function renderWavetableWindow(win: string) {
     });
     Entropy.UI.Widget.vertical(columns, (right: string) => {
         Entropy.UI.Widget.group(right, (g: string) => {
+            Entropy.UI.Widget.label(g, { text: "Presets", bold: true });
+            Entropy.UI.Widget.treeView(g, {
+                id: "wt_instrument_presets", width: WAVETABLE_SIDE_COLUMN - 34, maxHeight: 160,
+                nodes: wtPresetTreeNodes(wt),
+                onSelect: (id: string) => {
+                    if (id.startsWith("folder:")) {
+                        const folder = id.slice(7);
+                        if (wtPresetCollapsed.has(folder)) wtPresetCollapsed.delete(folder); else wtPresetCollapsed.add(folder);
+                        return;
+                    }
+                    applyInstrumentPreset(track, id);
+                },
+                onToggleExpand: (id: string) => {
+                    const folder = id.startsWith("folder:") ? id.slice(7) : id;
+                    if (wtPresetCollapsed.has(folder)) wtPresetCollapsed.delete(folder); else wtPresetCollapsed.add(folder);
+                },
+            });
+            const active = wt.instrumentPreset ? instrumentPresetById(wt.instrumentPreset) : undefined;
+            if (active) Entropy.UI.Widget.label(g, { text: active.hint });
+        });
+        Entropy.UI.Widget.group(right, (g: string) => {
             Entropy.UI.Widget.label(g, { text: "Motion", bold: true });
-            Entropy.UI.Widget.slider(g, { label: "Position", value: wt.position, min: 0, max: 1, onChange: (v: string) => { setWavetablePosition(track, parseFloat(v)); } });
-            Entropy.UI.Widget.slider(g, { label: "LFO rate (Hz)", value: wt.lfoRate, min: 0, max: 20, onChange: (v: string) => { wt.lfoRate = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "LFO depth", value: wt.lfoDepth, min: 0, max: 1, onChange: (v: string) => { wt.lfoDepth = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "Sweep", value: wt.sweep, min: -1, max: 1, onChange: (v: string) => { wt.sweep = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "Sweep time (s)", value: wt.sweepTime, min: 0.02, max: 6, onChange: (v: string) => { wt.sweepTime = parseFloat(v); scheduleSave(); } });
+            // 3 knobs to a row: at the column's real width (narrower than WAVETABLE_SIDE_COLUMN once
+            // the terrain and its own padding take their share) a 4th or 5th knob was pushed off the
+            // drawn area instead of wrapping onto a new line - confirmed by screenshotting the real
+            // window (test-artifacts/daw-wavetable-*), not just reasoned about.
+            Entropy.UI.Widget.horizontal(g, (row: string) => {
+                Entropy.UI.Widget.knob(row, { label: "Position", value: wt.position, min: 0, max: 1, onChange: (v: string) => { setWavetablePosition(track, parseFloat(v)); } });
+                Entropy.UI.Widget.knob(row, { label: "LFO rate", value: wt.lfoRate, min: 0, max: 20, onChange: (v: string) => { wt.lfoRate = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "LFO depth", value: wt.lfoDepth, min: 0, max: 1, onChange: (v: string) => { wt.lfoDepth = parseFloat(v); scheduleSave(); } });
+            });
+            Entropy.UI.Widget.horizontal(g, (row: string) => {
+                Entropy.UI.Widget.knob(row, { label: "Sweep", value: wt.sweep, min: -1, max: 1, onChange: (v: string) => { wt.sweep = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Sweep time", value: wt.sweepTime, min: 0.02, max: 6, onChange: (v: string) => { wt.sweepTime = parseFloat(v); scheduleSave(); } });
+            });
         });
         Entropy.UI.Widget.group(right, (g: string) => {
             Entropy.UI.Widget.label(g, { text: "Voice", bold: true });
-            Entropy.UI.Widget.slider(g, { label: "Unison voices", value: wt.unison, min: 1, max: 7, onChange: (v: string) => { wt.unison = Math.round(parseFloat(v)); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "Detune (cents)", value: wt.detuneCents, min: 0, max: 60, onChange: (v: string) => { wt.detuneCents = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "Stereo spread", value: wt.spread, min: 0, max: 1, onChange: (v: string) => { wt.spread = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.slider(g, { label: "Velocity to position", value: wt.velToPosition, min: -1, max: 1, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
-            Entropy.UI.Widget.label(g, { text: "Cutoff and envelope: see Voice." });
+            Entropy.UI.Widget.horizontal(g, (row: string) => {
+                Entropy.UI.Widget.knob(row, { label: "Unison", value: wt.unison, min: 1, max: 7, onChange: (v: string) => { wt.unison = Math.round(parseFloat(v)); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Detune", value: wt.detuneCents, min: 0, max: 60, onChange: (v: string) => { wt.detuneCents = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Spread", value: wt.spread, min: 0, max: 1, onChange: (v: string) => { wt.spread = parseFloat(v); scheduleSave(); } });
+            });
+            Entropy.UI.Widget.horizontal(g, (row: string) => {
+                Entropy.UI.Widget.knob(row, { label: "Vel->Pos", value: wt.velToPosition, min: -1, max: 1, onChange: (v: string) => { wt.velToPosition = parseFloat(v); scheduleSave(); } });
+                Entropy.UI.Widget.knob(row, { label: "Cutoff", value: track.voice.cutoff, min: 100, max: 20000, onChange: (v: string) => { track.voice.cutoff = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Resonance", value: track.voice.resonance, min: 0.1, max: 10, onChange: (v: string) => { track.voice.resonance = parseFloat(v); saveTrackWavetable(track); } });
+            });
+            Entropy.UI.Widget.horizontal(g, (row: string) => {
+                Entropy.UI.Widget.knob(row, { label: "Attack", value: track.voice.attack, min: 0.0005, max: 4, onChange: (v: string) => { track.voice.attack = parseFloat(v); saveTrackWavetable(track); } });
+                Entropy.UI.Widget.knob(row, { label: "Release", value: track.voice.release, min: 0.01, max: 3, onChange: (v: string) => { track.voice.release = parseFloat(v); saveTrackWavetable(track); } });
+            });
         });
     });
     });
@@ -2902,13 +2982,17 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_wavetable",
-        description: "Design the sound of a wavetable synth track: a track whose waveform is \"wavetable\" (daw_set_track_params with waveform \"wavetable\" makes one). Its sound is a table of 32 frames, each one cycle of a wave; a note plays one frame's wave at its pitch and moves through the frames as it sounds, so the table is a timbre that changes over time. The human sculpts the same table in the Wavetable window as terrain (phase across, frame into the screen, level up), and every action here edits that same table. Actions: \"info\" (settings, and the harmonics of one frame), \"preset\" (start from sine, saw, square, pwm, vowels, bell, terrain or glass: saw and square brighten across the frames, vowels moves through formants), \"op\" (normalize, smooth, invert, reverse, flip_frames, randomize), \"sculpt\" (brush dabs: raise, lower, smooth or level at a frame and a phase; radius is in world units, 0.16 default, amount 0.3 is a firm dab and 1 or more saturates), \"params\" (position 0-1 across the frames, lfoRate/lfoDepth, sweep/sweepTime, velToPosition, unison 1-7, detuneCents, spread), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so you can check a change worked without listening). Position 0 is the first frame. Sculpt then \"hear\" is the way to verify an edit.",
+        description: "Design the sound of a wavetable synth track: a track whose waveform is \"wavetable\" (daw_set_track_params with waveform \"wavetable\" makes one). Its sound is a table of 32 frames, each one cycle of a wave; a note plays one frame's wave at its pitch and moves through the frames as it sounds, so the table is a timbre that changes over time. The human sculpts the same table in the Wavetable window as terrain (phase across, frame into the screen, level up), and every action here edits that same table. Actions: \"info\" (settings, and the harmonics of one frame), \"preset\" (start from sine, saw, square, pwm, vowels, bell, terrain or glass: saw and square brighten across the frames, vowels moves through formants), \"instrument\" (a full patch: table, motion and the track's own filter/envelope in one step - bass, motion FX like a riser or a siren, simple strings/horns, pads and leads; see instrumentPreset for the list and what each one does), \"op\" (normalize, smooth, invert, reverse, flip_frames, randomize), \"sculpt\" (brush dabs: raise, lower, smooth or level at a frame and a phase; radius is in world units, 0.16 default, amount 0.3 is a firm dab and 1 or more saturates), \"params\" (position 0-1 across the frames, lfoRate/lfoDepth, sweep/sweepTime, velToPosition, unison 1-7, detuneCents, spread), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so you can check a change worked without listening). Position 0 is the first frame. Sculpt then \"hear\" is the way to verify an edit.",
         parameters: {
             type: "object",
             properties: {
                 trackId: { type: "string" },
-                action: { type: "string", enum: ["info", "preset", "op", "sculpt", "params", "hear"] },
+                action: { type: "string", enum: ["info", "preset", "instrument", "op", "sculpt", "params", "hear"] },
                 preset: { type: "string", enum: WT_PRESETS.map(p => p.id), description: "For action preset." },
+                instrumentPreset: {
+                    type: "string", enum: WT_INSTRUMENT_PRESETS.map(p => p.id),
+                    description: "For action instrument. " + WT_INSTRUMENT_PRESETS.map(p => `${p.id} (${p.folder}): ${p.hint}`).join(" "),
+                },
                 op: { type: "string", enum: WT_OPS.map(o => o.id), description: "For action op." },
                 arg: { type: "number", description: "For action op: normalize peak (default 0.9), smooth passes, randomize seed." },
                 stamps: {
@@ -2960,6 +3044,13 @@ addon.onInit(async () => {
                 if (!WT_PRESETS.some(p => p.id === args.preset)) return { success: false, error: "Unknown preset. Choose one of: " + WT_PRESETS.map(p => p.id).join(", ") };
                 loadWavetablePreset(track, args.preset);
                 return done();
+            }
+            case "instrument": {
+                if (!WT_INSTRUMENT_PRESETS.some(p => p.id === args.instrumentPreset)) {
+                    return { success: false, error: "Unknown instrumentPreset. Choose one of: " + WT_INSTRUMENT_PRESETS.map(p => p.id).join(", ") };
+                }
+                applyInstrumentPreset(track, args.instrumentPreset);
+                return done({ voice: { cutoff: track.voice.cutoff, resonance: track.voice.resonance, attack: track.voice.attack, decay: track.voice.decay, sustain: track.voice.sustain, release: track.voice.release } });
             }
             case "op": {
                 if (!WT_OPS.some(o => o.id === args.op)) return { success: false, error: "Unknown op. Choose one of: " + WT_OPS.map(o => o.id).join(", ") };

@@ -202,6 +202,38 @@ describe("The DAW's wavetable synth (production addon callbacks)", () => {
                     slider.onChange(String(value));
                     world.render();
                 }],
+                [/^I turn the knob "(.+)" to ([\d.]+)$/, (label, value) => {
+                    world.render();
+                    const knob = [...w.knobs].reverse().find(k => k.label === label);
+                    if (!knob) throw new Error(`no knob ${label}; have ${w.knobs.map(k => k.label).join(", ")}`);
+                    knob.onChange(String(value));
+                    world.render();
+                }],
+                [/^the track "(.+)" has cutoff ([\d.]+) and resonance ([\d.]+)$/, (name, cutoff, resonance) => {
+                    const voice = state().tracks[trackIndex(name)].voice;
+                    expect(voice.cutoff).toBeCloseTo(+cutoff, 5);
+                    expect(voice.resonance).toBeCloseTo(+resonance, 5);
+                }],
+                [/^the tool reports instrument preset "(.+)"$/, name => expect(w.lastToolResult.settings.instrumentPreset).toBe(name)],
+                [/^the tool reports no instrument preset$/, () => expect(w.lastToolResult.settings.instrumentPreset).toBeUndefined()],
+                [/^I open the instrument preset folder "(.+)"$/, folder => {
+                    world.render();
+                    const t = w.trees.get("wt_instrument_presets");
+                    if (!t) throw new Error("no instrument preset tree; is the Wavetable window open and a wavetable track selected?");
+                    const n = t.nodes.find((n: any) => n.label === folder);
+                    if (!n) throw new Error(`no preset folder "${folder}"; have ${t.nodes.filter((n: any) => n.depth === 0).map((n: any) => n.label).join(", ")}`);
+                    t.onToggleExpand(n.id);
+                    world.render();
+                }],
+                [/^I select the instrument preset "(.+)"$/, label => {
+                    world.render();
+                    const t = w.trees.get("wt_instrument_presets");
+                    if (!t) throw new Error("no instrument preset tree; is the Wavetable window open and a wavetable track selected?");
+                    const n = t.nodes.find((n: any) => n.label === label);
+                    if (!n) throw new Error(`no instrument preset "${label}"; have ${t.nodes.filter((n: any) => n.depth === 1).map((n: any) => n.label).join(", ")}`);
+                    t.onSelect(n.id);
+                    world.render();
+                }],
 
                 // ---- the guitar ----
                 [/^the Guitar Input window is open$/, () => { click("toggle_guitar"); }],

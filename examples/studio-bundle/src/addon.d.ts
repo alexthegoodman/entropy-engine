@@ -437,6 +437,7 @@ export interface ScopedAPI {
       button: (windowId: string, config: ButtonConfig) => void;
       colorInput: (windowId: string, config: ColorInputConfig) => void;
       slider: (windowId: string, config: SliderConfig) => void;
+      knob: (windowId: string, config: KnobConfig) => void;
       numericInput: (windowId: string, config: NumericInputConfig) => void;
       dropdown: (windowId: string, config: DropdownConfig) => void;
       checkbox: (windowId: string, config: CheckboxConfig) => void;
@@ -734,6 +735,18 @@ export interface SliderConfig {
     max: number;
     onChange?: (value: string) => void;
     // See ButtonConfig.id - same "already read at runtime, never declared" gap.
+    id?: string;
+}
+
+/** A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up
+ *  raises the value, down lowers it); there is no fixed track to click a position on, so unlike
+ *  `slider` a click alone does not move it. Label and value are drawn on the knob itself. */
+export interface KnobConfig {
+    label: string;
+    value: number;
+    min: number;
+    max: number;
+    onChange?: (value: string) => void;
     id?: string;
 }
 
@@ -1856,6 +1869,7 @@ export interface EntropyAPI {
       button: (windowId: string, config: ButtonConfig) => void;
       colorInput: (windowId: string, config: ColorInputConfig) => void;
       slider: (windowId: string, config: SliderConfig) => void;
+      knob: (windowId: string, config: KnobConfig) => void;
       numericInput: (windowId: string, config: NumericInputConfig) => void;
       dropdown: (windowId: string, config: DropdownConfig) => void;
       checkbox: (windowId: string, config: CheckboxConfig) => void;

@@ -82,14 +82,14 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And a stroke begins on the terrain
     Then no note is held on "Lead"
 
-  Scenario: Hold latches a note that the Position slider then moves through the table
+  Scenario: Hold latches a note that the Position knob then moves through the table
     Given the DAW is open
     And "Lead" is a wavetable track
     And the track "Lead" is selected
     When I click "wt_latch"
     Then a note is held on "Lead" at 130.8 Hz
     And the held note reads position 0.35
-    When I drag the slider "Position" to 0.8
+    When I turn the knob "Position" to 0.8
     Then the held note reads position 0.8
     When I click "wt_latch"
     Then no note is held on "Lead"
@@ -252,7 +252,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And the guitar plays the "wavetable" voice on "Lead"
     And the guitar is started
     And I advance 200 milliseconds
-    When I drag the slider "Unison voices" to 5
+    When I turn the knob "Unison" to 5
     And I advance 200 milliseconds
     Then the guitar was pointed again at the table of "Lead" with unison 5
 
@@ -276,7 +276,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And the guitar is started
     And I advance 200 milliseconds
     And I remember how many times the guitar was pointed
-    When I drag the slider "Position" to 0.7
+    When I turn the knob "Position" to 0.7
     And I advance 200 milliseconds
     Then the guitar voice was moved to position 0.7 and not replaced
 
@@ -288,7 +288,7 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And the guitar plays the "saw" voice on "Lead"
     When the guitar is started
     Then the guitar was started on the "saw" voice with no wavetable
-    When I drag the slider "Unison voices" to 5
+    When I turn the knob "Unison" to 5
     And I advance 200 milliseconds
     Then the guitar was never pointed again
 
@@ -298,6 +298,56 @@ Feature: The DAW has a wavetable synth whose table is sculpted as terrain
     And the track "Lead" is selected
     And the Guitar Input window is open
     And the guitar plays the "wavetable" voice on "Lead"
-    When I drag the slider "Unison voices" to 5
+    When I turn the knob "Unison" to 5
     And I advance 200 milliseconds
     Then the guitar was never started or pointed
+
+  # --- Instrument presets: a full patch (table, motion, the track's own filter/envelope) applied
+  # in one step. See WT_INSTRUMENT_PRESETS in daw_wavetable.ts.
+
+  Scenario: Applying an instrument preset sets the table, the motion settings and the track's voice
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"modulated_bass"}
+    Then the tool succeeded
+    And the tool reports instrument preset "modulated_bass"
+    And the engine has a table for "Lead" that started as "saw"
+    And the track "Lead" has cutoff 1600 and resonance 2.2
+
+  Scenario: An unknown instrument preset fails instead of changing anything
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"not-a-real-preset"}
+    Then the tool failed saying "Unknown instrumentPreset"
+    And the engine has a table for "Lead" that started as "saw"
+
+  Scenario: The instrument preset tree groups presets by folder and applies one on selection
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I open the instrument preset folder "Strings & Horns"
+    And I select the instrument preset "Simple Strings"
+    Then the engine has a table for "Lead" that started as "saw"
+    And the track "Lead" has cutoff 6500 and resonance 0.4
+
+  Scenario: Loading a bare waveform clears the instrument preset it started from
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"simple_horns"}
+    Then the tool reports instrument preset "simple_horns"
+    When I click "wt_preset_saw"
+    And I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"info"}
+    Then the tool reports no instrument preset
+
+  Scenario: An instrument preset survives a save and reopen
+    Given the DAW is open
+    And "Lead" is a wavetable track
+    And the track "Lead" is selected
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"synth_riser"}
+    And the DAW is reopened
+    And the track "Lead" is selected
+    And I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"info"}
+    Then the tool reports instrument preset "synth_riser"

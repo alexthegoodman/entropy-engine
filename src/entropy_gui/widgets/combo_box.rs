@@ -4,7 +4,13 @@ use crate::entropy_gui::painter::{DrawTarget, Painter};
 use crate::entropy_gui::response::{Response, Sense};
 use crate::entropy_gui::style::DEFAULT_FONT_SIZE;
 use crate::entropy_gui::ui::Ui;
+use crate::entropy_gui::widgets::ScrollArea;
 use crate::entropy_gui::FontId;
+
+/// The popup's fixed height. A list that overflows it now scrolls inside it instead of spilling
+/// silently past the drawn panel - before this, every row past the 180th point still received
+/// clicks, it just was never visibly inside the popup's own background.
+const POPUP_MAX_HEIGHT: f32 = 180.0;
 
 pub struct ComboBox {
     id: Id,
@@ -51,14 +57,14 @@ impl ComboBox {
 
         let is_open = ui.ctx().memory(|m| m.popup_open) == Some(id);
         if is_open {
-            let popup_rect = Rect::from_min_size(pos2(rect.min.x, rect.max.y + 2.0), vec2(rect.width().max(150.0), 180.0));
+            let popup_rect = Rect::from_min_size(pos2(rect.min.x, rect.max.y + 2.0), vec2(rect.width().max(150.0), POPUP_MAX_HEIGHT));
             let style = ui.style();
             let bg = Painter::new(ui.ctx().clone(), Rect::everything(), DrawTarget::Popup);
             bg.rect_filled(popup_rect, style.visuals.window_corner_radius, style.visuals.window_fill);
             bg.rect_stroke(popup_rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
 
             let mut popup_ui = Ui::new(ui.ctx().clone(), id.with("combo_popup"), popup_rect.shrink(4.0), Layout::top_down(Align::Min), popup_rect, DrawTarget::Popup);
-            add_contents(&mut popup_ui);
+            ScrollArea::vertical().show(&mut popup_ui, |inner| add_contents(inner));
 
             // Any primary press outside the toggle button — including an item click inside the
             // popup, i.e. a selection was just made — closes the popup starting next frame.

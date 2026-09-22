@@ -217,6 +217,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `UI.selectDialogueOption(index)` | Programmatically picks a dialogue-tree option (see `DialogueSystem` under Behaviors). |
 | `Widget.label` / `button` / `checkbox` | Basic text, click, and boolean-toggle widgets. |
 | `Widget.slider` / `numericInput` | Drag-to-adjust and type-a-number inputs for numeric values. |
+| `Widget.knob` | A rotary drag-to-adjust control - the circular counterpart to `slider`. Drag vertically (up raises the value, down lowers it); label and value are drawn on the knob itself rather than beside it. |
 | `Widget.dropdown` | A select-one-of-N dropdown. |
 | `Widget.colorInput` | An RGBA color swatch/cycler. |
 | `Widget.textInput` | A single-line text field. |

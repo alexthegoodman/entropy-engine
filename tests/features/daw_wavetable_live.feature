@@ -75,3 +75,9 @@ Feature: The running DAW sculpts a wavetable and plays it
 
     When I click "transport_toggle"
     And I wait 300 milliseconds
+
+  Scenario: An instrument preset sets the table, the motion and the track's own filter/envelope
+    When I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"instrument","instrumentPreset":"modulated_bass"}
+    And I call the tool "daw_wavetable" with {"trackId":"trk-lead","action":"hear","note":36,"position":0.28}
+    And I advance 30 frames
+    Then I capture "wavetable-08-instrument-preset"

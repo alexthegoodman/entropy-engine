@@ -43,6 +43,14 @@ name = "tab_bar_bdd"
 harness = false
 
 [[test]]
+name = "knob_bdd"
+harness = false
+
+[[test]]
+name = "combo_box_bdd"
+harness = false
+
+[[test]]
 name = "icons_bdd"
 harness = false
 

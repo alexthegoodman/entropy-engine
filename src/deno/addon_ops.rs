@@ -542,6 +542,7 @@ pub enum UiWidget {
     Button { text: String, id: String, label: String },
     ColorInput { id: String, label: String, color: [f32; 4] },
     Slider { id: String, label: String, value: f32, min: f32, max: f32 },
+    Knob { id: String, label: String, value: f32, min: f32, max: f32 },
     NumericInput { id: String, label: String, value: f32 },
     Dropdown { id: String, label: String, options: Vec<String>, selected_index: usize },
     Checkbox { id: String, label: String, value: bool },
@@ -3330,6 +3331,24 @@ pub fn op_ui_widget_slider(
             .entry(window_id)
             .or_default()
             .push(UiWidget::Slider { id, label, value, min, max });
+    }
+}
+
+#[op2(fast)]
+pub fn op_ui_widget_knob(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[string] label: String,
+    value: f32,
+    min: f32,
+    max: f32,
+    #[string] id: String
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets
+            .entry(window_id)
+            .or_default()
+            .push(UiWidget::Knob { id, label, value, min, max });
     }
 }
 
