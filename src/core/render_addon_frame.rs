@@ -90,6 +90,13 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
             .geometry_pipeline
             .as_ref()
             .expect("Couldn't get geometry pipeline");
+        // The real fallback for non-PBR `pipelineId: "default"` cubes/landscapes/meshes - see
+        // EntropyPipeline::simple_mesh_pipeline's doc comment for why `geometry_pipeline` itself
+        // cannot serve this role (target-count mismatch with the single-attachment pass below).
+        let simple_mesh_pipeline = pipeline
+            .simple_mesh_pipeline
+            .as_ref()
+            .expect("Couldn't get simple mesh pipeline");
         // let camera_binding = pipeline
         //     .camera_binding
         //     .as_ref()
@@ -1231,9 +1238,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         if !pipeline_set {
-                            // Non-PBR with default pipeline is not ideal as geometry_pipeline expects G-buffer targets
-                            // But we'll use it if nothing else is set
-                            render_pass.set_pipeline(&geometry_pipeline);
+                            render_pass.set_pipeline(&simple_mesh_pipeline);
                         }
 
                         cube.transform.update_uniform_buffer(&queue);
@@ -1272,7 +1277,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         if !pipeline_set {
-                            render_pass.set_pipeline(&geometry_pipeline);
+                            render_pass.set_pipeline(&simple_mesh_pipeline);
                         }
 
                         landscape.transform.update_uniform_buffer(&queue);
@@ -1311,7 +1316,7 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         if !pipeline_set {
-                            render_pass.set_pipeline(&geometry_pipeline);
+                            render_pass.set_pipeline(&simple_mesh_pipeline);
                         }
 
                         landscape.transform.update_uniform_buffer(&queue);
@@ -1339,7 +1344,15 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         }
 
                         if !pipeline_set {
-                            render_pass.set_pipeline(&mesh.pipeline);
+                            // `mesh.pipeline` is the real custom pipeline for any non-"default"
+                            // pipelineId; for "default" it is the placeholder from
+                            // create_placeholder_render_pipeline, which is never bound (see its
+                            // own doc comment) - swap in the real single-target fallback instead.
+                            if mesh.pipeline_id == "default" {
+                                render_pass.set_pipeline(&simple_mesh_pipeline);
+                            } else {
+                                render_pass.set_pipeline(&mesh.pipeline);
+                            }
                         }
 
                         render_pass.set_bind_group(0, &camera_binding.bind_group, &[]);
@@ -1451,17 +1464,9 @@ pub fn render_addon_frame(pipeline: &mut EntropyPipeline, target_view: Option<&w
                         
                         
                                                     if !pipeline_set {
-                        
-                                                        // For non-PBR pass, we don't have a dedicated skinned non-PBR pipeline in RendererState usually,
-                        
-                                                        // but we should check if one is available or just fallback to geometry_pipeline.
-                        
-                                                        // Actually, geometry_pipeline is often PBR-ish (expects G-buffer).
-                        
-                                                        // This is a bit of a gray area in current renderer state for non-PBR.
-                        
-                                                        render_pass.set_pipeline(geometry_pipeline);
-                        
+
+                                                        render_pass.set_pipeline(simple_mesh_pipeline);
+
                                                     }
                         
                         

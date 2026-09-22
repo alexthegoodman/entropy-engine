@@ -286,6 +286,17 @@ pub struct EntropyPipeline {
     pub camera: Option<Camera>,
     pub camera_binding: Option<CameraBinding>,
     pub geometry_pipeline: Option<RenderPipeline>,
+    /// Single-target, unlit fallback for `pipelineId: "default"` addon cubes/landscapes/meshes
+    /// that have no PBR textures and no custom pipeline of their own. `geometry_pipeline` cannot
+    /// serve this role even though it used to be substituted in for it (render_addon_frame.rs's
+    /// "Addon non-PBR Pass"): it writes 4 G-buffer targets (`gbuffer_fragment.wgsl`) and that
+    /// pass only ever binds 1 color attachment (the swapchain `view`), so wgpu's pipeline/pass
+    /// compatibility validation silently drops every draw call that uses it - nothing in that
+    /// pass has ever actually rendered through `geometry_pipeline`. This shares
+    /// `geometry_pipeline`'s vertex shader (`primary_vertex.wgsl`) and pipeline layout, so every
+    /// existing bind-group-building call site keeps working unchanged; only the fragment stage
+    /// and target count differ.
+    pub simple_mesh_pipeline: Option<RenderPipeline>,
     pub lighting_pipeline: Option<RenderPipeline>,
     pub procedural_sky_pipeline: Option<RenderPipeline>, // New field for procedural sky
     pub procedural_sky_bind_group: Option<wgpu::BindGroup>, // New field for procedural sky bind group
@@ -409,6 +420,7 @@ impl EntropyPipeline {
             camera: None,
             camera_binding: None,
             geometry_pipeline: None,
+            simple_mesh_pipeline: None,
             lighting_pipeline: None,
             texture: None,
             view: None,
@@ -1116,6 +1128,60 @@ impl EntropyPipeline {
             },
         });
 
+        // See EntropyPipeline::simple_mesh_pipeline's doc comment: the fallback that used to be
+        // wired to `geometry_pipeline` for non-PBR addon cubes/landscapes/meshes never actually
+        // rendered anything, because that pipeline's 4 G-buffer targets don't match the 1-target
+        // pass it was being used in. Same vertex shader and pipeline layout as `geometry_pipeline`
+        // (so every existing bind-group call site is untouched), a new single-target unlit
+        // fragment shader, and the pass's own swapchain format instead of the G-buffer's.
+        let shader_module_frag_simple_mesh = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Simple Mesh Frag Shader (unlit, single-target default pipeline)"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/simple_mesh_fragment.wgsl").into()),
+        });
+        let simple_mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Entropy Engine Simple Mesh Pipeline (default, non-PBR)"),
+            layout: Some(&pipeline_layout),
+            multiview: None,
+            cache: None,
+            vertex: wgpu::VertexState {
+                module: &shader_module_vert_primary,
+                entry_point: Some("vs_main"),
+                buffers: &[Vertex::desc()],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module_frag_simple_mesh,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: swapchain_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                conservative: false,
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth24Plus,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
+            }),
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+        });
+
         let directional_light_uniform = DirectionalLightUniform {
             position: directional_light_position,
             // position: [-0.5, -1.0, -0.3], // since this is the direction in the shader
@@ -1695,6 +1761,7 @@ impl EntropyPipeline {
 
         self.gpu_resources = export_editor.gpu_resources.clone();
         self.geometry_pipeline = Some(geometry_pipeline);
+        self.simple_mesh_pipeline = Some(simple_mesh_pipeline);
         self.lighting_pipeline = Some(lighting_pipeline);
         self.procedural_sky_pipeline = Some(procedural_sky_pipeline);
         self.procedural_sky_bind_group = Some(procedural_sky_bind_group);
