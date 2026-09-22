@@ -848,9 +848,12 @@ globalThis.Entropy = {
     Guitar: guitarAPI,
                 Guitar: guitarAPI,
                 IO: {
-                    save: (data) => {
+                    // Pretty-printing is opt-in: large saved states (for example canvas artwork)
+                    // stay compact, while human-maintained files such as CC Manager's board can
+                    // request stable, readable JSON.
+                    save: (data, options = {}) => {
                         ops.op_println(String("Saving Data: " + metadata.name));
-                        ops.op_addon_save_data(metadata.name, JSON.stringify(data));
+                        ops.op_addon_save_data(metadata.name, JSON.stringify(data, null, options.pretty ? 2 : undefined));
                     },
                     saveImage: (filename, width, height, data) => {
                         ops.op_addon_save_image(metadata.name, filename, width, height, data);

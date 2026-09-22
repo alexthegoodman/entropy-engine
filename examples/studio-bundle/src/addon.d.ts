@@ -567,7 +567,8 @@ export interface ScopedAPI {
     poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
   };
   IO: {
-    save: (data: any) => void;
+    /** Persists this addon's JSON state. Pass `{ pretty: true }` for a human-maintained file. */
+    save: (data: any, options?: { pretty?: boolean }) => void;
     saveImage: (filename: string, width: number, height: number, data: number[] | Uint8Array) => void;
     listModels: () => Promise<string[]>;
     pickAndImportModel: () => Promise<string>;

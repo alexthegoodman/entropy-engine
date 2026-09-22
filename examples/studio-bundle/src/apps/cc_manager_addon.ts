@@ -65,7 +65,9 @@ function loadBoard() {
 }
 
 function saveBoard() {
-    addon.IO.save(board);
+    // This board is deliberately maintained by both the app and coding agents. Keep every
+    // subsequent GUI save readable and straightforward to patch by hand.
+    addon.IO.save(board, { pretty: true });
 }
 
 function findCard(columnId: string, cardId: string): { column: Column; card: Card; index: number } | null {
