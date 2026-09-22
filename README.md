@@ -1,8 +1,14 @@
-# Entropy Engine
+# Welcome to Entropy
 
-**A desktop software framework for high-performance, creative apps** - TypeScript without the WebView/Chromium overhead. The Rust core handles all of the intensive processing, while your TypeScript acts as a true scripting layer. Get access to a comprehensive native UI kit (including piano roll, kanban, timeline views), GPU, Video, and Audio capabilities, and unified input paradigms.
+![Entropy Engine / DAW Wavetable](public/wavetable-06-vowels.png "Entropy Engine / DAW Wavetable")
 
-**Entropy Engine is experimental and in beta, and some things may not work as expected**
+**Entropy Engine is a desktop software framework for high-performance, creative apps.** TypeScript without the WebView/Chromium overhead. The Rust core handles all of the intensive processing, while your TypeScript acts as a true scripting layer. Get access to a comprehensive native UI kit (including piano roll, kanban, timeline views), GPU, Video, and Audio capabilities, and unified input paradigms.
+
+**Entropy Suite is the deep creation powerhouse.** Entropy Suite enables artists, writers, coders, and more to create using innovative, powerful, open source tooling. Built with Entropy Engine. See [Gallery](#gallery)
+
+**Entropy Agent is the (upcoming) agentic marketing harness.** Entropy Agent logs and captures your creative sessions (creating games, music, writing, and more) and drafts content for you to share to drive your marketing outputs as you create. The key is to work on something original, novel, or new so that your content is equally as unique and helpful in the sea of content that exists today. TBD: connect webcam to capture physical creation sessions.
+
+**Entropy is experimental and in beta, and some things may not work as expected**
 
 |                          | React Native | Flutter | **Entropy** |
 | ------------------------ | ------------ | ------- | ----------- |
@@ -12,7 +18,7 @@
 | GPU / rendering          | ✓            | ✓✓      | **✓✓✓**     |
 | 3D                       | —            | △       | **✓✓✓**     |
 | Physics                  | —            | △       | **✓✓✓**     |
-| Audio                    | △            | △       | **✓✓**      |
+| Audio                    | △            | △       | **✓✓✓**      |
 | Game systems             | —            | △       | **✓✓✓**     |
 | Creative-tool primitives | △            | ✓       | **✓✓✓**     |
 | Low-level extensibility  | ✓            | ✓       | **✓✓✓**     |
@@ -33,7 +39,6 @@ Building just a simple app or prototype? Need to use the existing API to build a
    mkdir -p dist
    deno bundle src/index.ts > dist/bundle.js
    ```
-   (`>` won't create a missing `dist/` directory for you - make sure it exists first.)
 3. Point your Rust `main.rs` at the bundle:
    ```rust
    fn main() {
@@ -464,27 +469,3 @@ claude mcp add --transport http entropy-engine http://127.0.0.1:47100/mcp
 ```
 
 All tools registered with `registerTool` in an addon will be accessible via MCP, simply startup your app, and the MCP server will be active as well.
-
-### Canvas Surfaces tools
-
-`canvas-surface-demo` registers 31 `canvas_*` tools (definitions in
-`examples/studio-bundle/src/apps/canvas_surfaces/canvas_tool_schemas.ts`). Every call is one undo step,
-changes nothing during Play, rejects unknown arguments, and returns `{success, ...}` or
-`{success: false, error}`. Names accept an id or an exact name.
-
-| Group | Tools |
-|-------|-------|
-| Scene | `canvas_get_scene`, `canvas_world_stats`, `canvas_new_scene`, `canvas_list_scenes`, `canvas_save_scene`, `canvas_load_scene`, `canvas_undo`, `canvas_redo` |
-| Surfaces | `canvas_create_surface`, `canvas_update_surface`, `canvas_fill_surface`, `canvas_delete`, `canvas_create_group`, `canvas_update_group` |
-| Prefabs | `canvas_list_prefabs`, `canvas_add_prefab` (house, tree, human, pickup, chest, rock, fence, gate, lamppost, signpost, ground, pond) |
-| Animation | `canvas_create_clip`, `canvas_set_keyframes`, `canvas_delete_clip` |
-| Logic | `canvas_get_logic`, `canvas_add_rule`, `canvas_add_collectible`, `canvas_set_logic`, `canvas_clear_logic` |
-| World | `canvas_set_world` (player, walk bounds), `canvas_set_lighting` (presets, sun, fog, 4 lamps), `canvas_set_camera` |
-| Play | `canvas_play`, `canvas_stop`, `canvas_get_play_state`, `canvas_playtest` (headless, reports messages, counters, failures) |
-
-Gameplay logic node kinds: events `start`, `click`, `near`, `interact` (E); actions `once`, `wait`,
-`message` (`{counter}` prints a counter), `show`, `hide`, `add` (change a counter), `check` (only continue
-if a counter is at least / below a value), `clip`, `teleport`. With a `player` set, Play walks it (WASD,
-E, follow camera, sliding collision against `solid` surfaces). Surfaces that are one flat colour save as
-that colour, so unpainted block-outs cost bytes, not megabytes. A full worked level and its verification
-steps: [CANVAS_SURFACES_RPG_LEVEL.md](CANVAS_SURFACES_RPG_LEVEL.md).
