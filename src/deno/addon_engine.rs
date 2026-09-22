@@ -4520,7 +4520,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         }
                     }
                 }
-                UiWidget::SheetGrid { id: sheet_id, cells, selected, options } => {
+                UiWidget::SheetGrid { id: sheet_id, cells, selected, editing, options } => {
                     let cells_data: Vec<crate::entropy_gui::SheetCell> = cells
                         .iter()
                         .map(|c| crate::entropy_gui::SheetCell {
@@ -4539,8 +4539,9 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         row_height: options.row_height.unwrap_or(22.0),
                         max_height: options.max_height,
                     };
+                    let edit_arg = editing.as_ref().map(|(row, col, value)| crate::entropy_gui::SheetEdit { row: *row, col: *col, value: value.as_str() });
 
-                    let resp = crate::entropy_gui::SheetGrid::new(sheet_id.as_str()).options(grid_options).show(ui, &cells_data, *selected);
+                    let resp = crate::entropy_gui::SheetGrid::new(sheet_id.as_str()).options(grid_options).show(ui, &cells_data, *selected, edit_arg);
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::SheetEvent::CellSelected { row, col } => {
@@ -4548,6 +4549,33 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             }
                             crate::entropy_gui::SheetEvent::CellClearRequested { row, col } => {
                                 events_to_push.push(format!("SHEET_CELL_CLEAR|{}|{}|{}", sheet_id, row, col));
+                            }
+                            // The free-text field is last in each of these so a `|` inside typed
+                            // cell content can't be confused for a field separator - the JS
+                            // listener re-joins everything after the fixed fields.
+                            crate::entropy_gui::SheetEvent::CellEditStarted { row, col, initial } => {
+                                events_to_push.push(format!("SHEET_EDIT_STARTED|{}|{}|{}|{}", sheet_id, row, col, initial));
+                            }
+                            crate::entropy_gui::SheetEvent::CellEditChanged { row, col, text } => {
+                                events_to_push.push(format!("SHEET_EDIT_CHANGED|{}|{}|{}|{}", sheet_id, row, col, text));
+                            }
+                            crate::entropy_gui::SheetEvent::CellEditCommitted { row, col } => {
+                                events_to_push.push(format!("SHEET_EDIT_COMMITTED|{}|{}|{}", sheet_id, row, col));
+                            }
+                            crate::entropy_gui::SheetEvent::CellEditCancelled { row, col } => {
+                                events_to_push.push(format!("SHEET_EDIT_CANCELLED|{}|{}|{}", sheet_id, row, col));
+                            }
+                            crate::entropy_gui::SheetEvent::InsertRowRequested { row } => {
+                                events_to_push.push(format!("SHEET_INSERT_ROW|{}|{}", sheet_id, row));
+                            }
+                            crate::entropy_gui::SheetEvent::DeleteRowRequested { row } => {
+                                events_to_push.push(format!("SHEET_DELETE_ROW|{}|{}", sheet_id, row));
+                            }
+                            crate::entropy_gui::SheetEvent::InsertColumnRequested { col } => {
+                                events_to_push.push(format!("SHEET_INSERT_COL|{}|{}", sheet_id, col));
+                            }
+                            crate::entropy_gui::SheetEvent::DeleteColumnRequested { col } => {
+                                events_to_push.push(format!("SHEET_DELETE_COL|{}|{}", sheet_id, col));
                             }
                         }
                     }

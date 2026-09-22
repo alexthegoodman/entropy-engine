@@ -43,6 +43,10 @@ name = "sheet_grid_bdd"
 harness = false
 
 [[test]]
+name = "sheet_live"
+harness = false
+
+[[test]]
 name = "tab_bar_bdd"
 harness = false
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { a1, cellKey, colLetters, defaultSheet, evaluateSheet, parseA1 } from "../src/apps/sheet/sheet_model";
+import { a1, cellKey, colLetters, defaultSheet, deleteColumn, deleteRow, evaluateSheet, insertColumn, insertRow, parseA1 } from "../src/apps/sheet/sheet_model";
 import type { SheetDoc } from "../src/apps/sheet/sheet_model";
 
 function withCells(cells: Record<string, string>, rows = 10, cols = 10): SheetDoc {
@@ -157,5 +157,68 @@ describe("functions and ranges", () => {
     it("is case-insensitive on function names", () => {
         const doc = withCells({ A1: "3", A2: "4", B1: "=sum(A1:A2)" });
         expect(textOf(doc, "B1")).toBe("7");
+    });
+});
+
+describe("row and column insert/delete", () => {
+    it("inserting a row shifts cells at and after it down, and leaves earlier rows alone", () => {
+        // top=row0, middle=row3, bottom=row5; inserting at row3 leaves row0 alone and shifts
+        // anything at row3 or later (3->4, 5->6).
+        const doc = withCells({ A1: "top", A4: "middle", A6: "bottom" });
+        const next = insertRow(doc, 3);
+        expect(next.rows).toBe(11);
+        expect(next.cells[cellKey(0, 0)].raw).toBe("top");
+        expect(next.cells[cellKey(4, 0)].raw).toBe("middle");
+        expect(next.cells[cellKey(6, 0)].raw).toBe("bottom");
+        expect(next.cells[cellKey(3, 0)]).toBeUndefined();
+    });
+
+    it("deleting a row drops its cells and shifts the rest up", () => {
+        // top=row0, middle=row1, bottom=row3; deleting row2 (empty) leaves row0/row1 alone and
+        // shifts anything after it up by one (3->2).
+        const doc = withCells({ A1: "top", A2: "middle", A4: "bottom" });
+        const next = deleteRow(doc, 2);
+        expect(next.rows).toBe(9);
+        expect(next.cells[cellKey(0, 0)].raw).toBe("top");
+        expect(next.cells[cellKey(1, 0)].raw).toBe("middle");
+        expect(next.cells[cellKey(2, 0)].raw).toBe("bottom");
+    });
+
+    it("refuses to delete the sheet's last row", () => {
+        const doc = defaultSheet(1, 5);
+        doc.cells[cellKey(0, 0)] = { raw: "only" };
+        const next = deleteRow(doc, 0);
+        expect(next.rows).toBe(1);
+        expect(next.cells[cellKey(0, 0)].raw).toBe("only");
+    });
+
+    it("inserting and deleting a column shifts cells the same way, on the other axis", () => {
+        const doc = withCells({ A1: "left", C1: "middle", E1: "right" });
+        const inserted = insertColumn(doc, 2);
+        expect(inserted.cols).toBe(11);
+        expect(inserted.cells[cellKey(0, 0)].raw).toBe("left");
+        expect(inserted.cells[cellKey(0, 3)].raw).toBe("middle");
+        expect(inserted.cells[cellKey(0, 5)].raw).toBe("right");
+
+        // After the insert, "right" sits at col5; deleting col3 (empty) shifts it to col4.
+        const deleted = deleteColumn(inserted, 3);
+        expect(deleted.cols).toBe(10);
+        expect(deleted.cells[cellKey(0, 4)].raw).toBe("right");
+        expect(Object.values(deleted.cells).some((c) => c.raw === "middle")).toBe(false);
+    });
+
+    it("refuses to delete the sheet's last column", () => {
+        const doc = defaultSheet(5, 1);
+        doc.cells[cellKey(0, 0)] = { raw: "only" };
+        const next = deleteColumn(doc, 0);
+        expect(next.cols).toBe(1);
+        expect(next.cells[cellKey(0, 0)].raw).toBe("only");
+    });
+
+    it("preserves a cell's border across an insert", () => {
+        const doc = withCells({ A3: "x" });
+        doc.cells[cellKey(2, 0)].border = [1, 0, 0, 1];
+        const next = insertRow(doc, 1);
+        expect(next.cells[cellKey(3, 0)].border).toEqual([1, 0, 0, 1]);
     });
 });

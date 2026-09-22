@@ -116,6 +116,8 @@ struct BrowserBddDriver {
     daw: bool,
     /// The app launcher's run (`ENTROPY_LAUNCHER_BDD_RESULT`).
     launcher: bool,
+    /// The sheet addon's run (`ENTROPY_SHEET_BDD_RESULT`).
+    sheet: bool,
     wait_until: Option<Instant>,
     editor_captures: Vec<serde_json::Value>,
     /// What the audio engine's own analysis taps reported when a `I record the analysis` step ran,
@@ -171,6 +173,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_CANVAS_BDD_RESULT",
     "ENTROPY_DAW_BDD_RESULT",
     "ENTROPY_LAUNCHER_BDD_RESULT",
+    "ENTROPY_SHEET_BDD_RESULT",
 ];
 
 /// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
@@ -184,6 +187,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real canvas demo is running in test mode"
         || text == "the real DAW is running in test mode"
         || text == "the real app launcher is running in test mode"
+        || text == "the real sheet addon is running in test mode"
     {
         return None;
     }
@@ -279,18 +283,23 @@ impl BrowserBddDriver {
         let daw = std::env::var_os("ENTROPY_DAW_BDD_RESULT").is_some();
         let canvas = !daw && std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
         let launcher = !daw && !canvas && std::env::var_os("ENTROPY_LAUNCHER_BDD_RESULT").is_some();
+        let sheet = !daw && !canvas && !launcher && std::env::var_os("ENTROPY_SHEET_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
             "ENTROPY_CANVAS_BDD_RESULT"
         } else if launcher {
             "ENTROPY_LAUNCHER_BDD_RESULT"
+        } else if sheet {
+            "ENTROPY_SHEET_BDD_RESULT"
         } else {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
         .map(PathBuf::from)?;
         let source = if launcher {
             include_str!("../tests/features/app_launcher_live.feature")
+        } else if sheet {
+            include_str!("../tests/features/sheet_live.feature")
         } else if daw {
             // The restore run reopens the project the first run saved: same driver, second script.
             match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
@@ -317,6 +326,7 @@ impl BrowserBddDriver {
             canvas,
             daw,
             launcher,
+            sheet,
             wait_until: None,
             editor_captures: Vec::new(),
             analyses: serde_json::Map::new(),
@@ -356,7 +366,7 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas || self.daw || self.launcher {
+        if self.canvas || self.daw || self.launcher || self.sheet {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
         // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
@@ -380,7 +390,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher { 90 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher { 90 } else if self.sheet { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;

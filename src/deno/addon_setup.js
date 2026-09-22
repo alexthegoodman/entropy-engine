@@ -1235,16 +1235,28 @@ globalThis.Entropy = {
             sheetGrid: (windowId, config) => {
                 const cells = config?.cells || [];
                 const selected = config?.selected ? [config.selected.row, config.selected.col] : null;
+                const editing = config?.editing ? [config.editing.row, config.editing.col, config.editing.value ?? ""] : null;
                 const id = nextWidgetId(windowId, "sheet", config?.id);
 
-                ops.op_ui_widget_sheet_grid(windowId, cells, selected, config?.options ?? {}, id);
+                ops.op_ui_widget_sheet_grid(windowId, cells, selected, editing, config?.options ?? {}, id);
 
-                if (config?.onCellSelected || config?.onCellClear) {
+                if (config?.onCellSelected || config?.onCellClear || config?.onEditStarted || config?.onEditChanged || config?.onEditCommitted || config?.onEditCancelled || config?.onInsertRow || config?.onDeleteRow || config?.onInsertColumn || config?.onDeleteColumn) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {
                         const parts = eventData.split('|');
                         const type = parts[0];
+                        // SHEET_EDIT_STARTED/CHANGED carry free-typed text as their last field,
+                        // which may itself contain "|" - rejoin everything past the fixed fields
+                        // instead of trusting parts[4] alone.
                         if (type === "SHEET_CELL_SELECTED" && config.onCellSelected) config.onCellSelected(parseInt(parts[2], 10), parseInt(parts[3], 10));
                         else if (type === "SHEET_CELL_CLEAR" && config.onCellClear) config.onCellClear(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_EDIT_STARTED" && config.onEditStarted) config.onEditStarted(parseInt(parts[2], 10), parseInt(parts[3], 10), parts.slice(4).join("|"));
+                        else if (type === "SHEET_EDIT_CHANGED" && config.onEditChanged) config.onEditChanged(parseInt(parts[2], 10), parseInt(parts[3], 10), parts.slice(4).join("|"));
+                        else if (type === "SHEET_EDIT_COMMITTED" && config.onEditCommitted) config.onEditCommitted(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_EDIT_CANCELLED" && config.onEditCancelled) config.onEditCancelled(parseInt(parts[2], 10), parseInt(parts[3], 10));
+                        else if (type === "SHEET_INSERT_ROW" && config.onInsertRow) config.onInsertRow(parseInt(parts[2], 10));
+                        else if (type === "SHEET_DELETE_ROW" && config.onDeleteRow) config.onDeleteRow(parseInt(parts[2], 10));
+                        else if (type === "SHEET_INSERT_COL" && config.onInsertColumn) config.onInsertColumn(parseInt(parts[2], 10));
+                        else if (type === "SHEET_DELETE_COL" && config.onDeleteColumn) config.onDeleteColumn(parseInt(parts[2], 10));
                     });
                 }
             },

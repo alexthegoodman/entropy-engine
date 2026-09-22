@@ -28,6 +28,59 @@ export function defaultSheet(rows = 30, cols = 12): SheetDoc {
     return { rows, cols, cells: {} };
 }
 
+function splitKey(key: string): [number, number] {
+    const [rowStr, colStr] = key.split(":");
+    return [parseInt(rowStr, 10), parseInt(colStr, 10)];
+}
+
+/** Inserts a new, empty row at `at` (0-based) - every cell at row >= at shifts down by one.
+ * Formula text is left exactly as typed: a reference across the seam is NOT adjusted (see the
+ * sheet-formula-reference-adjustment backlog card - the same deliberate v1 tradeoff paste makes). */
+export function insertRow(doc: SheetDoc, at: number): SheetDoc {
+    const cells: Record<string, SheetCellData> = {};
+    for (const [key, data] of Object.entries(doc.cells)) {
+        const [row, col] = splitKey(key);
+        cells[cellKey(row >= at ? row + 1 : row, col)] = data;
+    }
+    return { rows: doc.rows + 1, cols: doc.cols, cells };
+}
+
+/** Deletes row `at`, dropping whatever was in it; rows after it shift up by one. Never deletes
+ * the sheet's last row. */
+export function deleteRow(doc: SheetDoc, at: number): SheetDoc {
+    if (doc.rows <= 1) return doc;
+    const cells: Record<string, SheetCellData> = {};
+    for (const [key, data] of Object.entries(doc.cells)) {
+        const [row, col] = splitKey(key);
+        if (row === at) continue;
+        cells[cellKey(row > at ? row - 1 : row, col)] = data;
+    }
+    return { rows: doc.rows - 1, cols: doc.cols, cells };
+}
+
+/** Inserts a new, empty column at `at` (0-based) - every cell at col >= at shifts right by one. */
+export function insertColumn(doc: SheetDoc, at: number): SheetDoc {
+    const cells: Record<string, SheetCellData> = {};
+    for (const [key, data] of Object.entries(doc.cells)) {
+        const [row, col] = splitKey(key);
+        cells[cellKey(row, col >= at ? col + 1 : col)] = data;
+    }
+    return { rows: doc.rows, cols: doc.cols + 1, cells };
+}
+
+/** Deletes column `at`, dropping whatever was in it; columns after it shift left by one. Never
+ * deletes the sheet's last column. */
+export function deleteColumn(doc: SheetDoc, at: number): SheetDoc {
+    if (doc.cols <= 1) return doc;
+    const cells: Record<string, SheetCellData> = {};
+    for (const [key, data] of Object.entries(doc.cells)) {
+        const [row, col] = splitKey(key);
+        if (col === at) continue;
+        cells[cellKey(row, col > at ? col - 1 : col)] = data;
+    }
+    return { rows: doc.rows, cols: doc.cols - 1, cells };
+}
+
 export function cellKey(row: number, col: number): string {
     return `${row}:${col}`;
 }

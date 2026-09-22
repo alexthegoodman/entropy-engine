@@ -634,6 +634,9 @@ pub enum UiWidget {
         cells: Vec<SheetCellConfig>,
         /// (row, col) - highlights that cell as selected.
         selected: Option<(u32, u32)>,
+        /// (row, col, draft text) - the cell currently being edited, if any, and its live
+        /// content. See `entropy_gui::widgets_sheet`'s module doc for how this is driven.
+        editing: Option<(u32, u32, String)>,
         options: SheetGridOptionsConfig,
     },
     /// A Figma/VS Code-style outliner - see `entropy_gui::widgets_tree`. The caller supplies
@@ -3663,11 +3666,12 @@ pub fn op_ui_widget_sheet_grid(
     #[string] window_id: String,
     #[serde] cells: Vec<SheetCellConfig>,
     #[serde] selected: Option<(u32, u32)>,
+    #[serde] editing: Option<(u32, u32, String)>,
     #[serde] options: SheetGridOptionsConfig,
     #[string] id: String,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::SheetGrid { id, cells, selected, options });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::SheetGrid { id, cells, selected, editing, options });
     }
 }
 

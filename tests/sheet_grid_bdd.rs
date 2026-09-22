@@ -11,7 +11,7 @@ use entropy_engine::entropy_gui::color::Color32;
 use entropy_engine::entropy_gui::context::{Key, KeyEvent, Modifiers, PointerState};
 use entropy_engine::entropy_gui::draw_list::{DrawCommand, DrawTexture};
 use entropy_engine::entropy_gui::geometry::{pos2, vec2, Pos2, Rect};
-use entropy_engine::entropy_gui::{CentralPanel, Context, RawInput, SheetCell, SheetEvent, SheetGrid, SheetGridOptions};
+use entropy_engine::entropy_gui::{CentralPanel, Context, RawInput, SheetCell, SheetEdit, SheetEvent, SheetGrid, SheetGridOptions};
 use image::RgbaImage;
 
 const SS: usize = 2;
@@ -34,12 +34,13 @@ impl Harness {
         Self { ctx: Context::default(), atlas: vec![[0; 4]; ATLAS * ATLAS], width, height, time_step: 1.0 / 60.0 }
     }
 
-    fn run(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui)) -> Vec<DrawCommand> {
+    fn run_with_text(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, text_input: String, add: impl FnOnce(&mut entropy_engine::entropy_gui::Ui)) -> Vec<DrawCommand> {
         let raw = RawInput {
             screen_rect: Rect::from_min_size(pos2(0.0, 0.0), vec2(self.width as f32, self.height as f32)),
             pixels_per_point: 1.0,
             pointer,
             key_events: keys,
+            text_input,
             dt: self.time_step,
             ..Default::default()
         };
@@ -157,6 +158,8 @@ struct SheetWorld {
     cells: Vec<SheetCell>,
     opts: SheetGridOptions,
     selected: Option<(u32, u32)>,
+    /// (row, col, draft text) - mirrors what a real addon holds while an edit is in progress.
+    editing: Option<(u32, u32, String)>,
     origin: Pos2,
     events: Vec<String>,
     pending: Vec<DrawCommand>,
@@ -165,7 +168,7 @@ struct SheetWorld {
 
 impl std::fmt::Debug for SheetWorld {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "SheetWorld(selected={:?})", self.selected)
+        write!(f, "SheetWorld(selected={:?}, editing={:?})", self.selected, self.editing)
     }
 }
 
@@ -176,6 +179,7 @@ impl Default for SheetWorld {
             cells: Vec::new(),
             opts: SheetGridOptions { rows: 5, cols: 4, col_width: 90.0, row_height: 22.0, max_height: None },
             selected: None,
+            editing: None,
             origin: pos2(0.0, 0.0),
             events: Vec::new(),
             pending: Vec::new(),
@@ -188,24 +192,44 @@ fn sheet_event(e: SheetEvent) -> String {
     match e {
         SheetEvent::CellSelected { row, col } => format!("CellSelected({row},{col})"),
         SheetEvent::CellClearRequested { row, col } => format!("CellClearRequested({row},{col})"),
+        SheetEvent::CellEditStarted { row, col, initial } => format!("CellEditStarted({row},{col},{initial})"),
+        SheetEvent::CellEditChanged { row, col, text } => format!("CellEditChanged({row},{col},{text})"),
+        SheetEvent::CellEditCommitted { row, col } => format!("CellEditCommitted({row},{col})"),
+        SheetEvent::CellEditCancelled { row, col } => format!("CellEditCancelled({row},{col})"),
+        SheetEvent::InsertRowRequested { row } => format!("InsertRowRequested({row})"),
+        SheetEvent::DeleteRowRequested { row } => format!("DeleteRowRequested({row})"),
+        SheetEvent::InsertColumnRequested { col } => format!("InsertColumnRequested({col})"),
+        SheetEvent::DeleteColumnRequested { col } => format!("DeleteColumnRequested({col})"),
     }
 }
 
 impl SheetWorld {
     fn frame(&mut self, pointer: PointerState, keys: Vec<KeyEvent>) {
-        let (cells, opts, selected) = (self.cells.clone(), self.opts, self.selected);
+        self.frame_with_text(pointer, keys, String::new())
+    }
+
+    fn frame_with_text(&mut self, pointer: PointerState, keys: Vec<KeyEvent>, text_input: String) {
+        let (cells, opts, selected, editing) = (self.cells.clone(), self.opts, self.selected, self.editing.clone());
         let mut out = None;
-        self.pending = self.h.run(pointer, keys, |ui| {
-            let r = SheetGrid::new("grid").options(opts).show(ui, &cells, selected);
+        self.pending = self.h.run_with_text(pointer, keys, text_input, |ui| {
+            let edit_arg = editing.as_ref().map(|(row, col, value)| SheetEdit { row: *row, col: *col, value: value.as_str() });
+            let r = SheetGrid::new("grid").options(opts).show(ui, &cells, selected, edit_arg);
             out = Some((r.events, r.origin));
         });
         let (ev, origin) = out.unwrap();
-        // Mirror what a real caller does: apply a reported selection straight back onto the
-        // state handed in next frame, so a sequence of steps (Tab, then Enter, ...) composes
-        // the way it would in an addon's own onCellSelected callback.
+        // Mirror what a real addon does: apply each reported state change straight back onto
+        // what's handed in next frame, so a sequence of steps (Tab, then Enter, ...) composes
+        // the way it would through an addon's own callbacks.
         for e in &ev {
-            if let SheetEvent::CellSelected { row, col } = e {
-                self.selected = Some((*row, *col));
+            match e {
+                SheetEvent::CellSelected { row, col } => self.selected = Some((*row, *col)),
+                SheetEvent::CellEditStarted { row, col, initial } => {
+                    let base = if initial.is_empty() { self.cells.iter().find(|c| c.row == *row && c.col == *col).map(|c| c.text.clone()).unwrap_or_default() } else { initial.clone() };
+                    self.editing = Some((*row, *col, base));
+                }
+                SheetEvent::CellEditChanged { row, col, text } => self.editing = Some((*row, *col, text.clone())),
+                SheetEvent::CellEditCommitted { .. } | SheetEvent::CellEditCancelled { .. } => self.editing = None,
+                _ => {}
             }
         }
         self.events = ev.into_iter().map(sheet_event).collect();
@@ -233,8 +257,56 @@ impl SheetWorld {
         self.frame(PointerState::default(), vec![KeyEvent { key, pressed: true, modifiers: Modifiers::default() }]);
     }
 
+    /// One frame with `ch` as this frame's committed text input - the same thing a keystroke
+    /// hands `RawInput.text_input` in the real window backend.
+    fn type_char(&mut self, ch: &str) {
+        self.frame_with_text(PointerState::default(), Vec::new(), ch.to_string());
+    }
+
+    /// Double-click `p`: two ordinary clicks close enough together (a handful of frames, well
+    /// under `DOUBLE_CLICK_WINDOW`) for the widget to treat as one double-click.
+    fn double_click(&mut self, p: Pos2) {
+        self.click(p);
+        let second = std::mem::take(&mut self.events);
+        self.click(p);
+        self.events = second.into_iter().chain(std::mem::take(&mut self.events)).collect();
+    }
+
+    fn right_click(&mut self, p: Pos2) {
+        self.hover(p);
+        let press = PointerState { pos: Some(p), secondary_pressed: true, secondary_down: true, ..Default::default() };
+        self.frame(press, Vec::new());
+        let release = PointerState { pos: Some(p), ..Default::default() };
+        self.frame(release, Vec::new());
+    }
+
+    /// Right-clicks `p` to open its context menu, draws the frame the menu actually appears on,
+    /// then clicks `offset` away from the menu's own content origin (`p` plus the popup's 4px
+    /// inner padding - see `context_menu.rs`) to hit one of its items.
+    fn right_click_menu_item(&mut self, p: Pos2, offset: Pos2) {
+        self.right_click(p);
+        self.frame(PointerState::default(), Vec::new());
+        self.click(pos2(p.x + 4.0 + offset.x, p.y + 4.0 + offset.y));
+    }
+
     fn cell_rect(&self, row: u32, col: u32) -> Rect {
-        Rect::from_min_size(pos2(self.origin.x + col as f32 * self.opts.col_width, self.origin.y + row as f32 * self.opts.row_height), vec2(self.opts.col_width, self.opts.row_height))
+        use entropy_engine::entropy_gui::widgets_sheet::ROW_HEADER_W;
+        Rect::from_min_size(
+            pos2(self.origin.x + ROW_HEADER_W + col as f32 * self.opts.col_width, self.origin.y + row as f32 * self.opts.row_height),
+            vec2(self.opts.col_width, self.opts.row_height),
+        )
+    }
+
+    /// Center of row `row`'s own header cell (in the fixed `ROW_HEADER_W`-wide gutter).
+    fn row_header_center(&self, row: u32) -> Pos2 {
+        use entropy_engine::entropy_gui::widgets_sheet::ROW_HEADER_W;
+        pos2(self.origin.x + ROW_HEADER_W / 2.0, self.origin.y + row as f32 * self.opts.row_height + self.opts.row_height / 2.0)
+    }
+
+    /// Center of column `col`'s own header cell, in the fixed row above the scrolling body.
+    fn col_header_center(&self, col: u32) -> Pos2 {
+        use entropy_engine::entropy_gui::widgets_sheet::{HEADER_H, ROW_HEADER_W};
+        pos2(self.origin.x + ROW_HEADER_W + col as f32 * self.opts.col_width + self.opts.col_width / 2.0, self.origin.y - HEADER_H / 2.0)
     }
 
     fn ensure_frame(&mut self) {
@@ -271,6 +343,7 @@ fn grid(world: &mut SheetWorld, rows: u32, cols: u32, w: f32, h: f32) {
     world.opts = SheetGridOptions { rows, cols, col_width: w, row_height: h, max_height: None };
     world.cells = Vec::new();
     world.selected = None;
+    world.editing = None;
 }
 
 #[given(expr = "cell {int},{int} contains {string}")]
@@ -302,6 +375,18 @@ fn click_cell(world: &mut SheetWorld, row: u32, col: u32) {
     world.click(c);
 }
 
+#[when(expr = "I double-click cell {int},{int}")]
+fn double_click_cell(world: &mut SheetWorld, row: u32, col: u32) {
+    world.ensure_frame();
+    let c = world.cell_rect(row, col).center();
+    world.double_click(c);
+}
+
+#[when(expr = "I type {string}")]
+fn type_text(world: &mut SheetWorld, text: String) {
+    world.type_char(&text);
+}
+
 #[when(expr = "I press {string}")]
 fn press(world: &mut SheetWorld, key: String) {
     let k = match key.as_str() {
@@ -313,9 +398,36 @@ fn press(world: &mut SheetWorld, key: String) {
         "Enter" => Key::Enter,
         "Delete" => Key::Delete,
         "Backspace" => Key::Backspace,
+        "Escape" => Key::Escape,
         other => panic!("unknown key {other}"),
     };
     world.press_key(k);
+}
+
+#[when(expr = "I right-click the row header for row {int} and choose {string}")]
+fn row_header_menu(world: &mut SheetWorld, row: u32, item: String) {
+    world.ensure_frame();
+    let idx = match item.as_str() {
+        "Insert row above" => 0,
+        "Insert row below" => 1,
+        "Delete row" => 2,
+        other => panic!("unknown row menu item {other}"),
+    };
+    let p = world.row_header_center(row);
+    world.right_click_menu_item(p, pos2(20.0, idx as f32 * 32.0 + 11.0));
+}
+
+#[when(expr = "I right-click the column header for column {int} and choose {string}")]
+fn col_header_menu(world: &mut SheetWorld, col: u32, item: String) {
+    world.ensure_frame();
+    let idx = match item.as_str() {
+        "Insert column left" => 0,
+        "Insert column right" => 1,
+        "Delete column" => 2,
+        other => panic!("unknown column menu item {other}"),
+    };
+    let p = world.col_header_center(col);
+    world.right_click_menu_item(p, pos2(20.0, idx as f32 * 32.0 + 11.0));
 }
 
 #[then(expr = "the events are {string}")]
@@ -326,6 +438,16 @@ fn events_are(world: &mut SheetWorld, text: String) {
 #[then("there are no events")]
 fn no_events(world: &mut SheetWorld) {
     assert!(world.events.is_empty(), "{:?}", world.events);
+}
+
+#[then(expr = "cell {int},{int} is being edited with {string}")]
+fn editing_is(world: &mut SheetWorld, row: u32, col: u32, text: String) {
+    assert_eq!(world.editing, Some((row, col, text)));
+}
+
+#[then("nothing is being edited")]
+fn nothing_editing(world: &mut SheetWorld) {
+    assert_eq!(world.editing, None, "{:?}", world.editing);
 }
 
 #[then(expr = "cell {int},{int} is {int} pixels right of cell {int},{int}")]

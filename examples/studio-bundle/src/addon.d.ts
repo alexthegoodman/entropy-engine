@@ -729,6 +729,10 @@ export interface ColorInputConfig {
     label: string;
     color: number[];
     onChange?: (color: number[]) => void;
+    // Stable widget id across re-renders, same convention as ButtonConfig.id - falls back to
+    // deriving one from `label` when omitted. Already read at runtime (src/deno/addon_setup.js's
+    // Widget.colorInput: `config?.id`) but never declared here before.
+    id?: string;
 }
 
 // Every field is optional - only name the colors/knobs you want to change, the rest fall back
@@ -1318,12 +1322,37 @@ export interface SheetGridConfig {
   id?: string;
   cells?: SheetCellConfig[];
   selected?: { row: number; col: number };
+  /** The cell currently being edited and its live draft text - see `onEditStarted`/
+   * `onEditChanged` below. Pass the same cell your own formula bar is targeting if the user is
+   * typing there instead of in the grid directly, so Enter/Tab/Escape and click-away-commits
+   * behave the same regardless of which field the user actually typed into. */
+  editing?: { row: number; col: number; value: string };
   options?: SheetGridOptions;
   /** Fired on a cell click, or on arrow-key/Tab/Enter navigation while a cell is already
    * selected. Use it both for selection and to re-target your own formula bar. */
   onCellSelected?: (row: number, col: number) => void;
-  /** Fired on Delete/Backspace while a cell is selected - clear its content. */
+  /** Fired on Delete/Backspace while a cell is selected and not being edited - clear its content. */
   onCellClear?: (row: number, col: number) => void;
+  /** A double-click, or typing while a cell is selected and no other field has focus, asks to
+   * start an edit session. `initial` is "" for a double-click (edit the existing content - load
+   * it into `editing.value` yourself) or the just-typed character(s) for type-to-replace. */
+  onEditStarted?: (row: number, col: number, initial: string) => void;
+  /** The in-progress edit's text changed (typed into the grid's own inline box) - update
+   * whatever draft state you pass back as `editing.value`. */
+  onEditChanged?: (row: number, col: number, text: string) => void;
+  /** Enter, Tab, or clicking a different cell while editing - write your current draft into the
+   * cell and clear `editing`. */
+  onEditCommitted?: (row: number, col: number) => void;
+  /** Escape while editing - discard the draft and clear `editing`; the cell is untouched. */
+  onEditCancelled?: (row: number, col: number) => void;
+  /** A row header's context menu asked for a new row inserted at this index (existing rows at
+   * and after it should shift down by one). */
+  onInsertRow?: (row: number) => void;
+  onDeleteRow?: (row: number) => void;
+  /** A column header's context menu asked for a new column inserted at this index (existing
+   * columns at and after it should shift right by one). */
+  onInsertColumn?: (col: number) => void;
+  onDeleteColumn?: (col: number) => void;
 }
 
 /** One row of a `Widget.treeView` - already depth-computed; the widget does not derive

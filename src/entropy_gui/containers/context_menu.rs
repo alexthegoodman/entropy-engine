@@ -44,6 +44,15 @@ pub fn context_menu(ctx: &Context, id: Id, anchor_rect: Rect, just_secondary_cli
     bg.rect_filled(region, style.visuals.window_corner_radius, style.visuals.window_fill);
     bg.rect_stroke(region, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
 
+    // Same occlusion trick `Window::show` uses: a layer with the highest order so far this
+    // frame, plus an occluder registered for `region` once contents are drawn, so a click on a
+    // menu item next frame does not *also* land on whatever is underneath the popup (there is
+    // no topmost-only hit-testing otherwise - see `Window`'s own module doc for the click-
+    // through bug this exact mechanism was built to fix). Without this, a click landing on
+    // e.g. "Delete row" would also select whichever grid cell happened to be drawn under it.
+    let previous_layer = ctx.enter_layer(id.with("context_menu_layer"));
     let mut ui = Ui::new(ctx.clone(), id.with("context_menu"), region.shrink(4.0), Layout::top_down(Align::Min), region, DrawTarget::Popup);
     add_contents(&mut ui);
+    ctx.add_occluder(id.with("context_menu_layer"), region);
+    ctx.leave_layer(previous_layer);
 }

@@ -63,8 +63,17 @@ impl ComboBox {
             bg.rect_filled(popup_rect, style.visuals.window_corner_radius, style.visuals.window_fill);
             bg.rect_stroke(popup_rect, style.visuals.window_corner_radius, style.visuals.window_stroke, StrokeKind::Middle);
 
-            let mut popup_ui = Ui::new(ui.ctx().clone(), id.with("combo_popup"), popup_rect.shrink(4.0), Layout::top_down(Align::Min), popup_rect, DrawTarget::Popup);
+            // Same occlusion trick `Window::show`/`context_menu` use: a layer with the highest
+            // order so far this frame, plus an occluder registered for `popup_rect` once the
+            // list is drawn, so a click on a row does not *also* land on whatever widget is
+            // underneath the popup (see `popup-click-through` - this is one of the two popups
+            // that card names; `Response::context_menu` got the same fix alongside it).
+            let ctx = ui.ctx().clone();
+            let previous_layer = ctx.enter_layer(id.with("combo_popup_layer"));
+            let mut popup_ui = Ui::new(ctx.clone(), id.with("combo_popup"), popup_rect.shrink(4.0), Layout::top_down(Align::Min), popup_rect, DrawTarget::Popup);
             ScrollArea::vertical().show(&mut popup_ui, |inner| add_contents(inner));
+            ctx.add_occluder(id.with("combo_popup_layer"), popup_rect);
+            ctx.leave_layer(previous_layer);
 
             // Any primary press outside the toggle button — including an item click inside the
             // popup, i.e. a selection was just made — closes the popup starting next frame.

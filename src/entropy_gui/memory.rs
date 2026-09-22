@@ -109,6 +109,10 @@ pub struct Memory {
     /// pointer each frame - only its identity, so the widget knows which card to draw as a
     /// floating ghost and skip drawing at its normal column position.
     pub kanban_drag: Option<(Id, String, String)>,
+    /// (grid id, cell, seconds since that cell was last single-clicked) - lets `SheetGrid`
+    /// tell a double-click (edit existing content) from two independent single clicks without
+    /// a widget-specific timer of its own.
+    pub sheet_last_click: Option<(Id, (u32, u32), f32)>,
     /// One `DocEditor` instance's whole document (paragraphs, per-paragraph layout cache,
     /// cursor/selection) - keyed by the widget's id like everything else here, but stored in
     /// its own map rather than the small `WidgetState` enum: that enum's `get`/`set` clone the
