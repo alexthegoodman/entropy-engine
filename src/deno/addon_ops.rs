@@ -1192,6 +1192,7 @@ pub struct AddonContext {
     pub bdd_pointer_in_viewport: bool,
     pub modifiers: Modifiers,
     pub window_size: [u32; 2],
+    pub pending_fullscreen: Option<bool>,
     pub selected_entity_id: Option<String>,
     pub pending_camera_position: Option<[f32; 3]>,
     pub pending_camera_target: Option<[f32; 3]>,
@@ -2052,6 +2053,24 @@ pub fn op_video_set_volume(state: &mut OpState, #[string] handle: String, volume
             entry.player.set_volume(volume as f32);
         }
     }
+}
+
+#[cfg(target_os = "windows")]
+#[op2(fast)]
+pub fn op_video_set_speed(state: &mut OpState, #[string] handle: String, speed: f64) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        if let Some(entry) = ctx.video_players.get_mut(&handle) {
+            entry.player.set_speed(speed as f32);
+        }
+    }
+}
+
+#[cfg(target_os = "windows")]
+#[op2]
+#[string]
+pub fn op_video_read_subtitles(#[string] path: String) -> Result<String, deno_error::JsErrorBox> {
+    std::fs::read_to_string(&path)
+        .map_err(|error| deno_error::JsErrorBox::generic(format!("Failed to read subtitles '{}': {error}", path)))
 }
 
 #[cfg(target_os = "windows")]
@@ -3103,6 +3122,13 @@ pub fn op_window_get_size(state: &mut OpState) -> Result<(u32, u32), deno_error:
         Ok((ctx.window_size[0], ctx.window_size[1]))
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
+    }
+}
+
+#[op2(fast)]
+pub fn op_window_set_fullscreen(state: &mut OpState, enabled: bool) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.pending_fullscreen = Some(enabled);
     }
 }
 

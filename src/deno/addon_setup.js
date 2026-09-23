@@ -396,6 +396,8 @@ const videoAPI = {
     pause: (handle) => ops.op_video_pause(handle),
     seek: (handle, ms) => ops.op_video_seek(handle, ms),
     setVolume: (handle, volume) => ops.op_video_set_volume(handle, volume),
+    setSpeed: (handle, speed) => ops.op_video_set_speed(handle, speed),
+    readSubtitles: (path) => ops.op_video_read_subtitles(path),
     close: (handle) => ops.op_video_close(handle),
     poll: (handle) => ops.op_video_poll(handle),
     export: (config) => ops.op_video_export_start(config.outputPath, config.fps, config.durationMs),
@@ -1860,7 +1862,8 @@ globalThis.Entropy = {
     Window: {
         getSize: () => {
             return ops.op_window_get_size();
-        }
+        },
+        setFullscreen: (enabled) => ops.op_window_set_fullscreen(enabled)
     },
     Camera: {
         getTransform: () => {

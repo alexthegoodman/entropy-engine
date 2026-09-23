@@ -459,6 +459,13 @@ Run `cargo run --bin example` with no name for the full list (also: `game2d`,
 `level-editor-2d`, `light-hive`, `mcp-tools-demo`, `media-player`, `node-graph`,
 `theme-gallery`).
 
+The Windows Media Player example loads the MP4s in `public/` into a playlist. Build it with
+`npm run build-media-player` from `examples/studio-bundle`, then run
+`cargo run --release --bin example -- media-player` from this directory. Enter another MP4 path
+to add it. It loads a matching `.srt` or `.vtt` next to a clip when present, or you can enter a
+subtitle path. The controls cover seek, volume, speed, repeat, captions and fullscreen.
+`cargo test --release --test media_player_live -- --nocapture` runs the real window BDD suite.
+
 ---
 
 ## Gallery

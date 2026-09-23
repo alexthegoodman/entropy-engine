@@ -39,6 +39,8 @@ pub struct MediaPlayer {
     play_started_at: Option<Instant>,
     next_frame_due_ms: f64,
     volume: f32,
+    speed: f32,
+    show_seek_frame: bool,
 
     audio_engine: Arc<AudioEngine>,
     audio: Option<AudioChannel>,
@@ -73,6 +75,8 @@ impl MediaPlayer {
             play_started_at: None,
             next_frame_due_ms: 0.0,
             volume: 1.0,
+            speed: 1.0,
+            show_seek_frame: true,
             audio_engine,
             audio: None,
         })
@@ -93,14 +97,18 @@ impl MediaPlayer {
     pub fn is_playing(&self) -> bool {
         self.playing
     }
+    pub fn speed(&self) -> f32 { self.speed }
+    pub fn volume(&self) -> f32 { self.volume }
+    pub fn has_audio_stream(&self) -> bool { self.audio_format.is_some() }
+    pub fn audio_sink_active(&self) -> bool { self.audio.is_some() }
 
     pub fn current_time_ms(&self) -> i64 {
         if self.playing {
             self.position_at_play_ms
-                + self
+                + (self
                     .play_started_at
                     .map(|t| t.elapsed().as_millis() as i64)
-                    .unwrap_or(0)
+                    .unwrap_or(0) as f64 * self.speed as f64) as i64
         } else {
             self.position_at_play_ms
         }
@@ -109,6 +117,12 @@ impl MediaPlayer {
     pub fn play(&mut self) {
         if self.playing {
             return;
+        }
+        if self.position_at_play_ms >= self.duration_ms {
+            if let Err(error) = self.seek(0) {
+                println!("[media_player] replay seek failed: {error:?}");
+                return;
+            }
         }
         self.playing = true;
         self.play_started_at = Some(Instant::now());
@@ -122,6 +136,7 @@ impl MediaPlayer {
                 channels,
                 sample_rate,
                 self.volume,
+                self.speed,
                 &self.audio_engine,
             ) {
                 Ok(ch) => self.audio = Some(ch),
@@ -154,12 +169,13 @@ impl MediaPlayer {
         }
         self.position_at_play_ms = ms;
         self.next_frame_due_ms = ms as f64;
+        self.show_seek_frame = true;
         self.play_started_at = if self.playing { Some(Instant::now()) } else { None };
 
         self.audio = None; // old sink+thread torn down here (see AudioChannel's Drop-by-disconnect note)
         if self.playing {
             if let Some((channels, sample_rate)) = self.audio_format {
-                match AudioChannel::spawn(&self.path, ms, channels, sample_rate, self.volume, &self.audio_engine) {
+                match AudioChannel::spawn(&self.path, ms, channels, sample_rate, self.volume, self.speed, &self.audio_engine) {
                     Ok(ch) => self.audio = Some(ch),
                     Err(e) => println!("[media_player] audio restart after seek failed: {e:?}"),
                 }
@@ -175,15 +191,24 @@ impl MediaPlayer {
         }
     }
 
+    pub fn set_speed(&mut self, speed: f32) {
+        let position = self.current_time_ms();
+        self.speed = speed.clamp(0.25, 4.0);
+        self.position_at_play_ms = position;
+        if self.playing { self.play_started_at = Some(Instant::now()); }
+        if let Some(audio) = &self.audio { audio.sink.set_speed(self.speed); }
+    }
+
     /// Returns newly-decoded RGBA frame bytes if playback has reached (or passed) the next
     /// frame's presentation time, else `None`. If wall-clock time has jumped ahead by more than
     /// one frame interval (e.g. a hitch), this drops the skipped frames rather than displaying
     /// them, so playback catches up instead of continuing in slow motion - bounded to 30
     /// iterations per call so a large jump can't stall the render thread decoding a full backlog.
     pub fn poll_video_frame(&mut self) -> Option<Vec<u8>> {
-        if !self.playing {
+        if !self.playing && !self.show_seek_frame {
             return None;
         }
+        self.show_seek_frame = false;
         let now_ms = self.current_time_ms() as f64;
         let mut latest = None;
 
@@ -193,7 +218,7 @@ impl MediaPlayer {
             }
             match read_video_sample(&self.video_reader) {
                 Ok(Some((data, pts_ms))) => {
-                    self.next_frame_due_ms = pts_ms.max(now_ms) + 1000.0 / self.frame_rate.max(1.0);
+                    self.next_frame_due_ms = pts_ms + 1000.0 / self.frame_rate.max(1.0);
                     latest = Some(data);
                 }
                 Ok(None) => {
@@ -201,9 +226,10 @@ impl MediaPlayer {
                     // which play()/seek() keep correct but which nothing else here was updating -
                     // without this, the displayed time snapped back to wherever playback last
                     // started/seeked from instead of freezing at the real end-of-stream position.
-                    self.position_at_play_ms = now_ms as i64;
+                    self.position_at_play_ms = self.duration_ms;
                     self.playing = false;
                     self.play_started_at = None;
+                    if let Some(audio) = &self.audio { audio.sink.stop(); }
                     break;
                 }
                 Err(e) => {
@@ -398,6 +424,7 @@ impl AudioChannel {
         channels: u16,
         sample_rate: u32,
         volume: f32,
+        speed: f32,
         audio_engine: &AudioEngine,
     ) -> windows::core::Result<Self> {
         let (tx, rx) = sync_channel::<Vec<f32>>(8);
@@ -448,6 +475,7 @@ impl AudioChannel {
         };
         let sink = audio_engine.new_sink();
         sink.set_volume(volume);
+        sink.set_speed(speed);
         sink.append(source);
 
         Ok(AudioChannel { sink, _thread: thread })

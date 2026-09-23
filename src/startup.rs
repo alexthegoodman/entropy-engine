@@ -174,6 +174,7 @@ pub const BDD_DRIVER_ENV_VARS: &[&str] = &[
     "ENTROPY_DAW_BDD_RESULT",
     "ENTROPY_LAUNCHER_BDD_RESULT",
     "ENTROPY_SHEET_BDD_RESULT",
+    "ENTROPY_MEDIA_BDD_RESULT",
 ];
 
 /// Turns one Gherkin step's text (keyword already stripped by the parser, e.g. `I click
@@ -188,6 +189,7 @@ fn browser_bdd_action_from_step(text: &str) -> Option<BrowserBddAction> {
         || text == "the real DAW is running in test mode"
         || text == "the real app launcher is running in test mode"
         || text == "the real sheet addon is running in test mode"
+        || text == "the real media player is running in test mode"
     {
         return None;
     }
@@ -284,6 +286,7 @@ impl BrowserBddDriver {
         let canvas = !daw && std::env::var_os("ENTROPY_CANVAS_BDD_RESULT").is_some();
         let launcher = !daw && !canvas && std::env::var_os("ENTROPY_LAUNCHER_BDD_RESULT").is_some();
         let sheet = !daw && !canvas && !launcher && std::env::var_os("ENTROPY_SHEET_BDD_RESULT").is_some();
+        let media = !daw && !canvas && !launcher && !sheet && std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some();
         let result_path = std::env::var_os(if daw {
             "ENTROPY_DAW_BDD_RESULT"
         } else if canvas {
@@ -292,6 +295,8 @@ impl BrowserBddDriver {
             "ENTROPY_LAUNCHER_BDD_RESULT"
         } else if sheet {
             "ENTROPY_SHEET_BDD_RESULT"
+        } else if media {
+            "ENTROPY_MEDIA_BDD_RESULT"
         } else {
             "ENTROPY_BROWSER_BDD_RESULT"
         })
@@ -300,6 +305,8 @@ impl BrowserBddDriver {
             include_str!("../tests/features/app_launcher_live.feature")
         } else if sheet {
             include_str!("../tests/features/sheet_live.feature")
+        } else if media {
+            include_str!("../tests/features/media_player_live.feature")
         } else if daw {
             // The restore run reopens the project the first run saved: same driver, second script.
             match std::env::var("ENTROPY_DAW_BDD_FEATURE").as_deref() {
@@ -367,7 +374,7 @@ impl BrowserBddDriver {
             "bookmarks": ["https://www.iana.org/domains/example"],
             "artifacts": self.artifacts,
         });
-        if self.canvas || self.daw || self.launcher || self.sheet {
+        if self.canvas || self.daw || self.launcher || self.sheet || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
             for key in ["current_url", "history", "history_index", "bookmarks"] { result.as_object_mut().unwrap().remove(key); }
         }
         // The replies to `I call the tool` steps, in order: what the addon's own tools said back.
@@ -391,7 +398,7 @@ impl BrowserBddDriver {
     }
 
     fn tick(&mut self, window: &mut WindowState, event_loop: &ActiveEventLoop) {
-        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher { 90 } else if self.sheet { 60 } else { 30 }) {
+        if self.started.elapsed() > Duration::from_secs(if self.daw { 240 } else if self.canvas || self.launcher { 90 } else if self.sheet || std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() { 60 } else { 30 }) {
             self.write_result("timeout", Some("live browser BDD exceeded its time budget"));
             event_loop.exit();
             return;
@@ -556,12 +563,30 @@ impl BrowserBddDriver {
             }
             BrowserBddAction::Capture(name) => {
                 let path = self.artifact_dir.join(format!("{name}.png"));
+                let media = if std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
+                    window.pipeline.export_editor.as_mut().and_then(|editor| {
+                        let op_state = editor.addon_engine.runtime.op_state();
+                        let op_state = op_state.borrow();
+                        let context = op_state.try_borrow::<crate::deno::addon_ops::AddonContext>()?;
+                        let entry = context.video_players.values().next()?;
+                        Some(serde_json::json!({
+                            "playing": entry.player.is_playing(),
+                            "timeMs": entry.player.current_time_ms(),
+                            "speed": entry.player.speed(),
+                            "volume": entry.player.volume(),
+                            "width": entry.player.width(),
+                            "height": entry.player.height(),
+                            "hasAudio": entry.player.has_audio_stream(),
+                            "audioSinkActive": entry.player.audio_sink_active(),
+                        }))
+                    })
+                } else { None };
                 match window.pipeline.request_ui_screenshot(&path) {
                     Ok(()) => {
                         self.artifacts.push(path.to_string_lossy().into_owned());
                         // A capture is in physical pixels while every widget rect is in points, so a
                         // test that wants to read one window's pixels out of a screenshot needs this.
-                        self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "requested", "scaleFactor": window.window.scale_factor() }));
+                        self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "requested", "scaleFactor": window.window.scale_factor(), "fullscreen": window.window.fullscreen().is_some(), "media": media }));
                     }
                     Err(error) => self.outcomes.push(serde_json::json!({ "kind": "capture", "name": name, "outcome": "error", "error": error })),
                 }
@@ -1409,6 +1434,17 @@ impl ApplicationHandler<UserEvent> for Application {
 
         if let (Some(driver), Some(window)) = (self.browser_bdd_driver.as_mut(), self.windows.values_mut().next()) {
             driver.tick(window, event_loop);
+        }
+        for window in self.windows.values_mut() {
+            if let Some(editor) = window.pipeline.export_editor.as_mut() {
+                let op_state = editor.addon_engine.runtime.op_state();
+                let mut op_state = op_state.borrow_mut();
+                if let Some(context) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
+                    if let Some(enabled) = context.pending_fullscreen.take() {
+                        window.window.set_fullscreen(if enabled { Some(Fullscreen::Borderless(None)) } else { None });
+                    }
+                }
+            }
         }
 
         // Poll Gamepad

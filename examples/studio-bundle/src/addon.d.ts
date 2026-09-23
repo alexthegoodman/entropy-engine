@@ -553,6 +553,8 @@ export interface ScopedAPI {
     pause: (handle: string) => void;
     seek: (handle: string, ms: number) => void;
     setVolume: (handle: string, volume: number) => void;
+    setSpeed: (handle: string, speed: number) => void;
+    readSubtitles: (path: string) => string;
     close: (handle: string) => void;
     poll: (handle: string) => { currentTimeMs: number; playing: boolean };
     /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
@@ -2218,6 +2220,8 @@ export interface EntropyAPI {
     pause: (handle: string) => void;
     seek: (handle: string, ms: number) => void;
     setVolume: (handle: string, volume: number) => void;
+    setSpeed: (handle: string, speed: number) => void;
+    readSubtitles: (path: string) => string;
     close: (handle: string) => void;
     poll: (handle: string) => { currentTimeMs: number; playing: boolean };
     /** Renders the calling addon's current scene offscreen for `durationMs` at `fps` and muxes
@@ -2463,6 +2467,7 @@ export interface EntropyAPI {
   setGameMode: (enabled: boolean) => void;
   Window: {
     getSize: () => [number, number];
+    setFullscreen: (enabled: boolean) => void;
   };
   Humanoid: {
     create: () => any; // Returns ProceduralHumanoid instance
