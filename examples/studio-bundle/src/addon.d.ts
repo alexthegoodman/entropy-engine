@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -365,6 +365,13 @@ export interface ScopedAPI {
     wavetableNoteOff: (voice: number) => void;
     /** Moves a held wavetable note through its table (0..1 across the frames) while it sounds. */
     wavetableSetPosition: (voice: number, position: number) => void;
+    /** Plays one timed bowed-string note on a track's bus (see `PhysMod`). */
+    playPhysModOnTrack: (trackId: string, config: PhysModNoteConfig) => PhysModOk;
+    /** Starts a bowed-string note that sounds until `physModNoteOff(voice)`. */
+    physModNoteOn: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { voice?: number };
+    physModNoteOff: (voice: number) => void;
+    /** Moves a held bowed-string note's bow while it sounds. */
+    physModSetBow: (voice: number, which: "force" | "velocity" | "position" | "vibratoDepth", value: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -402,6 +409,7 @@ export interface ScopedAPI {
   };
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
+  PhysMod: PhysModAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;
@@ -466,6 +474,8 @@ export interface ScopedAPI {
       padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
+      /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
+      physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -1641,6 +1651,87 @@ export interface WavetableAPI {
   analyzeNote: (config: WavetableNoteConfig, seconds?: number) => WavetableOk & { seconds?: number; peakDb?: number; rmsDb?: number; peakHz?: number; centroidHz?: number };
 }
 
+export interface PhysModViewConfig {
+  id?: string;
+  /** The instrument in the bowed-string registry (`Entropy.PhysMod`) to show and drive - there is
+   * nothing to create ahead of time, unlike a wavetable's table. */
+  instrument: string;
+  height?: number;
+  width?: number;
+  /** The bow's current position (0.02..0.5) and force (0..1), so a knob and the widget agree on
+   * where the bow is even before a note has published anything. You own these; `onBowDrag` says
+   * when the user drags the bow to somewhere else. */
+  bowPosition?: number;
+  bowForce?: number;
+  /** 0..1, violin to bass; changes how large the drawn body glow reads. */
+  bodySize?: number;
+  /** Which of the (up to 4) drawn strings is highlighted as the one currently sounding. */
+  activeString?: number;
+  /** Show the on-screen keyboard. Default true. */
+  keyboard?: boolean;
+  /** MIDI note of the keyboard's first key (a C). Default 48. */
+  firstKey?: number;
+  octaves?: number;
+  /** Notes to draw as held, beyond the one the pointer is pressing. */
+  held?: number[];
+  /** A drag inside the bowing zone moved the bow: `position` is already in the 0.02..0.5 range
+   * `PhysModNoteConfig.bowPosition` expects. */
+  onBowDrag?: (position: number, force: number) => void;
+  onKeyDown?: (midi: number, velocity: number) => void;
+  onKeyUp?: (midi: number) => void;
+}
+
+export interface PhysModOk { ok: boolean; error?: string }
+
+export interface PhysModInfo extends PhysModOk {
+  id?: string;
+  activeVoices?: number;
+  /** The bow's current state and how loud the voices on this instrument are; null when silent. */
+  activity?: { bowPosition: number; bowForce: number; bowVelocity: number; energy: number } | null;
+}
+
+/** A bowed-string note. Anything left out takes its default. */
+export interface PhysModNoteConfig {
+  instrument: string;
+  freq?: number;
+  velocity?: number;
+  gain?: number;
+  /** 0..1. How hard the bow presses - widens the "stuck" region of the tone, reading as richer,
+   * not simply louder. */
+  bowForce?: number;
+  /** 0..1. How fast the bow moves. */
+  bowVelocity?: number;
+  /** 0.02..0.5, fraction of the string's length from the bridge. Small is near the bridge
+   * (brighter, more nasal); larger moves toward mid-string (rounder). */
+  bowPosition?: number;
+  vibratoRate?: number;
+  /** Cents. */
+  vibratoDepth?: number;
+  /** 0..1, extra damping on top of the string's own loss. */
+  damping?: number;
+  /** 0..1, a character tweak: lower is darker/thicker, higher is airier. */
+  brightness?: number;
+  /** 0..1, violin-register body resonances at 0, moving toward a bass-register body at 1. */
+  bodySize?: number;
+  /** 0..1, how much of the body-colored signal is mixed in versus the raw string. */
+  bodyMix?: number;
+  attack?: number;
+  release?: number;
+  /** Seconds to hold before releasing (timed notes). */
+  duration?: number;
+  /** Offline renders only: seconds from the start. */
+  startTime?: number;
+}
+
+export interface PhysModAPI {
+  info: (id: string) => PhysModInfo;
+  remove: (id: string) => boolean;
+  /** The loop's current cycle shape for the visualization. */
+  shape: (id: string) => PhysModOk & { version?: number; points?: number[] };
+  /** Plays a note offline and reads it back; no audio device involved. */
+  analyzeNote: (config: PhysModNoteConfig, seconds?: number) => PhysModOk & { seconds?: number; peakDb?: number; rmsDb?: number; peakHz?: number; centroidHz?: number };
+}
+
 /** What `Audio.analyze` returns. */
 export interface AudioAnalysis {
   peakL: number;
@@ -2026,6 +2117,8 @@ export interface EntropyAPI {
       padGrid: (windowId: string, config: PadGridConfig) => void;
       /** A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard. */
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
+      /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
+      physModString: (windowId: string, config: PhysModViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2304,7 +2397,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2321,6 +2414,13 @@ export interface EntropyAPI {
     wavetableNoteOff: (voice: number) => void;
     /** Moves a held wavetable note through its table (0..1 across the frames) while it sounds. */
     wavetableSetPosition: (voice: number, position: number) => void;
+    /** Plays one timed bowed-string note on a track's bus (see `PhysMod`). */
+    playPhysModOnTrack: (trackId: string, config: PhysModNoteConfig) => PhysModOk;
+    /** Starts a bowed-string note that sounds until `physModNoteOff(voice)`. */
+    physModNoteOn: (trackId: string, config: PhysModNoteConfig) => PhysModOk & { voice?: number };
+    physModNoteOff: (voice: number) => void;
+    /** Moves a held bowed-string note's bow while it sounds. */
+    physModSetBow: (voice: number, which: "force" | "velocity" | "position" | "vibratoDepth", value: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -2349,6 +2449,7 @@ export interface EntropyAPI {
   };
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
+  PhysMod: PhysModAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;

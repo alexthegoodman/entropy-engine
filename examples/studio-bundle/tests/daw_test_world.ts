@@ -80,6 +80,13 @@ export function createWorld(initialSaved?: unknown) {
         nextVoice: 1,
         wavetableExports: [] as any[][],
         removedTables: [] as string[],
+        // Bowed-string (physmod) notes: unlike a wavetable there is no persistent table to create,
+        // so the stand-in just records what was played/held and which instrument ids were removed.
+        physModViews: new Map<string, any>(),
+        physModNotes: [] as { id: string; cfg: any }[],
+        physModHeld: new Map<number, { id: string; cfg: any; released: boolean; bow: Record<string, number> }>(),
+        physModExports: [] as any[][],
+        removedInstruments: [] as string[],
         // What the WAV export was handed for VST3 tracks, and the vst3Warnings the fake render
         // should hand back on the next export call (reset to [] after each export).
         vst3Exports: [] as any[][],
@@ -109,6 +116,7 @@ export function createWorld(initialSaved?: unknown) {
         pianoRoll: (_win: string, c: any) => { w.piano = c; },
         padGrid: (_win: string, c: any) => { w.padGrids.set(c.id, c); },
         wavetable: (_win: string, c: any) => { w.wavetableViews.set(c.id ?? c.table, c); },
+        physModString: (_win: string, c: any) => { w.physModViews.set(c.id ?? c.instrument, c); },
         treeView: (_win: string, c: any) => { w.trees.set(c.id, c); },
         tracks: (_win: string, c: any) => { if (c.id === "arrangement") w.arrangement = c; },
     };
@@ -150,10 +158,22 @@ export function createWorld(initialSaved?: unknown) {
                 const n = w.heldNotes.get(voice);
                 if (n && !n.released) n.position = position;
             },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], vst3Events?: any[]) => {
+            playPhysModOnTrack: (id: string, cfg: any) => { w.physModNotes.push({ id, cfg }); return { ok: true }; },
+            physModNoteOn: (id: string, cfg: any) => {
+                const voice = w.nextVoice++;
+                w.physModHeld.set(voice, { id, cfg, released: false, bow: { force: cfg.bowForce, velocity: cfg.bowVelocity, position: cfg.bowPosition, vibratoDepth: cfg.vibratoDepth } });
+                return { ok: true, voice };
+            },
+            physModNoteOff: (voice: number) => { const n = w.physModHeld.get(voice); if (n) n.released = true; },
+            physModSetBow: (voice: number, which: string, value: number) => {
+                const n = w.physModHeld.get(voice);
+                if (n && !n.released) n.bow[which] = value;
+            },
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[]) => {
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
                 w.wavetableExports.push(wavetableEvents ?? []);
+                w.physModExports.push(physModEvents ?? []);
                 w.vst3Exports.push(vst3Events ?? []);
                 const vst3Warnings = w.nextVst3Warnings;
                 w.nextVst3Warnings = [];
@@ -226,6 +246,15 @@ export function createWorld(initialSaved?: unknown) {
             analyzeNote: (cfg: any) => w.tables.has(cfg.table)
                 ? { ok: true, seconds: 0.85, peakDb: -12, rmsDb: -15, peakHz: cfg.freq, centroidHz: 300 + 4000 * cfg.position }
                 : { ok: false, error: `no wavetable called ${cfg.table}` },
+        },
+        // The engine's bowed-string registry, reduced to what the addon can observe. Unlike Wavetable
+        // there is nothing to "create" - a real PhysModShared is auto-created on first note, so the
+        // stand-in reports every id as existing once a note has played on it or the view has drawn it.
+        PhysMod: {
+            info: (id: string) => ({ ok: true, id, activeVoices: 0, activity: null }),
+            remove: (id: string) => { w.removedInstruments.push(id); return true; },
+            shape: () => ({ ok: true, version: 0, points: [] }),
+            analyzeNote: (cfg: any) => ({ ok: true, seconds: 0.7, peakDb: -12, rmsDb: -15, peakHz: cfg.freq, centroidHz: 300 + 4000 * cfg.bowForce }),
         },
         Guitar: {
             listInputs: () => ({ devices: [], hosts: [] }),

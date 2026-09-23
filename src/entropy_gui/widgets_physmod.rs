@@ -444,8 +444,12 @@ fn draw_bow(painter: &Painter, proj: &Projector, i: usize, n: usize, position: f
 
 fn draw_body_glow(painter: &Painter, proj: &Projector, body_size: f32, energy: f32) {
     let Some(centre) = proj.project([1.05, -HEIGHT_SCALE * 0.4, 0.0]) else { return };
-    let r = 18.0 + body_size.clamp(0.0, 1.0) * 22.0 + energy * 40.0;
-    painter.circle_filled(centre, r, c32(mix3(AMBER, VIOLET, body_size.clamp(0.0, 1.0)), 0.10 + energy * 0.5));
+    // `energy` is the voice's raw output magnitude, not a normalised 0..1 level - a loud note can
+    // exceed 1, so it has to be clamped before it scales a pixel radius or a note played at gain
+    // above unity balloons the glow across the whole widget.
+    let e = energy.clamp(0.0, 1.0);
+    let r = 18.0 + body_size.clamp(0.0, 1.0) * 22.0 + e * 26.0;
+    painter.circle_filled(centre, r, c32(mix3(AMBER, VIOLET, body_size.clamp(0.0, 1.0)), 0.10 + e * 0.35));
 }
 
 fn draw_keys(painter: &Painter, keys: &[(u8, Rect, bool)], held: &[u8]) {

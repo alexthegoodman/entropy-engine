@@ -49,6 +49,17 @@ import {
     noteConfig as wavetableNoteConfig,
     repairWavetable,
 } from "./daw_wavetable";
+import type { PhysModSettings } from "./daw_physmod";
+import {
+    PHYSMOD_WAVEFORM,
+    PHYSMOD_INSTRUMENT_PRESETS,
+    instrumentPresetById as physModInstrumentPresetById,
+    stringForFreq,
+    defaultPhysMod,
+    describeSettings as describePhysMod,
+    noteConfig as physModNoteConfig,
+    repairPhysMod,
+} from "./daw_physmod";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
 import {
     GUITAR_MODES,
@@ -175,6 +186,9 @@ interface Track {
     rack?: DrumPad[];
     // Synth tracks whose waveform is "wavetable": the sculpted table (base64) and its settings.
     wavetable?: WavetableSettings;
+    // Synth tracks whose waveform is "physmod": the bowed-string settings. No sculpted data - a
+    // bowed string carries no persistent content the way a wavetable's table does.
+    physmod?: PhysModSettings;
     rootNote: number;
     scale: string;
     rows: number;
@@ -522,6 +536,91 @@ function runWavetableOp(track: Track, op: string, arg?: number) {
     if (r.ok) saveTrackWavetable(track);
 }
 
+// --- Bowed-string (physmod) tracks (see daw_physmod.ts and src/audio/physmod.rs) -------------------
+//
+// A synth track whose waveform is "physmod" plays a physically modeled bowed string. Unlike the
+// wavetable there is no sculpted data to load/save - the engine's `PhysModShared` for this track is
+// created on first use and carries only live bow state, so `trackPhysMod` just lazily defaults the
+// settings, nothing to "load" from the engine the way a table is.
+
+const pmHeld: Record<string, Record<number, number>> = {};
+const pmLatch: Record<string, number> = {};
+let pmStatus = "";
+
+function isPhysModTrack(track: Track): boolean {
+    return track.kind === "synth" && !track.instrument && track.voice.waveform === PHYSMOD_WAVEFORM;
+}
+
+function trackPhysMod(track: Track): PhysModSettings {
+    if (!track.physmod) track.physmod = defaultPhysMod();
+    return track.physmod;
+}
+
+function savePhysMod(_track: Track) {
+    scheduleSave();
+}
+
+function physModNote(track: Track, freq: number, velocity: number, duration: number) {
+    addon.Audio.playPhysModOnTrack(track.id, physModNoteConfig(track.id, trackPhysMod(track), { freq, velocity, duration }));
+}
+
+function startHeldPhysModNote(track: Track, midi: number, velocity: number): number | null {
+    const r = addon.Audio.physModNoteOn(track.id, physModNoteConfig(track.id, trackPhysMod(track), { freq: midiToFreq(midi), velocity }));
+    return r.ok && r.voice !== undefined ? r.voice : null;
+}
+
+function releasePhysModVoices(track: Track) {
+    for (const v of Object.values(pmHeld[track.id] ?? {})) addon.Audio.physModNoteOff(v);
+    pmHeld[track.id] = {};
+    if (pmLatch[track.id] !== undefined) addon.Audio.physModNoteOff(pmLatch[track.id]);
+    delete pmLatch[track.id];
+}
+
+function heldPhysModVoices(track: Track): number[] {
+    const held = Object.values(pmHeld[track.id] ?? {});
+    if (pmLatch[track.id] !== undefined) held.push(pmLatch[track.id]);
+    return held;
+}
+
+function pressPhysModKey(track: Track, midi: number, velocity: number) {
+    const v = startHeldPhysModNote(track, midi, velocity);
+    if (v !== null) (pmHeld[track.id] ??= {})[midi] = v;
+}
+
+function releasePhysModKey(track: Track, midi: number) {
+    const v = pmHeld[track.id]?.[midi];
+    if (v === undefined) return;
+    addon.Audio.physModNoteOff(v);
+    delete pmHeld[track.id][midi];
+}
+
+function togglePhysModLatch(track: Track) {
+    const held = pmLatch[track.id];
+    if (held !== undefined) {
+        addon.Audio.physModNoteOff(held);
+        delete pmLatch[track.id];
+        return;
+    }
+    const v = startHeldPhysModNote(track, trackPhysMod(track).auditionNote, 0.8);
+    if (v !== null) pmLatch[track.id] = v;
+}
+
+// The bow controls move every note that is sounding, so dragging the bow (in the Physics View or on
+// a knob) is heard immediately - the same live-control convention `setWavetablePosition` follows.
+function setBowLive(track: Track, which: "force" | "velocity" | "position" | "vibratoDepth", value: number) {
+    for (const v of heldPhysModVoices(track)) addon.Audio.physModSetBow(v, which, value);
+}
+
+function loadPhysModInstrument(track: Track, instrumentId: string) {
+    const preset = physModInstrumentPresetById(instrumentId);
+    if (!preset) { pmStatus = `Unknown instrument "${instrumentId}".`; return; }
+    const pm = trackPhysMod(track);
+    pm.instrument = instrumentId;
+    pm.bodySize = preset.bodySize;
+    pmStatus = "";
+    savePhysMod(track);
+}
+
 // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) -----------------------
 
 function ensureTrackEffects(track: Track) {
@@ -544,6 +643,7 @@ function ensureTrackEffects(track: Track) {
 // interaction, not once per frame.
 function syncTrackBus(track: Track) {
     if (isWavetableTrack(track)) trackWavetable(track);
+    if (isPhysModTrack(track)) trackPhysMod(track);
     ensureTrackEffects(track);
     addon.AudioEffect.setDelayParams(track.delayEffectId!, {
         time: track.voice.delayTime, feedback: track.voice.delayFeedback, mix: track.voice.delayMix
@@ -562,6 +662,8 @@ function removeTrackBus(track: Track) {
     releaseWavetableVoices(track);
     if (wtLoaded[track.id]) addon.Wavetable.remove(track.id);
     delete wtLoaded[track.id];
+    releasePhysModVoices(track);
+    addon.PhysMod.remove(track.id);
     addon.Vst3.unload(track.id);
     delete vst3Runtime[track.id];
     addon.Audio.removeTrackBus(track.id);
@@ -1523,6 +1625,117 @@ function renderWavetableWindow(win: string) {
     });
 }
 
+// --- The Bowed String window ------------------------------------------------------------------
+//
+// The active synth track's bowed string, drawn live by entropy_gui::PhysModView (see
+// widgets_physmod.rs), with the bow and instrument controls. Dragging the bow in the view and
+// turning the knobs below reach the same live state - see setBowLive.
+
+let physModWindowId: string | null = null;
+let physModVisible = false;
+let physModWindowHeight = 760;
+let physModWindowWidth = 1080;
+const PHYSMOD_SIDE_COLUMN = 340;
+
+function setPhysModVisible(visible: boolean) {
+    physModVisible = visible;
+    if (physModWindowId) Entropy.UI.setWindowVisible(physModWindowId, visible);
+}
+
+function renderPhysModWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const track = getActiveTrack();
+    if (!track || track.kind !== "synth" || track.instrument) {
+        W.label(win, { text: "The bowed-string editor works on a built-in synth track. Select one in the arrangement." });
+        return;
+    }
+    if (!isPhysModTrack(track)) {
+        W.label(win, { text: `${track.name} plays a ${track.voice.waveform} oscillator.`, bold: true });
+        W.button(win, {
+            text: "Make it a bowed string", id: "pm_make",
+            onClick: () => { track.voice.waveform = PHYSMOD_WAVEFORM; persist(); }
+        });
+        return;
+    }
+    const pm = trackPhysMod(track);
+    const latched = pmLatch[track.id] !== undefined;
+    const preset = physModInstrumentPresetById(pm.instrument) ?? PHYSMOD_INSTRUMENT_PRESETS[0];
+    // Whichever note is currently sounding highlights its string - a key just pressed, one latched
+    // by the Hold button, or (most recently) whichever of several held keys was pressed last.
+    const heldMidis = Object.keys(pmHeld[track.id] ?? {}).map(Number);
+    const activeMidi = heldMidis.length ? heldMidis[heldMidis.length - 1] : (latched ? pm.auditionNote : undefined);
+    const activeString = activeMidi !== undefined ? stringForFreq(preset.strings, midiToFreq(activeMidi)) : undefined;
+
+    W.horizontal(win, (columns: string) => {
+    W.vertical(columns, (left: string) => {
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: `${track.name} -`, bold: true });
+        for (const p of PHYSMOD_INSTRUMENT_PRESETS) {
+            W.button(row, {
+                text: radio(pm.instrument === p.id) + p.label, id: "pm_instrument_" + p.id,
+                onClick: () => { loadPhysModInstrument(track, p.id); }
+            });
+        }
+        W.button(row, {
+            text: latched ? withIcon("stop", "Release note") : withIcon("play", "Hold a note"), id: "pm_latch",
+            onClick: () => { togglePhysModLatch(track); }
+        });
+    });
+
+    W.physModString(left, {
+        id: "pm_" + track.id,
+        instrument: track.id,
+        activeString,
+        bowPosition: pm.bowPosition,
+        bowForce: pm.bowForce,
+        bodySize: pm.bodySize,
+        width: Math.max(380, physModWindowWidth - PHYSMOD_SIDE_COLUMN),
+        height: Math.max(360, physModWindowHeight - 140),
+        held: [...heldMidis, ...(latched ? [pm.auditionNote] : [])],
+        onBowDrag: (position: number, force: number) => {
+            pm.bowPosition = position; pm.bowForce = force;
+            setBowLive(track, "position", position); setBowLive(track, "force", force);
+            scheduleSave();
+        },
+        onKeyDown: (midi: number, velocity: number) => { pressPhysModKey(track, midi, velocity); },
+        onKeyUp: (midi: number) => { releasePhysModKey(track, midi); },
+    });
+    if (pmStatus) W.label(left, { text: pmStatus });
+    });
+    W.vertical(columns, (right: string) => {
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Bow", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.knob(row, { label: "Force", value: pm.bowForce, min: 0, max: 1, onChange: (v: string) => { pm.bowForce = parseFloat(v); setBowLive(track, "force", pm.bowForce); scheduleSave(); } });
+                W.knob(row, { label: "Speed", value: pm.bowVelocity, min: 0, max: 1, onChange: (v: string) => { pm.bowVelocity = parseFloat(v); setBowLive(track, "velocity", pm.bowVelocity); scheduleSave(); } });
+                W.knob(row, { label: "Position", value: pm.bowPosition, min: 0.02, max: 0.5, onChange: (v: string) => { pm.bowPosition = parseFloat(v); setBowLive(track, "position", pm.bowPosition); scheduleSave(); } });
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Vibrato", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.knob(row, { label: "Rate", value: pm.vibratoRate, min: 0, max: 12, onChange: (v: string) => { pm.vibratoRate = parseFloat(v); scheduleSave(); } });
+                W.knob(row, { label: "Depth", value: pm.vibratoDepth, min: 0, max: 100, onChange: (v: string) => { pm.vibratoDepth = parseFloat(v); setBowLive(track, "vibratoDepth", pm.vibratoDepth); scheduleSave(); } });
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Character", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.knob(row, { label: "Damping", value: pm.damping, min: 0, max: 1, onChange: (v: string) => { pm.damping = parseFloat(v); scheduleSave(); } });
+                W.knob(row, { label: "Brightness", value: pm.brightness, min: 0, max: 1, onChange: (v: string) => { pm.brightness = parseFloat(v); scheduleSave(); } });
+            });
+        });
+        W.group(right, (g: string) => {
+            W.label(g, { text: "Body", bold: true });
+            W.horizontal(g, (row: string) => {
+                W.knob(row, { label: "Size", value: pm.bodySize, min: 0, max: 1, onChange: (v: string) => { pm.bodySize = parseFloat(v); scheduleSave(); } });
+                W.knob(row, { label: "Mix", value: pm.bodyMix, min: 0, max: 1, onChange: (v: string) => { pm.bodyMix = parseFloat(v); scheduleSave(); } });
+            });
+        });
+    });
+    });
+}
+
 function renderRackWindow(win: string) {
     const W = Entropy.UI.Widget;
     const track = getActiveTrack();
@@ -1570,6 +1783,10 @@ function triggerStep(absStep: number) {
         }
         if (isWavetableTrack(t)) {
             wavetableNote(t, freq, note.velocity, duration);
+            continue;
+        }
+        if (isPhysModTrack(t)) {
+            physModNote(t, freq, note.velocity, duration);
             continue;
         }
         addon.Audio.playNoteOnTrack(t.id, {
@@ -1652,8 +1869,9 @@ function buildPatternEvents(): any[] {
     for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
         const track = placed.track as Track;
         // The offline renderer only knows the built-in voices; a hosted plugin runs live. A wavetable
-        // track is rendered by buildWavetableEvents from the table as it is now.
-        if (track.instrument || isWavetableTrack(track)) continue;
+        // track is rendered by buildWavetableEvents from the table as it is now, and a physmod track
+        // by buildPhysModEvents.
+        if (track.instrument || isWavetableTrack(track) || isPhysModTrack(track)) continue;
         const { voice, freq } = noteVoiceAndFreq(track, placed.note.row);
         // A sample pad is rendered from its file (buildSampleEvents), and an empty pad is silent.
         if (track.kind === "drum" && (padAt(track, placed.note.row)?.sample || !voice)) continue;
@@ -1724,6 +1942,25 @@ function buildWavetableEvents(): any[] {
     return events;
 }
 
+// The bowed-string tracks' notes for the same render, through the same voice the live path uses.
+function buildPhysModEvents(): any[] {
+    const sd = stepDuration();
+    const events: any[] = [];
+    for (const placed of expandArrangement(project, { respectMuteSolo: true })) {
+        const track = placed.track as Track;
+        if (!isPhysModTrack(track)) continue;
+        const { freq } = noteVoiceAndFreq(track, placed.note.row);
+        const config = physModNoteConfig(track.id, trackPhysMod(track), {
+            freq, velocity: placed.note.velocity,
+            duration: Math.max(0.03, placed.lengthSteps * sd * 0.95),
+            startTime: placed.startStep * sd,
+        });
+        config.gain *= track.gain;
+        events.push(config);
+    }
+    return events;
+}
+
 // The VST3-hosted tracks' notes for the same render (see src/audio/vst3.rs's render_offline_track):
 // each track is rendered through its own fresh, temporary plugin instance - separate from whatever
 // the same plugin has loaded live on the track's bus - using a state snapshot taken right now where
@@ -1759,8 +1996,9 @@ function exportPatternToWav(): { success: boolean; path?: string; durationSecond
     const events = buildPatternEvents();
     const sampleEvents = buildSampleEvents();
     const wavetableEvents = buildWavetableEvents();
+    const physModEvents = buildPhysModEvents();
     const vst3Events = buildVst3Events();
-    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, vst3Events);
+    const result = addon.Audio.renderPatternToWav(events, `daw-song-${project.bpm}bpm.wav`, sampleEvents, wavetableEvents, physModEvents, vst3Events);
     const lost = Object.keys(sampleMissing).length;
     const vst3Failed = result.vst3Warnings?.length ?? 0;
     lastExportStatus = result.success
@@ -2040,6 +2278,7 @@ function restoreSavedProject() {
     for (const t of saved.tracks) if (t.kind === "drum") ensureRack(t);
     // A wavetable track's settings are clamped, and its saved table is checked when the engine is given it.
     for (const t of saved.tracks) if (t.wavetable || t.voice?.waveform === WT_WAVEFORM) t.wavetable = repairWavetable(t.wavetable);
+    for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
     project = saved as DAWProject;
     if (saved.guitar) project.guitar = readGuitarPrefs(saved.guitar);
     if (!project.tracks.some(t => t.id === project.activeTrackId)) {
@@ -2236,6 +2475,11 @@ addon.onInit(async () => {
                     text: wavetableVisible ? "Hide Wavetable" : withIcon("wave-sawtooth", "Wavetable"),
                     id: "toggle_wavetable",
                     onClick: () => { setWavetableVisible(!wavetableVisible); }
+                });
+                Entropy.UI.Widget.button(tid2, {
+                    text: physModVisible ? "Hide Bowed String" : withIcon("music-notes", "Bowed String"),
+                    id: "toggle_physmod",
+                    onClick: () => { setPhysModVisible(!physModVisible); }
                 });
                 Entropy.UI.Widget.button(tid2, {
                     text: guitarStatus.running ? withIcon("guitar", "Guitar (on)") : (guitarVisible ? "Hide Guitar Input" : withIcon("guitar", "Guitar Input")),
@@ -2778,6 +3022,19 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(wavetableWindowId, wavetableVisible);
 
+    // The bowed-string editor, hidden until asked for.
+    physModWindowHeight = Math.max(520, Math.min(820, screenH - 72));
+    physModWindowWidth = Math.max(700, Math.min(1080, screenW - 32));
+    physModWindowId = Entropy.UI.createWindow({
+        title: "Bowed String",
+        width: physModWindowWidth,
+        height: physModWindowHeight,
+        x: 16,
+        y: 56,
+        onRender: () => renderPhysModWindow(physModWindowId!)
+    });
+    Entropy.UI.setWindowVisible(physModWindowId, physModVisible);
+
     // The guitar input, top right, hidden until asked for. Drag it anywhere.
     guitarWindowId = Entropy.UI.createWindow({
         title: "Guitar Input",
@@ -2888,6 +3145,7 @@ addon.onInit(async () => {
                 instrument: t.instrument ? { name: t.instrument.name, loaded: vst3Runtime[t.id]?.ok === true } : null,
                 voice: t.voice,
                 wavetable: isWavetableTrack(t) ? describeWavetable(trackWavetable(t)) : undefined,
+                physmod: isPhysModTrack(t) ? describePhysMod(trackPhysMod(t)) : undefined,
                 rootNote: t.kind === "synth" ? t.rootNote : undefined,
                 scale: t.kind === "synth" ? t.scale : undefined,
                 rows: t.rows,
@@ -3115,6 +3373,70 @@ addon.onInit(async () => {
                 if (typeof args.position === "number") config.position = Math.max(0, Math.min(1, args.position));
                 config.sweep = 0; config.lfoDepth = 0;
                 const a = addon.Wavetable.analyzeNote(config, 0);
+                if (!a.ok) return { success: false, error: a.error };
+                const r = (v: number | undefined, d = 1) => v === undefined ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({ note: midiToName(midi), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), strongestHz: r(a.peakHz), brightnessHz: r(a.centroidHz, 0) });
+            }
+            default:
+                return { success: false, error: "Unknown action: " + args.action };
+        }
+    });
+
+    addon.registerTool({
+        name: "daw_physmod",
+        description: "Play and shape a physically modeled bowed string: a track whose waveform is \"physmod\" (daw_set_track_params with waveform \"physmod\" makes one). Its sound comes from a self-sustaining string model bowed continuously, not a sample or a wavetable, so the same controls a violinist has - how hard the bow presses, how fast it moves, where along the string it contacts, vibrato - genuinely change the tone, not just the volume. A note picks whichever of the instrument's four strings a player would choose to reach that pitch. Actions: \"info\" (current settings), \"instrument\" (violin, viola, cello or bass: sets the open-string tuning and the body's resonance register), \"params\" (bowForce 0-1, bowVelocity 0-1, bowPosition 0.02-0.5 fraction of the string from the bridge - small is near the bridge and brighter/nasal, larger moves toward mid-string and rounder -, vibratoRate Hz, vibratoDepth cents, damping 0-1, brightness 0-1, bodySize 0-1, bodyMix 0-1), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so a change can be checked without listening).",
+        parameters: {
+            type: "object",
+            properties: {
+                trackId: { type: "string" },
+                action: { type: "string", enum: ["info", "instrument", "params", "hear"] },
+                instrument: { type: "string", enum: PHYSMOD_INSTRUMENT_PRESETS.map(p => p.id), description: "For action instrument." },
+                params: {
+                    type: "object",
+                    description: "For action params. Only fields given change.",
+                    properties: {
+                        bowForce: { type: "number" }, bowVelocity: { type: "number" }, bowPosition: { type: "number" },
+                        vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, damping: { type: "number" },
+                        brightness: { type: "number" }, bodySize: { type: "number" }, bodyMix: { type: "number" }
+                    }
+                },
+                note: { type: "number", description: "For hear: MIDI note (default 60)." }
+            },
+            required: ["trackId", "action"]
+        }
+    }, (args: any) => {
+        const track = findTrack(args.trackId);
+        if (!track) return { success: false, error: "Track not found: " + args.trackId };
+        if (!isPhysModTrack(track)) return { success: false, error: `${track.name} is not a bowed-string track. Use daw_set_track_params with waveform "physmod" first.` };
+        const pm = trackPhysMod(track);
+        const done = (extra: Record<string, unknown> = {}) => ({ success: true, trackId: track.id, settings: describePhysMod(pm), ...extra });
+
+        switch (args.action) {
+            case "info":
+                return done();
+            case "instrument": {
+                if (!PHYSMOD_INSTRUMENT_PRESETS.some(p => p.id === args.instrument)) {
+                    return { success: false, error: "Unknown instrument. Choose one of: " + PHYSMOD_INSTRUMENT_PRESETS.map(p => p.id).join(", ") };
+                }
+                loadPhysModInstrument(track, args.instrument);
+                return done();
+            }
+            case "params": {
+                const p = args.params ?? {};
+                const merged = repairPhysMod({ ...pm, ...p });
+                for (const k of ["bowForce", "bowVelocity", "bowPosition", "vibratoRate", "vibratoDepth", "damping", "brightness", "bodySize", "bodyMix"] as const) {
+                    if (typeof p[k] === "number") (pm as any)[k] = merged[k];
+                }
+                for (const k of ["bowForce", "bowVelocity", "bowPosition", "vibratoDepth"] as const) {
+                    if (typeof p[k] === "number") setBowLive(track, k === "bowForce" ? "force" : k === "bowVelocity" ? "velocity" : k === "bowPosition" ? "position" : "vibratoDepth", (pm as any)[k]);
+                }
+                scheduleSave();
+                return done();
+            }
+            case "hear": {
+                const midi = typeof args.note === "number" ? args.note : 60;
+                const config = physModNoteConfig(track.id, pm, { freq: midiToFreq(midi), velocity: 0.8, duration: 0.6 });
+                const a = addon.PhysMod.analyzeNote(config, 0);
                 if (!a.ok) return { success: false, error: a.error };
                 const r = (v: number | undefined, d = 1) => v === undefined ? null : Math.round(v * 10 ** d) / 10 ** d;
                 return done({ note: midiToName(midi), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), strongestHz: r(a.peakHz), brightnessHz: r(a.centroidHz, 0) });

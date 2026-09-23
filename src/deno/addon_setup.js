@@ -71,7 +71,7 @@ const audioAPI = {
     // each track is rendered through its own fresh plugin instance, separate from anything already
     // loaded live on that track's bus. Result gains `vst3Warnings`: one message per track that could
     // not be rendered (bad path, state that would not load) - the rest of the export still succeeds.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, vst3Events) => {
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -95,7 +95,7 @@ const audioAPI = {
             startTime: e.startTime || 0.0,
             path: e.path,
             params: sampleParams(e)
-        })), wavetableEvents || [], (vst3Events || []).map(t => ({
+        })), wavetableEvents || [], physModEvents || [], (vst3Events || []).map(t => ({
             path: t.path,
             state: t.state ?? null,
             notes: (t.notes || []).map(n => ({
@@ -151,6 +151,15 @@ const audioAPI = {
     wavetableNoteOff: (voice) => ops.op_audio_wavetable_note_off(voice),
     // Moves a held note through its table (0..1 across the frames) while it sounds.
     wavetableSetPosition: (voice, position) => ops.op_audio_wavetable_set_position(voice, position),
+    // A bowed-string (physmod) note on a track's bus (see Entropy.PhysMod). config: {instrument,
+    // freq, velocity, gain, bowForce, bowVelocity, bowPosition, vibratoRate, vibratoDepth, damping,
+    // brightness, bodySize, bodyMix, attack, release, duration}. Returns {ok, error?}.
+    playPhysModOnTrack: (trackId, config) => ops.op_audio_play_physmod_on_track({ ...config, trackId }),
+    // Starts a note that sounds until physModNoteOff(voice). Returns {ok, voice?, error?}.
+    physModNoteOn: (trackId, config) => ops.op_audio_physmod_note_on({ ...config, trackId }),
+    physModNoteOff: (voice) => ops.op_audio_physmod_note_off(voice),
+    // Moves a held note's bow while it sounds. which: "force", "velocity", "position" or "vibratoDepth".
+    physModSetBow: (voice, which, value) => ops.op_audio_physmod_set_bow(voice, which, value),
     // Triggers one note on an already-created track bus (see ensureTrackBus). No delay/reverb
     // fields here - FX lives on the bus itself now, shared by every note passing through it.
     playNoteOnTrack: (trackId, config) => {
@@ -246,6 +255,22 @@ const wavetableAPI = {
     // config is a wavetable note (see Audio.playWavetableOnTrack) plus `table`. No audio device
     // is used, so this is how to check what a table sounds like.
     analyzeNote: (config, seconds) => ops.op_wavetable_render_analyze(config, seconds || 0)
+};
+
+// Physically-modeled bowed strings (see src/audio/physmod.rs and Widget.physModString). An
+// instrument is named by an id you choose (the DAW uses the track's id); unlike a wavetable there is
+// nothing to create ahead of time - a bowed string has no persistent content, only live bow state,
+// so the widget, these calls and a playing note all just publish to and read the same id.
+const physModAPI = {
+    // {ok, id, activeVoices, activity: {bowPosition, bowForce, bowVelocity, energy} | null}.
+    info: (id) => ops.op_physmod_info(id),
+    remove: (id) => ops.op_physmod_remove(id),
+    // The loop's current cycle shape for the visualization: {ok, version, points: number[]}.
+    shape: (id) => ops.op_physmod_shape(id),
+    // Plays one note offline and reads it back: {ok, seconds, peakDb, rmsDb, peakHz, centroidHz}.
+    // config is a physmod note (see Audio.playPhysModOnTrack) plus `instrument`. No audio device is
+    // used, so this is how to check what a bowed string sounds like.
+    analyzeNote: (config, seconds) => ops.op_physmod_render_analyze(config, seconds || 0)
 };
 
 const vst3API = {
@@ -865,6 +890,7 @@ globalThis.Entropy = {
                 AudioEffect: audioEffectAPI,
                 Vst3: vst3API,
                 Wavetable: wavetableAPI,
+                PhysMod: physModAPI,
                 Icons: iconsAPI,
                 System: systemAPI,
     Guitar: guitarAPI,
@@ -1304,6 +1330,26 @@ globalThis.Entropy = {
                     });
                 }
             },
+            // A physically modeled bowed string, drawn the same neon-terrain way as Widget.wavetable
+            // (see Entropy.PhysMod and entropy_gui::PhysModView). Nothing crosses into JS per frame:
+            // the widget reads the engine's PhysModShared directly. config: {instrument, height,
+            // width, bowPosition, bowForce, bodySize, activeString, keyboard, firstKey, octaves,
+            // held}; the caller owns every field and hears about changes through the callbacks:
+            // onBowDrag(position, force), onKeyDown(midi, velocity), onKeyUp(midi).
+            physModString: (windowId, config) => {
+                const id = nextWidgetId(windowId, "physmod", config?.id);
+                ops.op_ui_widget_physmod(windowId, { ...(config || {}) }, id);
+
+                if (config) {
+                    bindListener('_entropy_event_listeners', id, (eventData) => {
+                        const parts = eventData.split('|');
+                        const type = parts[0];
+                        if (type === "PHYSMOD_BOW_DRAG" && config.onBowDrag) config.onBowDrag(parseFloat(parts[2]), parseFloat(parts[3]));
+                        else if (type === "PHYSMOD_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]));
+                        else if (type === "PHYSMOD_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10));
+                    });
+                }
+            },
             // A drum-machine pad bank: rounded pads with a waveform thumbnail, colour accent, selection
             // ring and a caller-driven glow. Events go through the same id-keyed listener path as
             // treeView.
@@ -1526,7 +1572,7 @@ globalThis.Entropy = {
                 id = parts[1]; // pianoRoll id
                 payload = event; // pass the whole event to the listener
                 isRaw = true;
-            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
+            } else if (event.startsWith("KFTL_") || event.startsWith("TRACKS_") || event.startsWith("DOCEDIT_") || event.startsWith("KANBAN_") || event.startsWith("TREEVIEW_") || event.startsWith("PADGRID_") || event.startsWith("WAVETABLE_") || event.startsWith("PHYSMOD_") || event.startsWith("TABBAR_") || event.startsWith("SHEET_") || event.startsWith("HTML_LINK|")) {
                 const parts = event.split("|");
                 id = parts[1]; // keyframeTimeline/tracks/docEditor/kanban/treeView/padGrid/sheetGrid widget id
                 payload = event; // pass the whole event to the listener
@@ -1797,6 +1843,7 @@ globalThis.Entropy = {
     AudioEffect: audioEffectAPI,
     Vst3: vst3API,
     Wavetable: wavetableAPI,
+    PhysMod: physModAPI,
     Icons: iconsAPI,
     System: systemAPI,
     Video: videoAPI,

@@ -120,7 +120,13 @@ struct DcBlock {
 impl DcBlock {
     #[inline]
     fn process(&mut self, x: f32) -> f32 {
-        let y = x - self.x1 + 0.995 * self.y1;
+        // R close to 1: its cutoff (roughly sr*(1-R)/2pi, about 7 Hz here) has to sit well below
+        // even the lowest supported note (MIN_FREQ = 20 Hz), or it measurably drags on a genuine
+        // low fundamental and not just DC - an earlier, less conservative R (0.995, cutoff ~35 Hz)
+        // was close enough to a 110 Hz fundamental to tip the regenerative sustain toward the
+        // second harmonic instead, caught by the BDD register sweep in
+        // tests/physmod_synth_bdd.rs reading 220 Hz for a requested 110 Hz note.
+        let y = x - self.x1 + 0.999 * self.y1;
         self.x1 = x;
         self.y1 = y;
         y
@@ -191,9 +197,9 @@ fn body_modes(size: f32, sr: f32) -> [Biquad; 3] {
     let t = size.clamp(0.0, 1.0);
     let scale = 2f32.powf(-2.0 * t);
     [
-        Biquad::peaking(280.0 * scale, 6.0, 5.0, sr),
-        Biquad::peaking(460.0 * scale, 8.0, 4.0, sr),
-        Biquad::peaking(700.0 * scale, 5.0, 3.0, sr),
+        Biquad::peaking(280.0 * scale, 7.0, 11.0, sr),
+        Biquad::peaking(460.0 * scale, 9.0, 9.0, sr),
+        Biquad::peaking(700.0 * scale, 6.0, 7.0, sr),
     ]
 }
 

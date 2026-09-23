@@ -75,6 +75,10 @@ name = "wavetable_synth_bdd"
 harness = false
 
 [[test]]
+name = "physmod_synth_bdd"
+harness = false
+
+[[test]]
 name = "guitar_engine_bdd"
 harness = false
 
