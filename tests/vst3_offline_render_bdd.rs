@@ -51,7 +51,7 @@ fn bounce(world: &mut Vst3RenderWorld) {
     let dir = std::env::current_dir().unwrap().join("test-artifacts").join("vst3-offline-render");
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("bounce.wav");
-    let (seconds, warnings) = entropy_engine::audio::render_events_full_to_wav(&[], &[], &[], &world.tracks, 44_100, &path)
+    let (seconds, warnings) = entropy_engine::audio::render_events_full_to_wav(&[], &[], &[], &[], &world.tracks, 44_100, &path)
         .expect("the bounce is written");
     println!("    rendered {seconds:.2}s, warnings: {warnings:?}");
     world.seconds = seconds;
