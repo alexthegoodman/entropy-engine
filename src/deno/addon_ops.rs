@@ -516,6 +516,31 @@ pub struct WavetableViewConfig {
     pub held: Option<Vec<u32>>,
 }
 
+/// `Widget.physModString` - see `entropy_gui::PhysModView`. `instrument` names an instrument in the
+/// bowed-string registry (`Entropy.PhysMod` publishes to it as notes play); there is nothing to
+/// create ahead of time the way `Entropy.Wavetable.ensure` creates a table, since a bowed string has
+/// no persistent editable data, only live state.
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct PhysModViewConfig {
+    pub instrument: String,
+    pub height: Option<f32>,
+    pub width: Option<f32>,
+    /// The bow's current position and force, 0..1, so a knob and the widget agree on where the bow
+    /// is even before a note has published anything.
+    pub bow_position: Option<f32>,
+    pub bow_force: Option<f32>,
+    /// 0..1, violin to bass; changes how large the drawn body glow reads.
+    pub body_size: Option<f32>,
+    /// Which of the (up to 4) drawn strings is highlighted as the one currently sounding.
+    pub active_string: Option<u32>,
+    /// Show the on-screen keyboard. Default true.
+    pub keyboard: Option<bool>,
+    pub first_key: Option<u32>,
+    pub octaves: Option<u32>,
+    pub held: Option<Vec<u32>>,
+}
+
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -658,6 +683,8 @@ pub enum UiWidget {
     /// A wavetable as sculptable terrain, with a cycle strip, harmonics and a keyboard - see
     /// `entropy_gui::widgets_wavetable`. The table lives Rust-side; nothing crosses into JS per frame.
     WavetableView { id: String, config: WavetableViewConfig },
+    /// A physically-modeled bowed string, neon-terrain style - see `entropy_gui::widgets_physmod`.
+    PhysModView { id: String, config: PhysModViewConfig },
     CollapsingHeader { title: String, id: String, default_open: Option<bool> },
     EndCollapsingHeader,
     StartHorizontal,
@@ -2598,6 +2625,7 @@ pub fn op_audio_render_pattern_wav(
     #[string] suggested_name: String,
     #[serde] sample_events: Vec<SampleEventConfig>,
     #[serde] wavetable_events: Vec<crate::deno::wavetable_ops::WavetableNoteConfig>,
+    #[serde] physmod_events: Vec<crate::deno::physmod_ops::PhysModNoteConfig>,
     #[serde] vst3_events: Vec<Vst3RenderTrackConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
@@ -2657,6 +2685,7 @@ pub fn op_audio_render_pattern_wav(
         .collect();
 
     let wavetable_hits: Vec<crate::audio::WavetableEvent> = wavetable_events.iter().map(|e| e.to_event()).collect();
+    let physmod_hits: Vec<crate::audio::PhysModEvent> = physmod_events.iter().map(|e| e.to_event()).collect();
 
     let vst3_tracks: Vec<vst3::Vst3RenderTrack> = vst3_events
         .into_iter()
@@ -2677,7 +2706,7 @@ pub fn op_audio_render_pattern_wav(
         })
         .collect();
 
-    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, &vst3_tracks, 44100, &output_path) {
+    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &vst3_tracks, 44100, &output_path) {
         Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),
@@ -3759,6 +3788,18 @@ pub fn op_ui_widget_wavetable(
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
         ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::WavetableView { id, config });
+    }
+}
+
+#[op2]
+pub fn op_ui_widget_physmod(
+    state: &mut OpState,
+    #[string] window_id: String,
+    #[serde] config: PhysModViewConfig,
+    #[string] id: String,
+) {
+    if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::PhysModView { id, config });
     }
 }
 

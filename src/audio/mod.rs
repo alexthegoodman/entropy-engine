@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod physmod;
 pub mod samples;
 pub mod vst3;
 pub mod vst3_capture;
@@ -11,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
+use physmod::{PhysModParams, PhysModVoice};
 use samples::{SampleEvent, SampleParams, SampleVoice};
 use wavetable::{WavetableParams, WavetableVoice};
 
@@ -335,7 +337,7 @@ pub fn render_events_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<f64, String> {
-    render_events_full_to_wav(events, sample_events, &[], &[], sample_rate, output_path).map(|(seconds, _)| seconds)
+    render_events_full_to_wav(events, sample_events, &[], &[], &[], sample_rate, output_path).map(|(seconds, _)| seconds)
 }
 
 /// One scheduled note of a wavetable track in an offline render: the table it reads, and the note.
@@ -346,17 +348,29 @@ pub struct WavetableEvent {
     pub params: WavetableParams,
 }
 
-/// `render_events_to_wav` plus wavetable notes and VST3 instrument tracks. A wavetable note is
-/// rendered by the same `WavetableVoice` the live path plays, from the table's current contents, so
-/// a bounce sounds like what was sculpted. A note whose table no longer exists is skipped, like a
-/// pad whose file is gone. Each `Vst3RenderTrack` is rendered through its own fresh plugin instance
-/// (see `vst3::render_offline_track`); a track whose plugin fails to load or start is left out of
-/// the mix and reported back in the second element of the returned tuple, rather than failing the
-/// whole export.
+/// One scheduled note of a physically-modeled bowed-string track in an offline render.
+#[derive(Clone, Debug)]
+pub struct PhysModEvent {
+    pub start_time: f64,
+    /// Names the instrument's `PhysModShared` (see `physmod::shared_for`); offline rendering only
+    /// reads this for consistency with the live path, since a bowed-string voice carries no other
+    /// per-track state to look up.
+    pub instrument: String,
+    pub params: PhysModParams,
+}
+
+/// `render_events_to_wav` plus wavetable notes, physically-modeled bowed-string notes and VST3
+/// instrument tracks. A wavetable note is rendered by the same `WavetableVoice` the live path plays,
+/// from the table's current contents, so a bounce sounds like what was sculpted. A note whose table
+/// no longer exists is skipped, like a pad whose file is gone. Each `Vst3RenderTrack` is rendered
+/// through its own fresh plugin instance (see `vst3::render_offline_track`); a track whose plugin
+/// fails to load or start is left out of the mix and reported back in the second element of the
+/// returned tuple, rather than failing the whole export.
 pub fn render_events_full_to_wav(
     events: &[NoteEvent],
     sample_events: &[SampleEvent],
     wavetable_events: &[WavetableEvent],
+    physmod_events: &[PhysModEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
     sample_rate: u32,
     output_path: &Path,
@@ -385,6 +399,20 @@ pub fn render_events_full_to_wav(
         let Some(shared) = wavetable::shared_for(&hit.table) else { continue };
         let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.005) + 0.5;
         let mut buf = wavetable::render_note(shared, hit.params, limit);
+        if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
+            let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
+            buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
+        }
+        let n_frames = buf.len() / 2;
+        let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
+        total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
+        voice_bufs.push((start_sample, buf));
+    }
+
+    for hit in physmod_events {
+        let shared = physmod::shared_for(&hit.instrument);
+        let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.01) + 0.5;
+        let mut buf = physmod::render_note(shared, hit.params, limit);
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
             buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
@@ -806,6 +834,9 @@ pub struct AudioEngine {
     /// The wavetable notes being held (see `wavetable_note_on`), by voice id.
     wavetable_gates: Mutex<HashMap<u64, WavetableHandle>>,
     next_wavetable_voice: AtomicU64,
+    /// The bowed-string notes being held (see `physmod_note_on`), by voice id.
+    physmod_gates: Mutex<HashMap<u64, PhysModHandle>>,
+    next_physmod_voice: AtomicU64,
 }
 
 /// What the main thread keeps of a held wavetable note: the gate that releases it and the position
@@ -813,6 +844,13 @@ pub struct AudioEngine {
 struct WavetableHandle {
     gate: Arc<AtomicBool>,
     position: Arc<AtomicU32>,
+}
+
+/// What the main thread keeps of a held bowed-string note: the gate that releases it and the bow
+/// controls its voice reads (see `PhysModVoice::with_live_bow`).
+struct PhysModHandle {
+    gate: Arc<AtomicBool>,
+    live: Arc<physmod::PhysModLive>,
 }
 
 /// The bus the sample browser auditions through. It feeds the master (so you hear it and the
@@ -841,6 +879,8 @@ impl AudioEngine {
             preview_cancel: Mutex::new(None),
             wavetable_gates: Mutex::new(HashMap::new()),
             next_wavetable_voice: AtomicU64::new(1),
+            physmod_gates: Mutex::new(HashMap::new()),
+            next_physmod_voice: AtomicU64::new(1),
         }
     }
 
@@ -999,6 +1039,58 @@ impl AudioEngine {
     pub fn wavetable_set_position(&self, voice_id: u64, position: f32) {
         if let Some(h) = self.wavetable_gates.lock().unwrap().get(&voice_id) {
             h.position.store(position.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    /// Plays one timed bowed-string note on a track's bus. `instrument` names the `PhysModShared`
+    /// the visualization widget reads (the DAW uses the track's id), created if it does not exist.
+    pub fn play_physmod_on_track(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<(), String> {
+        let shared = physmod::shared_for(instrument);
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        bus.note_mixer.add(PhysModVoice::new(shared, params, None));
+        Ok(())
+    }
+
+    /// Starts a bowed-string note that sounds until `physmod_note_off` (a key held down, or a note
+    /// latched while dragging the bow). Returns the id to release and steer it with.
+    pub fn physmod_note_on(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<u64, String> {
+        let shared = physmod::shared_for(instrument);
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        let gate = Arc::new(AtomicBool::new(true));
+        let live = Arc::new(physmod::PhysModLive {
+            bow_force: AtomicU32::new(params.bow_force.to_bits()),
+            bow_velocity: AtomicU32::new(params.bow_velocity.to_bits()),
+            bow_position: AtomicU32::new(params.bow_position.to_bits()),
+            vibrato_depth: AtomicU32::new(params.vibrato_depth.to_bits()),
+        });
+        let id = self.next_physmod_voice.fetch_add(1, Ordering::Relaxed);
+        bus.note_mixer.add(PhysModVoice::new(shared, params, Some(gate.clone())).with_live_bow(live.clone()));
+        let mut gates = self.physmod_gates.lock().unwrap();
+        gates.retain(|_, h| Arc::strong_count(&h.gate) > 1);
+        gates.insert(id, PhysModHandle { gate, live });
+        Ok(id)
+    }
+
+    /// Releases a note started by `physmod_note_on`. Unknown or already-finished ids are ignored.
+    pub fn physmod_note_off(&self, voice_id: u64) {
+        if let Some(h) = self.physmod_gates.lock().unwrap().remove(&voice_id) {
+            h.gate.store(false, Ordering::Relaxed);
+        }
+    }
+
+    /// Moves a held note's bow: `which` is "force", "velocity", "position" or "vibratoDepth".
+    pub fn physmod_set_bow(&self, voice_id: u64, which: &str, value: f32) {
+        if let Some(h) = self.physmod_gates.lock().unwrap().get(&voice_id) {
+            let target = match which {
+                "force" => &h.live.bow_force,
+                "velocity" => &h.live.bow_velocity,
+                "position" => &h.live.bow_position,
+                "vibratoDepth" => &h.live.vibrato_depth,
+                _ => return,
+            };
+            target.store(value.to_bits(), Ordering::Relaxed);
         }
     }
 

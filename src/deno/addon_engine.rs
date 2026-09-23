@@ -45,6 +45,10 @@ use crate::deno::wavetable_ops::{
     op_wavetable_render_analyze, op_audio_play_wavetable_on_track, op_audio_wavetable_note_on,
     op_audio_wavetable_note_off, op_audio_wavetable_set_position,
 };
+use crate::deno::physmod_ops::{
+    op_physmod_info, op_physmod_shape, op_physmod_remove, op_audio_play_physmod_on_track,
+    op_audio_physmod_note_on, op_audio_physmod_note_off, op_audio_physmod_set_bow, op_physmod_render_analyze,
+};
 use crate::deno::vst3_ops::{
     op_vst3_scan, op_vst3_load, op_vst3_unload, op_vst3_note_on, op_vst3_all_notes_off, op_vst3_open_editor,
     op_vst3_close_editor, op_vst3_poll_state, op_vst3_save_state, op_vst3_find_parameters, op_vst3_set_parameter,
@@ -74,7 +78,7 @@ use crate::deno::addon_ops::{
     op_addon_on_init, 
     op_addon_on_project_changed, op_addon_on_update, op_addon_register,
     op_addon_register_tool, op_addon_save_data, op_addon_save_image, op_addon_set_visibility, op_launch_example,
-    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_behavior_register, op_buffer_create,
+    op_alpha_model_load, op_audio_play_note, op_audio_play_synth, op_audio_play_test, op_audio_render_pattern_wav, op_audio_load_sample, op_audio_play_sample_on_track, op_audio_preview_sample, op_audio_stop_preview, op_icon_table, op_io_music_dir, op_io_pick_sample_folder, op_io_list_dir, op_ui_widget_pad_grid, op_ui_widget_wavetable, op_ui_widget_physmod, op_behavior_register, op_buffer_create,
     op_audio_effect_create_delay, op_audio_effect_create_reverb, op_audio_effect_set_delay, op_audio_effect_set_reverb, op_audio_effect_destroy,
     op_audio_ensure_track_bus, op_audio_remove_track_bus, op_audio_play_note_on_track,
     op_buffer_write, op_camera_get_transform, op_camera_screen_to_world, op_camera_set_orthographic, op_camera_set_transform, op_composer_set_role_pipeline,
@@ -235,6 +239,15 @@ extension!(
         op_audio_wavetable_note_on,
         op_audio_wavetable_note_off,
         op_audio_wavetable_set_position,
+        op_ui_widget_physmod,
+        op_physmod_info,
+        op_physmod_shape,
+        op_physmod_remove,
+        op_audio_play_physmod_on_track,
+        op_audio_physmod_note_on,
+        op_audio_physmod_note_off,
+        op_audio_physmod_set_bow,
+        op_physmod_render_analyze,
         op_ui_widget_oscilloscope,
         op_ui_widget_spectrum,
         op_ui_widget_level_meter,
@@ -4697,6 +4710,33 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             WavetableEvent::ToolSelected(t) => format!("WAVETABLE_TOOL|{}|{}", wt_id, t.name()),
                             WavetableEvent::KeyDown { midi, velocity } => format!("WAVETABLE_KEY_DOWN|{}|{}|{:.3}", wt_id, midi, velocity),
                             WavetableEvent::KeyUp { midi } => format!("WAVETABLE_KEY_UP|{}|{}", wt_id, midi),
+                        });
+                    }
+                }
+                UiWidget::PhysModView { id: pm_id, config } => {
+                    use crate::audio::physmod;
+                    use crate::entropy_gui::{PhysModEvent, PhysModOptions, PhysModView};
+                    let shared = physmod::shared_for(&config.instrument);
+                    let d = PhysModOptions::default();
+                    let opts = PhysModOptions {
+                        width: config.width,
+                        height: config.height.unwrap_or(d.height),
+                        strings: d.strings,
+                        active_string: config.active_string.map(|s| s as usize),
+                        bow_position: config.bow_position.unwrap_or(d.bow_position),
+                        bow_force: config.bow_force.unwrap_or(d.bow_force),
+                        body_size: config.body_size.unwrap_or(d.body_size),
+                        keyboard: config.keyboard.unwrap_or(d.keyboard),
+                        first_key: config.first_key.map(|k| k.min(96) as u8).unwrap_or(d.first_key),
+                        key_octaves: config.octaves.map(|o| o.clamp(1, 5) as u8).unwrap_or(d.key_octaves),
+                        held: config.held.clone().unwrap_or_default().into_iter().map(|k| k.min(127) as u8).collect(),
+                    };
+                    let resp = PhysModView::new(pm_id.as_str()).show(ui, &opts, &shared);
+                    for event in resp.events {
+                        events_to_push.push(match event {
+                            PhysModEvent::BowDrag { position, force } => format!("PHYSMOD_BOW_DRAG|{}|{:.4}|{:.4}", pm_id, position, force),
+                            PhysModEvent::KeyDown { midi, velocity } => format!("PHYSMOD_KEY_DOWN|{}|{}|{:.3}", pm_id, midi, velocity),
+                            PhysModEvent::KeyUp { midi } => format!("PHYSMOD_KEY_UP|{}|{}", pm_id, midi),
                         });
                     }
                 }
