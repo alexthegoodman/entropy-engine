@@ -1,0 +1,1214 @@
+{
+  "bpm": 122,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "house-drums-four-floor-0",
+      "trackId": "house-drums",
+      "patternId": "house-drums-four-floor",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "house-drums-open-groove-4",
+      "trackId": "house-drums",
+      "patternId": "house-drums-open-groove",
+      "startStep": 64,
+      "lengthSteps": 48
+    },
+    {
+      "id": "house-drums-turnaround-7",
+      "trackId": "house-drums",
+      "patternId": "house-drums-turnaround",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-drums-open-groove-8",
+      "trackId": "house-drums",
+      "patternId": "house-drums-open-groove",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "house-drums-break-16",
+      "trackId": "house-drums",
+      "patternId": "house-drums-break",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "house-drums-four-floor-20",
+      "trackId": "house-drums",
+      "patternId": "house-drums-four-floor",
+      "startStep": 320,
+      "lengthSteps": 48
+    },
+    {
+      "id": "house-drums-turnaround-23",
+      "trackId": "house-drums",
+      "patternId": "house-drums-turnaround",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-drums-open-groove-24",
+      "trackId": "house-drums",
+      "patternId": "house-drums-open-groove",
+      "startStep": 384,
+      "lengthSteps": 128
+    },
+    {
+      "id": "house-bass-am-4",
+      "trackId": "house-bass",
+      "patternId": "house-bass-am",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-f-5",
+      "trackId": "house-bass",
+      "patternId": "house-bass-f",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-c-6",
+      "trackId": "house-bass",
+      "patternId": "house-bass-c",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-g-7",
+      "trackId": "house-bass",
+      "patternId": "house-bass-g",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-am-8",
+      "trackId": "house-bass",
+      "patternId": "house-bass-am",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-f-9",
+      "trackId": "house-bass",
+      "patternId": "house-bass-f",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-c-10",
+      "trackId": "house-bass",
+      "patternId": "house-bass-c",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-g-11",
+      "trackId": "house-bass",
+      "patternId": "house-bass-g",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-am-12",
+      "trackId": "house-bass",
+      "patternId": "house-bass-am",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-f-13",
+      "trackId": "house-bass",
+      "patternId": "house-bass-f",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-c-14",
+      "trackId": "house-bass",
+      "patternId": "house-bass-c",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-g-15",
+      "trackId": "house-bass",
+      "patternId": "house-bass-g",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-am-24",
+      "trackId": "house-bass",
+      "patternId": "house-bass-am",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-f-25",
+      "trackId": "house-bass",
+      "patternId": "house-bass-f",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-c-26",
+      "trackId": "house-bass",
+      "patternId": "house-bass-c",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-g-27",
+      "trackId": "house-bass",
+      "patternId": "house-bass-g",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-am-28",
+      "trackId": "house-bass",
+      "patternId": "house-bass-am",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-f-29",
+      "trackId": "house-bass",
+      "patternId": "house-bass-f",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-c-30",
+      "trackId": "house-bass",
+      "patternId": "house-bass-c",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-bass-g-31",
+      "trackId": "house-bass",
+      "patternId": "house-bass-g",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-swell-0",
+      "trackId": "house-strings",
+      "patternId": "house-strings-swell",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "house-strings-am-chops-4",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-f-chops-5",
+      "trackId": "house-strings",
+      "patternId": "house-strings-f-chops",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-c-chops-6",
+      "trackId": "house-strings",
+      "patternId": "house-strings-c-chops",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-g-chops-7",
+      "trackId": "house-strings",
+      "patternId": "house-strings-g-chops",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-am-chops-8",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-f-chops-9",
+      "trackId": "house-strings",
+      "patternId": "house-strings-f-chops",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-c-chops-10",
+      "trackId": "house-strings",
+      "patternId": "house-strings-c-chops",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-g-chops-11",
+      "trackId": "house-strings",
+      "patternId": "house-strings-g-chops",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-am-chops-12",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-f-chops-13",
+      "trackId": "house-strings",
+      "patternId": "house-strings-f-chops",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-c-chops-14",
+      "trackId": "house-strings",
+      "patternId": "house-strings-c-chops",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-g-chops-15",
+      "trackId": "house-strings",
+      "patternId": "house-strings-g-chops",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-swell-16",
+      "trackId": "house-strings",
+      "patternId": "house-strings-swell",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "house-strings-am-chops-20",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "house-strings-am-chops-24",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-f-chops-25",
+      "trackId": "house-strings",
+      "patternId": "house-strings-f-chops",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-c-chops-26",
+      "trackId": "house-strings",
+      "patternId": "house-strings-c-chops",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-g-chops-27",
+      "trackId": "house-strings",
+      "patternId": "house-strings-g-chops",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-am-chops-28",
+      "trackId": "house-strings",
+      "patternId": "house-strings-am-chops",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-f-chops-29",
+      "trackId": "house-strings",
+      "patternId": "house-strings-f-chops",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-c-chops-30",
+      "trackId": "house-strings",
+      "patternId": "house-strings-c-chops",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-strings-g-chops-31",
+      "trackId": "house-strings",
+      "patternId": "house-strings-g-chops",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "house-chords-am-f-0",
+      "trackId": "house-chords",
+      "patternId": "house-chords-am-f",
+      "startStep": 0,
+      "lengthSteps": 128
+    },
+    {
+      "id": "house-chords-c-g-8",
+      "trackId": "house-chords",
+      "patternId": "house-chords-c-g",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "house-chords-am-f-16",
+      "trackId": "house-chords",
+      "patternId": "house-chords-am-f",
+      "startStep": 256,
+      "lengthSteps": 128
+    },
+    {
+      "id": "house-chords-c-g-24",
+      "trackId": "house-chords",
+      "patternId": "house-chords-c-g",
+      "startStep": 384,
+      "lengthSteps": 128
+    }
+  ],
+  "tracks": [
+    {
+      "id": "house-drums",
+      "name": "Club Kit",
+      "kind": "drum",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 5,
+      "rack": [
+        {
+          "name": "Kick",
+          "voice": "kick",
+          "freq": 55,
+          "midi": 36,
+          "sample": null
+        },
+        {
+          "name": "Snare",
+          "voice": "snare",
+          "freq": 200,
+          "midi": 38,
+          "sample": null
+        },
+        {
+          "name": "Hihat",
+          "voice": "hihat",
+          "freq": 1000,
+          "midi": 42,
+          "sample": null
+        },
+        {
+          "name": "Clap",
+          "voice": "clap",
+          "freq": 200,
+          "midi": 39,
+          "sample": null
+        },
+        {
+          "name": "Tom",
+          "voice": "tom",
+          "freq": 110,
+          "midi": 45,
+          "sample": null
+        }
+      ],
+      "voice": {
+        "waveform": "kick",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.52,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "house-drums-four-floor",
+          "name": "Four Floor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "house-drums-open-groove",
+          "name": "Open Groove",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 3,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.55
+            }
+          ]
+        },
+        {
+          "id": "house-drums-break",
+          "name": "Break",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.5
+            }
+          ]
+        },
+        {
+          "id": "house-drums-turnaround",
+          "name": "Turnaround",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "house-drums-four-floor"
+    },
+    {
+      "id": "house-bass",
+      "name": "Rubber Bass",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 36,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "saw",
+        "cutoff": 750,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.09,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.18,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "house-bass-am",
+          "name": "Am",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 2,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 9,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 10,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 14,
+              "length": 2,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-bass-f",
+          "name": "F",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 2,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 5,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 9,
+              "step": 10,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 14,
+              "length": 2,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-bass-c",
+          "name": "C",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 2,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 0,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 10,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 14,
+              "length": 2,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-bass-g",
+          "name": "G",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 2,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 11,
+              "step": 10,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 14,
+              "step": 14,
+              "length": 2,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "house-bass-am"
+    },
+    {
+      "id": "house-strings",
+      "name": "Cello Chops",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.17,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "house-strings-am-chops",
+          "name": "Am chops",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 16,
+              "step": 8,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 12,
+              "length": 3,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-strings-f-chops",
+          "name": "F chops",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 9,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 8,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 9,
+              "step": 12,
+              "length": 3,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-strings-c-chops",
+          "name": "C chops",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 12,
+              "length": 3,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-strings-g-chops",
+          "name": "G chops",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 11,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 14,
+              "step": 8,
+              "length": 3,
+              "velocity": 0.8
+            },
+            {
+              "row": 11,
+              "step": 12,
+              "length": 3,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "house-strings-swell",
+          "name": "Swell",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.55
+            },
+            {
+              "row": 16,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.45
+            }
+          ]
+        }
+      ],
+      "activePatternId": "house-strings-am-chops",
+      "physmod": {
+        "instrument": "cello",
+        "bowForce": 0.67,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.2,
+        "brightness": 0.57,
+        "bodySize": 0.6,
+        "bodyMix": 0.55,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "house-chords",
+      "name": "Air Chords",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "triangle",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.07,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.5,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0.18
+      },
+      "gain": 0.11,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "house-chords-am-f",
+          "name": "Am F",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 12,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 16,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 5,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 9,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 12,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            }
+          ]
+        },
+        {
+          "id": "house-chords-c-g",
+          "name": "C G",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 4,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 7,
+              "step": 0,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 11,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            },
+            {
+              "row": 14,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.5
+            }
+          ]
+        }
+      ],
+      "activePatternId": "house-chords-am-f"
+    }
+  ],
+  "activeTrackId": "house-drums"
+}

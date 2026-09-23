@@ -1,0 +1,951 @@
+{
+  "bpm": 92,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "hiphop-drums-verse-0",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-verse",
+      "startStep": 0,
+      "lengthSteps": 112
+    },
+    {
+      "id": "hiphop-drums-fill-7",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-fill",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "hiphop-drums-hook-8",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-hook",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "hiphop-drums-breakdown-16",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-breakdown",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-drums-verse-20",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-verse",
+      "startStep": 320,
+      "lengthSteps": 48
+    },
+    {
+      "id": "hiphop-drums-fill-23",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-fill",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "hiphop-drums-hook-24",
+      "trackId": "hiphop-drums",
+      "patternId": "hiphop-drums-hook",
+      "startStep": 384,
+      "lengthSteps": 128
+    },
+    {
+      "id": "hiphop-bass-a-minor-0",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-a-minor",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-f-major-4",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-f-major",
+      "startStep": 64,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-a-minor-8",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-a-minor",
+      "startStep": 128,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-e-minor-12",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-e-minor",
+      "startStep": 192,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-a-minor-20",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-a-minor",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-f-major-24",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-f-major",
+      "startStep": 384,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-bass-a-minor-28",
+      "trackId": "hiphop-bass",
+      "patternId": "hiphop-bass-a-minor",
+      "startStep": 448,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-am9-0",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-am9",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-fmaj7-4",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-fmaj7",
+      "startStep": 64,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-am9-8",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-am9",
+      "startStep": 128,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-em7-12",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-em7",
+      "startStep": 192,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-am9-20",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-am9",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-fmaj7-24",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-fmaj7",
+      "startStep": 384,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-keys-am9-28",
+      "trackId": "hiphop-keys",
+      "patternId": "hiphop-keys-am9",
+      "startStep": 448,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-lead-answer-8",
+      "trackId": "hiphop-lead",
+      "patternId": "hiphop-lead-answer",
+      "startStep": 128,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-lead-turn-12",
+      "trackId": "hiphop-lead",
+      "patternId": "hiphop-lead-turn",
+      "startStep": 192,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-lead-answer-24",
+      "trackId": "hiphop-lead",
+      "patternId": "hiphop-lead-answer",
+      "startStep": 384,
+      "lengthSteps": 64
+    },
+    {
+      "id": "hiphop-lead-turn-28",
+      "trackId": "hiphop-lead",
+      "patternId": "hiphop-lead-turn",
+      "startStep": 448,
+      "lengthSteps": 64
+    }
+  ],
+  "tracks": [
+    {
+      "id": "hiphop-drums",
+      "name": "Dusty Kit",
+      "kind": "drum",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 5,
+      "rack": [
+        {
+          "name": "Kick",
+          "voice": "kick",
+          "freq": 55,
+          "midi": 36,
+          "sample": null
+        },
+        {
+          "name": "Snare",
+          "voice": "snare",
+          "freq": 200,
+          "midi": 38,
+          "sample": null
+        },
+        {
+          "name": "Hihat",
+          "voice": "hihat",
+          "freq": 1000,
+          "midi": 42,
+          "sample": null
+        },
+        {
+          "name": "Clap",
+          "voice": "clap",
+          "freq": 200,
+          "midi": 39,
+          "sample": null
+        },
+        {
+          "name": "Tom",
+          "voice": "tom",
+          "freq": 110,
+          "midi": 45,
+          "sample": null
+        }
+      ],
+      "voice": {
+        "waveform": "kick",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.52,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "hiphop-drums-verse",
+          "name": "Verse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 7,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 3,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.37
+            }
+          ]
+        },
+        {
+          "id": "hiphop-drums-hook",
+          "name": "Hook",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 3,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 7,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 3,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.6
+            }
+          ]
+        },
+        {
+          "id": "hiphop-drums-breakdown",
+          "name": "Breakdown",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.5
+            }
+          ]
+        },
+        {
+          "id": "hiphop-drums-fill",
+          "name": "Fill",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 7,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 11,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "hiphop-drums-verse"
+    },
+    {
+      "id": "hiphop-bass",
+      "name": "Low End",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 33,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "sine",
+        "cutoff": 700,
+        "resonance": 1,
+        "attack": 0.01,
+        "decay": 0.08,
+        "sustain": 0.78,
+        "release": 0.22,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.27,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "hiphop-bass-a-minor",
+          "name": "A minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 7,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 10,
+              "length": 5,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "hiphop-bass-f-major",
+          "name": "F major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 8,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.8
+            },
+            {
+              "row": 8,
+              "step": 7,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 3,
+              "step": 10,
+              "length": 5,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "hiphop-bass-e-minor",
+          "name": "E minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.8
+            },
+            {
+              "row": 7,
+              "step": 7,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 5,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "hiphop-bass-a-minor"
+    },
+    {
+      "id": "hiphop-keys",
+      "name": "Muted Keys",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 57,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "triangle",
+        "cutoff": 1450,
+        "resonance": 1,
+        "attack": 0.018,
+        "decay": 0.24,
+        "sustain": 0.35,
+        "release": 0.35,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0.12
+      },
+      "gain": 0.12,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "hiphop-keys-am9",
+          "name": "Am9",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.54
+            },
+            {
+              "row": 3,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 7,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 14,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.44
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.48
+            },
+            {
+              "row": 7,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.43
+            }
+          ]
+        },
+        {
+          "id": "hiphop-keys-fmaj7",
+          "name": "Fmaj7",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 8,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.54
+            },
+            {
+              "row": 12,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 15,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 3,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.48
+            },
+            {
+              "row": 12,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.43
+            }
+          ]
+        },
+        {
+          "id": "hiphop-keys-em7",
+          "name": "Em7",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.54
+            },
+            {
+              "row": 10,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 14,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.5
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.48
+            },
+            {
+              "row": 10,
+              "step": 10,
+              "length": 4,
+              "velocity": 0.43
+            }
+          ]
+        }
+      ],
+      "activePatternId": "hiphop-keys-am9"
+    },
+    {
+      "id": "hiphop-lead",
+      "name": "Tape Whistle",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 69,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "sine",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.04,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.32,
+        "delayTime": 0.32,
+        "delayFeedback": 0.35,
+        "delayMix": 0.12,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.08,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "hiphop-lead-answer",
+          "name": "Answer",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.55
+            },
+            {
+              "row": 3,
+              "step": 3,
+              "length": 2,
+              "velocity": 0.52
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 4,
+              "velocity": 0.62
+            },
+            {
+              "row": 3,
+              "step": 14,
+              "length": 2,
+              "velocity": 0.45
+            }
+          ]
+        },
+        {
+          "id": "hiphop-lead-turn",
+          "name": "Turn",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.55
+            },
+            {
+              "row": 3,
+              "step": 4,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 5,
+              "velocity": 0.62
+            }
+          ]
+        }
+      ],
+      "activePatternId": "hiphop-lead-answer"
+    }
+  ],
+  "activeTrackId": "hiphop-drums"
+}

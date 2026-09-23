@@ -61,6 +61,9 @@ import {
     repairPhysMod,
 } from "./daw_physmod";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
+import neonTide from "../../sample-songs/neon-tide-edm.json" with { type: "json" };
+import afterhours from "../../sample-songs/afterhours-house.json" with { type: "json" };
+import lowlight from "../../sample-songs/lowlight-hip-hop.json" with { type: "json" };
 import {
     GUITAR_MODES,
     GUITAR_WAVEFORMS,
@@ -342,6 +345,34 @@ function makeStarterProject(): DAWProject {
 }
 
 let project: DAWProject = makeStarterProject();
+
+const SAMPLE_SONGS = [
+    { name: "Neon Tide - EDM (rising violins)", data: neonTide },
+    { name: "Afterhours - House (cello chops)", data: afterhours },
+    { name: "Lowlight - Hip Hop (drum breakdown)", data: lowlight },
+] as const;
+let sampleSongIndex = 0;
+let sampleSongStatus = "";
+
+function loadSampleSong(index: number) {
+    const sample = SAMPLE_SONGS[index];
+    if (!sample) return;
+    // The addon runtime has no structuredClone. A JSON round trip copies this JSON template
+    // before the current project is touched, and lets the loaded song be edited independently.
+    const replacement = JSON.parse(JSON.stringify(sample.data)) as DAWProject;
+    stop();
+    rewind();
+    if (guitarStatus.running) stopGuitar();
+    for (const track of project.tracks) removeTrackBus(track);
+    project = replacement;
+    selectedClipId = null;
+    arrangementStatus = "";
+    saveDueAt = 0;
+    transport.mode = "song";
+    project.tracks.forEach(syncTrackBus);
+    addon.IO.save(project);
+    sampleSongStatus = `Loaded ${sample.name}. Press Play to hear the arrangement.`;
+}
 
 function getActiveTrack(): Track | undefined {
     return project.tracks.find(t => t.id === project.activeTrackId) || project.tracks[0];
@@ -2427,6 +2458,18 @@ addon.onInit(async () => {
     const renderTransportBar = (tabId: string) => {
         syncBpmDraft();
         Entropy.UI.Widget.group(tabId, (tid: string) => {
+            Entropy.UI.Widget.horizontal(tid, (row: string) => {
+                Entropy.UI.Widget.dropdown(row, {
+                    label: "Sample song", id: "sample_song", options: SAMPLE_SONGS.map(s => s.name),
+                    selectedIndex: sampleSongIndex,
+                    onChange: (idx: string) => { sampleSongIndex = parseInt(idx, 10) || 0; }
+                });
+                Entropy.UI.Widget.button(row, {
+                    text: "Load sample song", id: "sample_song_load",
+                    onClick: () => { loadSampleSong(sampleSongIndex); }
+                });
+                if (sampleSongStatus) Entropy.UI.Widget.label(row, { text: sampleSongStatus });
+            });
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
                     text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),

@@ -1,0 +1,945 @@
+{
+  "bpm": 128,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "edm-drums-pulse-0",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-pulse",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-drums-build-4",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-build",
+      "startStep": 64,
+      "lengthSteps": 48
+    },
+    {
+      "id": "edm-drums-fill-7",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-fill",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "edm-drums-drop-8",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-drop",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "edm-drums-break-16",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-break",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-drums-build-20",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-build",
+      "startStep": 320,
+      "lengthSteps": 48
+    },
+    {
+      "id": "edm-drums-fill-23",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-fill",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "edm-drums-drop-24",
+      "trackId": "edm-drums",
+      "patternId": "edm-drums-drop",
+      "startStep": 384,
+      "lengthSteps": 128
+    },
+    {
+      "id": "edm-bass-d-pulse-8",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-d-pulse",
+      "startStep": 128,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-bb-pulse-10",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-bb-pulse",
+      "startStep": 160,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-f-pulse-12",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-f-pulse",
+      "startStep": 192,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-c-pulse-14",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-c-pulse",
+      "startStep": 224,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-d-pulse-24",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-d-pulse",
+      "startStep": 384,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-bb-pulse-26",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-bb-pulse",
+      "startStep": 416,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-f-pulse-28",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-f-pulse",
+      "startStep": 448,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-bass-c-pulse-30",
+      "trackId": "edm-bass",
+      "patternId": "edm-bass-c-pulse",
+      "startStep": 480,
+      "lengthSteps": 32
+    },
+    {
+      "id": "edm-strings-low-rise-0",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-low-rise",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-strings-high-rise-4",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-high-rise",
+      "startStep": 64,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-strings-drop-answer-8",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-drop-answer",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "edm-strings-break-swell-16",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-break-swell",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-strings-low-rise-20",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-low-rise",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-strings-drop-answer-24",
+      "trackId": "edm-strings",
+      "patternId": "edm-strings-drop-answer",
+      "startStep": 384,
+      "lengthSteps": 128
+    },
+    {
+      "id": "edm-lead-hook-8",
+      "trackId": "edm-lead",
+      "patternId": "edm-lead-hook",
+      "startStep": 128,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-lead-answer-12",
+      "trackId": "edm-lead",
+      "patternId": "edm-lead-answer",
+      "startStep": 192,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-lead-hook-24",
+      "trackId": "edm-lead",
+      "patternId": "edm-lead-hook",
+      "startStep": 384,
+      "lengthSteps": 64
+    },
+    {
+      "id": "edm-lead-answer-28",
+      "trackId": "edm-lead",
+      "patternId": "edm-lead-answer",
+      "startStep": 448,
+      "lengthSteps": 64
+    }
+  ],
+  "tracks": [
+    {
+      "id": "edm-drums",
+      "name": "Drop Drums",
+      "kind": "drum",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 5,
+      "rack": [
+        {
+          "name": "Kick",
+          "voice": "kick",
+          "freq": 55,
+          "midi": 36,
+          "sample": null
+        },
+        {
+          "name": "Snare",
+          "voice": "snare",
+          "freq": 200,
+          "midi": 38,
+          "sample": null
+        },
+        {
+          "name": "Hihat",
+          "voice": "hihat",
+          "freq": 1000,
+          "midi": 42,
+          "sample": null
+        },
+        {
+          "name": "Clap",
+          "voice": "clap",
+          "freq": 200,
+          "midi": 39,
+          "sample": null
+        },
+        {
+          "name": "Tom",
+          "voice": "tom",
+          "freq": 110,
+          "midi": 45,
+          "sample": null
+        }
+      ],
+      "voice": {
+        "waveform": "kick",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.52,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "edm-drums-pulse",
+          "name": "Pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "edm-drums-build",
+          "name": "Build",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "edm-drums-drop",
+          "name": "Drop",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 3,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.65
+            }
+          ]
+        },
+        {
+          "id": "edm-drums-break",
+          "name": "Break",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.55
+            }
+          ]
+        },
+        {
+          "id": "edm-drums-fill",
+          "name": "Fill",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 13,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "edm-drums-pulse"
+    },
+    {
+      "id": "edm-bass",
+      "name": "Sub Drive",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 36,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "square",
+        "cutoff": 900,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.08,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.24,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "edm-bass-d-pulse",
+          "name": "D pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.78
+            },
+            {
+              "row": 2,
+              "step": 3,
+              "length": 2,
+              "velocity": 0.78
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.78
+            },
+            {
+              "row": 2,
+              "step": 11,
+              "length": 2,
+              "velocity": 0.78
+            }
+          ]
+        },
+        {
+          "id": "edm-bass-bb-pulse",
+          "name": "Bb pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 10,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 10,
+              "step": 3,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 10,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 10,
+              "step": 11,
+              "length": 2,
+              "velocity": 0.74
+            }
+          ]
+        },
+        {
+          "id": "edm-bass-f-pulse",
+          "name": "F pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 5,
+              "step": 3,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 5,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 5,
+              "step": 11,
+              "length": 2,
+              "velocity": 0.74
+            }
+          ]
+        },
+        {
+          "id": "edm-bass-c-pulse",
+          "name": "C pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 0,
+              "step": 3,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.74
+            },
+            {
+              "row": 0,
+              "step": 11,
+              "length": 2,
+              "velocity": 0.74
+            }
+          ]
+        }
+      ],
+      "activePatternId": "edm-bass-d-pulse"
+    },
+    {
+      "id": "edm-strings",
+      "name": "Rising Violins",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 57,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.18,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "edm-strings-low-rise",
+          "name": "Low rise",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 12,
+              "velocity": 0.46
+            },
+            {
+              "row": 8,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.56
+            }
+          ]
+        },
+        {
+          "id": "edm-strings-high-rise",
+          "name": "High rise",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.62
+            },
+            {
+              "row": 15,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.7
+            }
+          ]
+        },
+        {
+          "id": "edm-strings-drop-answer",
+          "name": "Drop answer",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 15,
+              "step": 0,
+              "length": 4,
+              "velocity": 0.7
+            },
+            {
+              "row": 12,
+              "step": 6,
+              "length": 3,
+              "velocity": 0.58
+            },
+            {
+              "row": 17,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.75
+            }
+          ]
+        },
+        {
+          "id": "edm-strings-break-swell",
+          "name": "Break swell",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 8,
+              "step": 0,
+              "length": 14,
+              "velocity": 0.45
+            }
+          ]
+        }
+      ],
+      "activePatternId": "edm-strings-low-rise",
+      "physmod": {
+        "instrument": "violin",
+        "bowForce": 0.63,
+        "bowVelocity": 0.62,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.66,
+        "bodySize": 0,
+        "bodyMix": 0.48,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "edm-lead",
+      "name": "Neon Hook",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "saw",
+        "cutoff": 2800,
+        "resonance": 1,
+        "attack": 0.015,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0.22,
+        "delayFeedback": 0.35,
+        "delayMix": 0.12,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0.12
+      },
+      "gain": 0.13,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "edm-lead-hook",
+          "name": "Hook",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 5,
+              "step": 3,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 9,
+              "step": 4,
+              "length": 4,
+              "velocity": 0.8
+            },
+            {
+              "row": 5,
+              "step": 9,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 12,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "edm-lead-answer",
+          "name": "Answer",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 10,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 5,
+              "step": 3,
+              "length": 1,
+              "velocity": 0.8
+            },
+            {
+              "row": 2,
+              "step": 4,
+              "length": 4,
+              "velocity": 0.8
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 2,
+              "velocity": 0.8
+            },
+            {
+              "row": 5,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.8
+            }
+          ]
+        }
+      ],
+      "activePatternId": "edm-lead-hook"
+    }
+  ],
+  "activeTrackId": "edm-drums"
+}
