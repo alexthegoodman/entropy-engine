@@ -80,12 +80,12 @@ function findCard(columnId: string, cardId: string): { column: Column; card: Car
 
 function setupUI() {
     loadBoard();
-    const win = Entropy.UI.createWindow({
+    const win = Entropy.UI.createTab({
         title: "CC Manager",
-        width: 1240,
-        height: 800,
-        x: 20,
-        y: 20,
+        // width: 1240,
+        // height: 800,
+        // x: 20,
+        // y: 20,
         onRender: () => renderUI(win),
     });
 }
