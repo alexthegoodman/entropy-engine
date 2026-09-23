@@ -164,13 +164,14 @@ impl KanbanBoard {
                 col.cards
                     .iter()
                     .map(|card| {
+                        let title_lines = wrap_text(&ctx, &card.title, title_font, card_inner_w, usize::MAX).len();
                         let desc_lines = if card.description.is_empty() {
                             0
                         } else {
                             wrap_text(&ctx, &card.description, desc_font, card_inner_w, MAX_DESC_LINES).len()
                         };
                         let tag_h = if card.tags.is_empty() { 0.0 } else { TAG_ROW_H };
-                        CARD_PAD * 2.0 + LINE_H + desc_lines as f32 * LINE_H + tag_h
+                        CARD_PAD * 2.0 + title_lines as f32 * LINE_H + desc_lines as f32 * LINE_H + tag_h
                     })
                     .collect()
             })
@@ -361,8 +362,10 @@ impl KanbanBoard {
 
         let mut y = rect.min.y + CARD_PAD;
         let text_x = rect.min.x + CARD_PAD + 4.0;
-        painter.text(pos2(text_x, y), Align2::LEFT_TOP, &card.title, title_font, Color32::from_gray(240));
-        y += LINE_H;
+        for line in wrap_text(ctx, &card.title, title_font, inner_w, usize::MAX) {
+            painter.text(pos2(text_x, y), Align2::LEFT_TOP, line, title_font, Color32::from_gray(240));
+            y += LINE_H;
+        }
 
         if !card.description.is_empty() {
             for line in wrap_text(ctx, &card.description, desc_font, inner_w, MAX_DESC_LINES) {
