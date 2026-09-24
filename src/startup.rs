@@ -573,6 +573,9 @@ impl BrowserBddDriver {
             }
             BrowserBddAction::Capture(name) => {
                 let path = self.artifact_dir.join(format!("{name}.png"));
+                #[cfg(not(target_os = "windows"))]
+                let media: Option<serde_json::Value> = None;
+                #[cfg(target_os = "windows")]
                 let media = if std::env::var_os("ENTROPY_MEDIA_BDD_RESULT").is_some() {
                     window.pipeline.export_editor.as_mut().and_then(|editor| {
                         let op_state = editor.addon_engine.runtime.op_state();
@@ -695,6 +698,9 @@ pub struct Gui {
     pub renderer: EguiRenderer,
     pub glass_blur: crate::core::glass_blur::GlassBlur,
     pub glass_blur_texture_id: crate::egui::TextureId,
+    /// Set when the swapchain can't take `Rgba8Unorm` directly (Linux/X11): the frame is drawn
+    /// offscreen and blitted onto it. See `crate::core::surface_blit`.
+    pub surface_blit: Option<crate::core::surface_blit::SurfaceBlit>,
 }
 
 /// Application state and event handling.
@@ -1688,7 +1694,7 @@ impl WindowState {
         state.set_pointer_cursors(crate::egui_winit::build_pointer_cursors(event_loop));
         
         let size = window.inner_size();
-        let swapchain_format = wgpu::TextureFormat::Rgba8Unorm;
+        let swapchain_format = pipeline.gpu_resources.as_ref().expect("Couldn't get gpu resources").surface_format;
         let surface_config = wgpu::SurfaceConfiguration {
             // TEXTURE_BINDING in addition to the usual RENDER_ATTACHMENT: the glass blur
             // pass (see glass_blur.rs) samples straight from this frame's swapchain view
@@ -1705,9 +1711,15 @@ impl WindowState {
 
         let gpu_resources = pipeline.gpu_resources.as_ref().expect("Couldn't get gpu resources");
 
+        // Everything that draws the frame targets RENDER_FORMAT; when the swapchain differs,
+        // SurfaceBlit converts at present time.
+        let render_format = crate::core::surface_blit::RENDER_FORMAT;
+        let surface_blit = crate::core::surface_blit::needs_blit(surface_config.format)
+            .then(|| crate::core::surface_blit::SurfaceBlit::new(&gpu_resources.device, surface_config.format));
+
         let mut renderer = EguiRenderer::new(
             &gpu_resources.device,
-            surface_config.format,
+            render_format,
             RendererOptions {
                 ..Default::default()
             },
@@ -1715,7 +1727,7 @@ impl WindowState {
             // false
         );
 
-        let glass_blur = crate::core::glass_blur::GlassBlur::new(&gpu_resources.device, surface_config.format);
+        let glass_blur = crate::core::glass_blur::GlassBlur::new(&gpu_resources.device, render_format);
         let glass_blur_texture_id = renderer.register_native_texture(&gpu_resources.device, glass_blur.blur_view(), wgpu::FilterMode::Linear);
 
         let gui = Gui {
@@ -1724,6 +1736,7 @@ impl WindowState {
             renderer,
             glass_blur,
             glass_blur_texture_id,
+            surface_blit,
         };
 
         let surface = gpu_resources.surface.as_ref().expect("Couldn't get surface").clone();

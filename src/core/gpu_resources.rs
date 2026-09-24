@@ -11,6 +11,10 @@ pub struct GpuResources {
     pub surface: Option<Arc<Surface<'static>>>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
+    /// The format the window's swapchain is configured with. Always `Rgba8Unorm` where the
+    /// surface supports it (Windows); otherwise the surface's closest match (e.g. `Bgra8Unorm`
+    /// on Linux/X11 Vulkan), and the frame is blitted into it - see `crate::core::surface_blit`.
+    pub surface_format: wgpu::TextureFormat,
 }
 
 impl GpuResources {
@@ -20,6 +24,7 @@ impl GpuResources {
             surface: None,
             device,
             queue,
+            surface_format: crate::core::surface_blit::RENDER_FORMAT,
         }
     }
 
@@ -29,15 +34,18 @@ impl GpuResources {
             surface: None,
             device: Arc::new(device),
             queue: Arc::new(queue),
+            surface_format: crate::core::surface_blit::RENDER_FORMAT,
         }
     }
 
     /// Create GpuResources with surface
-    pub fn with_surface(_adapter: Adapter, device: Device, queue: Queue, surface: Arc<Surface<'static>>) -> Self {
+    pub fn with_surface(adapter: Adapter, device: Device, queue: Queue, surface: Arc<Surface<'static>>) -> Self {
+        let surface_format = crate::core::surface_blit::pick_surface_format(&surface.get_capabilities(&adapter).formats);
         Self {
             surface: Some(surface),
             device: Arc::new(device),
             queue: Arc::new(queue),
+            surface_format,
         }
     }
 }

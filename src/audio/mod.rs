@@ -817,7 +817,12 @@ impl Source for MasterBusSource {
 pub const MASTER_SOURCE: &str = "master";
 
 pub struct AudioEngine {
-    stream_handle: OutputStream,
+    /// `None` when no output device could be opened (headless machine, no sound card) - the engine
+    /// then mixes into `output_mixer` with nothing draining it, so audio calls are silent no-ops
+    /// instead of the whole app failing to start.
+    _stream_handle: Option<OutputStream>,
+    /// The device's mixer, or a detached one when `_stream_handle` is `None`.
+    output_mixer: rodio::mixer::Mixer,
     effects: Mutex<HashMap<String, Arc<EffectHandle>>>,
     track_buses: Mutex<HashMap<String, TrackBus>>,
     any_solo: Arc<AtomicBool>,
@@ -859,15 +864,26 @@ pub const PREVIEW_BUS: &str = "sample-preview";
 
 impl AudioEngine {
     pub fn new() -> Self {
-        let stream_handle = OutputStreamBuilder::open_default_stream().expect("Failed to create audio stream");
+        let stream_handle = match OutputStreamBuilder::open_default_stream() {
+            Ok(stream) => Some(stream),
+            Err(error) => {
+                eprintln!("No audio output device available ({error:?}); continuing with audio muted");
+                None
+            }
+        };
+        let output_mixer = match &stream_handle {
+            Some(stream) => stream.mixer().clone(),
+            None => rodio::mixer::mixer(2, ENGINE_SAMPLE_RATE).0,
+        };
 
         let (master_mixer, mixer_source) = rodio::mixer::mixer(2, ENGINE_SAMPLE_RATE);
         let master_tap = Arc::new(AudioTap::new());
-        let master_sink = Sink::connect_new(stream_handle.mixer());
+        let master_sink = Sink::connect_new(&output_mixer);
         master_sink.append(MasterBusSource { mixer_source, tap: master_tap.clone(), buf: [0.0; 2], buf_idx: 0 });
 
         AudioEngine {
-            stream_handle,
+            _stream_handle: stream_handle,
+            output_mixer,
             effects: Mutex::new(HashMap::new()),
             track_buses: Mutex::new(HashMap::new()),
             any_solo: Arc::new(AtomicBool::new(false)),
@@ -1199,7 +1215,7 @@ impl AudioEngine {
             .take_duration(std::time::Duration::from_secs_f32(0.5))
             .amplify(0.20);
 
-        let sink = Sink::connect_new(self.stream_handle.mixer());
+        let sink = Sink::connect_new(&self.output_mixer);
         sink.append(source);
         sink.detach();
     }
@@ -1208,7 +1224,7 @@ impl AudioEngine {
     /// it directly (`play`/`pause`/`set_volume`/`stop`) - used by `media_player::MediaPlayer`
     /// for decoded video audio, unlike the fire-and-forget synth sinks above.
     pub fn new_sink(&self) -> Sink {
-        Sink::connect_new(self.stream_handle.mixer())
+        Sink::connect_new(&self.output_mixer)
     }
 
     /// Legacy entry point kept for existing callers; forwards into `play_note`
@@ -1237,7 +1253,7 @@ impl AudioEngine {
         let source = FundspSource { node, sample_rate, buf: [0.0; 2], buf_idx: 0 };
         let finite_source = source.take_duration(std::time::Duration::from_secs_f32(total_dur));
 
-        let sink = Sink::connect_new(self.stream_handle.mixer());
+        let sink = Sink::connect_new(&self.output_mixer);
         sink.append(finite_source);
         sink.detach();
     }

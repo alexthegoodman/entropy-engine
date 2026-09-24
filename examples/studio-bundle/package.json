@@ -34,6 +34,7 @@
     "build-canvas-surfaces": "npm run ensure-dist && deno bundle src/apps/canvas_surfaces/canvas_surface_addon.ts > dist/canvas_surfaces.js",
     "build-app-launcher": "npm run ensure-dist && deno bundle src/apps/app_launcher_addon.ts > dist/app_launcher.js",
     "build-sheet": "npm run ensure-dist && deno bundle src/apps/sheet/sheet_addon.ts > dist/sheet.js",
+    "build-theme-gallery": "npm run ensure-dist && deno bundle src/apps/theme_gallery_addon.ts > dist/theme_gallery.js",
     "build-media-player": "npm run ensure-dist && deno bundle src/apps/media_player_addon.ts --output dist/media_player.js",
     "test": "vitest",
     "test:canvas": "vitest run tests/canvas_surfaces.test.ts tests/canvas_paint_storage.test.ts tests/canvas_animation_bdd.test.ts tests/canvas_world_units.test.ts tests/canvas_world_bdd.test.ts --pool=threads",

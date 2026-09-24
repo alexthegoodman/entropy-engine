@@ -1,4 +1,4 @@
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use entropy_engine::startup;
 
 use std::error::Error;
@@ -12,6 +12,6 @@ async fn main() {
     // used for file storage and reading, may remove later for another approach
     let project_id = Some("cmk7vjg1n000004jrh8ajdbyb".to_string());
     
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     startup::run_game(project_id, addon_name).expect("Couldn't run game addon");
 }

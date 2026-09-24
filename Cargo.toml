@@ -178,6 +178,8 @@ features = ["utils", "KHR_texture_transform"]
 version = "1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
+# Windows-only: WebView2 host, Media Foundation / Win32 APIs, and Graphics Capture. Everything
+# else native lives in the non-wasm section below so Linux builds too.
 wry = "0.50"
 windows = { version = "0.58", features = [
     "implement",
@@ -200,6 +202,8 @@ windows = { version = "0.58", features = [
 ] }
 windows-core = "0.58.0"
 windows-capture = "1.5.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 meshopt = "0.4.1"
 winit = { version = "0.30.12", features = ["rwh_06"] }
 # egui / egui-wgpu / egui-winit / egui_dock / egui-snarl / egui_code_editor all removed:

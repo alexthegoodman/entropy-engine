@@ -41,7 +41,7 @@ use std::sync::{
 use wgpu::util::DeviceExt;
 use std::str::FromStr;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]

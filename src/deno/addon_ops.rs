@@ -1590,7 +1590,7 @@ pub fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[s
 /// reaches `Command`, and the program run is always this same executable with `name` as its only
 /// argument, never a path an addon supplied. The child's handle is dropped straight away - the pid
 /// is all the caller ever gets, so nothing here waits on, watches or stops what it started.
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn launch_example(name: &str) -> Result<u32, String> {
     if !crate::LAUNCHABLE_EXAMPLES.contains(&name) {
         return Err(format!("\"{name}\" is not a launchable example"));
@@ -1605,7 +1605,7 @@ pub fn launch_example(name: &str) -> Result<u32, String> {
     Ok(child.id())
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 #[op2(fast)]
 pub fn op_launch_example(#[string] name: String) -> Result<u32, deno_error::JsErrorBox> {
     launch_example(&name).map_err(deno_error::JsErrorBox::generic)
@@ -2068,7 +2068,6 @@ pub fn op_video_set_speed(state: &mut OpState, #[string] handle: String, speed: 
     }
 }
 
-#[cfg(target_os = "windows")]
 #[op2]
 #[string]
 pub fn op_video_read_subtitles(#[string] path: String) -> Result<String, deno_error::JsErrorBox> {
@@ -2177,6 +2176,77 @@ pub fn op_video_export_poll(state: &mut OpState) -> Option<VideoExportResultJs> 
             error: Some(e),
         }),
     }
+}
+
+// Non-Windows stand-ins for the Media Foundation-backed video ops above, so the op table (and the
+// `Entropy.Video` JS surface built on it) stays identical everywhere. Opening a video reports a
+// clear error instead of the op being missing; the per-handle ops are unreachable without a handle.
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+const VIDEO_UNSUPPORTED: &str = "Video playback/export is only supported on Windows (Media Foundation) for now";
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+static VIDEO_EXPORT_REQUESTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2]
+#[serde]
+pub fn op_video_open(#[string] _path: String) -> Result<VideoOpenResult, deno_error::JsErrorBox> {
+    Err(deno_error::JsErrorBox::generic(VIDEO_UNSUPPORTED))
+}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_bind_texture(#[string] _handle: String, #[string] _texture_id: String) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_play(#[string] _handle: String) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_pause(#[string] _handle: String) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_seek(#[string] _handle: String, _seek_ms: f64) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_set_volume(#[string] _handle: String, _volume: f64) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_set_speed(#[string] _handle: String, _speed: f64) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_close(#[string] _handle: String) {}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2]
+#[serde]
+pub fn op_video_poll(#[string] _handle: String) -> VideoPollResult {
+    VideoPollResult { current_time_ms: 0, playing: false }
+}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2(fast)]
+pub fn op_video_export_start(#[string] _output_path: String, _fps: u32, _duration_ms: u32) {
+    VIDEO_EXPORT_REQUESTED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+#[cfg(not(any(target_os = "windows", target_arch = "wasm32")))]
+#[op2]
+#[serde]
+pub fn op_video_export_poll() -> Option<VideoExportResultJs> {
+    VIDEO_EXPORT_REQUESTED
+        .swap(false, std::sync::atomic::Ordering::Relaxed)
+        .then(|| VideoExportResultJs {
+            output_path: String::new(),
+            frame_count: 0,
+            elapsed_ms: 0,
+            error: Some(VIDEO_UNSUPPORTED.to_string()),
+        })
 }
 
 #[op2]
@@ -5355,7 +5425,7 @@ pub fn op_yumon_tick(state: &mut OpState, #[string] name: String) -> Result<Yumo
     }
 }
 
-#[cfg(all(test, target_os = "windows"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod launch_example_tests {
     /// Everything that reaches `Command` in `op_launch_example` goes through this check first, so
     /// the only strings an addon can turn into a process are the ones on the list.

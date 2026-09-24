@@ -7,10 +7,21 @@ use std::sync::Arc;
 use uuid::Uuid;
 use wgpu::util::DeviceExt;
 use wgpu::{Device, Queue};
+#[cfg(target_os = "windows")]
 use windows::Win32::Media::KernelStreaming::GUID_NULL;
+#[cfg(target_os = "windows")]
 use windows::Win32::Media::MediaFoundation::*;
+#[cfg(target_os = "windows")]
 use windows::Win32::System::Com::StructuredStorage::PropVariantToInt64;
+#[cfg(target_os = "windows")]
 use windows_core::{PCWSTR, PROPVARIANT};
+
+/// Video decoding is backed by Windows Media Foundation. Elsewhere `StVideo::new` always fails
+/// with a message, so no `StVideo` is ever constructed and the frame methods are unreachable.
+#[cfg(target_os = "windows")]
+pub type VideoError = windows::core::Error;
+#[cfg(not(target_os = "windows"))]
+pub type VideoError = String;
 
 use crate::core::SimpleCamera::SimpleCamera as Camera;
 use crate::core::Transform_2::{Transform, matrix4_to_raw_array};
@@ -91,7 +102,7 @@ impl StVideo {
         z_index: f32,
         new_id: String,
         current_sequence_id: Uuid,
-    ) -> Result<Self, windows::core::Error> {
+    ) -> Result<Self, VideoError> {
         let (source_reader, duration, duration_ms, source_width, source_height, source_frame_rate) =
             Self::initialize_media_source(path)?;
 
@@ -290,6 +301,7 @@ impl StVideo {
             indices,
             hidden: false,
             layer: video_config.layer - 0,
+            #[cfg(target_os = "windows")]
             source_reader,
             group_bind_group: tmp_group_bind_group,
             current_zoom: 1.0,
@@ -310,10 +322,18 @@ impl StVideo {
         })
     }
 
+    #[cfg(not(target_os = "windows"))]
+    fn initialize_media_source(path: &Path) -> Result<((), i64, i64, u32, u32, f64), VideoError> {
+        Err(format!(
+            "Video playback of {} is not supported on this platform yet (requires Windows Media Foundation)",
+            path.display()
+        ))
+    }
+
     #[cfg(target_os = "windows")]
     fn initialize_media_source(
         path: &Path,
-    ) -> Result<(IMFSourceReader, i64, i64, u32, u32, f64), windows::core::Error> {
+    ) -> Result<(IMFSourceReader, i64, i64, u32, u32, f64), VideoError> {
         // Intialize Media Foundation
         unsafe {
             MFStartup(MF_VERSION, MFSTARTUP_FULL)?;
@@ -378,6 +398,7 @@ impl StVideo {
     // #[cfg(target_arch = "wasm32")]
     // fn initialize_media_source() {}
 
+    #[cfg(target_os = "windows")]
     fn create_source_reader(
         // &self,
         file_path: &str,
@@ -415,6 +436,12 @@ impl StVideo {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    pub fn draw_video_frame(&self, _device: &Device, _queue: &Queue) -> Result<(), VideoError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
     pub fn draw_video_frame(&self, device: &Device, queue: &Queue) -> windows::core::Result<()> {
         unsafe {
             // println!("Drawing video frame");
@@ -478,6 +505,12 @@ impl StVideo {
         }
     }
 
+    #[cfg(not(target_os = "windows"))]
+    pub fn reset_playback(&mut self) -> Result<(), VideoError> {
+        Ok(())
+    }
+
+    #[cfg(target_os = "windows")]
     pub fn reset_playback(&mut self) -> Result<(), windows::core::Error> {
         let time = PROPVARIANT::from(0i64);
 
@@ -735,7 +768,7 @@ impl StVideo {
         queue: &Queue,
         bind_group_layout: &wgpu::BindGroupLayout,
         group_bind_group_layout: &Arc<wgpu::BindGroupLayout>,
-    ) -> Result<Self, windows::core::Error> {
+    ) -> Result<Self, VideoError> {
         let video_config = StVideoConfig {
             id: config.id.clone(),
             name: config.name.clone(),
@@ -769,6 +802,7 @@ impl StVideo {
 }
 
 // TODO: add to Drop trait?
+#[cfg(target_os = "windows")]
 fn shutdown_media_foundation() -> Result<(), windows::core::Error> {
     unsafe {
         MFShutdown()?;
@@ -776,6 +810,7 @@ fn shutdown_media_foundation() -> Result<(), windows::core::Error> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 impl Drop for StVideo {
     fn drop(&mut self) {
         unsafe {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]

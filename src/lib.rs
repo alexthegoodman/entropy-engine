@@ -1,11 +1,11 @@
 #![allow(warnings)]
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod startup;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod app;
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub use app::EntropyApp;
 
 pub mod entropy_gui;
@@ -31,7 +31,7 @@ pub mod renderer_text;
 pub mod renderer_videos;
 #[cfg(target_os = "windows")]
 pub mod media_player;
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub mod stylus;
 pub mod screen_capture;
 pub mod shape_primitives;
@@ -60,7 +60,7 @@ pub mod ml_architecture;
 /// This lives in the library rather than in that binary because `op_launch_example` validates
 /// against it: it is the whole fence between an addon naming an app to start and an addon naming
 /// an arbitrary program, so both sides have to read the same list.
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub const LAUNCHABLE_EXAMPLES: &[&str] = &[
     "app-launcher",
     "canvas-surface-demo",

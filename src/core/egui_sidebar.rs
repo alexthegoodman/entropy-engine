@@ -42,10 +42,10 @@ use web_sys::HtmlCanvasElement;
 use wgpu::{Limits, RenderPipeline, util::DeviceExt};
 use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use winit::window::Window;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::egui;
 use crate::egui_wgpu;
 use crate::egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
@@ -74,7 +74,7 @@ pub enum Tab {
     ScriptEditor { path: std::path::PathBuf },
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::startup::Gui;
 
 pub struct UiContext<'a> {
