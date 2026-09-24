@@ -43,6 +43,10 @@ The object returned by `Entropy.Addon.register`.
 - `Entropy.generateUUID()`: Generate a unique ID string.
 - `Entropy.Texture.load(filename: string)`: Load an image as a texture.
 - `Entropy.Audio.playSynth(config: SynthConfig)`: Play a sound using the built-in synthesizer.
+- `Entropy.ML.trainGraph(id, {nodes, links, dataset, epochs?, lr?, seed?})`: Validate and train a single `Input -> Dense... -> Loss` Burn MLP on `xor`, `and`, or `two_moons`. `seed` defaults to 42 and seeds both model initialization and generated data.
+- `Entropy.ML.poll(id)`: Drain per-epoch `{epoch, totalEpochs, loss, accuracy?, done}` updates from the background trainer.
+
+The [ML architecture graph guide](../../../../docs/ML_GRAPH_ARCHITECTURES.md) covers the shape-checked LSTM, sparse MoE, and conditioned U-Net node catalog. Those architecture graphs do not execute through `trainGraph` yet.
 
 ## Agentic Tools
 

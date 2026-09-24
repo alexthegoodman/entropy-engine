@@ -106,7 +106,8 @@ async fn main() {
                 .with_bundle("examples/studio-bundle/dist/ml_graph_demo.js")
                 .with_hot_reload(true)
                 .with_title("ML Graph Trainer")
-                .with_window_size(1220.0, 780.0),
+                .with_window_size(1220.0, 780.0)
+                .with_data_dir(env::var("ENTROPY_ML_BDD_DATA").unwrap_or_else(|_| "../ml-graph-data".to_string())),
             Some("node-graph") => entropy_engine::EntropyApp::new()
                 .with_bundle("examples/studio-bundle/dist/node_graph.js")
                 .with_hot_reload(true)
@@ -150,4 +151,3 @@ async fn main() {
         app.run().expect("Couldn't run app");
     }
 }
-

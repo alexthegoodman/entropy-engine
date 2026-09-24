@@ -578,9 +578,11 @@ export interface ScopedAPI {
         | { kind: "Loss"; id: string }
       >;
       links: Array<{ from: string; to: string }>;
-      dataset: "xor" | "two_moons";
+      dataset: "xor" | "and" | "two_moons";
       epochs?: number;
       lr?: number;
+      /** Seeds Burn initialization and built-in dataset generation for reproducible runs. */
+      seed?: number;
     }) => void;
     poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
   };
@@ -2241,9 +2243,10 @@ export interface EntropyAPI {
         | { kind: "Loss"; id: string }
       >;
       links: Array<{ from: string; to: string }>;
-      dataset: "xor" | "two_moons";
+      dataset: "xor" | "and" | "two_moons";
       epochs?: number;
       lr?: number;
+      seed?: number;
     }) => void;
     poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
   };

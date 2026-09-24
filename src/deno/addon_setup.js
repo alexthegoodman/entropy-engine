@@ -415,7 +415,8 @@ const mlAPI = {
         JSON.stringify({ nodes: config.nodes, links: config.links }),
         config.dataset,
         config.epochs ?? 200,
-        config.lr ?? 0.02
+        config.lr ?? 0.02,
+        config.seed ?? 42
     ),
     poll: (id) => ops.op_ml_graph_poll(id)
 };

@@ -1,4 +1,4 @@
-// ML Graph Trainer - visual node-graph editor that compiles into a real Burn model.
+// ML Graph Trainer and shape-checked architecture editor.
 //
 // Built on the same `Entropy.UI.Widget.snarl(...)` / `NodeGraphEditor` the "Nocode Calculator"
 // (node_graph_addon.ts) exercises for pure-JS arithmetic - but here the graph isn't evaluated in
@@ -10,10 +10,10 @@
 // LSTM->Dense->heads shape). Training runs full-batch on a background thread and reports
 // per-epoch loss back through `Entropy.ML.poll`; nothing here blocks the UI thread.
 //
-// Two hand-picked hidden-node choices (uses NumericInput's drag-to-change and a cycling button
-// for activation/dataset, not a dropdown - this GUI kit's dropdown payload format wasn't worth
-// depending on for a same-session demo when the existing NumericInput/cycling-button pattern
-// already proven by doc_editor_demo_addon.ts covers the same need).
+import {
+    NODE_DEFINITIONS, miniPicGraph, npcGraph, petGraph, validateArchitecture,
+    type ArchitectureGraph, type ArchitectureKind, type NodeKind,
+} from "./ml_architecture_graph";
 
 interface MlPin { id: string; name: string; pinType: string; }
 interface MlNode {
@@ -30,7 +30,7 @@ interface MlConn { fromNode: string; fromPin: string; toNode: string; toPin: str
 const addonInfo = {
     name: "ML Graph Trainer",
     version: "1.0.0",
-    description: "Build a small MLP visually and train a real Burn model on a background thread",
+    description: "Train a small Burn MLP or design shape-checked LSTM, MoE, and U-Net graphs",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true }
 };
@@ -41,7 +41,17 @@ const INPUT_ID = "in";
 const OUTPUT_ID = "out";
 const LOSS_ID = "loss";
 const ACTIVATIONS = ["relu", "tanh", "sigmoid", "linear"] as const;
-const DATASETS = ["xor", "two_moons"] as const;
+const DATASETS = ["xor", "two_moons", "and"] as const;
+const ARCHITECTURES: readonly ArchitectureKind[] = ["npc", "pet", "mini_pic"];
+const GRAPH_FACTORIES = { npc: npcGraph, pet: petGraph, mini_pic: miniPicGraph };
+const NODE_KINDS = Object.keys(NODE_DEFINITIONS) as NodeKind[];
+let view: "trainer" | "architecture" = "trainer";
+let architectureKind: ArchitectureKind = "npc";
+let architecture: ArchitectureGraph = npcGraph();
+let selectedArchitectureNode = "moments";
+let newNodeKind: NodeKind = "Dense";
+let architectureNodeCount = 0;
+let architectureIoError: string | null = null;
 
 let nextId = 0;
 function freshId(prefix: string): string {
@@ -87,6 +97,23 @@ let latestEpoch = 0;
 let latestLoss: number | null = null;
 let latestAccuracy: number | null = null;
 let trainError: string | null = null;
+let firstLoss: number | null = null;
+let activeDataset: typeof DATASETS[number] = dataset;
+let activeHiddenUnits: number[] = [];
+interface TrainingRun {
+    dataset: string;
+    seed: number;
+    epochs: number;
+    hiddenUnits: number[];
+    firstLoss: number;
+    finalLoss: number;
+    accuracy: number;
+}
+let trainingRuns: TrainingRun[] = [];
+
+function saveState() {
+    addon.IO.save({ architectureKind, architecture, trainingRuns }, { pretty: true });
+}
 
 function cycle<T>(options: readonly T[], current: T): T {
     return options[(options.indexOf(current) + 1) % options.length];
@@ -97,6 +124,9 @@ function startTraining() {
     latestEpoch = 0;
     latestLoss = null;
     latestAccuracy = null;
+    firstLoss = null;
+    activeDataset = dataset;
+    activeHiddenUnits = nodes.filter(n => n.nodeType === "Dense").map(n => n.properties.units ?? 8);
 
     const graphNodes = nodes.map(n => {
         if (n.nodeType === "Input") return { kind: "Input", id: n.id, size: 2 };
@@ -114,7 +144,8 @@ function startTraining() {
             links,
             dataset,
             epochs,
-            lr: dataset === "xor" ? 0.05 : 0.02
+            lr: dataset === "two_moons" ? 0.02 : 0.05,
+            seed: 42,
         });
         isTraining = true;
     } catch (e) {
@@ -126,10 +157,17 @@ function pollTraining() {
     if (!isTraining) return;
     const updates = Entropy.ML.poll(TRAINING_ID);
     for (const u of updates) {
+        if (firstLoss === null) firstLoss = u.loss;
         latestEpoch = u.epoch;
         latestLoss = u.loss;
         if (u.accuracy !== undefined && u.accuracy !== null) latestAccuracy = u.accuracy;
-        if (u.done) isTraining = false;
+        if (u.done) {
+            isTraining = false;
+            if (firstLoss !== null && latestAccuracy !== null) {
+                trainingRuns.push({ dataset: activeDataset, seed: 42, epochs: u.epoch, hiddenUnits: activeHiddenUnits, firstLoss, finalLoss: u.loss, accuracy: latestAccuracy });
+                try { saveState(); } catch (error) { trainError = `Could not save training result: ${error}`; }
+            }
+        }
     }
 }
 
@@ -147,12 +185,21 @@ function setupUI() {
 function renderUI(win: string) {
     pollTraining();
 
+    Entropy.UI.Widget.horizontal(win, () => {
+        Entropy.UI.Widget.button(win, { id: "ml_view_trainer", text: "MLP Trainer", onClick: () => { view = "trainer"; } });
+        Entropy.UI.Widget.button(win, { id: "ml_view_architecture", text: "Model Architectures", onClick: () => { view = "architecture"; } });
+    });
+    if (view === "architecture") {
+        renderArchitectureUI(win);
+        return;
+    }
+
     Entropy.UI.Widget.label(win, { text: "ML Graph Trainer", bold: true });
-    Entropy.UI.Widget.label(win, { text: "Add hidden Dense layers, wire Input -> hidden -> Output -> Loss (or click Auto-Wire), then Train. This compiles to a real Burn MLP trained on a background thread - nothing here is simulated in JS." });
+    Entropy.UI.Widget.label(win, { text: "Wire Input -> Dense -> Output -> Loss, then Train. Burn runs on a background thread." });
 
     Entropy.UI.Widget.horizontal(win, () => {
         Entropy.UI.Widget.button(win, {
-            text: "+ Dense Layer", onClick: () => {
+            id: "ml_add_dense", text: "+ Dense Layer", onClick: () => {
                 const hiddenCount = nodes.filter(n => n.nodeType === "Dense").length;
                 nodes.push(makeDense([280 + hiddenCount * 220, 220]));
                 autoWireChain();
@@ -170,9 +217,9 @@ function renderUI(win: string) {
             }
         });
         Entropy.UI.Widget.button(win, { text: "Auto-Wire Chain", onClick: autoWireChain });
-        Entropy.UI.Widget.button(win, { text: `Dataset: ${dataset}`, onClick: () => { dataset = cycle(DATASETS, dataset); } });
-        Entropy.UI.Widget.numericInput(win, { label: "Epochs", value: epochs, onChange: (v) => { epochs = Math.max(10, Math.round(parseFloat(v))); } });
-        Entropy.UI.Widget.button(win, { text: isTraining ? "Training..." : "Train", onClick: () => { if (!isTraining) startTraining(); } });
+        Entropy.UI.Widget.button(win, { id: "ml_dataset", text: `Dataset: ${dataset}`, onClick: () => { dataset = cycle(DATASETS, dataset); } });
+        Entropy.UI.Widget.numericInput(win, { id: "ml_epochs", label: "Epochs", value: epochs, onChange: (v) => { epochs = Math.max(10, Math.round(parseFloat(v))); } });
+        Entropy.UI.Widget.button(win, { id: "ml_train", text: isTraining ? "Training..." : "Train", onClick: () => { if (!isTraining) startTraining(); } });
     });
     Entropy.UI.Widget.separator(win);
 
@@ -194,6 +241,7 @@ function renderUI(win: string) {
     if (trainError) {
         Entropy.UI.Widget.label(win, { text: `Error: ${trainError}` });
     } else if (latestLoss !== null) {
+        if (!isTraining) Entropy.UI.Widget.label(win, { text: "ML training completed" });
         const accStr = latestAccuracy !== null ? `   accuracy = ${(latestAccuracy * 100).toFixed(1)}%` : "";
         const statusStr = isTraining ? "training..." : "done";
         Entropy.UI.Widget.label(win, { text: `[${statusStr}] epoch ${latestEpoch}/${epochs}   loss = ${latestLoss.toFixed(6)}${accStr}` });
@@ -226,6 +274,121 @@ function renderUI(win: string) {
             if (n) n.position = position;
         }
     });
+}
+
+function renderArchitectureUI(win: string) {
+    const validation = validateArchitecture(architecture);
+    Entropy.UI.Widget.label(win, { text: architecture.name, bold: true });
+    Entropy.UI.Widget.label(win, { text: "Select nodes to edit; drag wires to rewire. These architectures are shape-checked but cannot train yet." });
+    Entropy.UI.Widget.horizontal(win, () => {
+        Entropy.UI.Widget.button(win, { id: "ml_preset", text: `Preset: ${architectureKind}`, onClick: () => {
+            architectureKind = cycle(ARCHITECTURES, architectureKind);
+            architecture = GRAPH_FACTORIES[architectureKind]();
+            selectedArchitectureNode = architecture.nodes[0].id;
+        } });
+        Entropy.UI.Widget.button(win, { id: "ml_reset_preset", text: "Reset Preset", onClick: () => {
+            architecture = GRAPH_FACTORIES[architectureKind]();
+            selectedArchitectureNode = architecture.nodes[0].id;
+        } });
+        Entropy.UI.Widget.button(win, { id: "ml_save_graph", text: "Save Graph", onClick: () => {
+            try { saveState(); architectureIoError = null; }
+            catch (error) { architectureIoError = String(error); }
+        } });
+        Entropy.UI.Widget.button(win, { id: "ml_load_graph", text: "Load Graph", onClick: () => {
+            try {
+                const saved = addon.IO.load();
+                if (!saved || !saved.architecture || !Array.isArray(saved.architecture.nodes) || !Array.isArray(saved.architecture.links)) throw new Error("No saved architecture graph");
+                if (!saved.architecture.nodes.every((n: any) => n && typeof n.id === "string" && Object.prototype.hasOwnProperty.call(NODE_DEFINITIONS, n.kind) && Array.isArray(n.position) && n.position.length === 2 && n.position.every(Number.isFinite) && n.config && typeof n.config === "object")) throw new Error("Saved graph has invalid nodes");
+                if (!saved.architecture.links.every((l: any) => l && [l.from, l.output, l.to, l.input].every((v: any) => typeof v === "string"))) throw new Error("Saved graph has invalid links");
+                architecture = saved.architecture as ArchitectureGraph;
+                architectureKind = ARCHITECTURES.includes(saved.architectureKind) ? saved.architectureKind : "npc";
+                trainingRuns = Array.isArray(saved.trainingRuns) ? saved.trainingRuns : [];
+                selectedArchitectureNode = architecture.nodes[0]?.id ?? "";
+                architectureIoError = null;
+            } catch (error) { architectureIoError = String(error); }
+        } });
+    });
+    Entropy.UI.Widget.horizontal(win, () => {
+        Entropy.UI.Widget.button(win, { text: `New kind: ${newNodeKind}`, onClick: () => { newNodeKind = cycle(NODE_KINDS, newNodeKind); } });
+        Entropy.UI.Widget.button(win, { text: "+ Node", onClick: () => {
+            const id = `new_${++architectureNodeCount}`;
+            architecture.nodes.push({ id, kind: newNodeKind, position: [200, 100], config: defaultArchitectureConfig(newNodeKind) });
+            selectedArchitectureNode = id;
+        } });
+        Entropy.UI.Widget.button(win, { text: "Delete Selected", onClick: () => {
+            architecture.nodes = architecture.nodes.filter(n => n.id !== selectedArchitectureNode);
+            architecture.links = architecture.links.filter(l => l.from !== selectedArchitectureNode && l.to !== selectedArchitectureNode);
+            selectedArchitectureNode = architecture.nodes[0]?.id ?? "";
+        } });
+    });
+    const selected = architecture.nodes.find(n => n.id === selectedArchitectureNode);
+    if (selected) {
+        Entropy.UI.Widget.label(win, { text: `${selected.id}: ${NODE_DEFINITIONS[selected.kind].help}` });
+        Entropy.UI.Widget.horizontal(win, () => {
+            for (const [property, value] of Object.entries(selected.config)) {
+                if (typeof value === "number") {
+                    Entropy.UI.Widget.numericInput(win, { label: property, value, onChange: (raw) => {
+                        const next = Number(raw);
+                        if (Number.isFinite(next)) selected.config[property] = next;
+                    } });
+                } else {
+                    if (property === "activation") Entropy.UI.Widget.button(win, {
+                        text: `${property}: ${value}`,
+                        onClick: () => { selected.config.activation = cycle(ACTIVATIONS, value as typeof ACTIVATIONS[number]); },
+                    });
+                    else Entropy.UI.Widget.label(win, { text: `${property}: ${value}` });
+                }
+            }
+        });
+    }
+    Entropy.UI.Widget.label(win, { text: validation.errors.length ? "Graph invalid" : "Graph valid" });
+    Entropy.UI.Widget.label(win, { text: validation.errors.length
+        ? `Graph errors (${validation.errors.length}): ${validation.errors.slice(0, 3).join("; ")}`
+        : `Valid tensor shapes across ${architecture.nodes.length} nodes and ${architecture.links.length} links.` });
+    if (architectureIoError) Entropy.UI.Widget.label(win, { text: `Graph file: ${architectureIoError}` });
+    const visualNodes = architecture.nodes.map(n => ({
+        id: n.id,
+        name: `${n.kind} ${Object.entries(validation.shapes).filter(([k]) => k.startsWith(`${n.id}.`)).map(([k, s]) => `${k.split(".")[1]} [${s.join(",")}]`).join(" ")}`,
+        nodeType: n.kind,
+        position: n.position,
+        inputs: NODE_DEFINITIONS[n.kind].inputs.map(id => ({ id, name: id, pinType: "tensor" })),
+        outputs: NODE_DEFINITIONS[n.kind].outputs.map(id => ({ id, name: id, pinType: "tensor" })),
+        properties: n.config,
+    }));
+    Entropy.UI.Widget.snarl(win, {
+        id: "ml_architecture_graph",
+        graph: { nodes: visualNodes, connections: architecture.links.map(l => ({ fromNode: l.from, fromPin: l.output, toNode: l.to, toPin: l.input })) },
+        onNodeSelected: (id) => { selectedArchitectureNode = id; },
+        onConnect: ([from, output, to, input]) => {
+            architecture.links = architecture.links.filter(l => !(l.to === to && l.input === input));
+            architecture.links.push({ from, output, to, input });
+        },
+        onDisconnect: ([from, output, to, input]) => {
+            architecture.links = architecture.links.filter(l => !(l.from === from && l.output === output && l.to === to && l.input === input));
+        },
+        onNodeMoved: (id, position) => {
+            const n = architecture.nodes.find(n => n.id === id);
+            if (n) n.position = position;
+        },
+    });
+}
+
+function defaultArchitectureConfig(kind: NodeKind): Record<string, number | string> {
+    switch (kind) {
+        case "SequenceInput": return { steps: 16, features: 24 };
+        case "TokenInput": return { steps: 32 };
+        case "ImageInput": return { channels: 3, height: 64, width: 64 };
+        case "LSTM": return { hidden: 256 };
+        case "Dropout": return { probability: 0.2 };
+        case "Dense": return { units: 64, activation: "relu" };
+        case "Embedding": return { width: 256, vocabSize: 8192 };
+        case "CausalAttention": case "SpatialSelfAttention2d": case "CrossAttention2d": return { heads: 4 };
+        case "SparseMoE": return { experts: 4, topK: 1, hidden: 1024 };
+        case "TimeEmbedding": return { width: 128 };
+        case "TextEncoder": return { width: 128, layers: 4, heads: 4, vocabSize: 8192 };
+        case "Conv2d": case "ResBlock2d": return { channels: 64 };
+        default: return {};
+    }
 }
 
 addon.onInit(async () => {

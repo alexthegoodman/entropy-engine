@@ -5272,8 +5272,9 @@ pub fn op_ml_graph_train(
     #[string] dataset: String,
     epochs: u32,
     lr: f64,
+    seed: u32,
 ) -> Result<(), deno_error::JsErrorBox> {
-    let trainer = crate::ml_graph::MlTrainer::start(&graph_json, &dataset, epochs as usize, lr)
+    let trainer = crate::ml_graph::MlTrainer::start_seeded(&graph_json, &dataset, epochs as usize, lr, seed as u64)
         .map_err(deno_error::JsErrorBox::generic)?;
     let mut ctx = state.borrow_mut::<AddonContext>();
     ctx.ml_trainers.insert(id, trainer);

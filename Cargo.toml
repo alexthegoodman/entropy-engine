@@ -47,6 +47,10 @@ name = "sheet_live"
 harness = false
 
 [[test]]
+name = "ml_graph_live"
+harness = false
+
+[[test]]
 name = "tab_bar_bdd"
 harness = false
 

@@ -26,7 +26,7 @@ fn graph_json(hidden: &[usize], out_units: usize) -> String {
 fn run(name: &str, dataset: &str, hidden: &[usize], epochs: usize, lr: f64) {
     println!("=== {name} ({dataset}, hidden={hidden:?}, epochs={epochs}, lr={lr}) ===");
     let graph = graph_json(hidden, 2);
-    let mut trainer = MlTrainer::start(&graph, dataset, epochs, lr).expect("graph should be valid");
+    let mut trainer = MlTrainer::start_seeded(&graph, dataset, epochs, lr, 42).expect("graph should be valid");
 
     let mut last_printed_epoch = 0;
     loop {
@@ -55,11 +55,11 @@ fn main() {
     run("Two Moons", "two_moons", &[16, 16], 200, 0.02);
 
     println!("=== Validation errors surface synchronously (no thread spun up) ===");
-    match MlTrainer::start(&graph_json(&[8], 3), "xor", 10, 0.05) {
+    match MlTrainer::start_seeded(&graph_json(&[8], 3), "xor", 10, 0.05, 42) {
         Ok(_) => println!("  UNEXPECTED: mismatched output size was accepted"),
         Err(e) => println!("  OK: {e}"),
     }
-    match MlTrainer::start("{\"nodes\":[],\"links\":[]}", "xor", 10, 0.05) {
+    match MlTrainer::start_seeded("{\"nodes\":[],\"links\":[]}", "xor", 10, 0.05, 42) {
         Ok(_) => println!("  UNEXPECTED: empty graph was accepted"),
         Err(e) => println!("  OK: {e}"),
     }

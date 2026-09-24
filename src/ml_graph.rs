@@ -1,5 +1,5 @@
 //! Compiles a JSON node-graph description (see `ml_graph_demo_addon.ts`) into a real Burn MLP
-//! and trains it on a tiny synthetic dataset (XOR / two moons), on a background thread.
+//! and trains it on a tiny synthetic dataset (XOR / AND / two moons), on a background thread.
 //!
 //! The interesting part: Burn models are ordinarily static Rust structs (`BrainModel` in
 //! `crate::yumon::system` is a fixed LSTM->Dense->heads shape known at compile time). A visual
@@ -27,6 +27,7 @@ use burn::{
     tensor::{backend::AutodiffBackend, Int, Tensor, TensorData},
 };
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
@@ -94,6 +95,7 @@ impl Activation {
 }
 
 /// A validated, ordered layer chain - the thing that's actually buildable into a model.
+#[derive(Debug)]
 pub struct ModelSpec {
     pub input_size: usize,
     /// (in_dim, out_dim, activation) per Dense node, in graph order.
@@ -105,6 +107,20 @@ pub struct ModelSpec {
 /// and that constraint is what keeps this a same-session scope instead of a general dataflow
 /// compiler (see the post's decision log).
 pub fn parse_graph(spec: &GraphSpec) -> Result<ModelSpec, String> {
+    if spec.nodes.len() > 128 {
+        return Err("graph has more than 128 nodes".to_string());
+    }
+    let mut by_id = HashMap::new();
+    for node in &spec.nodes {
+        if node.id().is_empty() || by_id.insert(node.id(), node).is_some() {
+            return Err(format!("duplicate or empty node id '{}'", node.id()));
+        }
+        match node {
+            GraphNodeSpec::Input { size, .. } if *size == 0 => return Err("Input size must be positive".to_string()),
+            GraphNodeSpec::Dense { units, .. } if *units == 0 => return Err(format!("Dense node '{}' must have positive units", node.id())),
+            _ => {}
+        }
+    }
     let inputs: Vec<&GraphNodeSpec> = spec.nodes.iter().filter(|n| matches!(n, GraphNodeSpec::Input { .. })).collect();
     if inputs.len() != 1 {
         return Err(format!("graph must have exactly one Input node, found {}", inputs.len()));
@@ -119,21 +135,33 @@ pub fn parse_graph(spec: &GraphSpec) -> Result<ModelSpec, String> {
         _ => unreachable!(),
     };
 
+    let mut outgoing = HashMap::new();
+    let mut incoming = HashSet::new();
+    for link in &spec.links {
+        if !by_id.contains_key(link.from.as_str()) || !by_id.contains_key(link.to.as_str()) {
+            return Err(format!("link '{}' -> '{}' references an unknown node", link.from, link.to));
+        }
+        if outgoing.insert(link.from.as_str(), link.to.as_str()).is_some() {
+            return Err(format!("node '{}' has more than one outgoing link; branching is not supported by the MLP trainer", link.from));
+        }
+        if !incoming.insert(link.to.as_str()) {
+            return Err(format!("node '{}' has more than one incoming link", link.to));
+        }
+    }
+
     let mut layer_dims = Vec::new();
     let mut current_id = input_id;
     let mut current_size = input_size;
+    let mut visited = HashSet::new();
 
     loop {
-        let link = spec
-            .links
-            .iter()
-            .find(|l| l.from == current_id)
+        if !visited.insert(current_id.clone()) {
+            return Err(format!("cycle reaches node '{current_id}'"));
+        }
+        let next_id = outgoing
+            .get(current_id.as_str())
             .ok_or_else(|| format!("node '{current_id}' has no outgoing link to continue the chain"))?;
-        let next = spec
-            .nodes
-            .iter()
-            .find(|n| n.id() == link.to)
-            .ok_or_else(|| format!("link points at unknown node '{}'", link.to))?;
+        let next = by_id[next_id];
 
         match next {
             GraphNodeSpec::Dense { id, units, activation } => {
@@ -142,13 +170,22 @@ pub fn parse_graph(spec: &GraphSpec) -> Result<ModelSpec, String> {
                 current_size = *units;
                 current_id = id.clone();
             }
-            GraphNodeSpec::Loss { .. } => break,
+            GraphNodeSpec::Loss { id } => {
+                visited.insert(id.clone());
+                break;
+            }
             GraphNodeSpec::Input { .. } => return Err("a link points back into the Input node".to_string()),
         }
     }
 
     if layer_dims.is_empty() {
         return Err("graph needs at least one Dense node between Input and Loss".to_string());
+    }
+    if visited.len() != spec.nodes.len() {
+        return Err("every node must be connected to the Input -> Loss chain".to_string());
+    }
+    if spec.links.len() != spec.nodes.len() - 1 {
+        return Err("graph must contain only the Input -> Loss chain".to_string());
     }
 
     Ok(ModelSpec { input_size, layer_dims })
@@ -187,6 +224,7 @@ pub fn build_model<B: Backend>(spec: &ModelSpec, device: &B::Device) -> DynamicM
 #[derive(Debug, Clone, Copy)]
 pub enum Dataset {
     Xor,
+    And,
     TwoMoons,
 }
 
@@ -194,8 +232,9 @@ impl Dataset {
     pub fn parse(s: &str) -> Result<Self, String> {
         match s {
             "xor" => Ok(Dataset::Xor),
+            "and" => Ok(Dataset::And),
             "two_moons" => Ok(Dataset::TwoMoons),
-            other => Err(format!("unknown dataset '{other}' (expected xor/two_moons)")),
+            other => Err(format!("unknown dataset '{other}' (expected xor/and/two_moons)")),
         }
     }
 
@@ -208,16 +247,21 @@ impl Dataset {
     }
 
     /// Returns (flattened row-major inputs, class labels).
-    fn generate(&self) -> (Vec<f32>, Vec<i32>) {
+    fn generate(&self, seed: u64) -> (Vec<f32>, Vec<i32>) {
         match self {
             Dataset::Xor => {
                 let xs: [[f32; 2]; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
                 let ys: [i32; 4] = [0, 1, 1, 0];
                 (xs.iter().flatten().copied().collect(), ys.to_vec())
             }
+            Dataset::And => {
+                let xs: [[f32; 2]; 4] = [[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]];
+                let ys: [i32; 4] = [0, 0, 0, 1];
+                (xs.iter().flatten().copied().collect(), ys.to_vec())
+            }
             Dataset::TwoMoons => {
-                use rand::Rng;
-                let mut rng = rand::thread_rng();
+                use rand::{Rng, SeedableRng};
+                let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
                 let n_per_class = 100;
                 let mut flat = Vec::with_capacity(n_per_class * 2 * 2);
                 let mut ys = Vec::with_capacity(n_per_class * 2);
@@ -267,6 +311,17 @@ impl MlTrainer {
     /// caller immediately, not after a thread has already spun up), then trains on its own
     /// thread.
     pub fn start(graph_json: &str, dataset: &str, epochs: usize, lr: f64) -> Result<Self, String> {
+        Self::start_seeded(graph_json, dataset, epochs, lr, 42)
+    }
+
+    /// Same trainer with an explicit seed for model initialization and generated data.
+    pub fn start_seeded(graph_json: &str, dataset: &str, epochs: usize, lr: f64, seed: u64) -> Result<Self, String> {
+        if epochs == 0 || epochs > 100_000 {
+            return Err("epochs must be between 1 and 100000".to_string());
+        }
+        if !lr.is_finite() || lr <= 0.0 {
+            return Err("learning rate must be finite and positive".to_string());
+        }
         let spec: GraphSpec = serde_json::from_str(graph_json).map_err(|e| format!("invalid graph JSON: {e}"))?;
         let model_spec = parse_graph(&spec)?;
         let dataset_name = dataset.to_string();
@@ -294,11 +349,12 @@ impl MlTrainer {
 
         thread::spawn(move || {
             let device = <MlBackend as Backend>::Device::default();
+            MlBackend::seed(&device, seed);
             let mut model = build_model::<MlBackend>(&model_spec, &device);
             let mut optimizer: OptimizerAdaptor<Adam, DynamicMlp<MlBackend>, MlBackend> = AdamConfig::new().init();
             let loss_fn = CrossEntropyLossConfig::new().init::<MlBackend>(&device);
 
-            let (flat_x, ys) = dataset.generate();
+            let (flat_x, ys) = dataset.generate(seed);
             let batch = ys.len();
             let x_t = Tensor::<MlBackend, 2>::from_floats(TensorData::new(flat_x, [batch, model_spec.input_size]), &device);
             let y_t = Tensor::<MlBackend, 1, Int>::from_data(TensorData::new(ys.clone(), [batch]), &device);
@@ -364,4 +420,91 @@ fn accuracy_of(model: &DynamicMlp<MlBackend>, x_t: &Tensor<MlBackend, 2>, ys: &[
         }
     }
     correct as f32 / batch as f32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain() -> GraphSpec {
+        GraphSpec {
+            nodes: vec![
+                GraphNodeSpec::Input { id: "in".into(), size: 2 },
+                GraphNodeSpec::Dense { id: "hidden".into(), units: 8, activation: "relu".into() },
+                GraphNodeSpec::Dense { id: "out".into(), units: 2, activation: "linear".into() },
+                GraphNodeSpec::Loss { id: "loss".into() },
+            ],
+            links: vec![
+                GraphLinkSpec { from: "in".into(), to: "hidden".into() },
+                GraphLinkSpec { from: "hidden".into(), to: "out".into() },
+                GraphLinkSpec { from: "out".into(), to: "loss".into() },
+            ],
+        }
+    }
+
+    #[test]
+    fn valid_chain_keeps_layer_order() {
+        let parsed = parse_graph(&chain()).unwrap();
+        assert_eq!(parsed.layer_dims, vec![(2, 8, Activation::Relu), (8, 2, Activation::Linear)]);
+    }
+
+    #[test]
+    fn cyclic_chain_returns_an_error_instead_of_hanging() {
+        let mut graph = chain();
+        graph.links[2].to = "hidden".into();
+        assert!(parse_graph(&graph).unwrap_err().contains("incoming"));
+    }
+
+    #[test]
+    fn disconnected_layer_is_rejected() {
+        let mut graph = chain();
+        graph.nodes.push(GraphNodeSpec::Dense { id: "orphan".into(), units: 4, activation: "relu".into() });
+        assert!(parse_graph(&graph).unwrap_err().contains("every node"));
+    }
+
+    #[test]
+    fn branching_is_rejected() {
+        let mut graph = chain();
+        graph.links.push(GraphLinkSpec { from: "hidden".into(), to: "loss".into() });
+        assert!(parse_graph(&graph).unwrap_err().contains("branching"));
+    }
+
+    #[test]
+    fn zero_width_is_rejected() {
+        let mut graph = chain();
+        graph.nodes[1] = GraphNodeSpec::Dense { id: "hidden".into(), units: 0, activation: "relu".into() };
+        assert!(parse_graph(&graph).unwrap_err().contains("positive units"));
+    }
+
+    #[test]
+    fn built_in_datasets_are_small_and_seeded() {
+        let (xor_x, xor_y) = Dataset::Xor.generate(42);
+        let (and_x, and_y) = Dataset::And.generate(42);
+        assert_eq!(xor_x, and_x);
+        assert_eq!(xor_y, [0, 1, 1, 0]);
+        assert_eq!(and_y, [0, 0, 0, 1]);
+        assert_eq!(Dataset::TwoMoons.generate(42), Dataset::TwoMoons.generate(42));
+        assert_ne!(Dataset::TwoMoons.generate(42), Dataset::TwoMoons.generate(43));
+    }
+
+    #[test]
+    fn seeded_training_replays_the_same_loss_curve() {
+        const GRAPH: &str = r#"{"nodes":[{"kind":"Input","id":"in","size":2},{"kind":"Dense","id":"hidden","units":8,"activation":"relu"},{"kind":"Dense","id":"out","units":2,"activation":"linear"},{"kind":"Loss","id":"loss"}],"links":[{"from":"in","to":"hidden"},{"from":"hidden","to":"out"},{"from":"out","to":"loss"}]}"#;
+        let run = || {
+            let mut trainer = MlTrainer::start_seeded(GRAPH, "xor", 30, 0.05, 123).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+            let mut losses = Vec::new();
+            loop {
+                for update in trainer.poll() {
+                    losses.push(update.loss);
+                    if update.done { return losses; }
+                }
+                assert!(std::time::Instant::now() < deadline, "seeded trainer stalled");
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        };
+        let first = run();
+        assert_eq!(first.len(), 30);
+        assert_eq!(first, run());
+    }
 }
