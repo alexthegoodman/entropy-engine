@@ -21,7 +21,7 @@ async fn main() {
     let result: serde_json::Value = serde_json::from_slice(&std::fs::read(&result_path).expect("live BDD result")).expect("valid result JSON");
     assert_eq!(result["status"], "passed", "{result:#}");
     let artifacts = result["artifacts"].as_array().expect("artifact array");
-    assert_eq!(artifacts.len(), 8, "{result:#}");
+    assert_eq!(artifacts.len(), 11, "{result:#}");
     for artifact in artifacts {
         assert!(std::path::Path::new(artifact.as_str().unwrap()).is_file(), "missing screenshot {artifact}");
     }
@@ -45,10 +45,18 @@ async fn main() {
         println!("{dataset}: loss {first:.4} -> {final_loss:.4}, accuracy {:.1}%", accuracy * 100.0);
     }
 
-    assert_eq!(saved["architectureKind"], "mini_pic", "{saved:#}");
+    let architecture_runs = saved["architectureTrainingRuns"].as_array().expect("architecture training runs");
+    assert_eq!(architecture_runs.len(), 3, "{saved:#}");
+    for (run, task) in architecture_runs.iter().zip(["mini_pic", "npc", "pet"]) {
+        assert_eq!(run["task"], task, "{run:#}");
+        assert_eq!(run["seed"], 42, "{run:#}");
+        let first=run["firstLoss"].as_f64().expect("first architecture loss");
+        let last=run["finalLoss"].as_f64().expect("last architecture loss");
+        assert!(first.is_finite() && last.is_finite() && last < first, "{task} loss did not decline: {first} -> {last}");
+        println!("{task} architecture: loss {first:.4} -> {last:.4}");
+    }
+    assert_eq!(saved["architectureKind"], "pet", "{saved:#}");
     let graph = &saved["architecture"];
-    assert!(graph["nodes"].as_array().unwrap().iter().any(|n| n["kind"] == "Concat2d"), "U-Net skip node was not saved");
-    assert!(graph["links"].as_array().unwrap().iter().any(|l| l["from"] == "mid_attn" && l["to"] == "merge3" && l["input"] == "a"),
-        "saved U-Net must retain the skip-merge input");
+    assert!(graph["nodes"].as_array().unwrap().iter().any(|n| n["kind"] == "SparseMoE"), "Pet expert node was not saved");
     println!("ML graph live BDD passed with {} screenshots in {}", artifacts.len(), root.display());
 }

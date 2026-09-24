@@ -1,8 +1,7 @@
-Feature: The real ML Graph addon trains a deterministic MLP and validates model architectures
+Feature: The real ML Graph addon trains dense, recurrent, routed, and image graphs
 
-  The model architecture presets are shape-checked designs. Only the MLP trainer executes
-  today, so the training assertions below concern real Burn models on fixed XOR and seeded
-  two-moons data. This file is consumed directly by BrowserBddDriver.
+  This file is consumed directly by BrowserBddDriver. Tiny architecture configs keep
+  every operator and link while allowing deterministic CPU training during the test.
 
   Scenario: Train the default dense graph on XOR
     Given the real ML graph addon is running in test mode
@@ -58,3 +57,32 @@ Feature: The real ML Graph addon trains a deterministic MLP and validates model 
     And I advance 3 frames
     Then I see the label "Graph valid"
     And I capture "ml-mini-pic-reloaded"
+
+  Scenario: Train the complete tiny U-Net graph
+    When I click "ml_arch_tiny"
+    And I advance 3 frames
+    And I click "ml_arch_train"
+    And I wait 8000 milliseconds
+    And I advance 5 frames
+    Then I see the label "Architecture training completed"
+    And I capture "ml-mini-pic-trained"
+
+  Scenario: Train the tiny LSTM with both output heads
+    When I click "ml_preset"
+    And I click "ml_arch_tiny"
+    And I advance 3 frames
+    And I click "ml_arch_train"
+    And I wait 8000 milliseconds
+    And I advance 5 frames
+    Then I see the label "Architecture training completed"
+    And I capture "ml-npc-trained"
+
+  Scenario: Train the tiny causal decoder and MoE graph
+    When I click "ml_preset"
+    And I click "ml_arch_tiny"
+    And I advance 3 frames
+    And I click "ml_arch_train"
+    And I wait 8000 milliseconds
+    And I advance 5 frames
+    Then I see the label "Architecture training completed"
+    And I capture "ml-pet-trained"

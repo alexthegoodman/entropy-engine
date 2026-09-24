@@ -1,0 +1,152 @@
+{
+  "name": "Yumon NPC - LSTM with action and rotation heads (tiny training)",
+  "nodes": [
+    {
+      "id": "moments",
+      "kind": "SequenceInput",
+      "position": [
+        30,
+        250
+      ],
+      "config": {
+        "steps": 4,
+        "features": 4
+      }
+    },
+    {
+      "id": "memory",
+      "kind": "LSTM",
+      "position": [
+        250,
+        250
+      ],
+      "config": {
+        "hidden": 8
+      }
+    },
+    {
+      "id": "last",
+      "kind": "LastStep",
+      "position": [
+        470,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "dropout",
+      "kind": "Dropout",
+      "position": [
+        680,
+        250
+      ],
+      "config": {
+        "probability": 0.2
+      }
+    },
+    {
+      "id": "shared",
+      "kind": "Dense",
+      "position": [
+        890,
+        250
+      ],
+      "config": {
+        "units": 8,
+        "activation": "relu"
+      }
+    },
+    {
+      "id": "actions",
+      "kind": "Dense",
+      "position": [
+        1100,
+        120
+      ],
+      "config": {
+        "units": 2,
+        "activation": "linear"
+      }
+    },
+    {
+      "id": "rotation",
+      "kind": "Dense",
+      "position": [
+        1100,
+        370
+      ],
+      "config": {
+        "units": 1,
+        "activation": "tanh"
+      }
+    },
+    {
+      "id": "action_output",
+      "kind": "Output",
+      "position": [
+        1320,
+        120
+      ],
+      "config": {}
+    },
+    {
+      "id": "rotation_output",
+      "kind": "Output",
+      "position": [
+        1320,
+        370
+      ],
+      "config": {}
+    }
+  ],
+  "links": [
+    {
+      "from": "moments",
+      "output": "out",
+      "to": "memory",
+      "input": "in"
+    },
+    {
+      "from": "memory",
+      "output": "sequence",
+      "to": "last",
+      "input": "in"
+    },
+    {
+      "from": "last",
+      "output": "out",
+      "to": "dropout",
+      "input": "in"
+    },
+    {
+      "from": "dropout",
+      "output": "out",
+      "to": "shared",
+      "input": "in"
+    },
+    {
+      "from": "shared",
+      "output": "out",
+      "to": "actions",
+      "input": "in"
+    },
+    {
+      "from": "shared",
+      "output": "out",
+      "to": "rotation",
+      "input": "in"
+    },
+    {
+      "from": "actions",
+      "output": "out",
+      "to": "action_output",
+      "input": "in"
+    },
+    {
+      "from": "rotation",
+      "output": "out",
+      "to": "rotation_output",
+      "input": "in"
+    }
+  ]
+}

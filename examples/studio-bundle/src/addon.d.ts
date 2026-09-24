@@ -585,6 +585,11 @@ export interface ScopedAPI {
       seed?: number;
     }) => void;
     poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
+    trainArchitecture: (id: string, config: {
+      graph: { name: string; nodes: Array<{ id: string; kind: string; position: [number, number]; config: Record<string, number | string> }>; links: Array<{ from: string; output: string; to: string; input: string }> };
+      task: "npc" | "pet" | "mini_pic"; epochs?: number; lr?: number; seed?: number;
+    }) => void;
+    pollArchitecture: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number; error?: string }>;
   };
   IO: {
     /** Persists this addon's JSON state. Pass `{ pretty: true }` for a human-maintained file. */
@@ -2249,6 +2254,11 @@ export interface EntropyAPI {
       seed?: number;
     }) => void;
     poll: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number }>;
+    trainArchitecture: (id: string, config: {
+      graph: { name: string; nodes: Array<{ id: string; kind: string; position: [number, number]; config: Record<string, number | string> }>; links: Array<{ from: string; output: string; to: string; input: string }> };
+      task: "npc" | "pet" | "mini_pic"; epochs?: number; lr?: number; seed?: number;
+    }) => void;
+    pollArchitecture: (id: string) => Array<{ epoch: number; totalEpochs: number; loss: number; done: boolean; accuracy?: number; error?: string }>;
   };
   Composite: {
     register: (nameId: string, outputTexId: string, compositePipelineId: string, bindings?: BindingConfig[]) => void;

@@ -11,7 +11,7 @@
 // per-epoch loss back through `Entropy.ML.poll`; nothing here blocks the UI thread.
 //
 import {
-    NODE_DEFINITIONS, miniPicGraph, npcGraph, petGraph, validateArchitecture,
+    NODE_DEFINITIONS, miniPicGraph, npcGraph, petGraph, tinyArchitecture, validateArchitecture,
     type ArchitectureGraph, type ArchitectureKind, type NodeKind,
 } from "./ml_architecture_graph";
 
@@ -30,7 +30,7 @@ interface MlConn { fromNode: string; fromPin: string; toNode: string; toPin: str
 const addonInfo = {
     name: "ML Graph Trainer",
     version: "1.0.0",
-    description: "Train a small Burn MLP or design shape-checked LSTM, MoE, and U-Net graphs",
+    description: "Train Burn MLP, LSTM, MoE, and U-Net node graphs",
     author: ["Entropy Team", "Claude"],
     capabilities: { ui: true }
 };
@@ -52,6 +52,14 @@ let selectedArchitectureNode = "moments";
 let newNodeKind: NodeKind = "Dense";
 let architectureNodeCount = 0;
 let architectureIoError: string | null = null;
+let architectureTrainError: string | null = null;
+let architectureTraining = false;
+let architectureEpoch = 0;
+let architectureLoss: number | null = null;
+let architectureFirstLoss: number | null = null;
+let architectureActiveKind: ArchitectureKind = "npc";
+let architectureTrainingRuns: Array<{ task: ArchitectureKind; seed: number; epochs: number; firstLoss: number; finalLoss: number; nodes: number }> = [];
+const ARCHITECTURE_TRAINING_ID = "ml_architecture_demo";
 
 let nextId = 0;
 function freshId(prefix: string): string {
@@ -112,7 +120,41 @@ interface TrainingRun {
 let trainingRuns: TrainingRun[] = [];
 
 function saveState() {
-    addon.IO.save({ architectureKind, architecture, trainingRuns }, { pretty: true });
+    addon.IO.save({ architectureKind, architecture, trainingRuns, architectureTrainingRuns }, { pretty: true });
+}
+
+function startArchitectureTraining() {
+    architectureTrainError = null;
+    architectureLoss = null;
+    architectureFirstLoss = null;
+    architectureEpoch = 0;
+    const validation = validateArchitecture(architecture);
+    if (validation.errors.length) { architectureTrainError = validation.errors[0]; return; }
+    try {
+        Entropy.ML.trainArchitecture(ARCHITECTURE_TRAINING_ID, {
+            graph: architecture, task: architectureKind,
+            epochs: architectureKind === "mini_pic" ? 3 : architectureKind === "pet" ? 12 : 24,
+            lr: architectureKind === "mini_pic" ? 0.005 : 0.02, seed: 42,
+        });
+        architectureActiveKind = architectureKind;
+        architectureTraining = true;
+    } catch (error) { architectureTrainError = String(error); }
+}
+
+function pollArchitectureTraining() {
+    if (!architectureTraining) return;
+    for (const update of Entropy.ML.pollArchitecture(ARCHITECTURE_TRAINING_ID)) {
+        if (update.error) { architectureTraining = false; architectureTrainError = update.error; break; }
+        if (architectureFirstLoss === null) architectureFirstLoss = update.loss;
+        architectureEpoch = update.epoch;
+        architectureLoss = update.loss;
+        if (update.done) {
+            architectureTraining = false;
+            architectureTrainingRuns.push({ task: architectureActiveKind, seed: 42, epochs: update.epoch,
+                firstLoss: architectureFirstLoss!, finalLoss: update.loss, nodes: architecture.nodes.length });
+            try { saveState(); } catch (error) { architectureTrainError = `Could not save training result: ${error}`; }
+        }
+    }
 }
 
 function cycle<T>(options: readonly T[], current: T): T {
@@ -184,6 +226,7 @@ function setupUI() {
 
 function renderUI(win: string) {
     pollTraining();
+    pollArchitectureTraining();
 
     Entropy.UI.Widget.horizontal(win, () => {
         Entropy.UI.Widget.button(win, { id: "ml_view_trainer", text: "MLP Trainer", onClick: () => { view = "trainer"; } });
@@ -279,7 +322,7 @@ function renderUI(win: string) {
 function renderArchitectureUI(win: string) {
     const validation = validateArchitecture(architecture);
     Entropy.UI.Widget.label(win, { text: architecture.name, bold: true });
-    Entropy.UI.Widget.label(win, { text: "Select nodes to edit; drag wires to rewire. These architectures are shape-checked but cannot train yet." });
+    Entropy.UI.Widget.label(win, { text: "Select nodes to edit; drag wires to rewire. Use Tiny Config for fast CPU training." });
     Entropy.UI.Widget.horizontal(win, () => {
         Entropy.UI.Widget.button(win, { id: "ml_preset", text: `Preset: ${architectureKind}`, onClick: () => {
             architectureKind = cycle(ARCHITECTURES, architectureKind);
@@ -303,11 +346,24 @@ function renderArchitectureUI(win: string) {
                 architecture = saved.architecture as ArchitectureGraph;
                 architectureKind = ARCHITECTURES.includes(saved.architectureKind) ? saved.architectureKind : "npc";
                 trainingRuns = Array.isArray(saved.trainingRuns) ? saved.trainingRuns : [];
+                architectureTrainingRuns = Array.isArray(saved.architectureTrainingRuns) ? saved.architectureTrainingRuns : [];
                 selectedArchitectureNode = architecture.nodes[0]?.id ?? "";
                 architectureIoError = null;
             } catch (error) { architectureIoError = String(error); }
         } });
     });
+    Entropy.UI.Widget.horizontal(win, () => {
+        Entropy.UI.Widget.button(win, { id: "ml_arch_tiny", text: "Tiny Config", onClick: () => {
+            architecture = tinyArchitecture(architecture, architectureKind);
+        } });
+        Entropy.UI.Widget.button(win, { id: "ml_arch_train", text: architectureTraining ? "Training..." : "Train Architecture", onClick: () => {
+            if (!architectureTraining) startArchitectureTraining();
+        } });
+    });
+    Entropy.UI.Widget.label(win, { text: architectureTraining ? "Architecture training in progress"
+        : architectureLoss === null ? "Architecture ready to train" : "Architecture training completed" });
+    if (architectureLoss !== null) Entropy.UI.Widget.label(win, { text: `${architectureEpoch} epochs, loss ${architectureLoss.toFixed(4)}` });
+    if (architectureTrainError) Entropy.UI.Widget.label(win, { text: `Architecture training error: ${architectureTrainError}` });
     Entropy.UI.Widget.horizontal(win, () => {
         Entropy.UI.Widget.button(win, { text: `New kind: ${newNodeKind}`, onClick: () => { newNodeKind = cycle(NODE_KINDS, newNodeKind); } });
         Entropy.UI.Widget.button(win, { text: "+ Node", onClick: () => {

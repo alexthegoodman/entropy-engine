@@ -53,6 +53,8 @@ No project picker, no forced data model. Your addons persist their own data unde
 
 Currently, Entropy has only been tested on Windows machines. Mac and Linux support coming soon.
 
+The [ML Graph demo](docs/ML_GRAPH_ARCHITECTURES.md) edits and trains Burn models through a node graph. Its architecture view includes executable LSTM, sparse MoE, and conditioned U-Net nodes, with small deterministic CPU training tasks for the Yumon NPC, Yumon Pet, and Mini-Pic presets. Run it with `cargo run --bin example -- ml-graph-demo`; use **Tiny Config** before training a reference preset.
+
 Build sessions on this engine - what actually worked, what fought back, real numbers from real runs - get written up on [Indie Machine](https://indie-machine.com), a Rust-centric build log. Recent entries: [FFT ocean water via wgpu compute](https://indie-machine.com/posts/fft-ocean-water), [replacing egui with an in-house immediate-mode GUI kit](https://indie-machine.com/posts/replacing-egui-with-entropy-gui), and [building a Media Foundation-backed media player addon](https://indie-machine.com/posts/entropy-media-player).
 
 ---

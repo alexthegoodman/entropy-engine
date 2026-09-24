@@ -54,6 +54,7 @@ pub mod guitar_live;
 pub mod alpha;
 pub mod yumon;
 pub mod ml_graph;
+pub mod ml_architecture;
 
 /// Every example `src/bin/example.rs` can dispatch, in the order its usage message lists them.
 /// This lives in the library rather than in that binary because `op_launch_example` validates

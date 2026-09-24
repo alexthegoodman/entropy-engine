@@ -103,7 +103,7 @@ use crate::deno::addon_ops::{
     op_doc_editor_load_sample, op_doc_editor_font_names, op_ui_render_html, op_http_get_text, op_http_fetch_text, op_http_poll_text, op_http_cancel_text,
     op_ui_set_theme, op_visual_load, op_window_get_size, op_window_set_fullscreen, op_yumon_brain_augment, op_yumon_brain_create, op_yumon_brain_get_state,
     op_yumon_brain_infer, op_yumon_brain_load, op_yumon_brain_observe, op_yumon_brain_save, op_yumon_brain_sleep, op_yumon_create, op_yumon_sleep, op_yumon_tick,
-    op_ml_graph_train, op_ml_graph_poll
+    op_ml_graph_train, op_ml_graph_poll, op_ml_architecture_train, op_ml_architecture_poll
 };
 use crate::game_behaviors::stateful::BehaviorConfig;
 use crate::heightfield_landscapes::Landscape::Landscape;
@@ -397,7 +397,9 @@ extension!(
         op_yumon_brain_augment,
         op_yumon_brain_test_infer,
         op_ml_graph_train,
-        op_ml_graph_poll
+        op_ml_graph_poll,
+        op_ml_architecture_train,
+        op_ml_architecture_poll
     ],
     esm_entry_point = "ext:entropy_addons/addon_setup.js",
     esm = [ dir "src/deno", "addon_setup.js" ],
@@ -707,6 +709,7 @@ impl AddonEngine {
             yumon_runtime_actions: HashMap::new(),
             yumon_trainers: HashMap::new(),
             ml_trainers: HashMap::new(),
+            ml_architecture_trainers: HashMap::new(),
             yumon_instances: HashMap::new(),
             npc_motion_states: HashMap::new(),
             on_action_callbacks: Vec::new(),

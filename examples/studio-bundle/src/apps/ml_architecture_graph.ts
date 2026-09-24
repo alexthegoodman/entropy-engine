@@ -295,3 +295,33 @@ export function miniPicGraph(): ArchitectureGraph {
     b.add("output", "Output", 3970, 300); b.wire("noise", "output");
     return b.graph;
 }
+
+/** Keeps every operator and link while sizing a preset for interactive CPU training. */
+export function tinyArchitecture(graph: ArchitectureGraph, kind: ArchitectureKind): ArchitectureGraph {
+    const copy: ArchitectureGraph = JSON.parse(JSON.stringify(graph));
+    copy.name += " (tiny training)";
+    for (const node of copy.nodes) {
+        const c = node.config;
+        if (kind === "npc") {
+            if (node.kind === "SequenceInput") { c.steps = 4; c.features = 4; }
+            if (node.kind === "LSTM") c.hidden = 8;
+            if (node.id === "shared") c.units = 8;
+            if (node.id === "actions") c.units = 2;
+        } else if (kind === "pet") {
+            if (node.kind === "TokenInput") c.steps = 4;
+            if (node.kind === "Embedding") { c.width = 8; c.vocabSize = 16; }
+            if (node.kind === "CausalAttention") c.heads = 2;
+            if (node.kind === "SparseMoE") { c.experts = 2; c.topK = 1; c.hidden = 16; }
+            if (node.id === "token_logits") c.units = 16;
+        } else {
+            if (node.kind === "ImageInput") { c.height = 8; c.width = 8; }
+            if (node.kind === "TokenInput") c.steps = 4;
+            if (node.kind === "TimeEmbedding") c.width = 8;
+            if (node.kind === "TextEncoder") { c.width = 8; c.layers = 1; c.heads = 2; c.vocabSize = 16; }
+            if (node.kind === "Conv2d" && node.id === "stem") c.channels = 8;
+            if (node.kind === "ResBlock2d") c.channels = ["enc2", "dec3"].includes(node.id) ? 16 : node.id === "enc3" ? 32 : 8;
+            if (node.kind === "SpatialSelfAttention2d" || node.kind === "CrossAttention2d") c.heads = 2;
+        }
+    }
+    return copy;
+}

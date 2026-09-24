@@ -1206,6 +1206,7 @@ pub struct AddonContext {
     /// same id the addon passes to `trainGraph`/`poll`; a fresh `trainGraph` call for an id
     /// already present just replaces the old entry, dropping (and thus stopping) its thread.
     pub ml_trainers: HashMap<String, crate::ml_graph::MlTrainer>,
+    pub ml_architecture_trainers: HashMap<String, crate::ml_architecture::ArchitectureTrainer>,
     #[cfg(target_os = "windows")]
     pub video_players: HashMap<String, VideoPlayerEntry>,
     #[cfg(target_os = "windows")]
@@ -5289,6 +5290,28 @@ pub fn op_ml_graph_poll(state: &mut OpState, #[string] id: String) -> Vec<crate:
         Some(trainer) => trainer.poll(),
         None => Vec::new(),
     }
+}
+
+#[op2(fast)]
+pub fn op_ml_architecture_train(
+    state: &mut OpState,
+    #[string] id: String,
+    #[string] graph_json: String,
+    #[string] task: String,
+    epochs: u32,
+    lr: f64,
+    seed: u32,
+) -> Result<(), deno_error::JsErrorBox> {
+    let trainer = crate::ml_architecture::ArchitectureTrainer::start(&graph_json, &task, epochs as usize, lr, seed as u64)
+        .map_err(deno_error::JsErrorBox::generic)?;
+    state.borrow_mut::<AddonContext>().ml_architecture_trainers.insert(id, trainer);
+    Ok(())
+}
+
+#[op2]
+#[serde]
+pub fn op_ml_architecture_poll(state: &mut OpState, #[string] id: String) -> Vec<crate::ml_architecture::ArchitectureTrainingUpdate> {
+    state.borrow_mut::<AddonContext>().ml_architecture_trainers.get_mut(&id).map(|trainer| trainer.poll()).unwrap_or_default()
 }
 
 #[op2(fast)]

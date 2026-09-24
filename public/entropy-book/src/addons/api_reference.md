@@ -45,8 +45,10 @@ The object returned by `Entropy.Addon.register`.
 - `Entropy.Audio.playSynth(config: SynthConfig)`: Play a sound using the built-in synthesizer.
 - `Entropy.ML.trainGraph(id, {nodes, links, dataset, epochs?, lr?, seed?})`: Validate and train a single `Input -> Dense... -> Loss` Burn MLP on `xor`, `and`, or `two_moons`. `seed` defaults to 42 and seeds both model initialization and generated data.
 - `Entropy.ML.poll(id)`: Drain per-epoch `{epoch, totalEpochs, loss, accuracy?, done}` updates from the background trainer.
+- `Entropy.ML.trainArchitecture(id, {graph, task, epochs?, lr?, seed?})`: Compile a typed LSTM, sparse MoE, or conditioned U-Net graph and train it on a small deterministic synthetic task (`npc`, `pet`, or `mini_pic`). The architecture editor's Tiny Config button prepares a CPU-sized graph.
+- `Entropy.ML.pollArchitecture(id)`: Drain per-epoch architecture updates with an optional terminal `error`. Large reference presets exceed the interactive training budget.
 
-The [ML architecture graph guide](../../../../docs/ML_GRAPH_ARCHITECTURES.md) covers the shape-checked LSTM, sparse MoE, and conditioned U-Net node catalog. Those architecture graphs do not execute through `trainGraph` yet.
+The [ML architecture graph guide](../../../../docs/ML_GRAPH_ARCHITECTURES.md) covers the executable LSTM, sparse MoE, and conditioned U-Net node catalog, synthetic tasks, and current training limits. Architecture graphs use `trainArchitecture`; `trainGraph` remains the dense-chain MLP API.
 
 ## Agentic Tools
 

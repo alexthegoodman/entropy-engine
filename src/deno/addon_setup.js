@@ -418,7 +418,12 @@ const mlAPI = {
         config.lr ?? 0.02,
         config.seed ?? 42
     ),
-    poll: (id) => ops.op_ml_graph_poll(id)
+    poll: (id) => ops.op_ml_graph_poll(id),
+    trainArchitecture: (id, config) => ops.op_ml_architecture_train(
+        id, JSON.stringify(config.graph), config.task, config.epochs ?? 20,
+        config.lr ?? 0.01, config.seed ?? 42
+    ),
+    pollArchitecture: (id) => ops.op_ml_architecture_poll(id)
 };
 
 const noiseAPI = {

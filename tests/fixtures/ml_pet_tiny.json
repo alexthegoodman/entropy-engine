@@ -1,0 +1,336 @@
+{
+  "name": "Yumon Pet - causal decoder with sparse MoE (tiny training)",
+  "nodes": [
+    {
+      "id": "tokens",
+      "kind": "TokenInput",
+      "position": [
+        30,
+        250
+      ],
+      "config": {
+        "steps": 4
+      }
+    },
+    {
+      "id": "embedding",
+      "kind": "Embedding",
+      "position": [
+        250,
+        250
+      ],
+      "config": {
+        "width": 8,
+        "vocabSize": 16
+      }
+    },
+    {
+      "id": "attn_norm_0",
+      "kind": "RMSNorm",
+      "position": [
+        470,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "attention_0",
+      "kind": "CausalAttention",
+      "position": [
+        690,
+        250
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "attn_residual_0",
+      "kind": "Add",
+      "position": [
+        910,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "ffn_norm_0",
+      "kind": "RMSNorm",
+      "position": [
+        1130,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "moe_0",
+      "kind": "SparseMoE",
+      "position": [
+        1350,
+        250
+      ],
+      "config": {
+        "experts": 2,
+        "topK": 1,
+        "hidden": 16
+      }
+    },
+    {
+      "id": "residual_0",
+      "kind": "Add",
+      "position": [
+        1570,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "attn_norm_1",
+      "kind": "RMSNorm",
+      "position": [
+        1570,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "attention_1",
+      "kind": "CausalAttention",
+      "position": [
+        1790,
+        250
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "attn_residual_1",
+      "kind": "Add",
+      "position": [
+        2010,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "ffn_norm_1",
+      "kind": "RMSNorm",
+      "position": [
+        2230,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "moe_1",
+      "kind": "SparseMoE",
+      "position": [
+        2450,
+        250
+      ],
+      "config": {
+        "experts": 2,
+        "topK": 1,
+        "hidden": 16
+      }
+    },
+    {
+      "id": "residual_1",
+      "kind": "Add",
+      "position": [
+        2670,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "final_norm",
+      "kind": "RMSNorm",
+      "position": [
+        2890,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "token_logits",
+      "kind": "Dense",
+      "position": [
+        3110,
+        250
+      ],
+      "config": {
+        "units": 16,
+        "activation": "linear"
+      }
+    },
+    {
+      "id": "output",
+      "kind": "Output",
+      "position": [
+        3330,
+        250
+      ],
+      "config": {}
+    },
+    {
+      "id": "router_aux",
+      "kind": "Add",
+      "position": [
+        2450,
+        540
+      ],
+      "config": {}
+    },
+    {
+      "id": "aux_output",
+      "kind": "Output",
+      "position": [
+        2670,
+        540
+      ],
+      "config": {}
+    }
+  ],
+  "links": [
+    {
+      "from": "tokens",
+      "output": "out",
+      "to": "embedding",
+      "input": "tokens"
+    },
+    {
+      "from": "embedding",
+      "output": "out",
+      "to": "attn_norm_0",
+      "input": "in"
+    },
+    {
+      "from": "attn_norm_0",
+      "output": "out",
+      "to": "attention_0",
+      "input": "in"
+    },
+    {
+      "from": "embedding",
+      "output": "out",
+      "to": "attn_residual_0",
+      "input": "a"
+    },
+    {
+      "from": "attention_0",
+      "output": "out",
+      "to": "attn_residual_0",
+      "input": "b"
+    },
+    {
+      "from": "attn_residual_0",
+      "output": "out",
+      "to": "ffn_norm_0",
+      "input": "in"
+    },
+    {
+      "from": "ffn_norm_0",
+      "output": "out",
+      "to": "moe_0",
+      "input": "in"
+    },
+    {
+      "from": "attn_residual_0",
+      "output": "out",
+      "to": "residual_0",
+      "input": "a"
+    },
+    {
+      "from": "moe_0",
+      "output": "out",
+      "to": "residual_0",
+      "input": "b"
+    },
+    {
+      "from": "residual_0",
+      "output": "out",
+      "to": "attn_norm_1",
+      "input": "in"
+    },
+    {
+      "from": "attn_norm_1",
+      "output": "out",
+      "to": "attention_1",
+      "input": "in"
+    },
+    {
+      "from": "residual_0",
+      "output": "out",
+      "to": "attn_residual_1",
+      "input": "a"
+    },
+    {
+      "from": "attention_1",
+      "output": "out",
+      "to": "attn_residual_1",
+      "input": "b"
+    },
+    {
+      "from": "attn_residual_1",
+      "output": "out",
+      "to": "ffn_norm_1",
+      "input": "in"
+    },
+    {
+      "from": "ffn_norm_1",
+      "output": "out",
+      "to": "moe_1",
+      "input": "in"
+    },
+    {
+      "from": "attn_residual_1",
+      "output": "out",
+      "to": "residual_1",
+      "input": "a"
+    },
+    {
+      "from": "moe_1",
+      "output": "out",
+      "to": "residual_1",
+      "input": "b"
+    },
+    {
+      "from": "residual_1",
+      "output": "out",
+      "to": "final_norm",
+      "input": "in"
+    },
+    {
+      "from": "final_norm",
+      "output": "out",
+      "to": "token_logits",
+      "input": "in"
+    },
+    {
+      "from": "token_logits",
+      "output": "out",
+      "to": "output",
+      "input": "in"
+    },
+    {
+      "from": "moe_0",
+      "output": "aux",
+      "to": "router_aux",
+      "input": "a"
+    },
+    {
+      "from": "moe_1",
+      "output": "aux",
+      "to": "router_aux",
+      "input": "b"
+    },
+    {
+      "from": "router_aux",
+      "output": "out",
+      "to": "aux_output",
+      "input": "in"
+    }
+  ]
+}

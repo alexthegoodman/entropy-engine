@@ -1,0 +1,467 @@
+{
+  "name": "Mini-Pic - text and time conditioned U-Net (tiny training)",
+  "nodes": [
+    {
+      "id": "image",
+      "kind": "ImageInput",
+      "position": [
+        20,
+        300
+      ],
+      "config": {
+        "channels": 3,
+        "height": 8,
+        "width": 8
+      }
+    },
+    {
+      "id": "steps",
+      "kind": "TimestepInput",
+      "position": [
+        20,
+        620
+      ],
+      "config": {}
+    },
+    {
+      "id": "time",
+      "kind": "TimeEmbedding",
+      "position": [
+        230,
+        620
+      ],
+      "config": {
+        "width": 8
+      }
+    },
+    {
+      "id": "tokens",
+      "kind": "TokenInput",
+      "position": [
+        20,
+        800
+      ],
+      "config": {
+        "steps": 4
+      }
+    },
+    {
+      "id": "text",
+      "kind": "TextEncoder",
+      "position": [
+        230,
+        800
+      ],
+      "config": {
+        "width": 8,
+        "layers": 1,
+        "heads": 2,
+        "vocabSize": 16
+      }
+    },
+    {
+      "id": "stem",
+      "kind": "Conv2d",
+      "position": [
+        230,
+        300
+      ],
+      "config": {
+        "channels": 8
+      }
+    },
+    {
+      "id": "enc1",
+      "kind": "ResBlock2d",
+      "position": [
+        450,
+        300
+      ],
+      "config": {
+        "channels": 8
+      }
+    },
+    {
+      "id": "down1",
+      "kind": "Downsample2d",
+      "position": [
+        670,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "enc2",
+      "kind": "ResBlock2d",
+      "position": [
+        890,
+        300
+      ],
+      "config": {
+        "channels": 16
+      }
+    },
+    {
+      "id": "self2",
+      "kind": "SpatialSelfAttention2d",
+      "position": [
+        1000,
+        500
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "attn2",
+      "kind": "CrossAttention2d",
+      "position": [
+        1110,
+        300
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "down2",
+      "kind": "Downsample2d",
+      "position": [
+        1330,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "enc3",
+      "kind": "ResBlock2d",
+      "position": [
+        1550,
+        300
+      ],
+      "config": {
+        "channels": 32
+      }
+    },
+    {
+      "id": "mid_self",
+      "kind": "SpatialSelfAttention2d",
+      "position": [
+        1660,
+        500
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "mid_attn",
+      "kind": "CrossAttention2d",
+      "position": [
+        1770,
+        300
+      ],
+      "config": {
+        "heads": 2
+      }
+    },
+    {
+      "id": "merge3",
+      "kind": "Concat2d",
+      "position": [
+        1990,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "dec3",
+      "kind": "ResBlock2d",
+      "position": [
+        2210,
+        300
+      ],
+      "config": {
+        "channels": 16
+      }
+    },
+    {
+      "id": "up2",
+      "kind": "Upsample2d",
+      "position": [
+        2430,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "merge2",
+      "kind": "Concat2d",
+      "position": [
+        2650,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "dec2",
+      "kind": "ResBlock2d",
+      "position": [
+        2870,
+        300
+      ],
+      "config": {
+        "channels": 8
+      }
+    },
+    {
+      "id": "up1",
+      "kind": "Upsample2d",
+      "position": [
+        3090,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "merge1",
+      "kind": "Concat2d",
+      "position": [
+        3310,
+        300
+      ],
+      "config": {}
+    },
+    {
+      "id": "dec1",
+      "kind": "ResBlock2d",
+      "position": [
+        3530,
+        300
+      ],
+      "config": {
+        "channels": 8
+      }
+    },
+    {
+      "id": "noise",
+      "kind": "Conv2d",
+      "position": [
+        3750,
+        300
+      ],
+      "config": {
+        "channels": 3
+      }
+    },
+    {
+      "id": "output",
+      "kind": "Output",
+      "position": [
+        3970,
+        300
+      ],
+      "config": {}
+    }
+  ],
+  "links": [
+    {
+      "from": "steps",
+      "output": "out",
+      "to": "time",
+      "input": "steps"
+    },
+    {
+      "from": "tokens",
+      "output": "out",
+      "to": "text",
+      "input": "tokens"
+    },
+    {
+      "from": "image",
+      "output": "out",
+      "to": "stem",
+      "input": "in"
+    },
+    {
+      "from": "stem",
+      "output": "out",
+      "to": "enc1",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "enc1",
+      "input": "time"
+    },
+    {
+      "from": "enc1",
+      "output": "out",
+      "to": "down1",
+      "input": "in"
+    },
+    {
+      "from": "down1",
+      "output": "out",
+      "to": "enc2",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "enc2",
+      "input": "time"
+    },
+    {
+      "from": "enc2",
+      "output": "out",
+      "to": "self2",
+      "input": "in"
+    },
+    {
+      "from": "self2",
+      "output": "out",
+      "to": "attn2",
+      "input": "in"
+    },
+    {
+      "from": "text",
+      "output": "context",
+      "to": "attn2",
+      "input": "context"
+    },
+    {
+      "from": "attn2",
+      "output": "out",
+      "to": "down2",
+      "input": "in"
+    },
+    {
+      "from": "down2",
+      "output": "out",
+      "to": "enc3",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "enc3",
+      "input": "time"
+    },
+    {
+      "from": "enc3",
+      "output": "out",
+      "to": "mid_self",
+      "input": "in"
+    },
+    {
+      "from": "mid_self",
+      "output": "out",
+      "to": "mid_attn",
+      "input": "in"
+    },
+    {
+      "from": "text",
+      "output": "context",
+      "to": "mid_attn",
+      "input": "context"
+    },
+    {
+      "from": "mid_attn",
+      "output": "out",
+      "to": "merge3",
+      "input": "a"
+    },
+    {
+      "from": "enc3",
+      "output": "out",
+      "to": "merge3",
+      "input": "b"
+    },
+    {
+      "from": "merge3",
+      "output": "out",
+      "to": "dec3",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "dec3",
+      "input": "time"
+    },
+    {
+      "from": "dec3",
+      "output": "out",
+      "to": "up2",
+      "input": "in"
+    },
+    {
+      "from": "up2",
+      "output": "out",
+      "to": "merge2",
+      "input": "a"
+    },
+    {
+      "from": "attn2",
+      "output": "out",
+      "to": "merge2",
+      "input": "b"
+    },
+    {
+      "from": "merge2",
+      "output": "out",
+      "to": "dec2",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "dec2",
+      "input": "time"
+    },
+    {
+      "from": "dec2",
+      "output": "out",
+      "to": "up1",
+      "input": "in"
+    },
+    {
+      "from": "up1",
+      "output": "out",
+      "to": "merge1",
+      "input": "a"
+    },
+    {
+      "from": "enc1",
+      "output": "out",
+      "to": "merge1",
+      "input": "b"
+    },
+    {
+      "from": "merge1",
+      "output": "out",
+      "to": "dec1",
+      "input": "in"
+    },
+    {
+      "from": "time",
+      "output": "out",
+      "to": "dec1",
+      "input": "time"
+    },
+    {
+      "from": "dec1",
+      "output": "out",
+      "to": "noise",
+      "input": "in"
+    },
+    {
+      "from": "noise",
+      "output": "out",
+      "to": "output",
+      "input": "in"
+    }
+  ]
+}
