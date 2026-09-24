@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
-use physmod::{PhysModParams, PhysModVoice};
+use physmod::{InstrumentCommand, InstrumentHandle, PhysModInstrumentVoice, PhysModParams};
 use samples::{SampleEvent, SampleParams, SampleVoice};
 use wavetable::{WavetableParams, WavetableVoice};
 
@@ -409,18 +409,25 @@ pub fn render_events_full_to_wav(
         voice_bufs.push((start_sample, buf));
     }
 
+    // Bowed-string notes are rendered per instrument, through one instrument each, so a bounce
+    // keeps the slurs, double stops and sympathetic ringing the live instrument has.
+    let mut by_instrument: Vec<(&str, Vec<physmod::PerformedNote>)> = Vec::new();
     for hit in physmod_events {
-        let shared = physmod::shared_for(&hit.instrument);
-        let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.01) + 0.5;
-        let mut buf = physmod::render_note(shared, hit.params, limit);
+        let note = physmod::PerformedNote { start: hit.start_time.max(0.0), params: hit.params };
+        match by_instrument.iter_mut().find(|(id, _)| *id == hit.instrument.as_str()) {
+            Some((_, notes)) => notes.push(note),
+            None => by_instrument.push((hit.instrument.as_str(), vec![note])),
+        }
+    }
+    for (_, notes) in &by_instrument {
+        let mut buf = physmod::render_performance(notes, 6.0);
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
             buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
         }
         let n_frames = buf.len() / 2;
-        let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
-        total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
-        voice_bufs.push((start_sample, buf));
+        total_frames = std::cmp::Ord::max(total_frames, n_frames);
+        voice_bufs.push((0, buf));
     }
 
     for event in events {
@@ -842,6 +849,9 @@ pub struct AudioEngine {
     /// The bowed-string notes being held (see `physmod_note_on`), by voice id.
     physmod_gates: Mutex<HashMap<u64, PhysModHandle>>,
     next_physmod_voice: AtomicU64,
+    /// One live bowed-string instrument per (track, instrument id): every note on it shares its
+    /// strings and body (see `physmod::PhysModInstrumentVoice`).
+    physmod_instruments: Mutex<HashMap<String, Arc<InstrumentHandle>>>,
 }
 
 /// What the main thread keeps of a held wavetable note: the gate that releases it and the position
@@ -851,10 +861,10 @@ struct WavetableHandle {
     position: Arc<AtomicU32>,
 }
 
-/// What the main thread keeps of a held bowed-string note: the gate that releases it and the bow
-/// controls its voice reads (see `PhysModVoice::with_live_bow`).
+/// What the main thread keeps of a held bowed-string note: the instrument it is sounding on (to
+/// release it) and the bow controls it reads (see `physmod::PhysModLive`).
 struct PhysModHandle {
-    gate: Arc<AtomicBool>,
+    instrument: Arc<InstrumentHandle>,
     live: Arc<physmod::PhysModLive>,
 }
 
@@ -897,6 +907,7 @@ impl AudioEngine {
             next_wavetable_voice: AtomicU64::new(1),
             physmod_gates: Mutex::new(HashMap::new()),
             next_physmod_voice: AtomicU64::new(1),
+            physmod_instruments: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1058,41 +1069,65 @@ impl AudioEngine {
         }
     }
 
-    /// Plays one timed bowed-string note on a track's bus. `instrument` names the `PhysModShared`
-    /// the visualization widget reads (the DAW uses the track's id), created if it does not exist.
-    pub fn play_physmod_on_track(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<(), String> {
+    /// The live instrument for `instrument` on `track_id`, started on the track's bus if it is not
+    /// running (or was built for different strings - a new instrument preset).
+    fn physmod_instrument(&self, track_id: &str, instrument: &str, params: &PhysModParams) -> Result<Arc<InstrumentHandle>, String> {
+        let key = format!("{track_id}\u{1}{instrument}");
+        let mut map = self.physmod_instruments.lock().unwrap();
+        if let Some(h) = map.get(&key) {
+            if h.is_alive() && h.same_tuning(params) {
+                return Ok(h.clone());
+            }
+            // Different strings: let the old instrument ring out and stop, and build a new one.
+            h.retire();
+        }
         let shared = physmod::shared_for(instrument);
         let buses = self.track_buses.lock().unwrap();
         let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
-        bus.note_mixer.add(PhysModVoice::new(shared, params, None));
-        Ok(())
+        let (voice, handle) = PhysModInstrumentVoice::new(shared, params);
+        bus.note_mixer.add(voice);
+        map.insert(key, handle.clone());
+        Ok(handle)
+    }
+
+    /// Sends a note-on to the track's instrument, restarting the instrument once if it shut itself
+    /// down (idle) between the check and the send.
+    fn physmod_send_note(&self, track_id: &str, instrument: &str, mut cmd: InstrumentCommand, params: &PhysModParams) -> Result<Arc<InstrumentHandle>, String> {
+        for _ in 0..2 {
+            let h = self.physmod_instrument(track_id, instrument, params)?;
+            match h.send(cmd) {
+                Ok(()) => return Ok(h),
+                Err(back) => cmd = back,
+            }
+        }
+        Err("the bowed-string instrument could not be started".into())
+    }
+
+    /// Plays one timed bowed-string note on a track's bus. `instrument` names the `PhysModShared`
+    /// the visualization widget reads (the DAW uses the track's id), created if it does not exist.
+    /// The note is played on the track's live instrument, so it can slur into, double-stop with and
+    /// ring in sympathy with the other notes on it.
+    pub fn play_physmod_on_track(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<(), String> {
+        let id = self.next_physmod_voice.fetch_add(1, Ordering::Relaxed);
+        self.physmod_send_note(track_id, instrument, InstrumentCommand::NoteOn { id, params, gated: false, live: None }, &params).map(|_| ())
     }
 
     /// Starts a bowed-string note that sounds until `physmod_note_off` (a key held down, or a note
     /// latched while dragging the bow). Returns the id to release and steer it with.
     pub fn physmod_note_on(&self, track_id: &str, instrument: &str, params: PhysModParams) -> Result<u64, String> {
-        let shared = physmod::shared_for(instrument);
-        let buses = self.track_buses.lock().unwrap();
-        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
-        let gate = Arc::new(AtomicBool::new(true));
-        let live = Arc::new(physmod::PhysModLive {
-            bow_force: AtomicU32::new(params.bow_force.to_bits()),
-            bow_velocity: AtomicU32::new(params.bow_velocity.to_bits()),
-            bow_position: AtomicU32::new(params.bow_position.to_bits()),
-            vibrato_depth: AtomicU32::new(params.vibrato_depth.to_bits()),
-        });
+        let live = Arc::new(physmod::PhysModLive::from_params(&params));
         let id = self.next_physmod_voice.fetch_add(1, Ordering::Relaxed);
-        bus.note_mixer.add(PhysModVoice::new(shared, params, Some(gate.clone())).with_live_bow(live.clone()));
+        let instrument = self.physmod_send_note(track_id, instrument, InstrumentCommand::NoteOn { id, params, gated: true, live: Some(live.clone()) }, &params)?;
         let mut gates = self.physmod_gates.lock().unwrap();
-        gates.retain(|_, h| Arc::strong_count(&h.gate) > 1);
-        gates.insert(id, PhysModHandle { gate, live });
+        gates.retain(|_, h| h.instrument.is_alive());
+        gates.insert(id, PhysModHandle { instrument, live });
         Ok(id)
     }
 
     /// Releases a note started by `physmod_note_on`. Unknown or already-finished ids are ignored.
     pub fn physmod_note_off(&self, voice_id: u64) {
         if let Some(h) = self.physmod_gates.lock().unwrap().remove(&voice_id) {
-            h.gate.store(false, Ordering::Relaxed);
+            let _ = h.instrument.send(InstrumentCommand::NoteOff { id: voice_id });
         }
     }
 
