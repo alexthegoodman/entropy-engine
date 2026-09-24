@@ -4818,7 +4818,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                     };
                     LevelMeter::new(meter_id.as_str()).options(opts).show(ui, reading);
                 }
-                UiWidget::Snarl { id: snarl_id, graph } => {
+                UiWidget::Snarl { id: snarl_id, graph, height: snarl_height } => {
                     // Real, interactive editor (pan/zoom/drag/connect) as of this session - see
                     // `entropy_gui::widgets_node_graph`. `SnarlConfig.onConnect`/`onDisconnect`/
                     // `onNodeMoved` (`examples/studio-bundle/src/addon.d.ts`) and their
@@ -4859,7 +4859,11 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         })
                         .collect();
 
-                    let resp = crate::entropy_gui::NodeGraphEditor::new(snarl_id.as_str()).show(ui, &nodes, &links, graph.selected_node.as_deref(), |_, _| {});
+                    let mut editor = crate::entropy_gui::NodeGraphEditor::new(snarl_id.as_str());
+                    if let Some(h) = snarl_height {
+                        editor = editor.height(*h);
+                    }
+                    let resp = editor.show(ui, &nodes, &links, graph.selected_node.as_deref(), |_, _| {});
                     for event in resp.events {
                         match event {
                             crate::entropy_gui::NodeGraphEvent::NodeMoved { node, pos } => {

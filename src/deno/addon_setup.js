@@ -1410,7 +1410,7 @@ globalThis.Entropy = {
                 const graph = config?.graph || { nodes: [], connections: [] };
                 const id = nextWidgetId(windowId, "snarl", config?.id);
 
-                ops.op_ui_widget_snarl(windowId, graph, id);
+                ops.op_ui_widget_snarl(windowId, graph, id, config?.height ?? null);
 
                 if (config?.onConnect || config?.onDisconnect || config?.onNodeMoved || config?.onNodeSelected) {
                     bindListener('_entropy_event_listeners', id, (eventData) => {

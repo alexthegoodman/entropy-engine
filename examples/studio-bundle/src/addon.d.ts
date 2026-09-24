@@ -1940,6 +1940,8 @@ export interface SnarlConfig {
     onNodeSelected?: (nodeId: string) => void;
     id?: string;
     graph: BehaviorGraph;
+    /** Canvas height in points. Omit to fill the height left in the window. */
+    height?: number;
     onConnect?: (params: string[]) => void;
     onDisconnect?: (params: string[]) => void;
     onNodeMoved?: (nodeId: string, position: [number, number]) => void;

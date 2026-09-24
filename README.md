@@ -233,7 +233,7 @@ Entropy's own immediate-mode GUI kit (`entropy_gui`). Every panel, tool window, 
 | `Widget.hyperlink` | A clickable link-styled label that opens a URL. |
 | `Widget.codeEditor` | A syntax-aware multiline code editor panel. |
 | `Widget.miniMap` | A top-down map view with draggable brush painting, markers, and polylines for terrain and mask painting tools. |
-| `Widget.snarl` | A node-graph editor (drag nodes, wire connections) for visual behavior/logic graphs. |
+| `Widget.snarl` | A node-graph editor (drag nodes, wire connections) for visual behavior/logic graphs. `height` sets the canvas height in points; omit it to fill the space left in the window. |
 | `Widget.pianoRoll` | A step-sequencer grid for note/drum patterns, with a movable playhead. |
 | `Widget.keyframeTimeline` | A per-property animation curve editor: draggable keyframes on a scrubbable timeline. |
 | `Widget.tracks` | A multi-track clip editor (like a video/audio timeline) with draggable, resizable clips. |

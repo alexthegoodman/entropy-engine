@@ -216,8 +216,8 @@ function pollTraining() {
 function setupUI() {
     const win = Entropy.UI.createWindow({
         title: "ML Graph Trainer",
-        width: 1220,
-        height: 780,
+        width: 1180,
+        height: 880,
         x: 20,
         y: 20,
         onRender: () => renderUI(win)
@@ -302,6 +302,7 @@ function renderUI(win: string) {
 
     Entropy.UI.Widget.snarl(win, {
         id: "ml_graph",
+        height: 420,
         graph: { nodes, connections },
         onConnect: (params) => {
             const [fromNode, fromPin, toNode, toPin] = params;
@@ -413,6 +414,7 @@ function renderArchitectureUI(win: string) {
     }));
     Entropy.UI.Widget.snarl(win, {
         id: "ml_architecture_graph",
+        height: 420,
         graph: { nodes: visualNodes, connections: architecture.links.map(l => ({ fromNode: l.from, fromPin: l.output, toNode: l.to, toPin: l.input })) },
         onNodeSelected: (id) => { selectedArchitectureNode = id; },
         onConnect: ([from, output, to, input]) => {

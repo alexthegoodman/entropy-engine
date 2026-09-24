@@ -145,11 +145,19 @@ impl NodeGraphResponse {
 
 pub struct NodeGraphEditor {
     id: Id,
+    height: Option<f32>,
 }
 
 impl NodeGraphEditor {
     pub fn new(id_salt: impl std::hash::Hash) -> Self {
-        Self { id: Id::new("node_graph_editor").with(id_salt) }
+        Self { id: Id::new("node_graph_editor").with(id_salt), height: None }
+    }
+
+    /// Fixed canvas height in points. Without it the canvas takes all the height left in the
+    /// `Ui`, which is tiny when other widgets were laid out above it.
+    pub fn height(mut self, height: f32) -> Self {
+        self.height = Some(height);
+        self
     }
 
     /// `node_body` is called for every node with `body_height > 0.0`, with a `Ui` rooted at
@@ -167,7 +175,11 @@ impl NodeGraphEditor {
         let editor_id = self.id;
         let (mut pan, mut zoom) = ctx.memory(|m| m.get_node_graph_view(editor_id));
 
-        let size = ui.available_size().max(vec2(100.0, 100.0));
+        let mut size = ui.available_size();
+        if let Some(h) = self.height {
+            size.y = h;
+        }
+        let size = size.max(vec2(100.0, 100.0));
         let (bg_response, painter) = ui.allocate_painter(size, Sense::click());
         let canvas_rect = bg_response.rect;
 

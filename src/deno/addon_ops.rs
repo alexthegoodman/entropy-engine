@@ -621,6 +621,8 @@ pub enum UiWidget {
     Snarl {
         id: String,
         graph: BehaviorGraph,
+        /// Fixed canvas height in points; `None` fills whatever height is left in the window.
+        height: Option<f32>,
     },
     PianoRoll {
         id: String,
@@ -3628,9 +3630,10 @@ pub fn op_ui_widget_snarl(
     #[string] window_id: String,
     #[serde] graph: BehaviorGraph,
     #[string] id: String,
+    height: Option<f64>,
 ) {
     if let Some(ctx) = state.try_borrow_mut::<AddonContext>() {
-        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Snarl { id, graph });
+        ctx.ui_widgets.entry(window_id).or_default().push(UiWidget::Snarl { id, graph, height: height.map(|h| h as f32) });
     }
 }
 
