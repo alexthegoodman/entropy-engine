@@ -11,7 +11,7 @@ use crate::handlers::{handle_add_collectable, handle_add_npc, handle_add_water_p
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties, AppExperience};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::startup::Gui;
 use crate::vector_animations::motion::Motion;
 use crate::water_plane::config::WaterConfig;
@@ -41,15 +41,15 @@ use web_sys::HtmlCanvasElement;
 use wgpu::{Limits, RenderPipeline, util::DeviceExt};
 use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use winit::window::Window;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::egui;
 use crate::egui_wgpu;
 use crate::egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
@@ -521,7 +521,7 @@ impl EntropyPipeline {
     pub async fn initialize(
         &mut self,
         
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_arch = "wasm32"))]
         window: Option<&Window>,
 
         #[cfg(target_arch = "wasm32")]
@@ -1735,9 +1735,9 @@ impl EntropyPipeline {
             if let Some(context) = op_state.try_borrow_mut::<crate::deno::addon_ops::AddonContext>() {
                 // `window_size` here is the caller's camera/video placeholder, not the real
                 // client area - prefer the window itself when there is one.
-                #[cfg(target_os = "windows")]
+                #[cfg(not(target_arch = "wasm32"))]
                 let real = window.map(|w| { let size = w.inner_size(); [size.width, size.height] });
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_arch = "wasm32")]
                 let real: Option<[u32; 2]> = None;
                 context.window_size = real.unwrap_or([window_size.width, window_size.height]);
             }
@@ -2120,7 +2120,7 @@ impl EntropyPipeline {
         }
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn render_display_frame(&mut self, gui: &mut Gui, window: &Window, game_mode: bool, glass_blur_enabled: bool) {
         // Video export advances by exactly one captured frame per real call here, not all at
         // once - an earlier version rendered every requested frame in a single blocking loop,
@@ -2130,6 +2130,9 @@ impl EntropyPipeline {
         // `render_addon_frame` against the live scene needs); `start_export` is called once
         // to pick it up, and `step_export` once per frame after that until it reports done.
         // See `video_export::exporter` and the 2026-09-11 video export post's decision log.
+        // Media Foundation-backed, so Windows-only for now (the non-Windows ops report an error).
+        #[cfg(target_os = "windows")]
+        {
         if self.video_export.is_none() {
             let pending = self.export_editor.as_mut().and_then(|editor| {
                 editor
@@ -2155,6 +2158,7 @@ impl EntropyPipeline {
                 Ok(None) => self.video_export = Some(state), // more frames to go - resumed next call
                 Err(e) => self.publish_video_export_result(Err(e)), // abort: `state` is dropped
             }
+        }
         }
 
         let now = std::time::Instant::now();
@@ -2189,7 +2193,7 @@ impl EntropyPipeline {
                 if size.width > 0 && size.height > 0 {
                     let surface_config = wgpu::SurfaceConfiguration {
                         usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        format: gpu_resources.surface_format,
                         width: size.width,
                         height: size.height,
                         present_mode: wgpu::PresentMode::Fifo,
@@ -2218,7 +2222,16 @@ impl EntropyPipeline {
             }
         };
 
-        let view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let surface_view = output.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // `frame_texture`/`view` is what the whole frame is drawn into: the swapchain texture
+        // itself, or SurfaceBlit's offscreen stand-in when the swapchain isn't Rgba8Unorm.
+        let (frame_texture, view) = match gui.surface_blit.as_mut() {
+            Some(blit) => {
+                let (texture, view) = blit.target(&gpu_resources.device, output.texture.width(), output.texture.height());
+                (texture.clone(), view.clone())
+            }
+            None => (output.texture.clone(), surface_view.clone()),
+        };
 
         let current_time = self.start_time.elapsed().as_secs_f64();
 
@@ -2323,7 +2336,7 @@ impl EntropyPipeline {
             let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("UI Test Screenshot Readback"),
             });
-            capture.capture_frame(&gpu_resources.device, &gpu_resources.queue, &output.texture, &mut encoder);
+            capture.capture_frame(&gpu_resources.device, &gpu_resources.queue, &frame_texture, &mut encoder);
             gpu_resources.queue.submit(Some(encoder.finish()));
             let rgba = pollster::block_on(capture.get_frame_data(&gpu_resources.device));
             let saved = path.parent().map_or(Ok(()), std::fs::create_dir_all)
@@ -2331,6 +2344,14 @@ impl EntropyPipeline {
             if let Err(error) = saved {
                 eprintln!("UI test screenshot {} failed: {error}", path.display());
             }
+        }
+
+        if let Some(blit) = &gui.surface_blit {
+            let mut encoder = gpu_resources.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("surface blit encoder"),
+            });
+            blit.blit(&mut encoder, &surface_view);
+            gpu_resources.queue.submit(Some(encoder.finish()));
         }
 
         output.present();

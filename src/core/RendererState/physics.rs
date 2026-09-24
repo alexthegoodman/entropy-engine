@@ -14,7 +14,7 @@ use crate::{
 use std::collections::HashMap;
 use std::str::FromStr;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
@@ -142,10 +142,10 @@ impl RendererState {
         // timestamp-gated stylus_active check elsewhere still lets real mouse input resume after
         // 250ms, so leaving this flag stuck true just means this one clear stays suppressed,
         // never a permanent lock.
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_arch = "wasm32"))]
         let near_future = self.last_mouse_position_time.checked_add(Duration::from_millis(100));
 
-        #[cfg(target_os = "windows")]
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(future) = near_future {
             if future < now && !self.stylus_active {
                 self.last_mouse_position = None;

@@ -16,13 +16,18 @@
 use std::path::Path;
 
 use serde::Serialize;
+#[cfg(target_os = "windows")]
 use windows::core::PCWSTR;
+#[cfg(target_os = "windows")]
 use windows::Win32::Foundation::{HWND, RECT};
+#[cfg(target_os = "windows")]
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC, GetDIBits, ReleaseDC,
     SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, SRCCOPY,
 };
+#[cfg(target_os = "windows")]
 use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
+#[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, FindWindowW, GetWindowRect, SetForegroundWindow, ShowWindow, SW_SHOW,
 };
@@ -38,13 +43,16 @@ pub struct WindowCapture {
     pub distinct_colors: usize,
 }
 
+#[cfg(target_os = "windows")]
 fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
 /// `PW_RENDERFULLCONTENT`: also captures content composed by DWM (layered and GPU-drawn children).
+#[cfg(target_os = "windows")]
 const PW_RENDERFULLCONTENT: u32 = 2;
 
+#[cfg(target_os = "windows")]
 fn distinct_colors(rgba: &[u8]) -> usize {
     let mut seen = std::collections::HashSet::new();
     for px in rgba.chunks_exact(4) {
@@ -56,6 +64,7 @@ fn distinct_colors(rgba: &[u8]) -> usize {
     seen.len()
 }
 
+#[cfg(target_os = "windows")]
 unsafe fn grab(hwnd: HWND, rect: &RECT, screen_copy: bool) -> Option<Vec<u8>> {
     let (width, height) = ((rect.right - rect.left).max(1), (rect.bottom - rect.top).max(1));
     let screen_dc = GetDC(None);
@@ -101,6 +110,13 @@ unsafe fn grab(hwnd: HWND, rect: &RECT, screen_copy: bool) -> Option<Vec<u8>> {
 
 /// Captures the top-level window titled `title` (the plugin editor window `vst3-host` creates uses
 /// the class `VST3PluginWindow`) to a PNG.
+/// Plugin editor windows are native Win32 windows; other platforms have no capture path yet.
+#[cfg(not(target_os = "windows"))]
+pub fn capture_editor_window(title: &str, _path: &Path) -> Result<WindowCapture, String> {
+    Err(format!("Capturing plugin editor window \"{title}\" is only supported on Windows"))
+}
+
+#[cfg(target_os = "windows")]
 pub fn capture_editor_window(title: &str, path: &Path) -> Result<WindowCapture, String> {
     unsafe {
         let class = wide("VST3PluginWindow");

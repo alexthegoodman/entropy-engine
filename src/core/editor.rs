@@ -4,7 +4,7 @@ use std::str::FromStr;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
@@ -446,7 +446,7 @@ pub struct Editor {
 }
 
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn init_editor_with_model(viewport: Arc<Mutex<Viewport>>, project_id: Option<String>) -> Editor {
     // let inference = load_common_motion_2d();
 

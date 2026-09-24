@@ -9,7 +9,7 @@ use crate::heightfield_landscapes::QuadScape::draw_quadscape;
 use crate::helpers::landscapes::generate_landscape_data;
 use crate::helpers::saved_data::{self, AppExperience, AttackStats, CollectableProperties, CollectableType, LightProperties, NPCProperties};
 use crate::procedural_heightmaps::heightmap_generation::{FalloffType, FeatureType, HeightmapGenerator, TerrainFeature};
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::startup::Gui;
 use crate::vector_animations::motion::Motion;
 use crate::water_plane::config::WaterConfig;
@@ -39,14 +39,14 @@ use web_sys::HtmlCanvasElement;
 use wgpu::{Limits, RenderPipeline, util::DeviceExt};
 use bytemuck::{Pod, Zeroable}; // For procedural sky uniform
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use winit::window::Window;
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use crate::egui;
 use crate::egui_dock::{DockArea, DockState, NodeIndex, Style, TabViewer};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]

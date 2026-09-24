@@ -51,7 +51,7 @@ Building just a simple app or prototype? Need to use the existing API to build a
 
 No project picker, no forced data model. Your addons persist their own data under a directory you control with `.with_data_dir(...)` (defaults to `./data`) — see [Persisting your own data](#persisting-your-own-data).
 
-Currently, Entropy has only been tested on Windows machines. Mac and Linux support coming soon.
+Entropy is developed on Windows and now also builds and runs on Linux (tested on Ubuntu 24.04, X11) - see [Linux](#linux) for setup and for which features are still Windows-only. Mac support coming soon.
 
 The [ML Graph demo](docs/ML_GRAPH_ARCHITECTURES.md) edits and trains Burn models through a node graph. Its architecture view includes executable LSTM, sparse MoE, and conditioned U-Net nodes, with small deterministic CPU training tasks for the Yumon NPC, Yumon Pet, and Mini-Pic presets. Run it with `cargo run --bin example -- ml-graph-demo`; use **Tiny Config** before training a reference preset.
 
@@ -467,6 +467,56 @@ The Windows Media Player example loads the MP4s in `public/` into a playlist. Bu
 to add it. It loads a matching `.srt` or `.vtt` next to a clip when present, or you can enter a
 subtitle path. The controls cover seek, volume, speed, repeat, captions and fullscreen.
 `cargo test --release --test media_player_live -- --nocapture` runs the real window BDD suite.
+
+---
+
+## Linux
+
+Linux support is new: the engine, addon runtime, entropy_gui, audio and MCP server all build and
+run, verified with the `theme-gallery` example on Ubuntu 24.04. Other examples haven't been
+exercised on Linux yet.
+
+System packages (Ubuntu/Debian):
+
+```bash
+sudo apt install build-essential pkg-config libasound2-dev libudev-dev libxkbcommon-dev \
+    libgtk-3-dev libssl-dev libxdo-dev mesa-vulkan-drivers
+```
+
+You also need the [Deno CLI](https://deno.com/) for bundling (`npm i -g deno` works too). The
+engine compiles in Studio's default bundle, so build that once before the first `cargo build`:
+
+```bash
+cd examples/studio-bundle
+npm install
+npm run build                # dist/bundle.js, required to compile the engine at all
+npm run build-theme-gallery  # dist/theme_gallery.js
+cd ../..
+cargo run --bin example --release -- theme-gallery   # run from the repo root
+```
+
+Differences from Windows:
+
+- The swapchain on X11/Vulkan only offers BGRA formats, so the frame is rendered to an offscreen
+  `Rgba8Unorm` texture and blitted to the window (`src/core/surface_blit.rs`). Windows is unchanged.
+- With no audio output device the engine logs a warning and keeps running with audio muted
+  (previously it panicked; this applies on Windows too).
+- UI icon fallback fonts and the monospace font come from DejaVu/Noto instead of Segoe/Cascadia.
+
+Still Windows-only (compiled out with `#[cfg(target_os = "windows")]`; these wrap Win32 APIs, so a
+Cargo feature alone wouldn't make them work):
+
+| Feature | Why | On Linux |
+|---|---|---|
+| Video playback (`Entropy.Video`, media player example, Stunts videos) | Media Foundation | `open` rejects with an "only supported on Windows" error |
+| Video export (`video-export-demo`) | Media Foundation sink writer | export poll reports the same error |
+| Screen/window recording (`screen_capture`) | Windows Graphics Capture | not compiled |
+| VST3 plugin editor screenshots (live BDD) | `PrintWindow`/GDI | returns an error |
+| Pen tilt, barrel and eraser | `WM_POINTER*` message hook | pens report pressure only |
+| Embedded webview in the Studio editor | `wry`/WebView2 | not compiled |
+| ASIO (`--features asio`) | Steinberg ASIO SDK | ALSA/PulseAudio via cpal |
+
+VST3 hosting compiles on Linux but hasn't been tested there yet.
 
 ---
 

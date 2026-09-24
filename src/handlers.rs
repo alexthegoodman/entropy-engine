@@ -64,7 +64,7 @@ use crate::{
 };
 use crate::{art_assets::Model::read_model, shape_primitives::Pyramid::Pyramid};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
 
 #[cfg(target_arch = "wasm32")]
@@ -151,7 +151,7 @@ pub async fn handle_add_player(
     script_state: Option<HashMap<String, String>>,
     behavior_id: Option<String>
 ) {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes = match read_model(projectId, modelFilename) {
         Ok(b) => b,
         Err(e) => {
@@ -624,7 +624,7 @@ pub fn handle_mouse_input(state: &mut Editor, button: EntropyMouseButton, elemen
 /// stylus touch alone still doesn't satisfy an orbit trigger bound to a real button (e.g.
 /// right-click) - it only supplies live position once that trigger is ALSO active via its own
 /// real button source (a mouse, or a tablet express key that sends a real click).
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 pub fn handle_stylus_touch(state: &mut Editor, touch: &winit::event::Touch) {
     use winit::event::TouchPhase;
 
@@ -1022,7 +1022,7 @@ pub async fn handle_add_model(
     script_state: Option<HashMap<String, String>>,
     behavior_id: Option<String>
 ) {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes = match read_model(projectId, modelFilename) {
         Ok(b) => b,
         Err(e) => {
@@ -1055,7 +1055,7 @@ pub async fn handle_add_scattered_model(
     script_state: Option<HashMap<String, String>>,
     scatter_options: ScatterSettings
 ) {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes = match read_model(projectId, modelFilename) {
         Ok(b) => b,
         Err(e) => {
@@ -1107,7 +1107,7 @@ pub async fn handle_add_npc(
     npc_properties: &crate::helpers::saved_data::NPCProperties,
     behavior_id: Option<String>
 ) {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes = match read_model(projectId, modelFilename) {
         Ok(b) => b,
         Err(e) => {
@@ -1175,7 +1175,7 @@ pub async fn handle_add_collectable(
     script_state: Option<HashMap<String, String>>,
     behavior_id: Option<String>
 ) {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let bytes = match read_model(projectId, modelFilename) {
         Ok(b) => b,
         Err(e) => {
@@ -1242,7 +1242,7 @@ pub async fn handle_add_landscape(
     camera: &mut SimpleCamera
 ) {
     // w/o quadtree
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let data = get_landscape_pixels(projectId, landscapeAssetId, landscapeFilename);
 
     #[cfg(target_arch = "wasm32")]
@@ -1322,7 +1322,7 @@ pub async fn fetch_texture_data(
     landscape_id: String,
     texture_filename: String,
 ) -> Texture {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let texture_data =
             read_landscape_texture(project_id, landscape_id, texture_filename)
                 .expect("Couldn't get texture data");
@@ -1341,7 +1341,7 @@ pub async fn fetch_mask_data(
     mask_filename: String,
     mask_kind: LandscapeTextureKinds,
 ) -> Texture {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     let mask_data = read_landscape_mask(project_id, landscape_id, mask_filename, mask_kind)
         .expect("Couldn't get mask data");
 

@@ -3,11 +3,10 @@
 //!
 //! The proportional face reuses an already-embedded engine font (Figtree). No embedded
 //! monospace font exists anywhere in the engine's 60-font set (`src/renderer_text/fonts.rs`),
-//! so this loads a system font at runtime instead of shipping a new binary asset — the whole
-//! editor UI is already Windows-only (`#[cfg(target_os = "windows")]` on `src/startup.rs`),
-//! so this is not a new platform limitation. Prefers Cascadia Mono (Microsoft's modern
-//! terminal/code font), falling back to Consolas, then Courier New, then (if the machine has
-//! none of those) the proportional face itself so the app never fails to start over a font.
+//! so this loads a system font at runtime instead of shipping a new binary asset. On Windows it
+//! prefers Cascadia Mono (Microsoft's modern terminal/code font), falling back to Consolas, then
+//! Courier New; on Linux DejaVu/Noto/Liberation Mono; then (if the machine has none of those)
+//! the proportional face itself so the app never fails to start over a font.
 //!
 //! Neither text face has emoji/symbol glyph coverage, so every 👓🎮➕-style icon used across
 //! the UI used to rasterize as Figtree's `.notdef` box ("tofu"). Two more system faces are
@@ -25,6 +24,27 @@ use crate::entropy_gui::icons::{self, IconStyle};
 use crate::entropy_gui::text_layout::FaceSet;
 use crate::renderer_text::fonts::FontManager;
 use std::collections::HashMap;
+
+// Icon-fallback faces per platform. Linux has no single stock equivalent of Segoe UI Emoji whose
+// outlines fontdue can rasterize (Noto Color Emoji is bitmap-only), so it tries the monochrome
+// emoji/symbol fonts distros commonly ship, then DejaVu Sans, whose BMP symbol coverage handles
+// the arrows/checks/crosses the widgets draw.
+#[cfg(target_os = "windows")]
+const EMOJI_FONT_CANDIDATES: &[&str] = &["C:/Windows/Fonts/seguiemj.ttf"];
+#[cfg(target_os = "windows")]
+const SYMBOL_FONT_CANDIDATES: &[&str] = &["C:/Windows/Fonts/seguisym.ttf"];
+#[cfg(not(target_os = "windows"))]
+const EMOJI_FONT_CANDIDATES: &[&str] = &[
+    "/usr/share/fonts/truetype/noto/NotoEmoji-Regular.ttf",
+    "/usr/share/fonts/truetype/ancient-scripts/Symbola_hint.ttf",
+    "/usr/share/fonts/TTF/Symbola.ttf",
+];
+#[cfg(not(target_os = "windows"))]
+const SYMBOL_FONT_CANDIDATES: &[&str] = &[
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans.ttf",
+];
 
 pub struct FontRegistry {
     proportional: fontdue::Font,
@@ -61,8 +81,8 @@ impl FontRegistry {
                 .expect("failed to parse embedded UI font (Figtree) as monospace fallback")
         });
 
-        let emoji = Self::load_system_font(&["C:/Windows/Fonts/seguiemj.ttf"]);
-        let symbol = Self::load_system_font(&["C:/Windows/Fonts/seguisym.ttf"]);
+        let emoji = Self::load_system_font(EMOJI_FONT_CANDIDATES);
+        let symbol = Self::load_system_font(SYMBOL_FONT_CANDIDATES);
 
         let phosphor = PHOSPHOR_BYTES.map(|bytes| {
             fontdue::Font::from_bytes(bytes, fontdue::FontSettings::default()).expect("failed to parse embedded Phosphor icon font")
@@ -105,7 +125,12 @@ impl FontRegistry {
 
     #[cfg(not(target_os = "windows"))]
     fn load_system_monospace() -> Option<fontdue::Font> {
-        None
+        Self::load_system_font(&[
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/System/Library/Fonts/Menlo.ttc",
+        ])
     }
 
     fn load_system_font(candidates: &[&str]) -> Option<fontdue::Font> {

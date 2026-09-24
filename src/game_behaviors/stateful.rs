@@ -3,7 +3,7 @@ use nalgebra_glm::Vec3;
 use rapier3d::prelude::*;
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]

@@ -544,7 +544,7 @@ pub async fn read_texture_bytes(
     asset_id: String, // This could be landscapeId or pbr_texture_id
     file_name: String,
 ) -> Result<(Vec<u8>, u32, u32), String> {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     return read_texture_bytes_local(
         project_id,
         asset_id,

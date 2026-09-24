@@ -1,4 +1,5 @@
-// Stylus tilt capture (Windows only).
+// Stylus tilt capture (Windows only - on other platforms the tilt map is never populated, so
+// `tilt_for` always returns `None` and pens report pressure only via winit's own `Touch`).
 //
 // winit 0.30.12's `WindowEvent::Touch` carries pressure (`Force`, sourced from
 // `GetPointerPenInfo`'s `pressure` field - see winit's
@@ -27,10 +28,13 @@
 // this map *is* the "this was actually a pen" signal, not just a tilt cache.
 
 use std::collections::HashMap;
+#[cfg(target_os = "windows")]
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(target_os = "windows")]
 use windows::Win32::UI::Input::Pointer::{GetPointerPenInfo, POINTER_PEN_INFO};
+#[cfg(target_os = "windows")]
 use windows::Win32::UI::WindowsAndMessaging::{MSG, WM_POINTERDOWN, WM_POINTERUP, WM_POINTERUPDATE};
 
 /// Tilt/button reading for one pointer. Tilt is in degrees (`POINTER_PEN_INFO::tiltX/tiltY`'s
@@ -59,10 +63,15 @@ pub struct PenTilt {
 // `winuser.h`. PEN_FLAG_BARREL / PEN_FLAG_INVERTED / PEN_FLAG_ERASER (1, 2, 4) are bound, in
 // `Win32::UI::WindowsAndMessaging` as of windows 0.58.0 (checked against that crate's source); an
 // older version of this comment said they were not.
+#[cfg(target_os = "windows")]
 const PEN_MASK_TILT_X: u32 = 0x00000004;
+#[cfg(target_os = "windows")]
 const PEN_MASK_TILT_Y: u32 = 0x00000008;
+#[cfg(target_os = "windows")]
 const PEN_FLAG_BARREL: u32 = 0x00000001;
+#[cfg(target_os = "windows")]
 const PEN_FLAG_INVERTED: u32 = 0x00000002;
+#[cfg(target_os = "windows")]
 const PEN_FLAG_ERASER: u32 = 0x00000004;
 
 fn tilt_map() -> &'static Mutex<HashMap<u32, PenTilt>> {
@@ -72,6 +81,7 @@ fn tilt_map() -> &'static Mutex<HashMap<u32, PenTilt>> {
 
 /// Install as `EventLoopBuilder::with_msg_hook`. Returns `false` always - this only observes
 /// pointer messages, it never claims to have handled them.
+#[cfg(target_os = "windows")]
 pub fn msg_hook_capture_tilt(msg_ptr: *const c_void) -> bool {
     // Safety: `with_msg_hook`'s contract is that `msg_ptr` points to a valid Win32 `MSG` for the
     // duration of this call - the same guarantee winit's own doc example relies on.

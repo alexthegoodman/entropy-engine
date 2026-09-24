@@ -1,7 +1,10 @@
+// Window/screen recording below uses Windows Graphics Capture and is Windows-only; the plain
+// data types (MousePosition, SourceData, ...) are shared with the editor on every platform.
 use device_query::{DeviceQuery, DeviceState, MouseState};
 use serde_json::json;
 use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
+#[cfg(target_os = "windows")]
 use windows_capture::encoder::VideoSettingsSubType;
 
 use serde::{Deserialize, Serialize};
@@ -10,21 +13,27 @@ use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+#[cfg(target_os = "windows")]
 use windows_capture::window::Window;
 
+#[cfg(target_os = "windows")]
 use windows::{
     Win32::Foundation::{BOOL, HWND, LPARAM, RECT},
     Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowRect, GetWindowTextW, IsWindowVisible},
 };
 
+#[cfg(target_os = "windows")]
 use std::ffi::c_void;
+#[cfg(target_os = "windows")]
 use windows_capture::monitor::Monitor;
+#[cfg(target_os = "windows")]
 use windows_capture::{
     capture::{Context, GraphicsCaptureApiHandler},
     encoder::{AudioSettingsBuilder, ContainerSettingsBuilder, VideoEncoder, VideoSettingsBuilder},
     frame::Frame,
     graphics_capture_api::InternalCaptureControl,
 };
+#[cfg(target_os = "windows")]
 use windows_capture::settings::{
     ColorFormat, CursorCaptureSettings, DirtyRegionSettings, DrawBorderSettings,
     MinimumUpdateIntervalSettings, SecondaryWindowSettings, Settings,
@@ -73,12 +82,14 @@ pub struct SourceData {
     pub scale_factor: f32,
 }
 
+#[cfg(target_os = "windows")]
 pub struct StCapture {
     pub state: MouseTrackingState,
     pub capture_dir: PathBuf,
     pub video_completion_callback: Option<Arc<dyn Fn(String) + Send + Sync + 'static>>,
 }
 
+#[cfg(target_os = "windows")]
 impl StCapture {
     pub fn new(capture_dir: PathBuf) -> StCapture {
         let state = MouseTrackingState {
@@ -410,6 +421,7 @@ impl StCapture {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_sources() -> Result<Vec<WindowInfo>, String> {
     // use windows::Win32::Foundation::BOOLEAN;
 
@@ -454,6 +466,7 @@ pub fn get_sources() -> Result<Vec<WindowInfo>, String> {
     Ok(windows)
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_window_info(hwnd: HWND) -> Result<(String, RECT), String> {
     unsafe {
         let mut rect = RECT::default();
@@ -466,6 +479,7 @@ pub fn get_window_info(hwnd: HWND) -> Result<(String, RECT), String> {
     }
 }
 
+#[cfg(target_os = "windows")]
 pub fn get_window_info_by_usize(hwnd_value: usize) -> Result<WindowInfo, String> {
     // Convert the usize back into an HWND
     let hwnd = HWND(hwnd_value as *mut _);
@@ -489,6 +503,7 @@ pub fn get_window_info_by_usize(hwnd_value: usize) -> Result<WindowInfo, String>
     }
 }
 
+#[cfg(target_os = "windows")]
 struct Capture {
     encoder: Option<VideoEncoder>,
     is_recording: Arc<AtomicBool>,
@@ -497,6 +512,7 @@ struct Capture {
     completion_callback: Option<Arc<dyn Fn(String) + Send + Sync + 'static>>,
 }
 
+#[cfg(target_os = "windows")]
 impl GraphicsCaptureApiHandler for Capture {
     type Flags = (String, String, u32, u32, Arc<AtomicBool>, Option<Arc<dyn Fn(String) + Send + Sync + 'static>>);
     type Error = Box<dyn std::error::Error + Send + Sync>;

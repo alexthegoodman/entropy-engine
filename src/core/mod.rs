@@ -16,6 +16,7 @@ pub mod pipeline;
 pub mod shadow_pipeline;
 pub mod ui_pipeline;
 pub mod glass_blur;
+pub mod surface_blit;
 pub mod animation_system;
 pub mod custom_mesh;
 pub mod AnimationState;

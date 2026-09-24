@@ -4,7 +4,7 @@ use std::env;
 /// stub per example. Pick one with `cargo run --bin example -- <name>`.
 #[tokio::main]
 async fn main() {
-    #[cfg(target_os = "windows")]
+    #[cfg(not(target_arch = "wasm32"))]
     {
         let name = env::args().nth(1);
 

@@ -11,7 +11,7 @@ use super::super::{
     SimpleCamera::SimpleCamera,
 };
 
-#[cfg(target_os = "windows")]
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
 
 #[cfg(target_arch = "wasm32")]
