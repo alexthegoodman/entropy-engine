@@ -91,6 +91,10 @@ name = "guitar_live_bdd"
 harness = false
 
 [[test]]
+name = "daw_brass_live"
+
+
+[[test]]
 name = "vst3_offline_render_bdd"
 harness = false
 

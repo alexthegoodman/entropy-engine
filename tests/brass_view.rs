@@ -61,6 +61,30 @@ fn opts(physics: bool) -> BrassViewOptions {
 }
 
 #[test]
+fn the_visible_keyboard_plays_releases_and_glides_between_keys() {
+    let shared = BrassShared::default();
+    let mut h = Harness::new(W, H);
+    let o = opts(false);
+    let _ = frame(&mut h, &o, &shared, PointerState::default());
+    let keys = entropy_engine::entropy_gui::widgets_wavetable::key_layout(
+        o.first_key, o.key_octaves,
+        Rect::from_min_size(pos2(10.0, H as f32 - 10.0 - 60.0), vec2(W as f32 - 20.0, 60.0)),
+    );
+    let key = |midi| keys.iter().find(|(m, _, _)| *m == midi).unwrap().1.center();
+    let c = key(48);
+    let d = key(50);
+    let press = PointerState { pos: Some(c), primary_down: true, primary_pressed: true, ..Default::default() };
+    let (events, _) = frame(&mut h, &o, &shared, press);
+    assert!(events.iter().any(|e| matches!(e, BrassViewEvent::KeyDown { midi: 48, .. })), "press: {events:?}");
+    let drag = PointerState { pos: Some(d), primary_down: true, ..Default::default() };
+    let (events, _) = frame(&mut h, &o, &shared, drag);
+    assert!(events.contains(&BrassViewEvent::KeyUp { midi: 48 }), "drag: {events:?}");
+    assert!(events.iter().any(|e| matches!(e, BrassViewEvent::KeyDown { midi: 50, .. })), "drag: {events:?}");
+    let (events, _) = frame(&mut h, &o, &shared, PointerState { pos: Some(d), ..Default::default() });
+    assert!(events.contains(&BrassViewEvent::KeyUp { midi: 50 }), "release: {events:?}");
+}
+
+#[test]
 fn the_view_draws_a_sounding_trombone_and_physics_view_adds_to_it() {
     let (shared, _voice) = sounding(BrassParams { freq: 233.08, breath: 0.6, breath_noise: 0.0, ..Default::default() }, 0.6);
     let mut h = Harness::new(W, H);
