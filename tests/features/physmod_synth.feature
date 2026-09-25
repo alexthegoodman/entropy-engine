@@ -1,106 +1,156 @@
-Feature: The bowed-string voice settles on pitch and its bow controls change the tone
+Feature: The bowed-string instrument behaves like a bowed string
 
-  Every scenario renders real notes through the real `PhysModVoice`, offline: no audio device,
-  nothing timed by a clock. Assertions are facts about the spectrum (the strongest partial's
-  frequency, the spectral centroid) measured well after note-on, since the regenerative sustain (see
-  `src/audio/physmod.rs`) takes a little while to settle onto the fundamental the same way a real
-  bowed note has an attack transient before clean Helmholtz motion takes over.
+  Every scenario plays real notes through the real instrument (src/audio/physmod/), offline: no
+  audio device, nothing timed by a clock. Assertions are measurements - pitch in cents, the bow's
+  stick/slip statistics, levels, spectra - taken once the stroke has settled, the same way the model
+  was developed without anyone listening to it.
 
   # ---------------------------------------------------------------- pitch
 
-  Scenario Outline: A bowed note settles on the requested pitch across the register
-    Given a bowed string
+  Scenario Outline: A bowed note is in tune across the violin
+    Given a violin
     And a note of <hz> Hz
-    When I render the note as "note" for 1.3 seconds
-    Then "note" measured from 0.5 seconds has its strongest partial within 3 percent of <hz> Hz
+    When I play the note for 0.8 seconds
+    Then its pitch is within 6 cents of <hz> Hz
 
     Examples:
-      | hz     |
-      | 65.41  |
-      | 110.0  |
-      | 220.0  |
-      | 440.0  |
-      | 880.0  |
+      | hz      |
+      | 196.0   |
+      | 261.63  |
+      | 440.0   |
+      | 587.33  |
+      | 987.77  |
+      | 1567.98 |
 
-  # ---------------------------------------------------------------- bow force
+  Scenario: A cello's low C is in tune
+    Given a cello
+    And a note of 65.41 Hz
+    When I play the note for 1.0 seconds
+    Then its pitch is within 8 cents of 65.41 Hz
 
-  Scenario: A harder bow brightens the tone
-    Given a bowed string
-    And a note of 220.0 Hz
-    And the bow force is 0.15
-    When I render the note as "soft" for 0.7 seconds
-    Given the bow force is 0.95
-    When I render the note as "hard" for 0.7 seconds
-    Then "hard" measured from 0.3 seconds is brighter than "soft" measured from 0.3 seconds
+  # ---------------------------------------------------------------- the bow
 
-  # ---------------------------------------------------------------- bow position
+  Scenario: A normal stroke is Helmholtz motion
+    Given a violin
+    And a note of 440.0 Hz
+    And the bow position is 0.12
+    When I play the note for 0.8 seconds
+    Then the bow is in Helmholtz motion
+    And the string sticks to the bow for about 88 percent of each period
+    And the stroke settled within 0.2 seconds
 
-  Scenario: Bowing closer to the bridge shifts the harmonic balance
-    Given a bowed string
-    And a note of 220.0 Hz
-    And the bow position is 0.04
-    When I render the note as "bridge" for 0.7 seconds
-    Given the bow position is 0.45
-    When I render the note as "middle" for 0.7 seconds
-    Then "bridge" measured from 0.3 seconds and "middle" measured from 0.3 seconds differ in brightness by at least 3 percent
+  Scenario Outline: Schelleng's playable window
+    Given a violin
+    And a note of 293.66 Hz
+    And the bow position is <position>
+    And the bow force is <force>
+    And the bow speed is <speed>
+    When I play the note for 0.8 seconds
+    Then the bow is in <regime>
 
-  # ---------------------------------------------------------------- damping
+    Examples:
+      | position | force | speed | regime            |
+      | 0.05     | 0.15  | 0.5   | surface sound     |
+      | 0.05     | 0.75  | 0.5   | Helmholtz motion  |
+      | 0.13     | 0.5   | 0.5   | Helmholtz motion  |
+      | 0.13     | 1.0   | 0.3   | raucous motion    |
 
-  Scenario: More damping shortens the release
-    Given a bowed string
-    And a note of 220.0 Hz
-    And the damping is 0.0
-    And the note is held for 0.3 seconds with a release of 0.4
-    When I render the gated note as "low-damping"
-    Given the damping is 1.0
-    When I render the gated note as "high-damping"
-    Then "high-damping" does not outlast "low-damping"
+  Scenario: A faster bow is louder
+    Given a violin
+    And a note of 440.0 Hz
+    And the bow speed is 0.35
+    When I play the note as "slow" for 0.8 seconds
+    Given the bow speed is 0.5653
+    And the bow force is 0.6505
+    When I play the note as "fast" for 0.8 seconds
+    Then "fast" is between 3.5 and 8.5 dB louder than "slow"
 
-  # ---------------------------------------------------------------- vibrato
+  Scenario: Bowing near the bridge is brighter than near the fingerboard
+    Given a violin
+    And a note of 293.66 Hz
+    And the body mix is 0.0
+    And the bow position is 0.2
+    And the bow force is 0.35
+    When I play the note as "tasto" for 0.8 seconds
+    Given the bow position is 0.05
+    And the bow force is 0.8
+    When I play the note as "ponticello" for 0.8 seconds
+    Then "ponticello" is at least 15 percent brighter than "tasto"
 
-  Scenario: Vibrato moves the pitch away from a flat tone
-    Given a bowed string
-    And a note of 330.0 Hz
-    And the note is held for 1.1 seconds with a release of 0.1
-    When I render the note as "flat" for 1.2 seconds
-    Given vibrato of 2.0 Hz and depth 200.0 cents
-    When I render the note as "wobbly" for 1.2 seconds
-    Then the pitch of "wobbly" moves more between 0.625 and 0.875 seconds than the pitch of "flat" does
+  # ---------------------------------------------------------------- the instrument
 
-  # ---------------------------------------------------------------- body
+  Scenario: The open G string rings in sympathy with a G, not with an F sharp
+    Given a violin
+    And a note of 392.0 Hz
+    When I play the note for 1.0 seconds
+    Then the open G string is ringing at least 4 times as strongly as it does for 370.0 Hz
 
-  Scenario: A larger body darkens the tone
-    Given a bowed string
+  Scenario: On a strongly coupled cello a light bow stutters on the wolf, and a firm bow tames it
+    Given a cello
+    And the bridge coupling is 1.0
+    And a note of 163.6 Hz
+    And the bow force is 0.3
+    When I play the note for 1.6 seconds
+    Then the bow is not in Helmholtz motion
+    Given the bow force is 0.7
+    When I play the note for 1.6 seconds
+    Then the bow is in Helmholtz motion
+
+  Scenario: The same light bow plays that note cleanly on a normally coupled cello
+    Given a cello
+    And the bridge coupling is 0.35
+    And a note of 163.6 Hz
+    And the bow force is 0.3
+    When I play the note for 1.6 seconds
+    Then the bow is in Helmholtz motion
+
+  Scenario: A larger body carries more low-frequency energy
+    Given a violin
     And a note of 220.0 Hz
     And the body size is 0.0
-    And the body mix is 0.9
-    When I render the note as "violin-body" for 0.7 seconds
+    When I play the note as "violin-body" for 0.8 seconds
     Given the body size is 1.0
-    When I render the note as "bass-body" for 0.7 seconds
-    Then "bass-body" measured from 0.3 seconds is darker than "violin-body" measured from 0.3 seconds
+    When I play the note as "bass-body" for 0.8 seconds
+    Then "bass-body" is darker than "violin-body"
 
-  # ---------------------------------------------------------------- stability
+  Scenario: A plucked note dies away
+    Given a violin
+    And a note of 392.0 Hz
+    And the articulation is pizzicato
+    When I render the note as "pizz" for 1.2 seconds
+    Then "pizz" is at least 10 dB quieter at 0.9 seconds than at 0.05 seconds
 
-  Scenario Outline: The output stays finite and bounded across bow force, velocity and position
-    Given a bowed string
-    And a note of 440.0 Hz
+  Scenario: Vibrato moves the pitch by its depth
+    Given a violin
+    And a note of 330.0 Hz
+    And vibrato of 1.0 Hz and depth 50.0 cents starting at once
+    When I render the note as "wobbly" for 2.0 seconds
+    Then the pitch of "wobbly" differs between 1.25 and 1.75 seconds by about 100 cents
+
+  # ---------------------------------------------------------------- robustness and lifecycle
+
+  Scenario Outline: The output stays finite and bounded, even for impossible instruments
+    Given a violin
+    And a note of 220.0 Hz
+    And the body size is <size>
     And the bow force is <force>
-    And the bow velocity is <velocity>
-    And the bow position is <position>
-    When I render the note as "sweep" for 0.3 seconds
-    Then "sweep" is finite and never exceeds 3.0 in magnitude
+    And the bow speed is 1.0
+    And the bridge coupling is <coupling>
+    And the string stiffness is <stiffness>
+    When I render the note as "lab" for 0.4 seconds
+    Then "lab" is finite and never exceeds 4.0 in magnitude
 
     Examples:
-      | force | velocity | position |
-      | 0.0   | 0.0      | 0.02     |
-      | 0.5   | 0.5      | 0.15     |
-      | 1.0   | 1.0      | 0.5      |
-
-  # ---------------------------------------------------------------- lifecycle
+      | size | force | coupling | stiffness |
+      | -1.0 | 1.0   | 1.0      | 1.0       |
+      | 0.0  | 0.0   | 0.35     | 0.0       |
+      | 2.5  | 1.0   | 1.0      | 0.5       |
 
   Scenario: A timed note ends by itself and a gated note waits for its gate
-    Given a bowed string
-    And a note of 220.0 Hz
-    And the note is held for 0.1 seconds with a release of 0.05
-    When I render the note as "timed" for 5.0 seconds
-    Then "timed" lasts between 0.1 and 0.25 seconds
+    Given a violin
+    And a note of 330.0 Hz
+    And the note is held for 0.2 seconds with a release of 0.05
+    When I render the note as "timed" for 10.0 seconds
+    Then "timed" lasts between 0.2 and 1.5 seconds
+    When I hold the gated note as "gated" for 1.0 seconds
+    Then "gated" lasts between 1.0 and 2.5 seconds

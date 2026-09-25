@@ -4737,6 +4737,8 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                         first_key: config.first_key.map(|k| k.min(96) as u8).unwrap_or(d.first_key),
                         key_octaves: config.octaves.map(|o| o.clamp(1, 5) as u8).unwrap_or(d.key_octaves),
                         held: config.held.clone().unwrap_or_default().into_iter().map(|k| k.min(127) as u8).collect(),
+                        physics_view: config.physics_view.unwrap_or(d.physics_view),
+                        exaggeration: config.exaggeration.unwrap_or(d.exaggeration),
                     };
                     let resp = PhysModView::new(pm_id.as_str()).show(ui, &opts, &shared);
                     for event in resp.events {
@@ -4744,6 +4746,7 @@ globalThis.Entropy._dispatchGameStarted('" + game_name.clone() + "')";
                             PhysModEvent::BowDrag { position, force } => format!("PHYSMOD_BOW_DRAG|{}|{:.4}|{:.4}", pm_id, position, force),
                             PhysModEvent::KeyDown { midi, velocity } => format!("PHYSMOD_KEY_DOWN|{}|{}|{:.3}", pm_id, midi, velocity),
                             PhysModEvent::KeyUp { midi } => format!("PHYSMOD_KEY_UP|{}|{}", pm_id, midi),
+                            PhysModEvent::PhysicsView(on) => format!("PHYSMOD_PHYSICS_VIEW|{}|{}", pm_id, on as u8),
                         });
                     }
                 }

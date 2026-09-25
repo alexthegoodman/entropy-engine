@@ -1672,10 +1672,16 @@ export interface PhysModViewConfig {
    * when the user drags the bow to somewhere else. */
   bowPosition?: number;
   bowForce?: number;
-  /** 0..1, violin to bass; changes how large the drawn body glow reads. */
+  /** Instrument size (0 violin .. 1 bass, beyond is the laboratory); scales the drawn body. */
   bodySize?: number;
-  /** Which of the (up to 4) drawn strings is highlighted as the one currently sounding. */
+  /** Which string to put the bow on before anything has sounded (after that the view follows the
+   * engine's own choice of string). */
   activeString?: number;
+  /** Show the Physics View overlays: standing-wave envelopes and nodes, the travelling Helmholtz
+   * corner, the playable-window (Schelleng) diagram - draggable, like the bow - and body mode levels. */
+  physicsView?: boolean;
+  /** Extra visual exaggeration of string motion, 1 = default. */
+  exaggeration?: number;
   /** Show the on-screen keyboard. Default true. */
   keyboard?: boolean;
   /** MIDI note of the keyboard's first key (a C). Default 48. */
@@ -1688,15 +1694,65 @@ export interface PhysModViewConfig {
   onBowDrag?: (position: number, force: number) => void;
   onKeyDown?: (midi: number, velocity: number) => void;
   onKeyUp?: (midi: number) => void;
+  /** The PHYSICS chip in the view was clicked. */
+  onPhysicsView?: (on: boolean) => void;
 }
 
 export interface PhysModOk { ok: boolean; error?: string }
+
+/** What the bow is doing to a string: clean Helmholtz motion, surface sound (too little force for
+ * the bow position), raucous (too much), or nothing (bow off). */
+export type PhysModRegime = "helmholtz" | "surfaceSound" | "raucous" | "free";
+
+export interface PhysModStringInfo {
+  openHz: number;
+  /** The pitch the finger is stopping. */
+  hz: number;
+  /** Finger position as a fraction of the open string from the nut (0 = open). */
+  finger: number;
+  bowPosition: number;
+  level: number;
+  bowForceN: number;
+  bowSpeed: number;
+  /** The playable window for the current bow speed and position, newtons. */
+  forceMinN: number;
+  forceMaxN: number;
+  stickFraction: number;
+  slipsPerPeriod: number;
+  regime: PhysModRegime;
+  sympathetic: boolean;
+  playing: boolean;
+}
 
 export interface PhysModInfo extends PhysModOk {
   id?: string;
   activeVoices?: number;
   /** The bow's current state and how loud the voices on this instrument are; null when silent. */
   activity?: { bowPosition: number; bowForce: number; bowVelocity: number; energy: number } | null;
+  activeString?: number | null;
+  strings?: PhysModStringInfo[];
+  /** The body's coupled modes: frequency and how hard each is ringing. */
+  bodyModes?: { hz: number; level: number }[];
+}
+
+export interface PhysModNoteAnalysis extends PhysModOk {
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  /** Same as pitchHz (kept for callers of the first version). */
+  peakHz?: number;
+  pitchHz?: number;
+  /** Measured pitch against the requested one, cents. */
+  centsOff?: number;
+  centroidHz?: number;
+  /** Harmonics 1..16 relative to the strongest, dB. */
+  harmonicsDb?: number[];
+  string?: number;
+  regime?: PhysModRegime | null;
+  slipsPerPeriod?: number;
+  stickFraction?: number;
+  /** Seconds until the stroke settled into Helmholtz motion; null if it never did. */
+  attackSeconds?: number | null;
 }
 
 /** A bowed-string note. Anything left out takes its default. */
@@ -1705,25 +1761,50 @@ export interface PhysModNoteConfig {
   freq?: number;
   velocity?: number;
   gain?: number;
-  /** 0..1. How hard the bow presses - widens the "stuck" region of the tone, reading as richer,
-   * not simply louder. */
+  /** 0..1, logarithmic bow force (0.5 a normal force). Too little for the bow position gives airy
+   * "surface sound", too much a raucous crunch - Schelleng's playable window, from the friction
+   * physics. */
   bowForce?: number;
-  /** 0..1. How fast the bow moves. */
+  /** 0..1, logarithmic bow speed (0.5 is ~0.15 m/s). */
   bowVelocity?: number;
-  /** 0.02..0.5, fraction of the string's length from the bridge. Small is near the bridge
-   * (brighter, more nasal); larger moves toward mid-string (rounder). */
+  /** 0.02..0.5, fraction of the vibrating length from the bridge. Near the bridge is brighter and
+   * needs more force; toward the fingerboard is soft. */
   bowPosition?: number;
+  articulation?: "arco" | "pizzicato" | "colLegno";
+  /** 0..1, how cleanly a stroke starts. */
+  attackSkill?: number;
   vibratoRate?: number;
   /** Cents. */
   vibratoDepth?: number;
-  /** 0..1, extra damping on top of the string's own loss. */
+  /** Seconds before vibrato fades in. */
+  vibratoDelay?: number;
+  /** Seconds for a slurred note's finger to slide. */
+  slide?: number;
+  /** 0..1, extra damping on the strings (a left-hand mute). */
   damping?: number;
-  /** 0..1, a character tweak: lower is darker/thicker, higher is airier. */
+  /** 0..1, string material: dark gut to bright steel. */
   brightness?: number;
-  /** 0..1, violin-register body resonances at 0, moving toward a bass-register body at 1. */
+  /** 0..1, how freely a released note rings on. */
+  ring?: number;
+  /** Open-string pitches, low to high (up to 4). Omitted: a violin. */
+  strings?: number[];
+  /** Unbowed strings ringing in sympathy (up to 6). */
+  sympathetic?: number[];
+  /** 0..1 each: string weight, bending stiffness, rosin grip, bow-hair grit. */
+  stringMass?: number;
+  stiffness?: number;
+  rosin?: number;
+  bowNoise?: number;
+  /** Instrument size: 0 violin, 0.13 viola, 0.72 cello, 1 bass; -1..2.5 allowed. */
   bodySize?: number;
-  /** 0..1, how much of the body-colored signal is mixed in versus the raw string. */
+  /** 0..1, how much of the body's radiated sound versus the bare string. */
   bodyMix?: number;
+  /** 0..1, body mode Q. */
+  bodyResonance?: number;
+  /** 0..1, bridge coupling (0.35 normal): sympathetic ringing, and wolf notes when high. */
+  coupling?: number;
+  /** Picks the body's high-frequency modes (a different maker). */
+  bodySeed?: number;
   attack?: number;
   release?: number;
   /** Seconds to hold before releasing (timed notes). */
@@ -1735,10 +1816,11 @@ export interface PhysModNoteConfig {
 export interface PhysModAPI {
   info: (id: string) => PhysModInfo;
   remove: (id: string) => boolean;
-  /** The loop's current cycle shape for the visualization. */
+  /** The most recently played string's current shape (finger to bridge), for a custom drawing. */
   shape: (id: string) => PhysModOk & { version?: number; points?: number[] };
-  /** Plays a note offline and reads it back; no audio device involved. */
-  analyzeNote: (config: PhysModNoteConfig, seconds?: number) => PhysModOk & { seconds?: number; peakDb?: number; rmsDb?: number; peakHz?: number; centroidHz?: number };
+  /** Plays a note offline and reads it back - pitch, level, spectrum and what the bow did; no
+   * audio device involved. */
+  analyzeNote: (config: PhysModNoteConfig, seconds?: number) => PhysModNoteAnalysis;
 }
 
 /** What `Audio.analyze` returns. */

@@ -1338,12 +1338,13 @@ globalThis.Entropy = {
                     });
                 }
             },
-            // A physically modeled bowed string, drawn the same neon-terrain way as Widget.wavetable
+            // A physically modeled bowed-string instrument, drawn the same neon way as Widget.wavetable
             // (see Entropy.PhysMod and entropy_gui::PhysModView). Nothing crosses into JS per frame:
             // the widget reads the engine's PhysModShared directly. config: {instrument, height,
             // width, bowPosition, bowForce, bodySize, activeString, keyboard, firstKey, octaves,
-            // held}; the caller owns every field and hears about changes through the callbacks:
-            // onBowDrag(position, force), onKeyDown(midi, velocity), onKeyUp(midi).
+            // held, physicsView, exaggeration}; the caller owns every field and hears about changes
+            // through the callbacks: onBowDrag(position, force), onKeyDown(midi, velocity),
+            // onKeyUp(midi), onPhysicsView(on).
             physModString: (windowId, config) => {
                 const id = nextWidgetId(windowId, "physmod", config?.id);
                 ops.op_ui_widget_physmod(windowId, { ...(config || {}) }, id);
@@ -1355,6 +1356,7 @@ globalThis.Entropy = {
                         if (type === "PHYSMOD_BOW_DRAG" && config.onBowDrag) config.onBowDrag(parseFloat(parts[2]), parseFloat(parts[3]));
                         else if (type === "PHYSMOD_KEY_DOWN" && config.onKeyDown) config.onKeyDown(parseInt(parts[2], 10), parseFloat(parts[3]));
                         else if (type === "PHYSMOD_KEY_UP" && config.onKeyUp) config.onKeyUp(parseInt(parts[2], 10));
+                        else if (type === "PHYSMOD_PHYSICS_VIEW" && config.onPhysicsView) config.onPhysicsView(parts[2] === "1");
                     });
                 }
             },

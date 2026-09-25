@@ -539,6 +539,11 @@ pub struct PhysModViewConfig {
     pub first_key: Option<u32>,
     pub octaves: Option<u32>,
     pub held: Option<Vec<u32>>,
+    /// Show the Physics View overlays (standing waves, the Helmholtz corner, the playable-window
+    /// diagram, body modes).
+    pub physics_view: Option<bool>,
+    /// Extra visual exaggeration of string motion, 1 = default.
+    pub exaggeration: Option<f32>,
 }
 
 /// `Widget.oscilloscope` - see `entropy_gui::Oscilloscope`. `source` is `"master"` or a track id.
