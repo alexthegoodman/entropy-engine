@@ -582,12 +582,16 @@ rendered audio, and the tests keep those measurements in place.
 
 | Piece | File | What it is |
 |---|---|---|
-| Bore | `bore.rs` | Sections (cones, cylinders, Bessel flares) in three runs - front (mouthpiece, leadpipe), cylinder (slide), bell. Stock tenor trombone: .547" bore, 8.5" bell, ~2.8 m, bell stem and flare chosen (by search, as a maker would by trial) so the resonances line up. |
+| Bore | `bore.rs` | Sections (cones, cylinders, Bessel flares) in three runs - front (mouthpiece, leadpipe), cylinder (slide or valves), bell. Stock tenor trombone (.547" bore, 8.5" bell, ~2.8 m), B♭ trumpet (.459", ~1.4 m), double horn (B♭ side, with the F side's extra tube), F tuba (mostly conical); tapers and flares chosen (by search, as a maker would by trial) so the resonances line up. An `Obstruction` (a mute's cork, the horn player's hand) narrows part of the bell, so it moves the resonances in both the reference and the waveguide. |
 | Reference acoustics | `impedance.rs` | Transfer-matrix input impedance on a 1 mm staircase, visco-thermal losses and slowing (the boundary-layer `Gamma`), lumped radiation load; peak finding. Build time and tests only. |
 | Air column | `airbore.rs` | Runtime waveguide: Kelly-Lochbaum cells (one sample, ~3.9 mm each) for the front and bell, fractional delay lines for the cylinder, one lumped linear-phase loss filter per direction, boundary-layer slowing at the played pitch, radiation reflection filter, and pressure-dependent propagation in four forward segments (the generalized-Burgers steepening - brassiness - planned as `burgers.rs`, folded in here). |
 | Lips | `lips.rs` | One-mass outward-striking valve, Bernoulli flow solved in closed form against the mouthpiece each sample, lip collision. |
 | Instrument + player | `engine.rs` | 2x oversampling. The player: partial and slide position from the reference resonances (precomputed once per instrument), lip setting from the fitted laws, tongue with breath built up behind it, guided attack (`attack_skill`), attack assist, slurs (soft "da" across positions, lip slurs), glissando, slide vibrato, intonation by ear (slide, or lips bent up at first position), remembered corrections for repeated notes. |
-| Runtime | `mod.rs` | `render_note`, `render_phrase` (offline). |
+| Family | `engine.rs` | `BrassInstrument` (trombone, trumpet, horn, tuba), `Mechanism` (slide, or valves whose tubes add - so combinations come out sharp - and the horn's F side), the valve fingering chart, `Mute` (straight, cup, harmon: an obstruction plus the mute body's colour as filters), the hand, and bell facing (a blend of the on-axis and radiated-power outputs, with the shadow of a bell pointing away). |
+| Runtime | `mod.rs` | `render_note`, `render_phrase` (offline); `BrassShared` (lock-free state the view reads: bore pressure, one period of mouthpiece pressure and lip opening, the resonance ladder, the slide or valves, mute, hand, bell); `BrassLive` (breath, lips, vibrato and bend on held notes); `BrassVoice` / `BrassInstrumentVoice` (one player per track, so notes slur); `render_performance` (a track's notes offline, for export). |
+| Audio engine and scripts | `src/audio/mod.rs`, `src/deno/brass_ops.rs` | Brass notes on track buses (timed and held), live controls, offline export; `Entropy.Brass` (`info`, `remove`, `analyzeNote`). |
+| View | `src/entropy_gui/widgets_brass.rs` | `BrassView`: each instrument laid out from its own bore (the path is as long as the air column), valve loops as long as the tube they add with the air going round a loop when its valve is down, the mute or hand drawn where the bore is obstructed; Physics View (standing wave, resonance ladder, playing map, one period of lips and mouthpiece). |
+| DAW | `examples/studio-bundle/src/apps/daw_brass.ts`, `daw_synth_addon.ts` | Brass tracks (waveform `"brass"`): instrument, playing styles, mute, hand, bell, the Brass window and the `daw_brass` AI tool. |
 
 ## Phase 1 progress (build steps above)
 
@@ -597,9 +601,11 @@ rendered audio, and the tests keep those measurements in place.
 4. **Player and tuning - done.** In tune across the range at every dynamic (see below).
 5. **Dynamics and brassiness - done.**
 6. **Articulation and attack skill - done** (tongued, legato, glissando; cracked entrances).
-7. **Trumpet, horn, tuba, mutes, hand, bell angle - not started.**
-8. **Live voice, `BrassShared`, 3D view, Physics View, DAW integration - not started.** The engine
-   is not yet reachable from the DAW; it renders offline.
+7. **Trumpet, horn, tuba, mutes, hand, bell angle - done.** Each instrument plays its range in
+   tune with the fingerings a player would use; stopped horn, the three mutes and bell facing are
+   measured (see below).
+8. **Live voice, `BrassShared`, 3D view, Physics View, DAW integration - done.** Brass tracks play
+   live (keys, the view's slide and playing map, knobs) and in the sequencer and export.
 9. **Laboratory and sections - not started.**
 
 ## Decisions the measurements made
@@ -627,14 +633,35 @@ rendered audio, and the tests keep those measurements in place.
   notes crack.
 - **What the listener hears.** A point source keeps getting brighter with frequency forever; above
   the bell's cutoff (`ka ~ 1`, ~500 Hz for this bell) the radiated power per unit flow stops rising.
-  The output is the radiated power's pressure. An on-axis "bells toward you" beam arrives with the
-  bell-angle control (step 7).
+  The output is the radiated power's pressure, blended with the on-axis beam by the bell-facing
+  control: a bell pointed at the listener carries its highs; one pointed away is shadowed.
+- **Valves are the nominal chart, trimmed.** Choosing the valve combination whose real resonance
+  is nearest the note picks fingerings no player uses. The player takes the standard chart (fewest
+  valves, the out-of-tune partials 7, 11, 13 and 14 avoided, the horn's F side below about E4) and
+  trims toward the resonance by up to 45 cents, as valve slides and lipping do; the ear does the
+  rest.
+- **Each instrument aims its lips a little differently.** The slot maps for the trumpet, horn and
+  tuba put the fastest, surest attacks at a slightly different fraction of the resonance than the
+  trombone's (0.88-1.0 of the trombone's aim, per partial); these are fitted from the maps. A note
+  that cracks to a neighbouring partial is found again by the player (up to three tries, fewer for
+  a less skilled player).
+- **The tuba is conical.** A tuba fitted with a long cylinder, like the trombone, would not line
+  up; its length is almost all in the widening bell branch, which is what gives it a usable first
+  resonance (pedal notes are played on the tuba only).
+- **The hand is in the bore.** The horn player's hand and a mute's cork are part of the bore
+  profile, not filters: the hand closing the throat moves every upper resonance so that a stopped
+  neighbour appears about a semitone above it - the reason stopped horn sounds a semitone high.
+  The player knows its own stopped instrument and plays it in tune; the tone gets brighter and
+  quieter by itself. A mute's body (its cup, its harmon chamber) colours the sound with filters on
+  top of the bore change.
 - **Shock fronts.** The nonlinear delay's read point may move at most half a sample per sample, so
   where the wave would overtake itself the front is held at the steepest a sampled wave can carry.
 
 ## How it is verified (no audio device needed)
 
-Run with `cargo test --release --lib brass` and `cargo test --release --test brass_no_alloc`.
+Run with `cargo test --release --lib brass`, `cargo test --release --test brass_no_alloc`,
+`cargo test --release --test brass_view` and, in `examples/studio-bundle`,
+`npx vitest run tests/daw_brass.test.ts`.
 
 | Claim | Where |
 |---|---|
@@ -653,7 +680,18 @@ Run with `cargo test --release --lib brass` and `cargo test --release --test bra
 | The wavefront at the bell steepens 8x+ from *mf* to *ff* | same |
 | Slide vibrato swings the pitch by the depth asked | same |
 | Bounded output for impossible settings; released notes fall silent | same |
+| Trumpet resonances 2-10 within 25 cents of the series and the first far below it; horn 2-12 and tuba 1-8 within 12 (the tuba's first within 30) | `brass::tests` |
+| Valve combinations add their tubes: 1+3 comes out 15-40 cents sharp; the horn's F side is a fourth of tube | same |
+| Standard fingerings (B♭4 open, C4 1+3, A4 on 2, the horn's F3 on the F side...) and each range in tune within 8 cents (the tuba's lowest within 20) | same |
+| Stopping the horn puts a resonance 80-170 cents above each of 9-16; stopped A4 in tune within 10 cents, centroid 1.3x+ higher, 6 dB+ quieter | same |
+| Each mute keeps the trombone in tune within 8 cents; straight quieter and thinner, cup quieter and darker, harmon 12 dB+ quieter and buzziest | same |
+| A bell pointed at the listener is brighter (1.8x+ centroid) and louder than one pointed away | same |
+| A valve slur has no gap and lands in tune | same |
+| Live runtime: shared state published, live controls steer held notes, a track's notes played by one player | same |
 | No allocation while notes arrive, slur, glide, re-tongue and release | `tests/brass_no_alloc.rs` |
+| The view draws the trombone and Physics View, the slide where the note puts it, loud vs soft, at rest; the chip, the playing map and the slide ask for what they should; trumpet, horn (stopped) and tuba pictures with their valves | `tests/brass_view.rs` (pictures in `test-artifacts/brass-view/`) |
+| Every instrument's drawing is as long as its air column; a valve down adds its loop; the hand is in the bell | `widgets_brass::tests` |
+| DAW: settings repaired, styles and instruments, note configs, the window's keys, knobs, map, slide, mutes and instruments, the tool, save, sequencer and export | `daw_brass.test.ts` |
 
 `brass::tests::listening_examples` (ignored by default) renders a scale, a *pp*-to-*fff* swell, a
 fanfare, a glissando and a vibrato note to `test-artifacts/brass/` for ears.
@@ -667,5 +705,14 @@ fanfare, a glissando and a vibrato note to `test-artifacts/brass/` for ears.
   falls at low frequency; players compensate with more air). A register balance for the DAW is
   still to do.
 - *ff* notes at the bottom of the range and far out on the slide are within ~15 cents, not 6.
-- Pedal tones (partial 1) are not played yet.
+- Pedal tones (partial 1) are played on the tuba only.
+- Some notes at the extremes miss: the horn's lowest (F2, G2) and, at some dynamics, F4. The
+  harmon mute pulls the trumpet about 20 cents flat (the player's ear corrects slowly there).
+- A mute's body is a filter, not acoustics: the cup's and harmon's own resonances are not modelled.
+- Changing the instrument, mute, hand or bell rebuilds the air column, so it applies from the next
+  note (a held "Hold a note" in the DAW is played again).
+- The view's layouts are stylised (a trumpet or tuba is not drawn to a maker's drawing), but every
+  length along them is the bore's.
+- The DAW's live window (a real display and audio device) is tested through its callbacks and the
+  headless view, not end to end.
 - About 3.9% of one core per player in release builds (the scattering cells vectorize).
