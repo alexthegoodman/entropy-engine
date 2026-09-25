@@ -71,7 +71,10 @@ const audioAPI = {
     // each track is rendered through its own fresh plugin instance, separate from anything already
     // loaded live on that track's bus. Result gains `vst3Warnings`: one message per track that could
     // not be rendered (bad path, state that would not load) - the rest of the export still succeeds.
-    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events) => {
+    // trackBuses: [{track, gain?, effects?: [{kind, amount, pattern?, bpm?}], silences?: [[start, end]]}] -
+    // an event (or VST3 track) whose `track` names one is mixed through that bus's character chain
+    // first (see render_mix_to_wav); anything else goes straight to the master as before.
+    renderPatternToWav: (events, suggestedName, sampleEvents, wavetableEvents, physModEvents, vst3Events, trackBuses) => {
         return ops.op_audio_render_pattern_wav(events.map(e => ({
             startTime: e.startTime || 0.0,
             freq: e.freq || 440.0,
@@ -90,11 +93,16 @@ const audioAPI = {
             reverbRoomSize: e.reverbRoomSize ?? 10.0,
             reverbTime: e.reverbTime ?? 1.0,
             reverbDamping: e.reverbDamping ?? 0.5,
-            reverbMix: e.reverbMix ?? 0.0
+            reverbMix: e.reverbMix ?? 0.0,
+            filterEnv: e.filterEnv ?? 0.0,
+            filterDecay: e.filterDecay ?? 0.2,
+            drive: e.drive ?? 1.0,
+            track: e.track ?? null
         })), suggestedName || "pattern.wav", (sampleEvents || []).map(e => ({
             startTime: e.startTime || 0.0,
             path: e.path,
-            params: sampleParams(e)
+            params: sampleParams(e),
+            track: e.track ?? null
         })), wavetableEvents || [], physModEvents || [], (vst3Events || []).map(t => ({
             path: t.path,
             state: t.state ?? null,
@@ -104,7 +112,13 @@ const audioAPI = {
                 note: n.note,
                 velocity: n.velocity ?? 100,
                 channel: n.channel ?? 0
-            }))
+            })),
+            track: t.track ?? null
+        })), (trackBuses || []).map(b => ({
+            track: b.track,
+            gain: b.gain ?? 1.0,
+            effects: (b.effects || []).map(characterConfig),
+            silences: b.silences || []
         })));
     },
     // --- Persistent per-track mixing bus (see src/audio/mod.rs's TrackBus) ---
@@ -174,7 +188,10 @@ const audioAPI = {
             attack: config.attack ?? 0.005,
             decay: config.decay ?? 0.05,
             sustain: config.sustain ?? 0.85,
-            release: config.release ?? 0.05
+            release: config.release ?? 0.05,
+            filterEnv: config.filterEnv ?? 0.0,
+            filterDecay: config.filterDecay ?? 0.2,
+            drive: config.drive ?? 1.0
         });
     }
 };
@@ -337,6 +354,16 @@ const guitarAPI = {
     releaseAll: () => ops.op_guitar_release_all()
 };
 
+function characterConfig(c) {
+    return {
+        kind: c?.kind ?? "",
+        amount: c?.amount ?? 0.0,
+        pattern: c?.pattern ?? 0,
+        bpm: c?.bpm ?? 120.0,
+        beat: typeof c?.beat === "number" ? c.beat : null
+    };
+}
+
 // A shared, reusable effect registry - create an effect once (createDelay/createReverb), then
 // attach it to one or more track buses by id via Entropy.Audio.ensureTrackBus's `effectIds`
 // instead of baking delay/reverb fields into every note/track config. See the doc comment above
@@ -364,6 +391,10 @@ const audioEffectAPI = {
         damping: config?.damping ?? 0.5,
         mix: config?.mix ?? 0.0
     }),
+    // Character effects (src/audio/character.rs): kind "pump" | "gate" | "grit" | "space" | "fader".
+    // They replace the signal rather than mixing a wet copy in, so put them after delay/reverb.
+    createCharacter: (config) => ops.op_audio_effect_create_character(characterConfig(config)),
+    setCharacterParams: (effectId, config) => ops.op_audio_effect_set_character(effectId, characterConfig(config)),
     destroy: (effectId) => ops.op_audio_effect_destroy(effectId)
 };
 

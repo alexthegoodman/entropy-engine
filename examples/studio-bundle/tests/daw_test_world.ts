@@ -48,7 +48,7 @@ export function createWorld(initialSaved?: unknown) {
         piano: null as any,
         arrangement: null as any,
         labels: [] as string[],
-        played: [] as { id: string; cfg: any }[],
+        played: [] as { id: string; cfg: any; at?: number }[],
         buses: new Map<string, any>(),
         exports: [] as any[][],
         // Drum rack. `folders` is the fake disk (path -> entries) and `samples` what the fake engine
@@ -62,6 +62,8 @@ export function createWorld(initialSaved?: unknown) {
         previewStops: 0,
         sampleHits: [] as { id: string; path: string; cfg: any }[],
         sampleExports: [] as any[][],
+        // What the WAV export was handed as track buses (the last argument).
+        busExports: [] as any[][],
         sliders: [] as any[],
         knobs: [] as any[],
         windowVisible: {} as Record<string, boolean>,
@@ -94,6 +96,8 @@ export function createWorld(initialSaved?: unknown) {
         // The guitar input: what the panel started it with, every later `target`, and every position
         // pushed to the running voice. `running` is what `status` reports.
         guitar: { running: false, starts: [] as any[], targets: [] as any[], positions: [] as number[] },
+        // Character effects (Pump, Gate, Grit, Space, cut faders) by id, as last configured.
+        effects: new Map<string, any>(),
         lastCreatedTrackId: "",
         lastToolResult: null as any,
     };
@@ -141,7 +145,7 @@ export function createWorld(initialSaved?: unknown) {
         Audio: {
             ensureTrackBus: (id: string, cfg: any) => { w.buses.set(id, cfg); },
             removeTrackBus: (id: string) => { w.buses.delete(id); },
-            playNoteOnTrack: (id: string, cfg: any) => { w.played.push({ id, cfg }); },
+            playNoteOnTrack: (id: string, cfg: any) => { w.played.push({ id, cfg, at: w.clock }); },
             playWavetableOnTrack: (id: string, cfg: any) => {
                 if (!w.tables.has(cfg.table)) return { ok: false, error: `no wavetable called ${cfg.table}` };
                 w.wavetableNotes.push({ id, cfg });
@@ -169,12 +173,13 @@ export function createWorld(initialSaved?: unknown) {
                 const n = w.physModHeld.get(voice);
                 if (n && !n.released) n.bow[which] = value;
             },
-            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[]) => {
+            renderPatternToWav: (events: any[], _name: string, sampleEvents?: any[], wavetableEvents?: any[], physModEvents?: any[], vst3Events?: any[], trackBuses?: any[]) => {
                 w.exports.push(events);
                 w.sampleExports.push(sampleEvents ?? []);
                 w.wavetableExports.push(wavetableEvents ?? []);
                 w.physModExports.push(physModEvents ?? []);
                 w.vst3Exports.push(vst3Events ?? []);
+                w.busExports.push(trackBuses ?? []);
                 const vst3Warnings = w.nextVst3Warnings;
                 w.nextVst3Warnings = [];
                 return { success: true, path: "test.wav", durationSeconds: 1, vst3Warnings };
@@ -280,7 +285,12 @@ export function createWorld(initialSaved?: unknown) {
         },
         AudioEffect: {
             createDelay: () => `delay-${++uuid}`, createReverb: () => `reverb-${++uuid}`,
-            setDelayParams: () => {}, setReverbParams: () => {}, destroy: () => {},
+            setDelayParams: () => {}, setReverbParams: () => {},
+            // Character effects are recorded by id with their latest settings, so a step can say
+            // which effects a track's bus chains and what the knob sent them.
+            createCharacter: (cfg: any) => { const id = `${cfg.kind}-${++uuid}`; w.effects.set(id, { ...cfg }); return id; },
+            setCharacterParams: (id: string, cfg: any) => { if (w.effects.has(id)) w.effects.set(id, { ...cfg }); },
+            destroy: (id: string) => { w.effects.delete(id); },
         },
         Vst3: {
             unload: () => {}, load: () => ({ ok: false, error: "no plugins in the test world" }),

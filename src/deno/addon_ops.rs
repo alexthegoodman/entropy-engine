@@ -935,6 +935,9 @@ pub struct NoteConfig {
 fn default_reverb_room_size() -> f64 { 10.0 }
 fn default_reverb_time() -> f64 { 1.0 }
 fn default_reverb_damping() -> f64 { 0.5 }
+fn default_filter_decay() -> f64 { 0.2 }
+fn default_drive() -> f64 { 1.0 }
+fn default_bpm() -> f64 { 120.0 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -2400,6 +2403,7 @@ pub fn op_audio_play_note(state: &mut OpState, #[serde] config: NoteConfig) {
             reverb_time: config.reverb_time,
             reverb_damping: config.reverb_damping,
             reverb_mix: config.reverb_mix,
+            ..Default::default()
         });
     }
 }
@@ -2471,6 +2475,27 @@ pub fn op_audio_effect_set_reverb(state: &mut OpState, #[string] effect_id: Stri
     }
 }
 
+/// Creates a Pump, Gate, Grit, Space or Fader effect. An unknown kind gives an empty id, which
+/// no bus will resolve.
+#[op2]
+#[string]
+pub fn op_audio_effect_create_character(state: &mut OpState, #[serde] config: CharacterEffectConfig) -> String {
+    let ctx = state.borrow::<AddonContext>();
+    match config.to_params() {
+        Some(p) => ctx.audio_engine.create_effect(crate::audio::EffectParams::Character(p)),
+        None => String::new(),
+    }
+}
+
+#[op2]
+pub fn op_audio_effect_set_character(state: &mut OpState, #[string] effect_id: String, #[serde] config: CharacterEffectConfig) {
+    if let Some(ctx) = state.try_borrow::<AddonContext>() {
+        if let Some(p) = config.to_params() {
+            ctx.audio_engine.set_effect_params(&effect_id, crate::audio::EffectParams::Character(p));
+        }
+    }
+}
+
 #[op2(fast)]
 pub fn op_audio_effect_destroy(state: &mut OpState, #[string] effect_id: String) {
     if let Some(ctx) = state.try_borrow::<AddonContext>() {
@@ -2517,6 +2542,13 @@ pub struct PlayNoteOnTrackConfig {
     pub decay: f64,
     pub sustain: f64,
     pub release: f64,
+    /// Filter envelope (octaves above `cutoff` at the note's start) and drive - the Acid knob.
+    #[serde(default)]
+    pub filter_env: f64,
+    #[serde(default = "default_filter_decay")]
+    pub filter_decay: f64,
+    #[serde(default = "default_drive")]
+    pub drive: f64,
 }
 
 #[op2]
@@ -2532,6 +2564,9 @@ pub fn op_audio_play_note_on_track(state: &mut OpState, #[serde] config: PlayNot
             decay: config.decay,
             sustain: config.sustain,
             release: config.release,
+            filter_env: config.filter_env,
+            filter_decay: config.filter_decay,
+            drive: config.drive,
             ..Default::default()
         });
     }
@@ -2572,6 +2607,15 @@ pub struct NoteEventConfig {
     pub reverb_damping: f64,
     #[serde(default)]
     pub reverb_mix: f64,
+    #[serde(default)]
+    pub filter_env: f64,
+    #[serde(default = "default_filter_decay")]
+    pub filter_decay: f64,
+    #[serde(default = "default_drive")]
+    pub drive: f64,
+    /// The track whose bus (see `TrackBusRenderConfig`) this note plays through, if any.
+    #[serde(default)]
+    pub track: Option<String>,
 }
 
 /// One drum-rack pad hit in an offline render: where it starts and what it plays.
@@ -2582,6 +2626,50 @@ pub struct SampleEventConfig {
     pub path: String,
     #[serde(default)]
     pub params: SampleParamsConfig,
+    #[serde(default)]
+    pub track: Option<String>,
+}
+
+/// One character effect (see src/audio/character.rs): `kind` is pump, gate, grit, space or fader.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterEffectConfig {
+    pub kind: String,
+    #[serde(default)]
+    pub amount: f64,
+    #[serde(default)]
+    pub pattern: usize,
+    #[serde(default = "default_bpm")]
+    pub bpm: f64,
+    /// Where the effect's bar clock is now, in beats (0..4). Omit to leave the clock running.
+    #[serde(default)]
+    pub beat: Option<f64>,
+}
+
+impl CharacterEffectConfig {
+    fn to_params(&self) -> Option<crate::audio::character::CharacterParams> {
+        Some(crate::audio::character::CharacterParams {
+            kind: crate::audio::character::CharacterKind::parse(&self.kind)?,
+            amount: self.amount as f32,
+            pattern: self.pattern,
+            bpm: self.bpm,
+            beat: self.beat,
+        })
+    }
+}
+
+/// A track's bus in an offline render: events carrying this `track` are summed, run through
+/// `effects` in order, scaled by `gain` and silenced over `silences` ([start, end] seconds).
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackBusRenderConfig {
+    pub track: String,
+    #[serde(default = "default_drive")]
+    pub gain: f64,
+    #[serde(default)]
+    pub effects: Vec<CharacterEffectConfig>,
+    #[serde(default)]
+    pub silences: Vec<[f64; 2]>,
 }
 
 fn default_vst3_note_velocity() -> u8 {
@@ -2612,6 +2700,8 @@ pub struct Vst3RenderTrackConfig {
     #[serde(default)]
     pub state: Option<String>,
     pub notes: Vec<Vst3RenderNoteConfig>,
+    #[serde(default)]
+    pub track: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -2724,6 +2814,7 @@ pub fn op_audio_render_pattern_wav(
     #[serde] wavetable_events: Vec<crate::deno::wavetable_ops::WavetableNoteConfig>,
     #[serde] physmod_events: Vec<crate::deno::physmod_ops::PhysModNoteConfig>,
     #[serde] vst3_events: Vec<Vst3RenderTrackConfig>,
+    #[serde] track_buses: Vec<TrackBusRenderConfig>,
 ) -> RenderPatternWavResult {
     if state.try_borrow::<AddonContext>().is_none() {
         return RenderPatternWavResult {
@@ -2750,6 +2841,22 @@ pub fn op_audio_render_pattern_wav(
         };
     };
 
+    // Track buses by id, and each event's bus - see `crate::audio::MixRouting`.
+    let buses: Vec<crate::audio::character::TrackBusRender> = track_buses
+        .iter()
+        .map(|b| crate::audio::character::TrackBusRender {
+            gain: b.gain as f32,
+            effects: b.effects.iter().filter_map(|e| e.to_params()).collect(),
+            silences: b.silences.iter().map(|s| (s[0], s[1])).collect(),
+        })
+        .collect();
+    let bus_of = |track: &Option<String>| track.as_ref().and_then(|t| track_buses.iter().position(|b| &b.track == t));
+    let note_routes: Vec<Option<usize>> = events.iter().map(|e| bus_of(&e.track)).collect();
+    let sample_routes: Vec<Option<usize>> = sample_events.iter().map(|e| bus_of(&e.track)).collect();
+    let wavetable_routes: Vec<Option<usize>> = wavetable_events.iter().map(|e| bus_of(&e.track_id)).collect();
+    let physmod_routes: Vec<Option<usize>> = physmod_events.iter().map(|e| bus_of(&e.track_id)).collect();
+    let vst3_routes: Vec<Option<usize>> = vst3_events.iter().map(|e| bus_of(&e.track)).collect();
+
     let note_events: Vec<crate::audio::NoteEvent> = events
         .into_iter()
         .map(|e| crate::audio::NoteEvent {
@@ -2772,6 +2879,9 @@ pub fn op_audio_render_pattern_wav(
                 reverb_time: e.reverb_time,
                 reverb_damping: e.reverb_damping,
                 reverb_mix: e.reverb_mix,
+                filter_env: e.filter_env,
+                filter_decay: e.filter_decay,
+                drive: e.drive,
             },
         })
         .collect();
@@ -2803,7 +2913,15 @@ pub fn op_audio_render_pattern_wav(
         })
         .collect();
 
-    match crate::audio::render_events_full_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &vst3_tracks, 44100, &output_path) {
+    let routing = crate::audio::MixRouting {
+        buses: &buses,
+        notes: &note_routes,
+        samples: &sample_routes,
+        wavetable: &wavetable_routes,
+        physmod: &physmod_routes,
+        vst3: &vst3_routes,
+    };
+    match crate::audio::render_mix_to_wav(&note_events, &sample_hits, &wavetable_hits, &physmod_hits, &vst3_tracks, &routing, 44100, &output_path) {
         Ok((duration_seconds, vst3_warnings)) => RenderPatternWavResult {
             success: true,
             path: Some(output_path.to_string_lossy().into_owned()),

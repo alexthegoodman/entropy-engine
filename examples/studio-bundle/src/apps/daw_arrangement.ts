@@ -20,6 +20,12 @@ export interface NoteCell {
     step: number;
     length: number;
     velocity: number;
+    /** Where the note sits relative to its step, in steps (-0.5..0.95; 0.5 is a 32nd note late).
+     * Written by moves that need finer timing than the grid (a 32nd-note roll, a stutter). */
+    offset?: number;
+    /** Brightness: a multiplier on the track's filter cutoff for this note (1 = unchanged).
+     * Written by Build's filter sweep and Echo Out's fading repeats; built-in voices only. */
+    tone?: number;
 }
 
 export interface Pattern {
@@ -35,6 +41,9 @@ export interface ArrClip {
     patternId: string;
     startStep: number;
     lengthSteps: number;
+    /** How far into its pattern the clip starts, in steps. A clip cut out of the middle of another
+     * keeps playing from where it was instead of restarting the pattern. Absent means 0. */
+    offsetSteps?: number;
 }
 
 export type SnapMode = "bar" | "beat" | "step";
@@ -125,6 +134,12 @@ export function nextPatternName(track: ArrTrack): string {
 
 export function clipEnd(c: ArrClip): number {
     return c.startStep + c.lengthSteps;
+}
+
+/** The step of a clip's pattern that plays at song step `step` (inside the clip). */
+export function clipLocalStep(c: ArrClip, step: number, patternSteps: number): number {
+    const local = step - c.startStep + (c.offsetSteps ?? 0);
+    return ((local % patternSteps) + patternSteps) % patternSteps;
 }
 
 export function clipsOfTrack(arr: ArrClip[], trackId: string): ArrClip[] {
@@ -251,7 +266,7 @@ export function triggersAt(p: ArrProject, step: number, soloPatternOf?: string |
         const track = p.tracks.find(t => t.id === clip.trackId);
         const pat = track?.patterns.find(pt => pt.id === clip.patternId);
         if (!track || !pat || pat.steps < 1) continue;
-        const local = (step - clip.startStep) % pat.steps;
+        const local = clipLocalStep(clip, step, pat.steps);
         for (const note of pat.notes) if (note.step === local) out.push({ track, note });
     }
     return out;
@@ -276,10 +291,12 @@ export function expandArrangement(p: ArrProject, opts: { respectMuteSolo: boolea
         if (!track || !pat || pat.steps < 1) continue;
         if (opts.respectMuteSolo && (track.muted || (anySolo && !track.solo))) continue;
         const end = clipEnd(clip);
-        for (let rep = 0; clip.startStep + rep * pat.steps < end; rep++) {
+        // Where the pattern's own step 0 falls, at or before the clip's start.
+        const base = clip.startStep - ((((clip.offsetSteps ?? 0) % pat.steps) + pat.steps) % pat.steps);
+        for (let rep = 0; base + rep * pat.steps < end; rep++) {
             for (const note of pat.notes) {
-                const abs = clip.startStep + rep * pat.steps + note.step;
-                if (note.step >= pat.steps || abs >= end) continue;
+                const abs = base + rep * pat.steps + note.step;
+                if (note.step >= pat.steps || abs >= end || abs < clip.startStep) continue;
                 out.push({ track, note, startStep: abs, lengthSteps: Math.min(note.length, end - abs) });
             }
         }
@@ -303,7 +320,7 @@ export function pianoRollPlayhead(
     if (mode === "pattern") return ((songStepFloat % pat.steps) + pat.steps) % pat.steps / pat.steps;
     const clip = p.arrangement.find(c => c.trackId === track.id && c.patternId === pat.id && songStepFloat >= c.startStep && songStepFloat < clipEnd(c));
     if (!clip) return -1;
-    return ((songStepFloat - clip.startStep) % pat.steps) / pat.steps;
+    return clipLocalStep(clip, songStepFloat, pat.steps) / pat.steps;
 }
 
 // --- Widget data ------------------------------------------------------------------------------
@@ -312,13 +329,17 @@ export function pianoRollPlayhead(
  * A pattern's notes as the `[start, len, y]` triples TrackView draws inside a clip. Drum rows
  * read top to bottom (kick first); pitched rows put the high notes at the top.
  */
-export function miniNotes(track: ArrTrack, pattern: Pattern): [number, number, number][] {
+export function miniNotes(track: ArrTrack, pattern: Pattern, offsetSteps = 0): [number, number, number][] {
     const rows = Math.max(1, track.rows);
     const out: [number, number, number][] = [];
+    const steps = pattern.steps;
+    const shift = ((offsetSteps % steps) + steps) % steps;
     for (const n of pattern.notes) {
-        if (n.step >= pattern.steps) continue;
+        if (n.step >= steps) continue;
         const y = track.kind === "drum" ? (n.row + 0.5) / rows : 1 - (n.row + 0.5) / rows;
-        out.push([n.step / pattern.steps, Math.min(n.length, pattern.steps - n.step) / pattern.steps, Math.min(1, Math.max(0, y))]);
+        // A clip that starts partway into its pattern draws the pattern rotated to match.
+        const at = (((n.step - shift) % steps) + steps) % steps;
+        out.push([at / steps, Math.min(n.length, steps - at) / steps, Math.min(1, Math.max(0, y))]);
     }
     return out;
 }

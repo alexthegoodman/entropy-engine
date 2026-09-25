@@ -41,6 +41,7 @@ fn make_pattern(bars: u32, fx_on: bool) -> Vec<NoteEvent> {
                     release: 0.08,
                     delay_time, delay_feedback, delay_mix,
                     reverb_room_size: reverb_room, reverb_time, reverb_damping, reverb_mix,
+                    ..Default::default()
                 },
             });
         }
@@ -60,6 +61,7 @@ fn make_pattern(bars: u32, fx_on: bool) -> Vec<NoteEvent> {
                     release: 0.03,
                     delay_time, delay_feedback, delay_mix,
                     reverb_room_size: reverb_room, reverb_time, reverb_damping, reverb_mix,
+                    ..Default::default()
                 },
             });
         }
@@ -80,6 +82,7 @@ fn make_pattern(bars: u32, fx_on: bool) -> Vec<NoteEvent> {
                     release: 0.12,
                     delay_time, delay_feedback, delay_mix,
                     reverb_room_size: reverb_room, reverb_time, reverb_damping, reverb_mix,
+                    ..Default::default()
                 },
             });
         }

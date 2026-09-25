@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod character;
 pub mod physmod;
 pub mod samples;
 pub mod vst3;
@@ -109,6 +110,14 @@ pub struct NoteParams {
     pub reverb_damping: f64,
     /// Wet/dry mix of the reverberated signal, 0 (off)..1.
     pub reverb_mix: f64,
+    // --- Filter envelope and drive (the DAW's Acid knob). Both off by default, and a note with
+    // both off is built exactly as before - see `build_voice_node`. ---
+    /// How far above `cutoff` the filter opens at the start of the note, in octaves (0 = static).
+    pub filter_env: f64,
+    /// Seconds for the filter envelope to fall back to `cutoff` (a time constant, not a total).
+    pub filter_decay: f64,
+    /// tanh drive after the filter; 1 is clean.
+    pub drive: f64,
 }
 
 impl Default for NoteParams {
@@ -130,6 +139,9 @@ impl Default for NoteParams {
             reverb_time: 1.0,
             reverb_damping: 0.5,
             reverb_mix: 0.0,
+            filter_env: 0.0,
+            filter_decay: 0.2,
+            drive: 1.0,
         }
     }
 }
@@ -151,6 +163,26 @@ fn note_total_duration(params: &NoteParams) -> f64 {
         0.0
     };
     (dur + delay_tail + reverb_tail).min(12.0)
+}
+
+/// A note's filter envelope and drive (the DAW's Acid knob), or None when it has neither, in
+/// which case the voice is built exactly as it always was.
+#[derive(Clone, Copy)]
+struct AcidShape {
+    /// Octaves above the cutoff the filter starts at.
+    env_oct: f32,
+    /// Time constant of the filter's fall back to the cutoff, seconds.
+    decay: f32,
+    drive: f32,
+}
+
+fn acid_shape(params: &NoteParams) -> Option<AcidShape> {
+    let env_oct = params.filter_env.clamp(0.0, 8.0) as f32;
+    let drive = params.drive.clamp(1.0, 20.0) as f32;
+    if env_oct <= 0.001 && drive <= 1.001 {
+        return None;
+    }
+    Some(AcidShape { env_oct, decay: params.filter_decay.clamp(0.005, 4.0) as f32, drive })
 }
 
 /// Builds one voice's complete signal graph: oscillator/noise source -> ADSR envelope/gain
@@ -206,6 +238,30 @@ fn build_note_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<dy
             node.reset();
             Box::new(node) as Box<dyn AudioUnit>
         }};
+    }
+
+    // The Acid path (see `AcidShape`): the cutoff is a curve over the note's life instead of a
+    // constant, and the filter feeds a tanh drive. `tanh(d*x)/sqrt(d)` keeps small signals near
+    // unity and pulls full-scale ones down, so more drive is more bite, not simply more level.
+    macro_rules! acid {
+        ($osc:expr, $sh:expr) => {{
+            let AcidShape { env_oct, decay, drive } = $sh;
+            let cut = lfo(move |t: f32| (cutoff * (env_oct * (-t / decay).exp()).exp2()).min(18_000.0));
+            let makeup = 1.0 / drive.sqrt();
+            (($osc) | cut | dc(q)) >> lowpass::<f32>() >> shape_fn(move |x: f32| (x * drive).tanh() * makeup)
+        }};
+    }
+
+    if let Some(sh) = acid_shape(params) {
+        match voice {
+            "square" => return wrap!(acid!(square_hz(freq), sh) * env!() * gain),
+            "saw" => return wrap!(acid!(saw_hz(freq), sh) * env!() * gain),
+            "triangle" => return wrap!(acid!(triangle_hz(freq), sh) * env!() * gain),
+            "noise" => return wrap!(acid!(noise(), sh) * env!() * gain),
+            "sine" => return wrap!(acid!(sine_hz::<f32>(freq), sh) * env!() * gain),
+            // Drum voices have no filter envelope; they play as they always have.
+            _ => {}
+        }
     }
 
     match voice {
@@ -271,6 +327,30 @@ fn build_voice_node(voice: &str, params: &NoteParams, sample_rate: f32) -> Box<d
             node.reset();
             Box::new(node) as Box<dyn AudioUnit>
         }};
+    }
+
+    // The Acid path (see `AcidShape`): the cutoff is a curve over the note's life instead of a
+    // constant, and the filter feeds a tanh drive. `tanh(d*x)/sqrt(d)` keeps small signals near
+    // unity and pulls full-scale ones down, so more drive is more bite, not simply more level.
+    macro_rules! acid {
+        ($osc:expr, $sh:expr) => {{
+            let AcidShape { env_oct, decay, drive } = $sh;
+            let cut = lfo(move |t: f32| (cutoff * (env_oct * (-t / decay).exp()).exp2()).min(18_000.0));
+            let makeup = 1.0 / drive.sqrt();
+            (($osc) | cut | dc(q)) >> lowpass::<f32>() >> shape_fn(move |x: f32| (x * drive).tanh() * makeup)
+        }};
+    }
+
+    if let Some(sh) = acid_shape(params) {
+        match voice {
+            "square" => return voice_node!(acid!(square_hz(freq), sh) * env!() * gain),
+            "saw" => return voice_node!(acid!(saw_hz(freq), sh) * env!() * gain),
+            "triangle" => return voice_node!(acid!(triangle_hz(freq), sh) * env!() * gain),
+            "noise" => return voice_node!(acid!(noise(), sh) * env!() * gain),
+            "sine" => return voice_node!(acid!(sine_hz::<f32>(freq), sh) * env!() * gain),
+            // Drum voices have no filter envelope; they play as they always have.
+            _ => {}
+        }
     }
 
     match voice {
@@ -375,12 +455,50 @@ pub fn render_events_full_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
+    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+}
+
+/// Which track bus each event of an offline render plays through (see `render_mix_to_wav`). Each
+/// slice runs parallel to the event list of the same name and holds an index into `buses`; an
+/// event with `None`, or past the end of its slice, goes straight to the master as it always has.
+/// For bowed-string events the first event of an instrument decides that instrument's bus.
+#[derive(Default, Clone, Copy)]
+pub struct MixRouting<'a> {
+    pub buses: &'a [character::TrackBusRender],
+    pub notes: &'a [Option<usize>],
+    pub samples: &'a [Option<usize>],
+    pub wavetable: &'a [Option<usize>],
+    pub physmod: &'a [Option<usize>],
+    pub vst3: &'a [Option<usize>],
+}
+
+impl MixRouting<'_> {
+    fn bus(&self, slice: &[Option<usize>], i: usize) -> Option<usize> {
+        slice.get(i).copied().flatten().filter(|&b| b < self.buses.len())
+    }
+}
+
+/// `render_events_full_to_wav` with track buses: every event routed to a bus is summed there
+/// first, then the bus's character chain (Pump, Gate, Grit, Space), gain and hard cuts run over
+/// that sum - the same `character::Character` code the live bus runs - before it joins the
+/// master. A bus with Space gets room for its reverb tail at the end of the file.
+#[allow(clippy::too_many_arguments)]
+pub fn render_mix_to_wav(
+    events: &[NoteEvent],
+    sample_events: &[SampleEvent],
+    wavetable_events: &[WavetableEvent],
+    physmod_events: &[PhysModEvent],
+    vst3_tracks: &[vst3::Vst3RenderTrack],
+    routing: &MixRouting,
+    sample_rate: u32,
+    output_path: &Path,
+) -> Result<(f64, Vec<String>), String> {
     let sr = sample_rate as f32;
 
-    let mut voice_bufs: Vec<(usize, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
+    let mut voice_bufs: Vec<(usize, Option<usize>, Vec<f32>)> = Vec::with_capacity(events.len() + sample_events.len());
     let mut total_frames: usize = 0;
 
-    for hit in sample_events {
+    for (i, hit) in sample_events.iter().enumerate() {
         // A pad whose file has gone missing is skipped rather than failing the whole export.
         let Ok(sample) = samples::load(&hit.path) else { continue };
         let voice = SampleVoice::new(sample, hit.params, None);
@@ -392,10 +510,10 @@ pub fn render_events_full_to_wav(
         let n_frames = buf.len() / 2;
         let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
         total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
-        voice_bufs.push((start_sample, buf));
+        voice_bufs.push((start_sample, routing.bus(routing.samples, i), buf));
     }
 
-    for hit in wavetable_events {
+    for (i, hit) in wavetable_events.iter().enumerate() {
         let Some(shared) = wavetable::shared_for(&hit.table) else { continue };
         let limit = hit.params.duration.max(0.0) + hit.params.release.max(0.005) + 0.5;
         let mut buf = wavetable::render_note(shared, hit.params, limit);
@@ -406,20 +524,20 @@ pub fn render_events_full_to_wav(
         let n_frames = buf.len() / 2;
         let start_sample = (hit.start_time.max(0.0) * sr as f64).round() as usize;
         total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
-        voice_bufs.push((start_sample, buf));
+        voice_bufs.push((start_sample, routing.bus(routing.wavetable, i), buf));
     }
 
     // Bowed-string notes are rendered per instrument, through one instrument each, so a bounce
     // keeps the slurs, double stops and sympathetic ringing the live instrument has.
-    let mut by_instrument: Vec<(&str, Vec<physmod::PerformedNote>)> = Vec::new();
-    for hit in physmod_events {
+    let mut by_instrument: Vec<(&str, Option<usize>, Vec<physmod::PerformedNote>)> = Vec::new();
+    for (i, hit) in physmod_events.iter().enumerate() {
         let note = physmod::PerformedNote { start: hit.start_time.max(0.0), params: hit.params };
-        match by_instrument.iter_mut().find(|(id, _)| *id == hit.instrument.as_str()) {
-            Some((_, notes)) => notes.push(note),
-            None => by_instrument.push((hit.instrument.as_str(), vec![note])),
+        match by_instrument.iter_mut().find(|(id, _, _)| *id == hit.instrument.as_str()) {
+            Some((_, _, notes)) => notes.push(note),
+            None => by_instrument.push((hit.instrument.as_str(), routing.bus(routing.physmod, i), vec![note])),
         }
     }
-    for (_, notes) in &by_instrument {
+    for (_, bus, notes) in &by_instrument {
         let mut buf = physmod::render_performance(notes, 6.0);
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
@@ -427,10 +545,10 @@ pub fn render_events_full_to_wav(
         }
         let n_frames = buf.len() / 2;
         total_frames = std::cmp::Ord::max(total_frames, n_frames);
-        voice_bufs.push((0, buf));
+        voice_bufs.push((0, *bus, buf));
     }
 
-    for event in events {
+    for (i, event) in events.iter().enumerate() {
         let mut node = build_note_node(&event.voice, &event.params, sr);
         let total_dur = note_total_duration(&event.params);
         let n_frames = (total_dur * sr as f64).ceil() as usize;
@@ -445,7 +563,7 @@ pub fn render_events_full_to_wav(
 
         let start_sample = (event.start_time.max(0.0) * sr as f64).round() as usize;
         total_frames = std::cmp::Ord::max(total_frames, start_sample + n_frames);
-        voice_bufs.push((start_sample, buf));
+        voice_bufs.push((start_sample, routing.bus(routing.notes, i), buf));
     }
 
     for track in vst3_tracks {
@@ -453,21 +571,37 @@ pub fn render_events_full_to_wav(
         total_frames = std::cmp::Ord::max(total_frames, end_frames);
     }
 
+    // Room for a bus effect's own tail (Space's reverb) past the last note.
+    let bus_tail = routing.buses.iter().map(|b| b.tail_seconds(sr)).fold(0.0, f64::max);
+    if total_frames > 0 {
+        total_frames += (bus_tail * sr as f64).ceil() as usize;
+    }
+
     // A pattern with no notes at all still produces a (silent, 1-frame) file rather than
     // erroring - an empty export is a legitimate, if useless, thing to ask for.
     total_frames = std::cmp::Ord::max(total_frames, 1);
 
     let mut master = vec![0.0f32; total_frames * 2];
-    for (start_sample, buf) in &voice_bufs {
+    // One buffer per bus that something plays through, allocated on first use.
+    let mut bus_bufs: Vec<Option<Vec<f32>>> = vec![None; routing.buses.len()];
+    for (start_sample, bus, buf) in &voice_bufs {
+        let target = match bus {
+            Some(b) => bus_bufs[*b].get_or_insert_with(|| vec![0.0f32; total_frames * 2]),
+            None => &mut master,
+        };
         let frames = buf.len() / 2;
         for i in 0..frames {
-            master[(start_sample + i) * 2] += buf[i * 2];
-            master[(start_sample + i) * 2 + 1] += buf[i * 2 + 1];
+            target[(start_sample + i) * 2] += buf[i * 2];
+            target[(start_sample + i) * 2 + 1] += buf[i * 2 + 1];
         }
     }
 
     let mut vst3_warnings = Vec::new();
-    for track in vst3_tracks {
+    for (t, track) in vst3_tracks.iter().enumerate() {
+        let target = match routing.bus(routing.vst3, t) {
+            Some(b) => bus_bufs[b].get_or_insert_with(|| vec![0.0f32; total_frames * 2]),
+            None => &mut master,
+        };
         match vst3::render_offline_track(track, total_frames) {
             Ok(mut buf) => {
                 if sample_rate != vst3::SAMPLE_RATE && !buf.is_empty() {
@@ -476,11 +610,19 @@ pub fn render_events_full_to_wav(
                 }
                 let frames = std::cmp::Ord::min(buf.len() / 2, total_frames);
                 for i in 0..frames {
-                    master[i * 2] += buf[i * 2];
-                    master[i * 2 + 1] += buf[i * 2 + 1];
+                    target[i * 2] += buf[i * 2];
+                    target[i * 2 + 1] += buf[i * 2 + 1];
                 }
             }
             Err(e) => vst3_warnings.push(format!("{}: {e}", track.plugin_path.display())),
+        }
+    }
+
+    for (b, buf) in bus_bufs.iter_mut().enumerate() {
+        let Some(buf) = buf else { continue };
+        routing.buses[b].process(buf, sr);
+        for (m, v) in master.iter_mut().zip(buf.iter()) {
+            *m += *v;
         }
     }
 
@@ -583,6 +725,9 @@ pub struct ReverbEffectParams {
 pub enum EffectParams {
     Delay(DelayEffectParams),
     Reverb(ReverbEffectParams),
+    /// Pump, Gate, Grit, Space or Fader - see character.rs. Unlike delay and reverb these are
+    /// inline: their output replaces the signal instead of being mixed in on top of it.
+    Character(character::CharacterParams),
 }
 
 enum EffectState {
@@ -591,6 +736,7 @@ enum EffectState {
     /// tell whether they actually changed before paying for a rebuild (`reverb_stereo` allocates
     /// 32 delay lines - see `build_note_node`'s doc comment for what that costs per call).
     Reverb { node: Box<dyn AudioUnit>, room_size: f64, time: f64, damping: f64 },
+    Character(Box<character::Character>),
 }
 
 impl EffectState {
@@ -602,6 +748,7 @@ impl EffectState {
                 node.tick(&input, &mut out);
                 out
             }
+            EffectState::Character(c) => c.process(input),
         }
     }
 }
@@ -624,6 +771,8 @@ pub struct EffectHandle {
     state: Mutex<EffectState>,
     mix: AtomicU32,
     sample_rate: f32,
+    /// Character effects replace the signal rather than adding a wet copy (see `process_and_mix`).
+    inline: bool,
 }
 
 impl EffectHandle {
@@ -646,8 +795,10 @@ impl EffectHandle {
                 },
                 p.mix,
             ),
+            EffectParams::Character(p) => (EffectState::Character(Box::new(character::Character::new(p, sample_rate))), 1.0),
         };
-        EffectHandle { state: Mutex::new(state), mix: AtomicU32::new((mix.clamp(0.0, 1.0) as f32).to_bits()), sample_rate: sample_rate }
+        let inline = matches!(params, EffectParams::Character(_));
+        EffectHandle { state: Mutex::new(state), mix: AtomicU32::new((mix.clamp(0.0, 1.0) as f32).to_bits()), sample_rate, inline }
     }
 
     /// Updates this effect's params in place. Delay time/feedback/mix are always live (no
@@ -677,6 +828,11 @@ impl EffectHandle {
                     }
                 }
             }
+            EffectParams::Character(p) => {
+                if let EffectState::Character(c) = &mut *self.state.lock().unwrap() {
+                    c.set(p);
+                }
+            }
         }
     }
 
@@ -687,6 +843,9 @@ impl EffectHandle {
     /// signal flow as the original per-note `wrap!` macro's `multipass::<U2>() & (... * mix)`.
     fn process_and_mix(&self, dry: [f32; 2]) -> [f32; 2] {
         let wet = self.state.lock().unwrap().process(dry);
+        if self.inline {
+            return wet;
+        }
         let mix = f32::from_bits(self.mix.load(Ordering::Relaxed));
         [dry[0] + wet[0] * mix, dry[1] + wet[1] * mix]
     }
@@ -1291,5 +1450,81 @@ impl AudioEngine {
         let sink = Sink::connect_new(&self.output_mixer);
         sink.append(finite_source);
         sink.detach();
+    }
+}
+
+#[cfg(test)]
+mod character_path_tests {
+    use super::*;
+    use character::{CharacterKind, CharacterParams, TrackBusRender};
+
+    fn render_voice(voice: &str, params: &NoteParams, seconds: f32) -> Vec<f32> {
+        let sr = 44_100.0;
+        let mut node = build_voice_node(voice, params, sr);
+        (0..(seconds * sr) as usize).map(|_| {
+            let mut out = [0.0f32; 2];
+            node.tick(&[], &mut out);
+            out[0]
+        }).collect()
+    }
+
+    /// Energy in harmonics 10..30 of 110 Hz relative to the fundamental: how open the filter is.
+    fn brightness(x: &[f32]) -> f32 {
+        let power = |freq: f32| {
+            let (mut re, mut im) = (0.0f32, 0.0f32);
+            for (i, v) in x.iter().enumerate() {
+                let ph = std::f32::consts::TAU * freq * i as f32 / 44_100.0;
+                re += v * ph.cos();
+                im += v * ph.sin();
+            }
+            re * re + im * im
+        };
+        (10..=30).map(|k| power(110.0 * k as f32)).sum::<f32>() / power(110.0).max(1e-12)
+    }
+
+    #[test]
+    fn acid_opens_the_filter_at_the_start_of_a_note_and_closes_it() {
+        let base = NoteParams { freq: 110.0, duration: 0.6, cutoff: 300.0, resonance: 3.0, gain: 0.5, sustain: 1.0, ..Default::default() };
+        let acid = NoteParams { filter_env: 4.0, filter_decay: 0.08, drive: 1.0, ..base };
+        let plain = render_voice("saw", &base, 0.5);
+        let squelch = render_voice("saw", &acid, 0.5);
+        let early = 441..2646; // 10..60 ms
+        let late = 17_640..22_050; // 400..500 ms
+        assert!(brightness(&squelch[early.clone()]) > brightness(&squelch[late.clone()]) * 1.5, "the envelope sweeps down");
+        assert!(brightness(&squelch[early.clone()]) > brightness(&plain[early]) * 1.5, "and opens well above the static cutoff");
+        // Drive adds harmonics of its own on top.
+        let driven = render_voice("saw", &NoteParams { drive: 6.0, ..acid }, 0.5);
+        assert!(brightness(&driven[late.clone()]) > brightness(&squelch[late]) * 1.5, "drive adds bite");
+        // A note without filter envelope or drive is built exactly as before.
+        assert!(acid_shape(&base).is_none());
+    }
+
+    #[test]
+    fn an_export_runs_a_tracks_bus_chain_over_its_notes_only() {
+        let dir = std::env::temp_dir().join(format!("entropy-character-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pump.wav");
+        // Two held sines, one per track; only the first track pumps. 120 bpm: beats every 0.5 s.
+        let note = |freq: f64| NoteEvent {
+            start_time: 0.0,
+            voice: "sine".into(),
+            params: NoteParams { freq, duration: 2.0, cutoff: 20_000.0, gain: 0.4, attack: 0.001, decay: 0.001, sustain: 1.0, release: 0.01, ..Default::default() },
+        };
+        let events = [note(220.0), note(5_512.5)];
+        let buses = [TrackBusRender { gain: 1.0, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
+        let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
+        render_mix_to_wav(&events, &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
+        let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();
+        // Level over a 20 ms window at `t`, split by a crude filter: slow part = 220 Hz track.
+        let window = |t: f32| {
+            let start = (t * 44_100.0) as usize;
+            let slice = &samples[start..start + 882];
+            let smooth: Vec<f32> = slice.windows(8).map(|w| w.iter().sum::<f32>() / 8.0).collect();
+            (smooth.iter().map(|v| v * v).sum::<f32>() / smooth.len() as f32).sqrt()
+        };
+        let ducked = window(1.01);
+        let recovered = window(1.45);
+        assert!(ducked < recovered * 0.4, "the pumped track ducks on the beat: {ducked} vs {recovered}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
