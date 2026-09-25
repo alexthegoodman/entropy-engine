@@ -1,0 +1,1537 @@
+{
+  "bpm": 104,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "beacon-cellos-d-minor-0",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 0,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-1",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 16,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-2",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 32,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-3",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 48,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-4",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-5",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-6",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-7",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-8",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-9",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-10",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-11",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-12",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-13",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-14",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-15",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-16",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-17",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-18",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-19",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-20",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-21",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-22",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-23",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-24",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-25",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-26",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-27",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-d-minor-28",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-d-minor",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-b-flat-29",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-b-flat",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-f-major-30",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-f-major",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-cellos-c-major-31",
+      "trackId": "beacon-cellos",
+      "patternId": "beacon-cellos-c-major",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-swell-0",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-swell",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-violins-d-ascent-4",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-5",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-6",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-7",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-ascent-8",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-9",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-10",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-11",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-ascent-12",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-13",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-14",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-15",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-swell-16",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-swell",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-violins-d-ascent-20",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-21",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-22",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-23",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-ascent-24",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-25",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-26",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-27",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-d-ascent-28",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-d-ascent",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-b-flat-ascent-29",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-b-flat-ascent",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-f-answer-30",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-f-answer",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-violins-c-answer-31",
+      "trackId": "beacon-violins",
+      "patternId": "beacon-violins-c-answer",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-d-call-8",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-call",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-b-flat-call-9",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-b-flat-call",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-f-call-10",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-f-call",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-c-call-11",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-c-call",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-d-call-12",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-call",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-b-flat-call-13",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-b-flat-call",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-f-call-14",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-f-call",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-c-call-15",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-c-call",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-d-long-16",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-long",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-horn-d-call-20",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-call",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-b-flat-call-21",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-b-flat-call",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-f-call-22",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-f-call",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-c-call-23",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-c-call",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-d-call-24",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-call",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-b-flat-call-25",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-b-flat-call",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-f-call-26",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-f-call",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-c-call-27",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-c-call",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-d-call-28",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-d-call",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-b-flat-call-29",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-b-flat-call",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-f-call-30",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-f-call",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-horn-c-call-31",
+      "trackId": "beacon-horn",
+      "patternId": "beacon-horn-c-call",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-d-fanfare-8",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-d-fanfare",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-b-flat-fanfare-9",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-b-flat-fanfare",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-f-fanfare-10",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-f-fanfare",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-c-fanfare-11",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-c-fanfare",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-d-fanfare-12",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-d-fanfare",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-b-flat-fanfare-13",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-b-flat-fanfare",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-f-fanfare-14",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-f-fanfare",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-c-fanfare-15",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-c-fanfare",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-d-fanfare-24",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-d-fanfare",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-b-flat-fanfare-25",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-b-flat-fanfare",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-f-fanfare-26",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-f-fanfare",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-c-fanfare-27",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-c-fanfare",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-d-fanfare-28",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-d-fanfare",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-b-flat-fanfare-29",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-b-flat-fanfare",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-f-fanfare-30",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-f-fanfare",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-trumpet-c-fanfare-31",
+      "trackId": "beacon-trumpet",
+      "patternId": "beacon-trumpet-c-fanfare",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "beacon-drums-quiet-crossing-0",
+      "trackId": "beacon-drums",
+      "patternId": "beacon-drums-quiet-crossing",
+      "startStep": 0,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-drums-march-4",
+      "trackId": "beacon-drums",
+      "patternId": "beacon-drums-march",
+      "startStep": 64,
+      "lengthSteps": 192
+    },
+    {
+      "id": "beacon-drums-quiet-crossing-16",
+      "trackId": "beacon-drums",
+      "patternId": "beacon-drums-quiet-crossing",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-drums-march-20",
+      "trackId": "beacon-drums",
+      "patternId": "beacon-drums-march",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "beacon-drums-finale-24",
+      "trackId": "beacon-drums",
+      "patternId": "beacon-drums-finale",
+      "startStep": 384,
+      "lengthSteps": 128
+    }
+  ],
+  "tracks": [
+    {
+      "id": "beacon-cellos",
+      "name": "Expedition Cellos",
+      "kind": "synth",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.16,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "beacon-cellos-d-minor",
+          "name": "D minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 9,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 14,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "beacon-cellos-b-flat",
+          "name": "B flat",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 10,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 17,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 22,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "beacon-cellos-f-major",
+          "name": "F major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 12,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 17,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "beacon-cellos-c-major",
+          "name": "C major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 7,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            },
+            {
+              "row": 12,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.48
+            }
+          ]
+        }
+      ],
+      "activePatternId": "beacon-cellos-d-minor",
+      "physmod": {
+        "instrument": "cello",
+        "bowForce": 0.55,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.5,
+        "bodySize": 0.72,
+        "bodyMix": 0.65,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "beacon-violins",
+      "name": "Summit Violins",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.13,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "beacon-violins-d-ascent",
+          "name": "D ascent",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.57
+            },
+            {
+              "row": 5,
+              "step": 6,
+              "length": 4,
+              "velocity": 0.62
+            },
+            {
+              "row": 9,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.68
+            }
+          ]
+        },
+        {
+          "id": "beacon-violins-b-flat-ascent",
+          "name": "B flat ascent",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 10,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.58
+            },
+            {
+              "row": 14,
+              "step": 6,
+              "length": 4,
+              "velocity": 0.63
+            },
+            {
+              "row": 17,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.7
+            }
+          ]
+        },
+        {
+          "id": "beacon-violins-f-answer",
+          "name": "F answer",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 17,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.68
+            },
+            {
+              "row": 12,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.6
+            }
+          ]
+        },
+        {
+          "id": "beacon-violins-c-answer",
+          "name": "C answer",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.63
+            },
+            {
+              "row": 7,
+              "step": 6,
+              "length": 4,
+              "velocity": 0.57
+            },
+            {
+              "row": 9,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.65
+            }
+          ]
+        },
+        {
+          "id": "beacon-violins-d-swell",
+          "name": "D swell",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.47
+            }
+          ]
+        }
+      ],
+      "activePatternId": "beacon-violins-d-ascent",
+      "physmod": {
+        "instrument": "violin",
+        "bowForce": 0.61,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.66,
+        "bodySize": 0,
+        "bodyMix": 0.52,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "beacon-horn",
+      "name": "Far Horizon Horn",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "brass",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.2,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "beacon-horn-d-call",
+          "name": "D call",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 14,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.68
+            },
+            {
+              "row": 17,
+              "step": 6,
+              "length": 3,
+              "velocity": 0.74
+            },
+            {
+              "row": 21,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "beacon-horn-b-flat-call",
+          "name": "B flat call",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 10,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.7
+            },
+            {
+              "row": 17,
+              "step": 6,
+              "length": 3,
+              "velocity": 0.74
+            },
+            {
+              "row": 22,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "beacon-horn-f-call",
+          "name": "F call",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 17,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.78
+            },
+            {
+              "row": 21,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.82
+            }
+          ]
+        },
+        {
+          "id": "beacon-horn-c-call",
+          "name": "C call",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 19,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.76
+            },
+            {
+              "row": 16,
+              "step": 6,
+              "length": 3,
+              "velocity": 0.72
+            },
+            {
+              "row": 14,
+              "step": 10,
+              "length": 6,
+              "velocity": 0.8
+            }
+          ]
+        },
+        {
+          "id": "beacon-horn-d-long",
+          "name": "D long",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 14,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.65
+            }
+          ]
+        }
+      ],
+      "activePatternId": "beacon-horn-d-call",
+      "brass": {
+        "instrument": "horn",
+        "style": "fanfare",
+        "breath": 0.78,
+        "articulation": "tongued",
+        "tongue": 0.002,
+        "release": 0.2,
+        "attackSkill": 1,
+        "vibratoDepth": 0,
+        "mute": "open"
+      }
+    },
+    {
+      "id": "beacon-trumpet",
+      "name": "Beacon Trumpet",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "brass",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.13,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "beacon-trumpet-d-fanfare",
+          "name": "D fanfare",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 9,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.72
+            },
+            {
+              "row": 9,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.77
+            },
+            {
+              "row": 14,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.86
+            }
+          ]
+        },
+        {
+          "id": "beacon-trumpet-b-flat-fanfare",
+          "name": "B flat fanfare",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.72
+            },
+            {
+              "row": 5,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.77
+            },
+            {
+              "row": 10,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.86
+            }
+          ]
+        },
+        {
+          "id": "beacon-trumpet-f-fanfare",
+          "name": "F fanfare",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.72
+            },
+            {
+              "row": 12,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.77
+            },
+            {
+              "row": 17,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.86
+            }
+          ]
+        },
+        {
+          "id": "beacon-trumpet-c-fanfare",
+          "name": "C fanfare",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 3,
+              "velocity": 0.72
+            },
+            {
+              "row": 7,
+              "step": 4,
+              "length": 3,
+              "velocity": 0.77
+            },
+            {
+              "row": 12,
+              "step": 8,
+              "length": 7,
+              "velocity": 0.86
+            }
+          ]
+        }
+      ],
+      "activePatternId": "beacon-trumpet-d-fanfare",
+      "brass": {
+        "instrument": "trumpet",
+        "style": "fanfare",
+        "breath": 0.78,
+        "articulation": "tongued",
+        "tongue": 0.002,
+        "release": 0.14,
+        "attackSkill": 1,
+        "vibratoDepth": 0,
+        "mute": "open"
+      }
+    },
+    {
+      "id": "beacon-drums",
+      "name": "March Percussion",
+      "kind": "drum",
+      "channel": 4,
+      "colorIndex": 4,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 5,
+      "rack": [
+        {
+          "name": "Kick",
+          "voice": "kick",
+          "freq": 55,
+          "midi": 36,
+          "sample": null
+        },
+        {
+          "name": "Snare",
+          "voice": "snare",
+          "freq": 200,
+          "midi": 38,
+          "sample": null
+        },
+        {
+          "name": "Hihat",
+          "voice": "hihat",
+          "freq": 1000,
+          "midi": 42,
+          "sample": null
+        },
+        {
+          "name": "Clap",
+          "voice": "clap",
+          "freq": 200,
+          "midi": 39,
+          "sample": null
+        },
+        {
+          "name": "Tom",
+          "voice": "tom",
+          "freq": 110,
+          "midi": 45,
+          "sample": null
+        }
+      ],
+      "voice": {
+        "waveform": "kick",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.32,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "beacon-drums-march",
+          "name": "March",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.43
+            }
+          ]
+        },
+        {
+          "id": "beacon-drums-finale",
+          "name": "Finale",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 4,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 12,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 1,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.7
+            }
+          ]
+        },
+        {
+          "id": "beacon-drums-quiet-crossing",
+          "name": "Quiet crossing",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.35
+            }
+          ]
+        }
+      ],
+      "activePatternId": "beacon-drums-march"
+    }
+  ],
+  "activeTrackId": "beacon-cellos"
+}

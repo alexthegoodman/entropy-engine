@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import neon from '../sample-songs/neon-tide-edm.json';
 import house from '../sample-songs/afterhours-house.json';
 import hiphop from '../sample-songs/lowlight-hip-hop.json';
+import beacon from '../sample-songs/the-beacon-cinematic.json';
+import shadow from '../sample-songs/shadow-passage-cinematic.json';
+import homeward from '../sample-songs/homeward-light-cinematic.json';
 import { createWorld } from './daw_test_world';
 
-const songs = [neon, house, hiphop];
+const songs = [neon, house, hiphop, beacon, shadow, homeward];
 
 describe('bundled DAW sample songs', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); delete (globalThis as any).Entropy; });
@@ -14,7 +17,7 @@ describe('bundled DAW sample songs', () => {
     const world = createWorld();
     await world.open();
     vi.stubGlobal('structuredClone', undefined);
-    const names = ['Neon Tide', 'Afterhours', 'Lowlight'];
+    const names = ['Neon Tide', 'Afterhours', 'Lowlight', 'The Beacon', 'Shadow Passage', 'Homeward Light'];
     for (const [index, expected] of songs.entries()) {
       world.w.buttons.get('songs_toggle')!();
       world.render();
@@ -66,8 +69,27 @@ describe('bundled DAW sample songs', () => {
     expect(house.tracks.some(t => t.voice.waveform === 'physmod' && t.physmod?.instrument === 'cello')).toBe(true);
   });
 
+  it('gives each cinematic score playable modeled horns and strings in their instrument ranges', () => {
+    const brassRanges: Record<string, [number, number]> = {
+      horn: [41, 77], trumpet: [54, 84], trombone: [40, 74], tuba: [28, 60],
+    };
+    for (const score of [beacon, shadow, homeward]) {
+      expect(score.tracks.filter(t => t.voice.waveform === 'physmod').length).toBeGreaterThanOrEqual(2);
+      const brassTracks = score.tracks.filter(t => t.voice.waveform === 'brass');
+      expect(brassTracks.length).toBeGreaterThanOrEqual(1);
+      for (const track of brassTracks) {
+        const [low, high] = brassRanges[track.brass!.instrument];
+        expect(score.arrangement.some(c => c.trackId === track.id)).toBe(true);
+        for (const pattern of track.patterns) for (const note of pattern.notes) {
+          expect(track.rootNote + note.row).toBeGreaterThanOrEqual(low);
+          expect(track.rootNote + note.row).toBeLessThanOrEqual(high);
+        }
+      }
+    }
+  });
+
   it('gives every song a drum breakdown with fewer kick hits than its main groove', () => {
-    for (const song of songs) {
+    for (const song of [neon, house, hiphop]) {
       const drums = song.tracks.find(t => t.kind === 'drum')!;
       const breakdown = drums.patterns.find(p => /break/i.test(p.name))!;
       const main = drums.patterns.find(p => /drop|open groove|hook/i.test(p.name))!;

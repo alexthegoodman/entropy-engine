@@ -1,0 +1,1382 @@
+{
+  "bpm": 76,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "homeward-cello-g-major-0",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 0,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-1",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 16,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-2",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 32,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-3",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 48,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-4",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-5",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-6",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-7",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-8",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-9",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-10",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-11",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-12",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-13",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-14",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-15",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-16",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-17",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-18",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-19",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-20",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-21",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-22",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-23",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-24",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-25",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-26",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-27",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-g-major-28",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-g-major",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-d-major-29",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-d-major",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-e-minor-30",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-e-minor",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-cello-c-major-31",
+      "trackId": "homeward-cello",
+      "patternId": "homeward-cello-c-major",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-4",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-5",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-6",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-7",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-8",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-9",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-10",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-11",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-12",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-13",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-14",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-15",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-16",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-17",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-18",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-19",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-20",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-21",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-22",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-23",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-24",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-25",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-26",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-27",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-g-harmony-28",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-g-harmony",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-d-harmony-29",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-d-harmony",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-e-harmony-30",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-e-harmony",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-viola-c-harmony-31",
+      "trackId": "homeward-viola",
+      "patternId": "homeward-viola-c-harmony",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-0",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 0,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-1",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 16,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-2",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 32,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-3",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 48,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-4",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-5",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-6",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-7",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-8",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-9",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-10",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-11",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-12",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-13",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-14",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-15",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-16",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-17",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-18",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-19",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-20",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-21",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-22",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-23",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-24",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-25",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-26",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-c-theme-27",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-c-theme",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-theme-28",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-theme",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-d-theme-29",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-d-theme",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-e-theme-30",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-e-theme",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-violin-g-ending-31",
+      "trackId": "homeward-violin",
+      "patternId": "homeward-violin-g-ending",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-8",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-9",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-10",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-c-reply-11",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-c-reply",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-12",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-13",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-14",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-c-reply-15",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-c-reply",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-16",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-17",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-18",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-c-reply-19",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-c-reply",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-20",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-21",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-22",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-c-reply-23",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-c-reply",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-24",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-25",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-26",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-c-reply-27",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-c-reply",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-reply-28",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-reply",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-d-reply-29",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-d-reply",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-e-reply-30",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-e-reply",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "homeward-horn-g-farewell-31",
+      "trackId": "homeward-horn",
+      "patternId": "homeward-horn-g-farewell",
+      "startStep": 496,
+      "lengthSteps": 16
+    }
+  ],
+  "tracks": [
+    {
+      "id": "homeward-cello",
+      "name": "Warm Cello",
+      "kind": "synth",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.14,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "homeward-cello-g-major",
+          "name": "G major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 14,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 19,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "homeward-cello-d-major",
+          "name": "D major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 9,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 14,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "homeward-cello-e-minor",
+          "name": "E minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 4,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 11,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 16,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "homeward-cello-c-major",
+          "name": "C major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 7,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            },
+            {
+              "row": 12,
+              "step": 0,
+              "length": 15,
+              "velocity": 0.47
+            }
+          ]
+        }
+      ],
+      "activePatternId": "homeward-cello-g-major",
+      "physmod": {
+        "instrument": "cello",
+        "bowForce": 0.48,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.5,
+        "bodySize": 0.72,
+        "bodyMix": 0.7,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "homeward-viola",
+      "name": "Inner Voice Viola",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.12,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "homeward-viola-g-harmony",
+          "name": "G harmony",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.44
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "homeward-viola-d-harmony",
+          "name": "D harmony",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.44
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "homeward-viola-e-harmony",
+          "name": "E harmony",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 4,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.44
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.48
+            }
+          ]
+        },
+        {
+          "id": "homeward-viola-c-harmony",
+          "name": "C harmony",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.44
+            },
+            {
+              "row": 4,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.48
+            }
+          ]
+        }
+      ],
+      "activePatternId": "homeward-viola-g-harmony",
+      "physmod": {
+        "instrument": "viola",
+        "bowForce": 0.43,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.43,
+        "bodySize": 0.13,
+        "bodyMix": 0.35,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "homeward-violin",
+      "name": "Homeward Melody",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 67,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.12,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "homeward-violin-g-theme",
+          "name": "G theme",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 4,
+              "velocity": 0.58
+            },
+            {
+              "row": 4,
+              "step": 4,
+              "length": 4,
+              "velocity": 0.59
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.65
+            }
+          ]
+        },
+        {
+          "id": "homeward-violin-d-theme",
+          "name": "D theme",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 6,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.6
+            },
+            {
+              "row": 4,
+              "step": 6,
+              "length": 2,
+              "velocity": 0.54
+            },
+            {
+              "row": 2,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.61
+            }
+          ]
+        },
+        {
+          "id": "homeward-violin-e-theme",
+          "name": "E theme",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 4,
+              "velocity": 0.57
+            },
+            {
+              "row": 4,
+              "step": 4,
+              "length": 4,
+              "velocity": 0.59
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.64
+            }
+          ]
+        },
+        {
+          "id": "homeward-violin-c-theme",
+          "name": "C theme",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.59
+            },
+            {
+              "row": 4,
+              "step": 6,
+              "length": 2,
+              "velocity": 0.55
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.62
+            }
+          ]
+        },
+        {
+          "id": "homeward-violin-g-ending",
+          "name": "G ending",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 7,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.6
+            }
+          ]
+        }
+      ],
+      "activePatternId": "homeward-violin-g-theme",
+      "physmod": {
+        "instrument": "violin",
+        "bowForce": 0.49,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 18,
+        "damping": 0.15,
+        "brightness": 0.56,
+        "bodySize": 0,
+        "bodyMix": 0.35,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "homeward-horn",
+      "name": "Evening Horn",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "brass",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.16,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "homeward-horn-g-reply",
+          "name": "G reply",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 14,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.52
+            },
+            {
+              "row": 19,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.57
+            }
+          ]
+        },
+        {
+          "id": "homeward-horn-d-reply",
+          "name": "D reply",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 18,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.52
+            },
+            {
+              "row": 14,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.56
+            }
+          ]
+        },
+        {
+          "id": "homeward-horn-e-reply",
+          "name": "E reply",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 16,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.51
+            },
+            {
+              "row": 11,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.54
+            }
+          ]
+        },
+        {
+          "id": "homeward-horn-c-reply",
+          "name": "C reply",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.52
+            },
+            {
+              "row": 16,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.56
+            }
+          ]
+        },
+        {
+          "id": "homeward-horn-g-farewell",
+          "name": "G farewell",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 19,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.58
+            }
+          ]
+        }
+      ],
+      "activePatternId": "homeward-horn-g-reply",
+      "brass": {
+        "instrument": "horn",
+        "style": "chorale",
+        "breath": 0.36,
+        "articulation": "legato",
+        "tongue": 0.02,
+        "release": 0.35,
+        "attackSkill": 1,
+        "vibratoDepth": 0,
+        "mute": "open"
+      }
+    }
+  ],
+  "activeTrackId": "homeward-cello"
+}

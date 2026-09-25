@@ -1,0 +1,1266 @@
+{
+  "bpm": 88,
+  "stepsPerBeat": 4,
+  "songBars": 32,
+  "snap": "bar",
+  "arrangement": [
+    {
+      "id": "shadow-viola-e-pulse-0",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 0,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-1",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 16,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-2",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 32,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-3",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 48,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-e-pulse-4",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-5",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-6",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-7",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-e-pulse-8",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-9",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-10",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-11",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-e-pulse-12",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-13",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-14",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-15",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-held-e-16",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-held-e",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "shadow-viola-e-pulse-20",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-21",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-22",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-23",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-e-pulse-24",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-25",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-26",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-27",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-e-pulse-28",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-e-pulse",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-f-pulse-29",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-f-pulse",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-c-pulse-30",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-c-pulse",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-viola-b-pulse-31",
+      "trackId": "shadow-viola",
+      "patternId": "shadow-viola-b-pulse",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-0",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 0,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-1",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 16,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-2",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 32,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-3",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 48,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-4",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 64,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-5",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 80,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-6",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 96,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-7",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 112,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-8",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 128,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-9",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 144,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-10",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 160,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-11",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 176,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-12",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 192,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-13",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 208,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-14",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 224,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-15",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 240,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-16",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 256,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-17",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 272,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-18",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 288,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-19",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 304,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-20",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 320,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-21",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 336,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-22",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 352,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-23",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 368,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-24",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-25",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-26",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-27",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-e-minor-28",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-e-minor",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-f-minor-29",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-f-minor",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-c-major-30",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-c-major",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-cello-b-major-31",
+      "trackId": "shadow-cello",
+      "patternId": "shadow-cello-b-major",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-horn-question-4",
+      "trackId": "shadow-horn",
+      "patternId": "shadow-horn-question",
+      "startStep": 64,
+      "lengthSteps": 64
+    },
+    {
+      "id": "shadow-horn-threat-12",
+      "trackId": "shadow-horn",
+      "patternId": "shadow-horn-threat",
+      "startStep": 192,
+      "lengthSteps": 64
+    },
+    {
+      "id": "shadow-horn-question-20",
+      "trackId": "shadow-horn",
+      "patternId": "shadow-horn-question",
+      "startStep": 320,
+      "lengthSteps": 64
+    },
+    {
+      "id": "shadow-horn-reveal-24",
+      "trackId": "shadow-horn",
+      "patternId": "shadow-horn-reveal",
+      "startStep": 384,
+      "lengthSteps": 128
+    },
+    {
+      "id": "shadow-trombone-e-warning-24",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-e-warning",
+      "startStep": 384,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-f-warning-25",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-f-warning",
+      "startStep": 400,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-c-warning-26",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-c-warning",
+      "startStep": 416,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-b-warning-27",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-b-warning",
+      "startStep": 432,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-e-warning-28",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-e-warning",
+      "startStep": 448,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-f-warning-29",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-f-warning",
+      "startStep": 464,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-c-warning-30",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-c-warning",
+      "startStep": 480,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-trombone-b-warning-31",
+      "trackId": "shadow-trombone",
+      "patternId": "shadow-trombone-b-warning",
+      "startStep": 496,
+      "lengthSteps": 16
+    },
+    {
+      "id": "shadow-drums-heartbeat-0",
+      "trackId": "shadow-drums",
+      "patternId": "shadow-drums-heartbeat",
+      "startStep": 0,
+      "lengthSteps": 128
+    },
+    {
+      "id": "shadow-drums-pursuit-8",
+      "trackId": "shadow-drums",
+      "patternId": "shadow-drums-pursuit",
+      "startStep": 128,
+      "lengthSteps": 128
+    },
+    {
+      "id": "shadow-drums-suspended-16",
+      "trackId": "shadow-drums",
+      "patternId": "shadow-drums-suspended",
+      "startStep": 256,
+      "lengthSteps": 64
+    },
+    {
+      "id": "shadow-drums-pursuit-20",
+      "trackId": "shadow-drums",
+      "patternId": "shadow-drums-pursuit",
+      "startStep": 320,
+      "lengthSteps": 192
+    }
+  ],
+  "tracks": [
+    {
+      "id": "shadow-viola",
+      "name": "Restless Violas",
+      "kind": "synth",
+      "channel": 0,
+      "colorIndex": 0,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.16,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "shadow-viola-e-pulse",
+          "name": "E pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 4,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 4,
+              "step": 4,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 4,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 4,
+              "step": 12,
+              "length": 2,
+              "velocity": 0.5
+            }
+          ]
+        },
+        {
+          "id": "shadow-viola-f-pulse",
+          "name": "F pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.53
+            },
+            {
+              "row": 5,
+              "step": 4,
+              "length": 2,
+              "velocity": 0.53
+            },
+            {
+              "row": 5,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.53
+            },
+            {
+              "row": 5,
+              "step": 12,
+              "length": 2,
+              "velocity": 0.53
+            }
+          ]
+        },
+        {
+          "id": "shadow-viola-c-pulse",
+          "name": "C pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 0,
+              "step": 4,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 0,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.5
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 2,
+              "velocity": 0.5
+            }
+          ]
+        },
+        {
+          "id": "shadow-viola-b-pulse",
+          "name": "B pulse",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 11,
+              "step": 0,
+              "length": 2,
+              "velocity": 0.52
+            },
+            {
+              "row": 11,
+              "step": 4,
+              "length": 2,
+              "velocity": 0.52
+            },
+            {
+              "row": 11,
+              "step": 8,
+              "length": 2,
+              "velocity": 0.52
+            },
+            {
+              "row": 11,
+              "step": 12,
+              "length": 2,
+              "velocity": 0.52
+            }
+          ]
+        },
+        {
+          "id": "shadow-viola-held-e",
+          "name": "Held E",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 4,
+              "step": 0,
+              "length": 16,
+              "velocity": 0.4
+            }
+          ]
+        }
+      ],
+      "activePatternId": "shadow-viola-e-pulse",
+      "physmod": {
+        "instrument": "viola",
+        "bowForce": 0.48,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.28,
+        "brightness": 0.38,
+        "bodySize": 0.13,
+        "bodyMix": 0.35,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "shadow-cello",
+      "name": "Underfoot Cello",
+      "kind": "synth",
+      "channel": 1,
+      "colorIndex": 1,
+      "rootNote": 36,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "physmod",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.19,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "shadow-cello-e-minor",
+          "name": "E minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 4,
+              "step": 0,
+              "length": 12,
+              "velocity": 0.52
+            },
+            {
+              "row": 11,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.46
+            }
+          ]
+        },
+        {
+          "id": "shadow-cello-f-minor",
+          "name": "F minor",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 5,
+              "step": 0,
+              "length": 12,
+              "velocity": 0.55
+            },
+            {
+              "row": 0,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.46
+            }
+          ]
+        },
+        {
+          "id": "shadow-cello-c-major",
+          "name": "C major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 12,
+              "velocity": 0.52
+            },
+            {
+              "row": 7,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.46
+            }
+          ]
+        },
+        {
+          "id": "shadow-cello-b-major",
+          "name": "B major",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 11,
+              "step": 0,
+              "length": 12,
+              "velocity": 0.55
+            },
+            {
+              "row": 6,
+              "step": 12,
+              "length": 4,
+              "velocity": 0.46
+            }
+          ]
+        }
+      ],
+      "activePatternId": "shadow-cello-e-minor",
+      "physmod": {
+        "instrument": "cello",
+        "bowForce": 0.58,
+        "bowVelocity": 0.5,
+        "bowPosition": 0.15,
+        "vibratoRate": 5.5,
+        "vibratoDepth": 15,
+        "damping": 0.15,
+        "brightness": 0.32,
+        "bodySize": 0.72,
+        "bodyMix": 0.35,
+        "audition": true,
+        "auditionNote": 60
+      }
+    },
+    {
+      "id": "shadow-horn",
+      "name": "Veiled Horn",
+      "kind": "synth",
+      "channel": 2,
+      "colorIndex": 2,
+      "rootNote": 48,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "brass",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.16,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "shadow-horn-question",
+          "name": "Question",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 11,
+              "step": 0,
+              "length": 5,
+              "velocity": 0.54
+            },
+            {
+              "row": 9,
+              "step": 7,
+              "length": 3,
+              "velocity": 0.48
+            },
+            {
+              "row": 7,
+              "step": 11,
+              "length": 5,
+              "velocity": 0.58
+            }
+          ]
+        },
+        {
+          "id": "shadow-horn-threat",
+          "name": "Threat",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 8,
+              "step": 0,
+              "length": 6,
+              "velocity": 0.61
+            },
+            {
+              "row": 11,
+              "step": 7,
+              "length": 3,
+              "velocity": 0.63
+            },
+            {
+              "row": 16,
+              "step": 11,
+              "length": 5,
+              "velocity": 0.68
+            }
+          ]
+        },
+        {
+          "id": "shadow-horn-reveal",
+          "name": "Reveal",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 16,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.75
+            },
+            {
+              "row": 11,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.72
+            }
+          ]
+        }
+      ],
+      "activePatternId": "shadow-horn-question",
+      "brass": {
+        "instrument": "horn",
+        "style": "chorale",
+        "breath": 0.42,
+        "articulation": "legato",
+        "tongue": 0.02,
+        "release": 0.28,
+        "attackSkill": 1,
+        "vibratoDepth": 0,
+        "mute": "cup"
+      }
+    },
+    {
+      "id": "shadow-trombone",
+      "name": "Distant Trombone",
+      "kind": "synth",
+      "channel": 3,
+      "colorIndex": 3,
+      "rootNote": 40,
+      "scale": "chromatic",
+      "rows": 37,
+      "voice": {
+        "waveform": "brass",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.14,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "shadow-trombone-e-warning",
+          "name": "E warning",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 12,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.61
+            },
+            {
+              "row": 7,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.57
+            }
+          ]
+        },
+        {
+          "id": "shadow-trombone-f-warning",
+          "name": "F warning",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 13,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.64
+            },
+            {
+              "row": 8,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.59
+            }
+          ]
+        },
+        {
+          "id": "shadow-trombone-c-warning",
+          "name": "C warning",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 8,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.62
+            },
+            {
+              "row": 3,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.57
+            }
+          ]
+        },
+        {
+          "id": "shadow-trombone-b-warning",
+          "name": "B warning",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 11,
+              "step": 0,
+              "length": 8,
+              "velocity": 0.67
+            },
+            {
+              "row": 6,
+              "step": 8,
+              "length": 8,
+              "velocity": 0.62
+            }
+          ]
+        }
+      ],
+      "activePatternId": "shadow-trombone-e-warning",
+      "brass": {
+        "instrument": "trombone",
+        "style": "section",
+        "breath": 0.56,
+        "articulation": "tongued",
+        "tongue": 0.004,
+        "release": 0.25,
+        "attackSkill": 1,
+        "vibratoDepth": 0,
+        "mute": "open"
+      }
+    },
+    {
+      "id": "shadow-drums",
+      "name": "Distant Impacts",
+      "kind": "drum",
+      "channel": 4,
+      "colorIndex": 4,
+      "rootNote": 60,
+      "scale": "chromatic",
+      "rows": 5,
+      "rack": [
+        {
+          "name": "Kick",
+          "voice": "kick",
+          "freq": 55,
+          "midi": 36,
+          "sample": null
+        },
+        {
+          "name": "Snare",
+          "voice": "snare",
+          "freq": 200,
+          "midi": 38,
+          "sample": null
+        },
+        {
+          "name": "Hihat",
+          "voice": "hihat",
+          "freq": 1000,
+          "midi": 42,
+          "sample": null
+        },
+        {
+          "name": "Clap",
+          "voice": "clap",
+          "freq": 200,
+          "midi": 39,
+          "sample": null
+        },
+        {
+          "name": "Tom",
+          "voice": "tom",
+          "freq": 110,
+          "midi": 45,
+          "sample": null
+        }
+      ],
+      "voice": {
+        "waveform": "kick",
+        "cutoff": 4000,
+        "resonance": 1,
+        "attack": 0.005,
+        "decay": 0.08,
+        "sustain": 0.6,
+        "release": 0.12,
+        "delayTime": 0,
+        "delayFeedback": 0.35,
+        "delayMix": 0,
+        "reverbRoomSize": 10,
+        "reverbTime": 1.2,
+        "reverbDamping": 0.5,
+        "reverbMix": 0
+      },
+      "gain": 0.29,
+      "muted": false,
+      "solo": false,
+      "patterns": [
+        {
+          "id": "shadow-drums-heartbeat",
+          "name": "Heartbeat",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            }
+          ]
+        },
+        {
+          "id": "shadow-drums-pursuit",
+          "name": "Pursuit",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 0,
+              "step": 0,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 7,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 0,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.95
+            },
+            {
+              "row": 1,
+              "step": 8,
+              "length": 1,
+              "velocity": 0.83
+            },
+            {
+              "row": 2,
+              "step": 2,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 6,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 2,
+              "step": 10,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.47
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.52
+            }
+          ]
+        },
+        {
+          "id": "shadow-drums-suspended",
+          "name": "Suspended",
+          "steps": 16,
+          "notes": [
+            {
+              "row": 2,
+              "step": 14,
+              "length": 1,
+              "velocity": 0.63
+            },
+            {
+              "row": 4,
+              "step": 15,
+              "length": 1,
+              "velocity": 0.38
+            }
+          ]
+        }
+      ],
+      "activePatternId": "shadow-drums-heartbeat"
+    }
+  ],
+  "activeTrackId": "shadow-viola"
+}

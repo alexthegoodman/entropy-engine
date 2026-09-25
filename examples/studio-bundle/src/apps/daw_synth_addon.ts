@@ -131,6 +131,9 @@ import {
 import neonTide from "../../sample-songs/neon-tide-edm.json" with { type: "json" };
 import afterhours from "../../sample-songs/afterhours-house.json" with { type: "json" };
 import lowlight from "../../sample-songs/lowlight-hip-hop.json" with { type: "json" };
+import beacon from "../../sample-songs/the-beacon-cinematic.json" with { type: "json" };
+import shadow from "../../sample-songs/shadow-passage-cinematic.json" with { type: "json" };
+import homeward from "../../sample-songs/homeward-light-cinematic.json" with { type: "json" };
 import {
     GUITAR_MODES,
     GUITAR_WAVEFORMS,
@@ -444,6 +447,9 @@ const SONG_TEMPLATES: SongTemplate[] = [
     { id: "neon", label: "Neon Tide - EDM (rising violins)", songName: "Neon Tide", make: () => copyJson(neonTide) as DAWProject },
     { id: "afterhours", label: "Afterhours - House (cello chops)", songName: "Afterhours", make: () => copyJson(afterhours) as DAWProject },
     { id: "lowlight", label: "Lowlight - Hip Hop (drum breakdown)", songName: "Lowlight", make: () => copyJson(lowlight) as DAWProject },
+    { id: "beacon", label: "The Beacon - Cinematic (horn fanfare)", songName: "The Beacon", make: () => copyJson(beacon) as DAWProject },
+    { id: "shadow", label: "Shadow Passage - Cinematic (suspense)", songName: "Shadow Passage", make: () => copyJson(shadow) as DAWProject },
+    { id: "homeward", label: "Homeward Light - Cinematic (string theme)", songName: "Homeward Light", make: () => copyJson(homeward) as DAWProject },
 ];
 
 function getActiveTrack(): Track | undefined {

@@ -7,5 +7,8 @@ These files are standalone DAW project JSON files. The DAW bundles them as templ
 | `neon-tide-edm.json` | EDM, 128 BPM | Rising Phys Mod violins, a sparse drum break, and two drops |
 | `afterhours-house.json` | House, 122 BPM | Four-on-the-floor drums, Phys Mod cello chops, and a sparse breakdown |
 | `lowlight-hip-hop.json` | Hip hop, 92 BPM | Half-time drums, a drum-led breakdown, and a returning hook |
+| `the-beacon-cinematic.json` | Heroic score, 104 BPM | D-minor string ascent, horn calls, and a trumpet-led finale |
+| `shadow-passage-cinematic.json` | Suspense score, 88 BPM | Restless violas, muted horn questions, and a low-brass reveal |
+| `homeward-light-cinematic.json` | Reflective score, 76 BPM | Lyrical violin, warm cello and viola, and a chorale horn farewell |
 
 All sounds use built-in voices and pads; no external samples or plugins are needed. To rebuild the JSON after changing the arrangements, run `node sample-songs/generate.mjs` from `examples/studio-bundle`.
