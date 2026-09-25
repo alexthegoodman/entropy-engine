@@ -346,7 +346,7 @@ export interface ScopedAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. Call this any time a track's own
@@ -372,6 +372,14 @@ export interface ScopedAPI {
     physModNoteOff: (voice: number) => void;
     /** Moves a held bowed-string note's bow while it sounds. */
     physModSetBow: (voice: number, which: "force" | "velocity" | "position" | "vibratoDepth", value: number) => void;
+    /** Plays one timed brass note on a track's bus (see `Brass`). Notes on one track are played by
+     *  one player: a note that starts before the last one ends slurs into it. */
+    playBrassOnTrack: (trackId: string, config: BrassNoteConfig) => BrassOk;
+    /** Starts a brass note that sounds until `brassNoteOff(voice)`. */
+    brassNoteOn: (trackId: string, config: BrassNoteConfig) => BrassOk & { voice?: number };
+    brassNoteOff: (voice: number) => void;
+    /** Moves a held brass note: breath (0..1), lip tension (-1..1), vibrato depth or bend (cents). */
+    brassSetControl: (voice: number, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -414,6 +422,7 @@ export interface ScopedAPI {
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
   PhysMod: PhysModAPI;
+  Brass: BrassAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;
@@ -480,6 +489,8 @@ export interface ScopedAPI {
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
+      /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
+      brass: (windowId: string, config: BrassViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -1732,6 +1743,33 @@ export interface WavetableAPI {
   analyzeNote: (config: WavetableNoteConfig, seconds?: number) => WavetableOk & { seconds?: number; peakDb?: number; rmsDb?: number; peakHz?: number; centroidHz?: number };
 }
 
+export interface BrassViewConfig {
+  id?: string;
+  /** The player in the brass registry (`Entropy.Brass`) to show and drive. */
+  instrument: string;
+  height?: number;
+  width?: number;
+  /** Breath (0..1) and lip tension (-1..1), shown on the playing map before a note sounds. */
+  breath?: number;
+  lipTension?: number;
+  /** Show the Physics View overlays: the pressure wave and standing wave along the bore, the
+   * resonance ladder, the playing map (draggable) and one period of mouthpiece pressure and lips. */
+  physicsView?: boolean;
+  exaggeration?: number;
+  keyboard?: boolean;
+  /** MIDI note of the keyboard's first key. Default 40 (E2). */
+  firstKey?: number;
+  octaves?: number;
+  held?: number[];
+  onKeyDown?: (midi: number, velocity: number) => void;
+  onKeyUp?: (midi: number) => void;
+  /** The slide was dragged: the slide position (1 = closed .. 7) asked for. */
+  onSlideDrag?: (position: number) => void;
+  /** A drag in the playing map: breath (0..1) and lip tension (-1..1). */
+  onPlayDrag?: (breath: number, lipTension: number) => void;
+  onPhysicsView?: (on: boolean) => void;
+}
+
 export interface PhysModViewConfig {
   id?: string;
   /** The instrument in the bowed-string registry (`Entropy.PhysMod`) to show and drive - there is
@@ -1883,6 +1921,95 @@ export interface PhysModNoteConfig {
   duration?: number;
   /** Offline renders only: seconds from the start. */
   startTime?: number;
+}
+
+export interface BrassOk { ok: boolean; error?: string }
+
+export type BrassInstrumentName = "trombone";
+export type BrassArticulation = "tongued" | "legato" | "glissando";
+
+/** A physically modeled brass note (see `Entropy.Brass`). Anything left out keeps its default. */
+export interface BrassNoteConfig {
+  trackId?: string;
+  /** The player id a widget reads; defaults to `trackId`. */
+  instrumentId?: string;
+  instrument?: BrassInstrumentName;
+  freq?: number;
+  /** 0..1, MIDI velocity read as dynamics (moves the breath around `breath`). */
+  velocity?: number;
+  gain?: number;
+  /** 0..1: mouth pressure, log from 0.5 kPa to 16 kPa; 0.5 is a comfortable mezzo. Past a few kPa
+   *  the wave in the bore steepens and the tone turns brassy. */
+  breath?: number;
+  /** -1..1: lips looser (falls to the partial below) or tighter (pops to the one above). */
+  lipTension?: number;
+  /** 0..1: rest opening of the lips; small is focused, large airy. */
+  aperture?: number;
+  vibratoRate?: number;
+  /** Cents (slide vibrato on the trombone). */
+  vibratoDepth?: number;
+  vibratoDelay?: number;
+  /** Seconds for the tongue to release: a few ms is "ta", tens of ms "da". */
+  attack?: number;
+  release?: number;
+  duration?: number;
+  articulation?: BrassArticulation;
+  /** 0..1: at 1 notes speak at once; lower, slower blooms and cracked high notes. */
+  attackSkill?: number;
+  breathNoise?: number;
+  /** Seconds for the slide to travel to a new position. */
+  slideTime?: number;
+  /** 0..4: the air's nonlinearity (1 is real air; 0 removes brassiness). */
+  brassiness?: number;
+  /** Offline events only: seconds from the start of the render. */
+  startTime?: number;
+}
+
+export interface BrassResonance { partial: number; hz: number; impedance: number }
+
+export interface BrassInfo extends BrassOk {
+  id?: string;
+  instrument?: BrassInstrumentName;
+  activeVoices?: number;
+  playing?: boolean;
+  partial?: number;
+  /** Slide position, 1 (closed) to 7. */
+  position?: number;
+  slideExtension?: number;
+  mouthPressurePa?: number;
+  breath?: number;
+  lipTension?: number;
+  lipHz?: number;
+  lipOpeningMm?: number;
+  targetHz?: number;
+  resonanceHz?: number;
+  soundingHz?: number;
+  waveSteepness?: number;
+  mouthpieceLevelPa?: number;
+  resonances?: BrassResonance[];
+}
+
+export interface BrassNoteAnalysis extends BrassOk {
+  seconds?: number;
+  peakDb?: number;
+  rmsDb?: number;
+  pitchHz?: number;
+  centsOff?: number;
+  centroidHz?: number;
+  harmonicsDb?: number[];
+  partial?: number;
+  position?: number;
+  mouthPressurePa?: number;
+  mouthpieceLevelPa?: number;
+  waveSteepness?: number;
+  attackSeconds?: number | null;
+}
+
+export interface BrassAPI {
+  info: (id: string) => BrassInfo;
+  remove: (id: string) => boolean;
+  /** Plays one note offline (no audio device) and reads it back. */
+  analyzeNote: (config: BrassNoteConfig, seconds?: number) => BrassNoteAnalysis;
 }
 
 export interface PhysModAPI {
@@ -2284,6 +2411,8 @@ export interface EntropyAPI {
       wavetable: (windowId: string, config: WavetableViewConfig) => void;
       /** A physically modeled bowed string, drawn the same neon-terrain way as `wavetable`. */
       physModString: (windowId: string, config: PhysModViewConfig) => void;
+      /** A physically modeled brass instrument, drawn from its bore in the same neon style. */
+      brass: (windowId: string, config: BrassViewConfig) => void;
       /** A triggered oscilloscope over `source` (`"master"` or a track id). */
       oscilloscope: (windowId: string, config: OscilloscopeConfig) => void;
       /** A log-frequency spectrum analyzer over `source`, with peak hold and a hover readout. */
@@ -2570,7 +2699,7 @@ export interface EntropyAPI {
     playNote: (config: NoteConfig) => void;
     playTestTone: () => void;
     /** Renders `events` offline to a WAV file (opens a native save dialog), no live playback. */
-    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[]) => RenderPatternWavResult;
+    renderPatternToWav: (events: NoteEvent[], suggestedName?: string, sampleEvents?: SampleEvent[], wavetableEvents?: WavetableNoteConfig[], physModEvents?: PhysModNoteConfig[], vst3Events?: Vst3RenderTrackConfig[], trackBuses?: TrackBusRenderConfig[], brassEvents?: BrassNoteConfig[]) => RenderPatternWavResult;
     /** Creates (on first call for a given `trackId`) or updates a persistent per-track mixing
      * bus: gain/mute/solo apply continuously and in real time, including to notes already
      * ringing - not just to future `playNoteOnTrack` calls. */
@@ -2594,6 +2723,14 @@ export interface EntropyAPI {
     physModNoteOff: (voice: number) => void;
     /** Moves a held bowed-string note's bow while it sounds. */
     physModSetBow: (voice: number, which: "force" | "velocity" | "position" | "vibratoDepth", value: number) => void;
+    /** Plays one timed brass note on a track's bus (see `Brass`). Notes on one track are played by
+     *  one player: a note that starts before the last one ends slurs into it. */
+    playBrassOnTrack: (trackId: string, config: BrassNoteConfig) => BrassOk;
+    /** Starts a brass note that sounds until `brassNoteOff(voice)`. */
+    brassNoteOn: (trackId: string, config: BrassNoteConfig) => BrassOk & { voice?: number };
+    brassNoteOff: (voice: number) => void;
+    /** Moves a held brass note: breath (0..1), lip tension (-1..1), vibrato depth or bend (cents). */
+    brassSetControl: (voice: number, which: "breath" | "lipTension" | "vibratoDepth" | "bend", value: number) => void;
     /** Reads a source back without drawing anything: `"master"` (the whole mix) or a track id.
      * Peak and RMS are dBFS over the last `fftSize` frames (default 4096, -120 = silence);
      * `peakHz`/`peakDb` are the strongest frequency above 20 Hz and its level; `centroidHz` is the
@@ -2627,6 +2764,7 @@ export interface EntropyAPI {
   Vst3: Vst3API;
   Wavetable: WavetableAPI;
   PhysMod: PhysModAPI;
+  Brass: BrassAPI;
   Icons: IconsAPI;
   System: SystemAPI;
   Guitar: GuitarAPI;

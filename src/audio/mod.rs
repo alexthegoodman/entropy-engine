@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use fundsp::prelude::*;
 use rodio::{OutputStream, OutputStreamBuilder, Sink, Source};
 use analysis::{to_db, AudioSummary, AudioTap, Levels, Spectrum, SpectrumAnalyzer, TapSnapshot, ENGINE_SAMPLE_RATE};
+use brass::{BrassCommand, BrassHandle, BrassInstrumentVoice, BrassParams};
 use physmod::{InstrumentCommand, InstrumentHandle, PhysModInstrumentVoice, PhysModParams};
 use samples::{SampleEvent, SampleParams, SampleVoice};
 use wavetable::{WavetableParams, WavetableVoice};
@@ -440,6 +441,15 @@ pub struct PhysModEvent {
     pub params: PhysModParams,
 }
 
+/// One scheduled note of a physically-modeled brass track in an offline render. Notes with the same
+/// `instrument` are played by one player, so overlapping ones slur as they do live.
+#[derive(Clone, Debug)]
+pub struct BrassEvent {
+    pub start_time: f64,
+    pub instrument: String,
+    pub params: BrassParams,
+}
+
 /// `render_events_to_wav` plus wavetable notes, physically-modeled bowed-string notes and VST3
 /// instrument tracks. A wavetable note is rendered by the same `WavetableVoice` the live path plays,
 /// from the table's current contents, so a bounce sounds like what was sculpted. A note whose table
@@ -456,7 +466,7 @@ pub fn render_events_full_to_wav(
     sample_rate: u32,
     output_path: &Path,
 ) -> Result<(f64, Vec<String>), String> {
-    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, vst3_tracks, &MixRouting::default(), sample_rate, output_path)
+    render_mix_to_wav(events, sample_events, wavetable_events, physmod_events, &[], vst3_tracks, &MixRouting::default(), sample_rate, output_path)
 }
 
 /// Which track bus each event of an offline render plays through (see `render_mix_to_wav`). Each
@@ -470,6 +480,7 @@ pub struct MixRouting<'a> {
     pub samples: &'a [Option<usize>],
     pub wavetable: &'a [Option<usize>],
     pub physmod: &'a [Option<usize>],
+    pub brass: &'a [Option<usize>],
     pub vst3: &'a [Option<usize>],
 }
 
@@ -489,6 +500,7 @@ pub fn render_mix_to_wav(
     sample_events: &[SampleEvent],
     wavetable_events: &[WavetableEvent],
     physmod_events: &[PhysModEvent],
+    brass_events: &[BrassEvent],
     vst3_tracks: &[vst3::Vst3RenderTrack],
     routing: &MixRouting,
     sample_rate: u32,
@@ -538,15 +550,26 @@ pub fn render_mix_to_wav(
             None => by_instrument.push((hit.instrument.as_str(), routing.bus(routing.physmod, i), vec![note])),
         }
     }
-    for (_, bus, notes) in &by_instrument {
-        let mut buf = physmod::render_performance(notes, 6.0);
+    // Brass likewise, one player per instrument, so slurs survive the bounce.
+    let mut by_player: Vec<(&str, Option<usize>, Vec<(f64, BrassParams)>)> = Vec::new();
+    for (i, hit) in brass_events.iter().enumerate() {
+        let note = (hit.start_time.max(0.0), hit.params);
+        match by_player.iter_mut().find(|(id, _, _)| *id == hit.instrument.as_str()) {
+            Some((_, _, notes)) => notes.push(note),
+            None => by_player.push((hit.instrument.as_str(), routing.bus(routing.brass, i), vec![note])),
+        }
+    }
+    let brass_bufs = by_player.iter().map(|(_, bus, notes)| (*bus, brass::render_performance(notes, 3.0)));
+    let physmod_bufs = by_instrument.iter().map(|(_, bus, notes)| (*bus, physmod::render_performance(notes, 6.0)));
+    for (bus, buf) in physmod_bufs.chain(brass_bufs) {
+        let mut buf = buf;
         if sample_rate != ENGINE_SAMPLE_RATE && !buf.is_empty() {
             let stereo: Vec<[f32; 2]> = buf.chunks_exact(2).map(|c| [c[0], c[1]]).collect();
             buf = samples::resample(stereo, ENGINE_SAMPLE_RATE, sample_rate).into_iter().flatten().collect();
         }
         let n_frames = buf.len() / 2;
         total_frames = std::cmp::Ord::max(total_frames, n_frames);
-        voice_bufs.push((0, *bus, buf));
+        voice_bufs.push((0, bus, buf));
     }
 
     for (i, event) in events.iter().enumerate() {
@@ -1012,6 +1035,12 @@ pub struct AudioEngine {
     /// One live bowed-string instrument per (track, instrument id): every note on it shares its
     /// strings and body (see `physmod::PhysModInstrumentVoice`).
     physmod_instruments: Mutex<HashMap<String, Arc<InstrumentHandle>>>,
+    /// The brass notes being held (see `brass_note_on`), by voice id.
+    brass_gates: Mutex<HashMap<u64, BrassNoteHandle>>,
+    next_brass_voice: AtomicU64,
+    /// One live brass player per (track, instrument id): notes on it slur into each other (see
+    /// `brass::BrassInstrumentVoice`).
+    brass_players: Mutex<HashMap<String, Arc<BrassHandle>>>,
 }
 
 /// What the main thread keeps of a held wavetable note: the gate that releases it and the position
@@ -1026,6 +1055,13 @@ struct WavetableHandle {
 struct PhysModHandle {
     instrument: Arc<InstrumentHandle>,
     live: Arc<physmod::PhysModLive>,
+}
+
+/// What the main thread keeps of a held brass note: the player it sounds on (to release it) and the
+/// controls it reads live (see `brass::BrassLive`).
+struct BrassNoteHandle {
+    player: Arc<BrassHandle>,
+    live: Arc<brass::BrassLive>,
 }
 
 /// The bus the sample browser auditions through. It feeds the master (so you hear it and the
@@ -1068,6 +1104,9 @@ impl AudioEngine {
             physmod_gates: Mutex::new(HashMap::new()),
             next_physmod_voice: AtomicU64::new(1),
             physmod_instruments: Mutex::new(HashMap::new()),
+            brass_gates: Mutex::new(HashMap::new()),
+            next_brass_voice: AtomicU64::new(1),
+            brass_players: Mutex::new(HashMap::new()),
         }
     }
 
@@ -1305,6 +1344,76 @@ impl AudioEngine {
         }
     }
 
+    /// The live brass player for `instrument` on `track_id`, started on the track's bus if it is not
+    /// running (or plays a different instrument).
+    fn brass_player(&self, track_id: &str, instrument: &str, params: &BrassParams) -> Result<Arc<BrassHandle>, String> {
+        let key = format!("{track_id}\u{1}{instrument}");
+        let mut map = self.brass_players.lock().unwrap();
+        if let Some(h) = map.get(&key) {
+            if h.is_alive() && h.same_instrument(params) {
+                return Ok(h.clone());
+            }
+            h.retire();
+        }
+        let shared = brass::shared_for(instrument);
+        let buses = self.track_buses.lock().unwrap();
+        let bus = buses.get(track_id).ok_or_else(|| format!("track {track_id} has no bus"))?;
+        // Building a player computes (once per instrument, cached) its resonance table: done here,
+        // off the audio thread.
+        let (voice, handle) = BrassInstrumentVoice::new(shared, params);
+        bus.note_mixer.add(voice);
+        map.insert(key, handle.clone());
+        Ok(handle)
+    }
+
+    /// Sends a note-on to the track's brass player, restarting it once if it shut itself down
+    /// (idle) between the check and the send.
+    fn brass_send_note(&self, track_id: &str, instrument: &str, mut cmd: BrassCommand, params: &BrassParams) -> Result<Arc<BrassHandle>, String> {
+        for _ in 0..2 {
+            let h = self.brass_player(track_id, instrument, params)?;
+            match h.send(cmd) {
+                Ok(()) => return Ok(h),
+                Err(back) => cmd = back,
+            }
+        }
+        Err("the brass player could not be started".into())
+    }
+
+    /// Plays one timed brass note on a track's bus, on the track's live player (so a note that
+    /// starts before the last one ends slurs into it). `instrument` names the `BrassShared` the
+    /// view reads (the DAW uses the track's id).
+    pub fn play_brass_on_track(&self, track_id: &str, instrument: &str, params: BrassParams) -> Result<(), String> {
+        let id = self.next_brass_voice.fetch_add(1, Ordering::Relaxed);
+        self.brass_send_note(track_id, instrument, BrassCommand::NoteOn { id, params, gated: false, live: None }, &params).map(|_| ())
+    }
+
+    /// Starts a brass note that sounds until `brass_note_off` (a key held down). Returns the id to
+    /// release and steer it with.
+    pub fn brass_note_on(&self, track_id: &str, instrument: &str, params: BrassParams) -> Result<u64, String> {
+        let live = Arc::new(brass::BrassLive::from_params(&params));
+        let id = self.next_brass_voice.fetch_add(1, Ordering::Relaxed);
+        let player = self.brass_send_note(track_id, instrument, BrassCommand::NoteOn { id, params, gated: true, live: Some(live.clone()) }, &params)?;
+        let mut gates = self.brass_gates.lock().unwrap();
+        gates.retain(|_, h| h.player.is_alive());
+        gates.insert(id, BrassNoteHandle { player, live });
+        Ok(id)
+    }
+
+    /// Releases a note started by `brass_note_on`. Unknown or already-finished ids are ignored.
+    pub fn brass_note_off(&self, voice_id: u64) {
+        if let Some(h) = self.brass_gates.lock().unwrap().remove(&voice_id) {
+            let _ = h.player.send(BrassCommand::NoteOff { id: voice_id });
+        }
+    }
+
+    /// Moves a held brass note's live control: `which` is "breath", "lipTension", "vibratoDepth"
+    /// or "bend" (cents).
+    pub fn brass_set_control(&self, voice_id: u64, which: &str, value: f32) {
+        if let Some(h) = self.brass_gates.lock().unwrap().get(&voice_id) {
+            h.live.set(which, value);
+        }
+    }
+
     /// Auditions a sample through `PREVIEW_BUS`, cutting off the one still playing from the last
     /// call.
     pub fn preview_sample(&self, path: &str, params: SampleParams) -> Result<(), String> {
@@ -1514,7 +1623,7 @@ mod character_path_tests {
         let events = [note(220.0), note(5_512.5)];
         let buses = [TrackBusRender { gain: 1.0, effects: vec![CharacterParams { kind: CharacterKind::Pump, amount: 1.0, pattern: 0, bpm: 120.0, beat: None }], silences: vec![] }];
         let routing = MixRouting { buses: &buses, notes: &[Some(0), None], ..Default::default() };
-        render_mix_to_wav(&events, &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
+        render_mix_to_wav(&events, &[], &[], &[], &[], &[], &routing, 44_100, &path).unwrap();
         let samples: Vec<f32> = hound::WavReader::open(&path).unwrap().samples::<i16>().step_by(2).map(|s| s.unwrap() as f32 / 32768.0).collect();
         // Level over a 20 ms window at `t`, split by a crude filter: slow part = 220 Hz track.
         let window = |t: f32| {

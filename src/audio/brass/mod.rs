@@ -29,6 +29,7 @@
 //! `engine::lip_mass`) were fitted from sweeps of the model itself.
 
 pub mod airbore;
+pub mod analysis;
 pub mod bore;
 pub mod engine;
 pub mod impedance;
@@ -136,6 +137,8 @@ pub struct BrassState {
     pub extension: f32,
     pub position: f32,
     pub slide_max: f32,
+    /// The player's tuning-slide pull, metres (the bore is that much longer than the stock profile).
+    pub tuning: f32,
     pub mouth_pressure: f32,
     pub breath: f32,
     pub lip_tension: f32,
@@ -158,6 +161,7 @@ pub struct BrassShared {
     extension: AtomicU32,
     position: AtomicU32,
     slide_max: AtomicU32,
+    tuning: AtomicU32,
     mouth_pressure: AtomicU32,
     breath: AtomicU32,
     lip_tension: AtomicU32,
@@ -187,6 +191,7 @@ impl Default for BrassShared {
             extension: AtomicU32::new(0),
             position: AtomicU32::new(1f32.to_bits()),
             slide_max: AtomicU32::new(BrassInstrument::TenorTrombone.profile().slide_max.to_bits()),
+            tuning: AtomicU32::new(0),
             mouth_pressure: AtomicU32::new(0),
             breath: AtomicU32::new(0.5f32.to_bits()),
             lip_tension: AtomicU32::new(0),
@@ -241,6 +246,7 @@ impl BrassShared {
             extension: load(&self.extension),
             position: load(&self.position),
             slide_max: load(&self.slide_max),
+            tuning: load(&self.tuning),
             mouth_pressure: load(&self.mouth_pressure),
             breath: load(&self.breath),
             lip_tension: load(&self.lip_tension),
@@ -285,6 +291,7 @@ impl BrassShared {
         store(&self.extension, r.extension);
         store(&self.position, r.position);
         store(&self.slide_max, engine.bore().profile().slide_max);
+        store(&self.tuning, engine.tuning_slide());
         store(&self.mouth_pressure, r.mouth_pressure);
         store(&self.breath, r.breath);
         store(&self.lip_tension, r.lip_tension);
