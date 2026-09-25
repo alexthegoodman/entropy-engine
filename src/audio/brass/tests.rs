@@ -4,7 +4,7 @@
 
 use super::airbore::AirBore;
 use super::bore::BoreProfile;
-use super::engine::*;
+use super::engine::{self, *};
 use super::impedance::Reference;
 use super::lips::{LipSpec, Lips};
 use super::*;
@@ -449,3 +449,155 @@ fn live_breath_and_bend_steer_a_held_note() {
     assert!(shared.state().extension > before + 0.1, "the slide should have moved out");
 }
 
+
+// ---------------------------------------------------------------- the family
+
+/// Cents between reference peak `n` of `b` and the `n`th harmonic of its nominal fundamental.
+fn peak_cents(b: &BoreProfile, hi: usize) -> Vec<f32> {
+    let f1 = b.nominal_fundamental;
+    let peaks = Reference::new(b, 0.4 * f1, f1 * (hi as f32 + 1.5), (f1 / 100.0).min(0.5)).peaks(0.0);
+    (1..=hi).map(|n| cents(peaks[n - 1].freq, f1 * n as f32)).collect()
+}
+
+#[test]
+fn trumpet_horn_and_tuba_bores_line_up_like_real_ones() {
+    let t = peak_cents(&BoreProfile::trumpet(), 10);
+    assert!(t[1..].iter().all(|c| c.abs() < 25.0), "trumpet peaks 2-10: {t:?}");
+    let h = peak_cents(&BoreProfile::horn(), 12);
+    assert!(h[1..].iter().all(|c| c.abs() < 12.0), "horn (B♭ side) peaks 2-12: {h:?}");
+    // A tuba is conical: even its first resonance is close to the series (playable), unlike a
+    // trombone's or a trumpet's.
+    let u = peak_cents(&BoreProfile::tuba(), 8);
+    assert!(u[1..].iter().all(|c| c.abs() < 12.0) && u[0].abs() < 30.0, "tuba peaks 1-8: {u:?}");
+    assert!(t[0] < -300.0, "a trumpet's first resonance is far below the series: {}", t[0]);
+}
+
+#[test]
+fn valve_combinations_add_their_tubes_and_come_out_sharp() {
+    let open = 1.4f32;
+    let combos = engine::valve_combos(BrassInstrument::Trumpet.mechanism(), open);
+    let tube = |mask: u32| combos.iter().find(|c| c.0 == mask).unwrap().1;
+    assert_eq!(combos.len(), 8);
+    // 1 + 3 is five semitones' worth of valves, but each tube was cut for the open horn, so the
+    // combination is short of the 5-semitone tube: sharp, as real valves are.
+    let five = open * (2f32.powf(5.0 / 12.0) - 1.0);
+    let both = tube(0b101);
+    assert!((both - (tube(0b001) + tube(0b100))).abs() < 1.0e-6);
+    let sharp = 1200.0 * ((open + five) / (open + both)).log2();
+    assert!((15.0..40.0).contains(&sharp), "1+3 is {sharp:.1} cents sharp");
+    // A double horn has the F side: another fourth of tube, with its own longer valves.
+    let horn = engine::valve_combos(BrassInstrument::Horn.mechanism(), 2.8);
+    assert_eq!(horn.len(), 16);
+    let f = horn.iter().find(|c| c.0 == F_SIDE).unwrap().1;
+    assert!((1200.0 * ((2.8 + f) / 2.8).log2() - 500.0).abs() < 1.0);
+}
+
+#[test]
+fn the_family_plays_its_range_in_tune_with_standard_fingerings() {
+    let cases: [(BrassInstrument, &[(f32, usize, u32)]); 3] = [
+        // (note, partial, valves): B♭4 open 4th partial, F4 open 3rd, C4 1+3 on the 3rd, B♭3 open 2nd.
+        (BrassInstrument::Trumpet, &[(466.16, 4, 0), (349.23, 3, 0), (261.63, 3, 0b101), (233.08, 2, 0)]),
+        // B♭ side above, F side below: A4 on B♭ with 2, F3 on the F side open (4th partial).
+        (BrassInstrument::Horn, &[(440.0, 8, 0b010), (174.61, 4, F_SIDE)]),
+        // B♭1 open 2nd, F2 open 3rd, B♭2 open 4th.
+        (BrassInstrument::Tuba, &[(58.27, 2, 0), (87.31, 3, 0), (116.54, 4, 0)]),
+    ];
+    for (instrument, notes) in cases {
+        let e = Engine::new(SR, &BrassParams { instrument, ..Default::default() });
+        for &(f, partial, valves) in notes {
+            let p = BrassParams { instrument, ..note(f) };
+            let fing = e.choose_fingering(f, p.mouth_pressure());
+            assert_eq!((fing.partial, fing.valves), (partial, valves), "{instrument:?} {f} Hz");
+        }
+    }
+    let ranges: [(BrassInstrument, &[f32]); 3] = [
+        (BrassInstrument::Trumpet, &[164.81, 207.65, 293.66, 392.0, 523.25, 659.26, 830.61]),
+        (BrassInstrument::Horn, &[110.0, 155.56, 220.0, 311.13, 440.0, 554.37, 698.46]),
+        (BrassInstrument::Tuba, &[41.2, 51.91, 73.42, 103.83, 146.83, 207.65]),
+    ];
+    for (instrument, notes) in ranges {
+        for &f in notes {
+            let (x, r) = hold(BrassParams { instrument, ..note(f) }, 0.8);
+            let c = cents(pitch(settled(&x), SR, f), f);
+            let tol = if instrument == BrassInstrument::Tuba && f < 60.0 { 20.0 } else { 8.0 };
+            assert!(c.abs() < tol, "{instrument:?} {f} Hz: {c:+.1} cents (partial {})", r.partial);
+        }
+    }
+}
+
+#[test]
+fn stopping_the_horn_puts_a_resonance_a_semitone_above_each_upper_one() {
+    // The horn player's hand closing the bell's throat: every upper resonance (partials 9-16) gets
+    // a stopped neighbour about a semitone above it - why a stopped note, lipped the same, comes out
+    // a semitone high. Measured on the reference, the hand being part of the bore.
+    let base = BrassInstrument::Horn.profile();
+    let f1 = base.nominal_fundamental;
+    let bore = |hand: f32| base.obstructed(engine::obstruction(Mute::Open, hand, base.mouth_radius()));
+    let open = Reference::new(&bore(0.35), 20.0, f1 * 18.0, 0.5).peaks(0.0);
+    let stopped = Reference::new(&bore(1.0), 20.0, f1 * 18.0, 0.5).peaks(0.0);
+    for n in 9..=16 {
+        let f = open[n - 1].freq;
+        let above = stopped.iter().map(|p| p.freq).filter(|&x| x > f * 1.001).fold(f32::MAX, f32::min);
+        let c = cents(above, f);
+        assert!((80.0..170.0).contains(&c), "open resonance {n} at {f:.1} Hz: stopped neighbour {c:+.0} cents above");
+    }
+}
+
+#[test]
+fn a_stopped_horn_is_played_in_tune_and_sounds_brassier() {
+    // The player knows the stopped horn (its own resonances) and plays it in tune; the tone gets the
+    // metallic edge stopped horn is known for, and quieter.
+    let f = 440.0;
+    let (open, _) = hold(BrassParams { instrument: BrassInstrument::Horn, breath: 0.6, ..note(f) }, 0.8);
+    let (stopped, _) = hold(BrassParams { instrument: BrassInstrument::Horn, breath: 0.6, hand: Some(1.0), ..note(f) }, 0.8);
+    let (open, stopped) = (settled(&open), settled(&stopped));
+    assert!(cents(pitch(stopped, SR, f), f).abs() < 10.0);
+    assert!(centroid(stopped) > 1.3 * centroid(open), "stopped {:.0} Hz vs open {:.0} Hz", centroid(stopped), centroid(open));
+    assert!(20.0 * (rms(stopped) / rms(open)).log10() < -6.0);
+}
+
+#[test]
+fn mutes_quieten_and_colour_the_note_and_it_stays_in_tune() {
+    let play = |mute: Mute| {
+        let (x, _) = hold(BrassParams { mute, ..note(233.08) }, 0.8);
+        let seg = settled(&x).to_vec();
+        (cents(pitch(&seg, SR, 233.08), 233.08), 20.0 * rms(&seg).log10(), centroid(&seg))
+    };
+    let (c0, db0, br0) = play(Mute::Open);
+    let (cs, dbs, brs) = play(Mute::Straight);
+    let (cc, dbc, brc) = play(Mute::Cup);
+    let (ch, dbh, brh) = play(Mute::Harmon);
+    for c in [c0, cs, cc, ch] {
+        assert!(c.abs() < 8.0, "a muted trombone should still be played in tune ({c:+.1})");
+    }
+    assert!(dbs < db0 - 5.0 && brs > br0, "straight: quieter and thinner ({dbs:.1} vs {db0:.1} dB, {brs:.0} vs {br0:.0} Hz)");
+    assert!(dbc < db0 - 5.0 && brc < br0, "cup: quieter and darker ({dbc:.1} dB, {brc:.0} Hz)");
+    assert!(dbh < db0 - 12.0 && brh > brs, "harmon: much quieter, and the buzziest ({dbh:.1} dB, {brh:.0} Hz)");
+}
+
+#[test]
+fn a_bell_pointed_at_the_listener_is_brighter_than_one_pointed_away() {
+    let play = |facing: f32| {
+        let (x, _) = hold(BrassParams { bell_facing: Some(facing), breath: 0.7, ..note(233.08) }, 0.8);
+        let seg = settled(&x).to_vec();
+        (rms(&seg), centroid(&seg))
+    };
+    let (away_level, away) = play(0.0);
+    let (side_level, side) = play(0.5);
+    let (toward_level, toward) = play(1.0);
+    assert!(away < side && side < toward, "centroid away {away:.0} / sideways {side:.0} / toward {toward:.0} Hz");
+    assert!(toward > 1.8 * away);
+    assert!(toward_level > side_level && side_level > away_level);
+}
+
+#[test]
+fn valves_slur_without_the_tongue() {
+    // A trumpet slurring B♭4 to C5 (open to 1+3... on another partial): no gap in the sound.
+    let first = BrassParams { instrument: BrassInstrument::Trumpet, duration: 0.5, ..note(466.16) };
+    let second = BrassParams { instrument: BrassInstrument::Trumpet, duration: 0.5, articulation: Articulation::Legato, ..note(415.3) };
+    let x = render_phrase(&[PerformedNote { start: 0.0, params: first }, PerformedNote { start: 0.45, params: second }], SR, 0.1);
+    let steady = rms(&x[(0.3 * SR) as usize..(0.44 * SR) as usize]);
+    let quietest = x[(0.44 * SR) as usize..(0.6 * SR) as usize].chunks((0.005 * SR) as usize).map(rms).fold(f32::MAX, f32::min);
+    assert!(quietest > 0.2 * steady, "the slur dipped to {quietest} from {steady}");
+    assert!(cents(pitch(&x[(0.7 * SR) as usize..(0.9 * SR) as usize], SR, 415.3), 415.3).abs() < 10.0);
+}

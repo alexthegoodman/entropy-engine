@@ -209,6 +209,7 @@ mod tests {
             bell: vec![],
             slide_max: 0.0,
             nominal_fundamental: 0.0,
+            obstruction: None,
         };
         let reference = Reference::new(&profile, 20.0, 800.0, 0.25);
         let peaks = reference.peaks(0.0);

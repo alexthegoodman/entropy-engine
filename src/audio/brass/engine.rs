@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::airbore::AirBore;
-use super::bore::BoreProfile;
+use super::bore::{BoreProfile, Obstruction};
 use super::impedance::Reference;
 use super::lips::{LipSpec, Lips};
 use crate::audio::physmod::dsp::{DcBlock, Decimator2, Noise, OnePole};
@@ -28,9 +28,14 @@ pub const PRESSURE_MIN: f32 = 500.0;
 pub const PRESSURE_MAX: f32 = 16000.0;
 /// The radiated far-field pressure (Pa at 1 m) that maps to full scale before `gain`.
 pub const OUTPUT_REF: f32 = 12.0;
-/// Partials the player will use (the pedal, partial 1, is left out for now).
-const LOWEST_PARTIAL: usize = 2;
-const HIGHEST_PARTIAL: usize = 12;
+/// The highest resonance kept in an instrument's table (a horn plays up to its 16th partial).
+const HIGHEST_PARTIAL: usize = 16;
+/// How far (cents) a valved player can trim a note with valve slides and lipping - the slide's
+/// continuous travel is the trombone's alone.
+const VALVE_TRIM_CENTS: f32 = 45.0;
+/// Cents of preference against each valve pressed, all else equal (players use the simplest
+/// fingering that is in tune).
+const VALVE_COST_CENTS: f32 = 4.0;
 /// Cents first position is left sharp by the tuning slide (room to tune by extending).
 const FIRST_POSITION_HEADROOM: f32 = 25.0;
 /// How far above a first-position resonance a note can still be played there (lipped up).
@@ -42,10 +47,16 @@ const GUIDE_PERIODS: f32 = 6.0;
 /// Lips are bent this many cents per cent the note has to come up (the pitch follows the lips only
 /// weakly - about a sixth - which is why a note can only be lipped up a little).
 const LIP_BEND_RATIO: f32 = 6.0;
+/// A settled note this far (cents) from the one meant has cracked onto a neighbouring partial.
+const REFIND_CENTS: f32 = 100.0;
+/// How far toward the meant partial the lips move per try, as a share of the interval heard.
+const REFIND_SHARE: f32 = 0.6;
+/// Tries a fully skilled player makes to find a cracked note.
+const REFIND_TRIES: u32 = 3;
 /// A note counts as speaking once the mouthpiece's AC pressure is this fraction of the breath.
 const SPEAKING_LEVEL: f32 = 0.15;
-/// Slide positions in the resonance table.
-const TABLE_STEPS: usize = 25;
+/// Slide or valve extensions in the resonance table.
+const TABLE_STEPS: usize = 49;
 
 // ------------------------------------------------------------------------------------------
 // Fitted laws
@@ -89,22 +100,97 @@ pub fn breath_pressure(knob: f32) -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BrassInstrument {
     TenorTrombone,
+    Trumpet,
+    /// A double horn: the B♭ side, and the F side through the thumb valve.
+    Horn,
+    Tuba,
+}
+
+/// How an instrument changes its tube length.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Mechanism {
+    /// A slide: any length up to the profile's `slide_max`.
+    Slide,
+    /// Valves, each switching in the tube that lowers the open instrument by so many semitones
+    /// (combinations simply add their tubes, so they come out sharp, as on real valves). A double
+    /// horn's F side is another "valve" of five semitones whose own valves are longer.
+    Valves { semitones: &'static [f32], f_side: bool },
 }
 
 impl BrassInstrument {
+    pub const ALL: [BrassInstrument; 4] = [Self::TenorTrombone, Self::Trumpet, Self::Horn, Self::Tuba];
+
     pub fn profile(self) -> BoreProfile {
         match self {
             Self::TenorTrombone => BoreProfile::tenor_trombone(),
+            Self::Trumpet => BoreProfile::trumpet(),
+            Self::Horn => BoreProfile::horn(),
+            Self::Tuba => BoreProfile::tuba(),
         }
     }
     pub fn lips(self) -> LipSpec {
         match self {
             Self::TenorTrombone => LipSpec::trombone(),
+            Self::Trumpet => LipSpec { width: 0.009, ..LipSpec::trombone() },
+            Self::Horn => LipSpec { width: 0.009, ..LipSpec::trombone() },
+            Self::Tuba => LipSpec { width: 0.018, ..LipSpec::trombone() },
+        }
+    }
+    pub fn mechanism(self) -> Mechanism {
+        match self {
+            Self::TenorTrombone => Mechanism::Slide,
+            Self::Trumpet => Mechanism::Valves { semitones: &[2.0, 1.0, 3.0], f_side: false },
+            Self::Horn => Mechanism::Valves { semitones: &[2.0, 1.0, 3.0], f_side: true },
+            Self::Tuba => Mechanism::Valves { semitones: &[2.0, 1.0, 3.0, 5.0], f_side: false },
+        }
+    }
+    /// The partials the player uses: a tuba's conical bore makes its fundamental playable; a horn
+    /// plays high in its series.
+    pub fn partials(self) -> (usize, usize) {
+        match self {
+            Self::TenorTrombone => (2, 12),
+            Self::Trumpet => (2, 10),
+            Self::Horn => (2, 16),
+            Self::Tuba => (1, 9),
+        }
+    }
+    /// Where this instrument's slots sit relative to `lip_center` (which was fitted on the
+    /// trombone): the same sweep on each instrument puts a trumpet's and a horn's slots lower -
+    /// their narrower mouthpieces and lips - and a tuba's lowest partials lower. Fitted at 1, 3 and
+    /// 8 kPa over partials 2-12.
+    pub fn lip_aim(self, partial: usize) -> f32 {
+        match self {
+            Self::TenorTrombone => 1.0,
+            Self::Trumpet => 0.94,
+            Self::Horn => if partial <= 6 { 0.97 } else { 0.92 },
+            Self::Tuba => if partial <= 2 { 0.88 } else { 1.0 },
+        }
+    }
+
+    /// Where the bell points, 0 (away from the listener) .. 0.5 (sideways: the radiated power
+    /// alone) .. 1 (straight at the listener): trombones and trumpets forward, a horn backward past
+    /// the player, a tuba up.
+    pub fn default_bell_facing(self) -> f32 {
+        match self {
+            Self::TenorTrombone => 0.55,
+            Self::Trumpet => 0.6,
+            Self::Horn => 0.15,
+            Self::Tuba => 0.35,
+        }
+    }
+    /// How far into the bell the player's hand is by default (a horn player's hand always is).
+    pub fn default_hand(self) -> f32 {
+        match self {
+            Self::Horn => 0.35,
+            _ => 0.0,
         }
     }
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
             "trombone" | "tenorTrombone" => Some(Self::TenorTrombone),
+            "trumpet" => Some(Self::Trumpet),
+            "horn" | "frenchHorn" => Some(Self::Horn),
+            "tuba" => Some(Self::Tuba),
             _ => None,
         }
     }
@@ -113,11 +199,17 @@ impl BrassInstrument {
     pub fn index(self) -> u32 {
         match self {
             Self::TenorTrombone => 0,
+            Self::Trumpet => 1,
+            Self::Horn => 2,
+            Self::Tuba => 3,
         }
     }
 
     pub fn from_index(i: u32) -> Self {
         match i {
+            1 => Self::Trumpet,
+            2 => Self::Horn,
+            3 => Self::Tuba,
             _ => Self::TenorTrombone,
         }
     }
@@ -125,7 +217,75 @@ impl BrassInstrument {
     pub fn name(self) -> &'static str {
         match self {
             Self::TenorTrombone => "trombone",
+            Self::Trumpet => "trumpet",
+            Self::Horn => "horn",
+            Self::Tuba => "tuba",
         }
+    }
+}
+
+/// A mute in the bell. Its cork seal narrows the bell (an `Obstruction`, so it moves the
+/// resonances as a real mute does); the mute's own body then colours what leaves it - that part is
+/// a filter on the radiated sound for now (see `docs/PHYS_MOD_BRASS.md`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mute {
+    Open,
+    Straight,
+    Cup,
+    Harmon,
+}
+
+impl Mute {
+    pub fn from_name(s: &str) -> Option<Self> {
+        match s {
+            "open" | "none" => Some(Self::Open),
+            "straight" => Some(Self::Straight),
+            "cup" => Some(Self::Cup),
+            "harmon" => Some(Self::Harmon),
+            _ => None,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Open => "open",
+            Self::Straight => "straight",
+            Self::Cup => "cup",
+            Self::Harmon => "harmon",
+        }
+    }
+    pub fn index(self) -> u32 {
+        match self {
+            Self::Open => 0,
+            Self::Straight => 1,
+            Self::Cup => 2,
+            Self::Harmon => 3,
+        }
+    }
+    pub fn from_index(i: u32) -> Self {
+        match i {
+            1 => Self::Straight,
+            2 => Self::Cup,
+            3 => Self::Harmon,
+            _ => Self::Open,
+        }
+    }
+}
+
+/// What narrows the bell for a mute or a hand. `bell` is the mouth radius (mutes are sized to
+/// the bell); a mute is used in preference to the hand if both are given.
+pub fn obstruction(mute: Mute, hand: f32, bell: f32) -> Option<Obstruction> {
+    let s = bell / 0.108;
+    match mute {
+        // Corks seal all but a thin ring: what is left is a fraction of the radius there.
+        Mute::Straight => Some(Obstruction { from_mouth: 0.14 * s, length: 0.025 * s, open: 0.35 }),
+        Mute::Cup => Some(Obstruction { from_mouth: 0.10 * s, length: 0.03 * s, open: 0.5 }),
+        Mute::Harmon => Some(Obstruction { from_mouth: 0.13 * s, length: 0.025 * s, open: 0.28 }),
+        // The hand sits in the bell's throat, about 10 cm in on a horn; fully in, it all but seals
+        // it. Stopped this way the horn's upper resonances each get a neighbour about a semitone
+        // above them (measured on the reference: +100..+145 cents for partials 9-16) - the reason a
+        // stopped note, played with the same lips, comes out a semitone high.
+        Mute::Open if hand > 0.01 => Some(Obstruction { from_mouth: 0.07 * s, length: 0.042 * s, open: 1.0 - 0.8 * hand.clamp(0.0, 1.0) }),
+        Mute::Open => None,
     }
 }
 
@@ -194,6 +354,13 @@ pub struct BrassParams {
     /// 2 doubles it.
     pub brassiness: f32,
     pub instrument: BrassInstrument,
+    pub mute: Mute,
+    /// 0..1: how far the player's hand is in the bell (0 out, 1 stopping it). `None` is the
+    /// instrument's normal hand (a horn player's hand is always partly in).
+    pub hand: Option<f32>,
+    /// 0 (the bell pointing away from the listener) .. 1 (straight at them). `None` is the
+    /// instrument's usual direction.
+    pub bell_facing: Option<f32>,
 }
 
 impl Default for BrassParams {
@@ -217,11 +384,29 @@ impl Default for BrassParams {
             slide_time: 0.07,
             brassiness: 1.0,
             instrument: BrassInstrument::TenorTrombone,
+            mute: Mute::Open,
+            hand: None,
+            bell_facing: None,
         }
     }
 }
 
 impl BrassParams {
+    /// The hand in the bell, the instrument's default unless given.
+    pub fn hand(&self) -> f32 {
+        self.hand.unwrap_or_else(|| self.instrument.default_hand()).clamp(0.0, 1.0)
+    }
+
+    pub fn bell_facing(&self) -> f32 {
+        self.bell_facing.unwrap_or_else(|| self.instrument.default_bell_facing()).clamp(0.0, 1.0)
+    }
+
+    /// The bore construction a player is built for: instrument, mute, hand (to a twentieth). Notes
+    /// that differ in these need a different air column (a new player).
+    pub fn construction(&self) -> (BrassInstrument, Mute, u32) {
+        (self.instrument, self.mute, (self.hand() * 20.0).round() as u32)
+    }
+
     /// Mouth pressure the note asks for, Pa: the breath knob moved by velocity.
     pub fn mouth_pressure(&self) -> f32 {
         breath_pressure(self.breath + 0.6 * (self.velocity.clamp(0.0, 1.0) - 0.75))
@@ -290,7 +475,8 @@ pub struct ResonanceTable {
 
 impl ResonanceTable {
     fn build(profile: &BoreProfile, tuning: f32) -> Self {
-        let reference = Reference::new(profile, 20.0, 1100.0, 0.5);
+        let f1 = profile.nominal_fundamental;
+        let reference = Reference::new(profile, (0.4 * f1).max(10.0), (f1 * (HIGHEST_PARTIAL as f32 + 2.0)).min(2400.0), (f1 / 100.0).min(0.5));
         let mut extras = [0.0; TABLE_STEPS];
         let mut peaks = [[0.0; HIGHEST_PARTIAL + 1]; TABLE_STEPS];
         let mut magnitudes = [[0.0; HIGHEST_PARTIAL + 1]; TABLE_STEPS];
@@ -356,19 +542,124 @@ impl ResonanceTable {
     }
 }
 
-/// Resonance tables for stock instruments, built once per process (a table takes a fraction of a
-/// second: many reference evaluations).
-fn table_for(instrument: BrassInstrument, profile: &BoreProfile, tuning: f32) -> Arc<ResonanceTable> {
-    static TABLES: OnceLock<Mutex<Vec<(BrassInstrument, Arc<ResonanceTable>)>>> = OnceLock::new();
+/// Resonance tables, one per construction (instrument, mute, hand), built once per process (a table
+/// takes a fraction of a second: many reference evaluations).
+fn table_for(key: (BrassInstrument, Mute, u32), profile: &BoreProfile, tuning: f32) -> Arc<ResonanceTable> {
+    type Key = (BrassInstrument, Mute, u32);
+    static TABLES: OnceLock<Mutex<Vec<(Key, Arc<ResonanceTable>)>>> = OnceLock::new();
     let tables = TABLES.get_or_init(|| Mutex::new(Vec::new()));
     let mut t = tables.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some((_, table)) = t.iter().find(|(i, _)| *i == instrument) {
+    if let Some((_, table)) = t.iter().find(|(k, _)| *k == key) {
         return table.clone();
     }
     let table = Arc::new(ResonanceTable::build(profile, tuning));
-    t.push((instrument, table.clone()));
+    t.push((key, table.clone()));
     table
 }
+
+// ------------------------------------------------------------------------------------------
+// Valves, mutes and the bell's direction
+// ------------------------------------------------------------------------------------------
+
+/// Every valve combination (a bitmask, see `Fingering::valves`) and the tube it adds, for an
+/// instrument whose open tube is `open` metres. Each valve's tube lowers the *open* instrument by
+/// its interval, so combinations come out sharp (their tubes add, but each was cut for the open
+/// length), which players correct by trimming - as on real valves. A double horn's F side adds the
+/// tube for a fourth, and its valves are cut for the longer F horn.
+pub fn valve_combos(mechanism: Mechanism, open: f32) -> Vec<(u32, f32)> {
+    let Mechanism::Valves { semitones, f_side } = mechanism else { return Vec::new() };
+    let mut out = Vec::new();
+    let sides: &[bool] = if f_side { &[false, true] } else { &[false] };
+    for &f in sides {
+        let side_open = if f { open * 2f32.powf(5.0 / 12.0) } else { open };
+        for mask in 0u32..(1 << semitones.len()) {
+            let mut e = side_open - open;
+            for (k, &st) in semitones.iter().enumerate() {
+                if mask & (1 << k) != 0 {
+                    e += side_open * (2f32.powf(st / 12.0) - 1.0);
+                }
+            }
+            out.push((mask | if f { F_SIDE } else { 0 }, e));
+        }
+    }
+    out
+}
+
+/// A biquad (RBJ cookbook), for the mute body's colour.
+#[derive(Clone, Copy, Default)]
+struct Biquad {
+    b: [f32; 3],
+    a: [f32; 2],
+    x: [f32; 2],
+    y: [f32; 2],
+}
+
+impl Biquad {
+    fn highpass(f: f32, q: f32, sr: f32) -> Self {
+        let w = std::f32::consts::TAU * f / sr;
+        let (sn, cs) = w.sin_cos();
+        let al = sn / (2.0 * q);
+        let a0 = 1.0 + al;
+        Self { b: [(1.0 + cs) / 2.0 / a0, -(1.0 + cs) / a0, (1.0 + cs) / 2.0 / a0], a: [-2.0 * cs / a0, (1.0 - al) / a0], ..Default::default() }
+    }
+    fn lowpass(f: f32, q: f32, sr: f32) -> Self {
+        let w = std::f32::consts::TAU * f / sr;
+        let (sn, cs) = w.sin_cos();
+        let al = sn / (2.0 * q);
+        let a0 = 1.0 + al;
+        Self { b: [(1.0 - cs) / 2.0 / a0, (1.0 - cs) / a0, (1.0 - cs) / 2.0 / a0], a: [-2.0 * cs / a0, (1.0 - al) / a0], ..Default::default() }
+    }
+    fn peak(f: f32, q: f32, db: f32, sr: f32) -> Self {
+        let w = std::f32::consts::TAU * f / sr;
+        let (sn, cs) = w.sin_cos();
+        let al = sn / (2.0 * q);
+        let g = 10f32.powf(db / 40.0);
+        let a0 = 1.0 + al / g;
+        Self { b: [(1.0 + al * g) / a0, -2.0 * cs / a0, (1.0 - al * g) / a0], a: [-2.0 * cs / a0, (1.0 - al / g) / a0], ..Default::default() }
+    }
+    fn identity() -> Self {
+        Self { b: [1.0, 0.0, 0.0], ..Default::default() }
+    }
+    #[inline]
+    fn process(&mut self, x: f32) -> f32 {
+        let y = self.b[0] * x + self.b[1] * self.x[0] + self.b[2] * self.x[1] - self.a[0] * self.y[0] - self.a[1] * self.y[1];
+        self.x = [x, self.x[0]];
+        self.y = [y, self.y[0]];
+        y
+    }
+}
+
+/// What a mute's body does to the sound leaving it: a straight mute's cone passes the highs and
+/// rings around 1.8 kHz (on a trombone's bell size) - thin and nasal; a cup mute's cup darkens and
+/// hollows; a harmon's cavity rings strongly - the buzzy "wah" colour. The frequencies scale with
+/// the bell (a trumpet's mutes are smaller, so higher).
+struct MuteColour {
+    stages: [Biquad; 2],
+    gain: f32,
+}
+
+impl MuteColour {
+    fn new(mute: Mute, bell: f32, sr: f32) -> Self {
+        let s = 0.108 / bell.max(0.02);
+        let (stages, db) = match mute {
+            Mute::Open => ([Biquad::identity(), Biquad::identity()], 0.0),
+            Mute::Straight => ([Biquad::highpass(450.0 * s, 0.7, sr), Biquad::peak(1800.0 * s, 2.0, 7.0, sr)], -4.0),
+            Mute::Cup => ([Biquad::lowpass(2200.0 * s, 0.7, sr), Biquad::peak(650.0 * s, 1.5, 5.0, sr)], -6.0),
+            Mute::Harmon => ([Biquad::highpass(700.0 * s, 0.8, sr), Biquad::peak(1600.0 * s, 3.5, 11.0, sr)], -9.0),
+        };
+        Self { stages, gain: 10f32.powf(db / 20.0) }
+    }
+
+    #[inline]
+    fn process(&mut self, x: f32) -> f32 {
+        let y = self.stages[0].process(x);
+        self.stages[1].process(y) * self.gain
+    }
+}
+
+/// Cutoff of the shadow a bell pointing away from the listener casts (the player's body and the
+/// bell's own rim in the way of the highs it beams).
+const AWAY_CUTOFF_HZ: f32 = 900.0;
 
 // ------------------------------------------------------------------------------------------
 // The player
@@ -383,15 +674,22 @@ pub enum Phase {
     Releasing,
 }
 
-/// How the player means to play a note: which resonance, where the slide goes.
+/// How the player means to play a note: which resonance, where the slide goes or which valves
+/// are down.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Fingering {
     pub partial: usize,
-    /// Slide extension, metres beyond first position.
+    /// Extra tube, metres: the slide's extension beyond first position, or the valves' tubing
+    /// (plus a little trim).
     pub extension: f32,
     /// The resonance the note sits on at that extension, Hz.
     pub resonance: f32,
+    /// Valves down: bit `k` is valve `k + 1`; `F_SIDE` is a double horn's F side.
+    pub valves: u32,
 }
+
+/// The `Fingering::valves` bit for a double horn's F side.
+pub const F_SIDE: u32 = 1 << 7;
 
 /// What the engine reports about the note in progress (for tests, analysis and the view).
 #[derive(Clone, Copy, Debug, Default)]
@@ -451,6 +749,11 @@ struct Player {
     guide_phase: f32,
     guide_left: u32,
     live: Option<Arc<BrassLive>>,
+    /// A cracked note being found again: a factor on the lip setting, the tries left, and the time
+    /// until the next one may be made.
+    refind: f32,
+    refind_tries: u32,
+    refind_wait: f32,
 }
 
 impl Player {
@@ -459,7 +762,7 @@ impl Player {
             phase: Phase::Idle,
             note_id: 0,
             p: BrassParams::default(),
-            fingering: Fingering { partial: 4, extension: 0.0, resonance: 233.0 },
+            fingering: Fingering { partial: 4, extension: 0.0, resonance: 233.0, valves: 0 },
             hold_left: None,
             p_mouth: 0.0,
             tongue: 0.0,
@@ -476,6 +779,9 @@ impl Player {
             guide_phase: 0.0,
             guide_left: 0,
             live: None,
+            refind: 1.0,
+            refind_tries: 0,
+            refind_wait: 0.0,
         }
     }
 
@@ -537,6 +843,14 @@ pub struct Engine {
     sr: f32,
     sr_os: f32,
     instrument: BrassInstrument,
+    construction: (BrassInstrument, Mute, u32),
+    /// Every valve combination and the tube it adds (empty for a slide).
+    combos: Vec<(u32, f32)>,
+    /// Where the bell points (see `BrassParams::bell_facing`), the mute's colouring, and the
+    /// shadow of a bell pointed away.
+    facing: f32,
+    colour: MuteColour,
+    away: [OnePole; 2],
     bore: AirBore,
     lips: Lips,
     lip_spec: LipSpec,
@@ -546,6 +860,7 @@ pub struct Engine {
     player: Player,
     ear: PitchEar,
     dec: Decimator2,
+    dec_axis: Decimator2,
     dc: DcBlock,
     noise: Noise,
     noise_lp: OnePole,
@@ -572,7 +887,8 @@ impl Engine {
     /// resonance table).
     pub fn new(sr: f32, p: &BrassParams) -> Self {
         let instrument = p.instrument;
-        let profile = instrument.profile();
+        let base = instrument.profile();
+        let profile = base.obstructed(obstruction(p.mute, p.hand(), base.mouth_radius()));
         // The one-mass lip plays sharp of the air column (see `sounding_offset`); the player pulls
         // the tuning slide out to allow for it - leaving first position a little sharp, so that
         // every note can be put in tune by moving the slide out, the only way it can move.
@@ -581,13 +897,19 @@ impl Engine {
         let tuning = total * (2f32.powf(pull / 1200.0) - 1.0);
         let mut bore_profile = profile.clone();
         bore_profile.cylinder_length += tuning;
-        let table = table_for(instrument, &profile, tuning);
+        let table = table_for(p.construction(), &profile, tuning);
         let sr_os = sr * OVERSAMPLE as f32;
         let lip_spec = instrument.lips();
+        let combos = valve_combos(instrument.mechanism(), total + tuning);
         Self {
             sr,
             sr_os,
             instrument,
+            construction: p.construction(),
+            combos,
+            facing: p.bell_facing(),
+            colour: MuteColour::new(p.mute, base.mouth_radius(), sr),
+            away: [OnePole::default(); 2],
             bore: AirBore::new(&bore_profile, sr_os),
             lips: Lips::new(lip_spec),
             lip_spec,
@@ -596,6 +918,7 @@ impl Engine {
             player: Player::new(),
             ear: PitchEar::default(),
             dec: Decimator2::new(),
+            dec_axis: Decimator2::new(),
             dc: DcBlock::default(),
             noise: Noise(0x2545_f491),
             noise_lp: OnePole::default(),
@@ -628,31 +951,86 @@ impl Engine {
         &self.bore
     }
 
-    /// How the player would play `hz` blowing `pressure` Pa: the resonance (partial) and slide
-    /// position, preferring the position nearest the bell end of the slide (first), as players do.
+    /// How the player would play `hz` blowing `pressure` Pa: the resonance (partial) and the slide
+    /// position or valves.
     pub fn choose_fingering(&self, hz: f32, pressure: f32) -> Fingering {
+        match self.instrument.mechanism() {
+            Mechanism::Slide => self.slide_fingering(hz, pressure),
+            Mechanism::Valves { .. } => self.valve_fingering(hz, pressure),
+        }
+    }
+
+    /// On a slide: the position nearest first (closed) that puts a resonance where the note needs
+    /// it, as trombonists prefer.
+    fn slide_fingering(&self, hz: f32, pressure: f32) -> Fingering {
+        let (lo, hi) = self.instrument.partials();
         let mut best: Option<Fingering> = None;
         let mut nearest: Option<(f32, Fingering)> = None;
-        for n in LOWEST_PARTIAL..=HIGHEST_PARTIAL {
+        for n in lo..=hi {
             let resonance = hz / 2f32.powf(sounding_offset(n, pressure) / 1200.0);
             match self.table.extension_for(n, resonance) {
                 Some(e) => {
                     if best.map_or(true, |b| e < b.extension) {
-                        best = Some(Fingering { partial: n, extension: e, resonance });
+                        best = Some(Fingering { partial: n, extension: e, resonance, valves: 0 });
                     }
                 }
                 None => {
                     // Out of the slide's reach on this partial: remember how far, in case no
                     // partial can reach the note (it is then played on the closest, out of tune).
-                    let (lo, hi) = (self.table.peak(n, self.table.extras[TABLE_STEPS - 1]), self.table.peak(n, 0.0));
-                    let (miss, e) = if resonance > hi { ((resonance / hi).ln(), 0.0) } else { ((lo / resonance).ln(), self.table.extras[TABLE_STEPS - 1]) };
+                    let (low, high) = (self.table.peak(n, self.table.extras[TABLE_STEPS - 1]), self.table.peak(n, 0.0));
+                    let (miss, e) = if resonance > high { ((resonance / high).ln(), 0.0) } else { ((low / resonance).ln(), self.table.extras[TABLE_STEPS - 1]) };
                     if nearest.map_or(true, |(m, _)| miss < m) {
-                        nearest = Some((miss, Fingering { partial: n, extension: e, resonance: self.table.peak(n, e) }));
+                        nearest = Some((miss, Fingering { partial: n, extension: e, resonance: self.table.peak(n, e), valves: 0 }));
                     }
                 }
             }
         }
-        best.or(nearest.map(|(_, f)| f)).unwrap_or(Fingering { partial: 4, extension: 0.0, resonance: hz })
+        best.or(nearest.map(|(_, f)| f)).unwrap_or(Fingering { partial: 4, extension: 0.0, resonance: hz, valves: 0 })
+    }
+
+    /// On valves: the fingering chart. Partial `n` of the open instrument, lowered by the semitones
+    /// the valves add, nearest the note - fewer valves preferred, the out-of-tune partials (7, 11,
+    /// 13, 14) avoided, and on a double horn the F side low and the B♭ side high, as players choose.
+    /// Then trimmed toward the air column's real resonance (valve slides, lipping), up to
+    /// `VALVE_TRIM_CENTS`; the ear does the rest.
+    fn valve_fingering(&self, hz: f32, pressure: f32) -> Fingering {
+        let (lo, hi) = self.instrument.partials();
+        let Mechanism::Valves { semitones, .. } = self.instrument.mechanism() else { return self.slide_fingering(hz, pressure) };
+        let f1 = self.bore.profile().nominal_fundamental;
+        let has_f_side = self.combos.iter().any(|c| c.0 & F_SIDE != 0);
+        let mut best: Option<(f32, u32, usize, f32)> = None;
+        for &(mask, e) in &self.combos {
+            let f_side = mask & F_SIDE != 0;
+            let open = if f_side { f1 * 2f32.powf(-5.0 / 12.0) } else { f1 };
+            let lowered: f32 = semitones.iter().enumerate().filter(|(k, _)| mask & (1 << k) != 0).map(|(_, s)| s).sum();
+            for n in lo..=hi {
+                let nominal = open * n as f32 * 2f32.powf(-lowered / 12.0);
+                let off = (1200.0 * (hz / nominal).log2()).abs();
+                if off > 60.0 {
+                    continue;
+                }
+                let avoided = if matches!(n, 7 | 11 | 13 | 14) { 30.0 } else { 0.0 };
+                let side = if has_f_side && (f_side != (hz < 330.0)) { 12.0 } else { 0.0 };
+                let cost = off + VALVE_COST_CENTS * (mask & !F_SIDE).count_ones() as f32 + avoided + side;
+                if best.map_or(true, |b| cost < b.0) {
+                    best = Some((cost, mask, n, e));
+                }
+            }
+        }
+        let Some((_, mask, n, e)) = best else { return Fingering { partial: 4, extension: 0.0, resonance: hz, valves: 0 } };
+        // Trim toward where the air column really puts the note (sounding a little sharp of its
+        // resonance, as the lips do).
+        let res = self.table.peak(n, e);
+        let err = if res > 0.0 { 1200.0 * (hz / (res * 2f32.powf(sounding_offset(n, pressure) / 1200.0))).log2() } else { 0.0 };
+        let total = self.bore.profile().total_length(e);
+        let trim = err.clamp(-VALVE_TRIM_CENTS, VALVE_TRIM_CENTS);
+        let extension = (e + total * (2f32.powf(-trim / 1200.0) - 1.0)).max(0.0);
+        Fingering { partial: n, extension, resonance: self.table.peak(n, extension), valves: mask }
+    }
+
+    /// The bore construction this engine was built for (see `BrassParams::construction`).
+    pub fn construction(&self) -> (BrassInstrument, Mute, u32) {
+        self.construction
     }
 
     /// Starts a note. A note arriving while another is held is a slur (or a re-tongued note, for
@@ -661,6 +1039,7 @@ impl Engine {
         let pressure = p.mouth_pressure();
         let fingering = self.choose_fingering(p.freq, pressure);
         let miss = (1.0 - p.attack_skill.clamp(0.0, 1.0)) * 0.12 * if self.noise.bipolar() >= 0.0 { 1.0 } else { -1.0 };
+        let slide = self.instrument.mechanism() == Mechanism::Slide;
         let pl = &mut self.player;
         let was_playing = pl.phase == Phase::Playing;
         pl.p = p;
@@ -684,6 +1063,9 @@ impl Engine {
         }
         pl.boost = 1.0;
         pl.lip_miss = 1.0 + miss;
+        pl.refind = 1.0;
+        pl.refind_tries = (p.attack_skill.clamp(0.0, 1.0) * REFIND_TRIES as f32).round() as u32;
+        pl.refind_wait = 0.0;
         self.ear.reset();
         if !was_playing {
             // A fresh note: slide already in place, lips set, tongue shut; the breath builds
@@ -693,7 +1075,7 @@ impl Engine {
             pl.tongue_hold = 0.006;
             pl.vib_phase = 0.0;
             self.bore.set_extra(pl.slide);
-            self.lips.freq = lip_center(fingering.resonance, pressure) * pl.lip_miss;
+            self.lips.freq = lip_center(fingering.resonance, pressure) * self.instrument.lip_aim(fingering.partial) * pl.lip_miss;
             self.lips.spec = LipSpec { mu: lip_mass(fingering.resonance), ..self.lip_spec };
             self.lips.reset();
             self.bore.clear();
@@ -706,8 +1088,8 @@ impl Engine {
                 // Re-tongued: the tongue stops the air for a moment between the notes.
                 Articulation::Tongued => pl.tongue_hold = 0.012,
                 // A trombonist's slur across slide positions: a soft "da", just long enough to
-                // hide the slide's travel.
-                Articulation::Legato if moved > 0.01 => pl.tongue_hold = 0.004,
+                // hide the slide's travel. (Valves need none: they switch in a few milliseconds.)
+                Articulation::Legato if moved > 0.01 && slide => pl.tongue_hold = 0.004,
                 _ => {}
             }
         }
@@ -715,6 +1097,7 @@ impl Engine {
         self.bore.set_tuning(fingering.resonance);
         self.bore.nonlinearity = p.brassiness.clamp(0.0, 4.0);
         self.gain = p.gain;
+        self.facing = p.bell_facing();
     }
 
     pub fn note_off(&mut self, id: u64) {
@@ -787,23 +1170,31 @@ impl Engine {
         let vib_on = ((pl.t_note - p.vibrato_delay) / 0.3).clamp(0.0, 1.0);
         pl.vib_phase = (pl.vib_phase + p.vibrato_rate.max(0.0) * dt).fract();
         let vib = p.vibrato_depth * vib_on * (std::f32::consts::TAU * pl.vib_phase).sin();
-        // The slide travels to the fingering's position (at the speed asked); the ear's small
-        // corrections and the vibrato are the arm's quick adjustments around where it is.
-        let glide = if pl.phase == Phase::Playing { p.slide_time.max(0.005) / 3.0 } else { 0.05 };
+        // The slide travels to the fingering's position (at the speed asked) - valves switch in a
+        // few milliseconds; the ear's small corrections and the vibrato are quick adjustments
+        // around where it is.
+        let slide = self.instrument.mechanism() == Mechanism::Slide;
+        let glide = if !slide { 0.003 } else if pl.phase == Phase::Playing { p.slide_time.max(0.005) / 3.0 } else { 0.05 };
         pl.slide += (target.extension - pl.slide) * (1.0 - (-dt / glide).exp());
         let arrived = (target.extension - pl.slide).abs() < 0.015;
-        // A bend (pitch bend, or a drag on the slide) is the arm moving the slide: up is shorter.
+        // A bend (pitch bend, or a drag on the slide) moves the slide: up is shorter. On valves the
+        // same bend is lipping and valve slides together.
         let fix_len = (total + pl.slide) * (2f32.powf((pl.fix - bend) / 1200.0) - 1.0);
         let vib_len = (total + pl.slide) * (2f32.powf(vib / 1200.0) - 1.0);
         let slide_max = self.bore.profile().slide_max;
-        let at_stop = pl.slide + fix_len < 0.0;
+        // Where the tube can go no shorter (first position, or valves trimmed all they can be) - or
+        // on valves no longer - the lips take over.
+        let (fix_lo, fix_hi) = if slide { (-300.0, 300.0) } else { (-VALVE_TRIM_CENTS, VALVE_TRIM_CENTS) };
+        let at_stop = pl.slide + fix_len < 0.0 || pl.fix <= fix_lo + 0.5;
+        let at_far = pl.fix >= fix_hi - 0.5;
         self.bore.set_extra((pl.slide + fix_len + vib_len).clamp(0.0, slide_max));
 
         // Lips: set for the resonance and the breath, the attack's miss fading as the player
         // corrects it, bent by the tension control.
         pl.lip_miss = 1.0 + (pl.lip_miss - 1.0) * (-dt / 0.08).exp();
         let lip_up = 2f32.powf(pl.lip_bend * LIP_BEND_RATIO / 1200.0);
-        let lip = lip_center(target.resonance, pl.p_mouth.max(pressure * 0.3)) * pl.lip_miss * lip_up * 2f32.powf(p.lip_tension.clamp(-1.0, 1.0) * 0.35);
+        let aim = self.instrument.lip_aim(target.partial);
+        let lip = lip_center(target.resonance, pl.p_mouth.max(pressure * 0.3)) * aim * pl.refind * pl.lip_miss * lip_up * 2f32.powf(p.lip_tension.clamp(-1.0, 1.0) * 0.35);
         self.lips.freq += (lip - self.lips.freq) * (1.0 - (-dt / 0.02).exp());
         self.lips.spec.mu += (lip_mass(target.resonance) - self.lips.spec.mu) * (1.0 - (-dt / 0.03).exp());
 
@@ -818,6 +1209,21 @@ impl Engine {
             pl.boost = 1.0 + (pl.boost - 1.0) * (-dt / 0.3).exp();
         }
 
+        // A cracked note: the player hears the note has landed on a neighbouring partial and moves
+        // the lips part of the way toward the one meant (what a skilled player does a moment into
+        // a split note). Lips deliberately set off (`lip_tension`) are left alone.
+        pl.refind_wait -= dt;
+        if pl.phase == Phase::Playing && pl.t_note > 0.07 && pl.refind_tries > 0 && pl.refind_wait <= 0.0 && self.ear.confidence > 6 && p.lip_tension.abs() < 0.25 {
+            let heard = self.sr_os / self.ear.period;
+            let off = 1200.0 * (heard / (p.freq * 2f32.powf(bend / 1200.0))).log2();
+            if off.abs() > REFIND_CENTS {
+                pl.refind *= 2f32.powf(-off * REFIND_SHARE / 1200.0);
+                pl.refind_tries -= 1;
+                pl.refind_wait = 0.06;
+                self.ear.confidence = 0;
+            }
+        }
+
         // Ear: once the note has spoken and the slide has arrived, ease the slide to put it in
         // tune - and where the slide can go no shorter, bend the lips up a little instead. Only
         // while the note is on the partial meant (a cracked note is not tuned onto the right pitch
@@ -829,11 +1235,15 @@ impl Engine {
             let err = 1200.0 * (heard / p.freq).log2() - bend + vib;
             if err.abs() < 150.0 {
                 let k = (dt / 0.05).min(1.0);
-                if at_stop && err < 0.0 {
-                    pl.lip_bend = (pl.lip_bend - err * k).clamp(0.0, 60.0);
+                if (at_stop && err < 0.0) || (at_far && err > 0.0) {
+                    pl.lip_bend = (pl.lip_bend - err * k).clamp(-60.0, 60.0);
                 } else {
-                    pl.lip_bend = (pl.lip_bend - err.max(0.0) * k).max(0.0);
-                    pl.fix = (pl.fix + err * k).clamp(-300.0, 300.0);
+                    // Lips first back to where they sit naturally, then the tube.
+                    if pl.lip_bend * err > 0.0 {
+                        pl.lip_bend -= err.signum() * (err.abs() * k).min(pl.lip_bend.abs());
+                    } else {
+                        pl.fix = (pl.fix + err * k).clamp(fix_lo, fix_hi);
+                    }
                 }
             }
         }
@@ -861,7 +1271,8 @@ impl Engine {
         let ear_a = OnePole::coef_for(self.player.fingering.resonance * 1.6, self.sr_os);
         let noise_a = OnePole::coef_for(3000.0, self.sr_os);
         let mut out = [0.0f32; OVERSAMPLE];
-        for o in out.iter_mut() {
+        let mut axis = [0.0f32; OVERSAMPLE];
+        for (o, ax) in out.iter_mut().zip(axis.iter_mut()) {
             let incoming = self.bore.incoming();
             let z0 = self.bore.z_in();
             // The tongue behind the lips gates the flow; breath noise rides on it.
@@ -887,8 +1298,22 @@ impl Engine {
             }
             self.ear.listen(self.lips.pressure, ear_a);
             *o = self.bore.radiated;
+            *ax = self.bore.radiated_on_axis;
         }
-        let y = self.dec.process(out[0], out[1]);
+        let power = self.dec.process(out[0], out[1]);
+        let on_axis = self.dec_axis.process(axis[0], axis[1]);
+        // Where the bell points: toward the listener adds the highs it beams on its axis; away,
+        // they are shaded (the player and the bell's rim in the way); sideways is the power alone.
+        let f = self.facing;
+        let y = if f >= 0.5 {
+            power + (f - 0.5) * 2.0 * (on_axis - power)
+        } else {
+            let a = OnePole::coef_for(AWAY_CUTOFF_HZ, self.sr);
+            let first = self.away[0].process(power, a);
+            let shaded = self.away[1].process(first, a);
+            shaded + (power - shaded) * f * 2.0
+        };
+        let y = self.colour.process(y);
         let y = self.dc.process(y, 0.9995) / OUTPUT_REF * self.gain;
         let y = if y.is_finite() { y.clamp(-4.0, 4.0) } else { 0.0 };
         let mp = self.mp_dc.process(self.lips.pressure, 0.999);

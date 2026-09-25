@@ -82,6 +82,12 @@ pub struct BrassNoteConfig {
     pub breath_noise: Option<f32>,
     pub slide_time: Option<f32>,
     pub brassiness: Option<f32>,
+    /// "open" (default), "straight", "cup" or "harmon".
+    pub mute: Option<String>,
+    /// 0..1, how far the hand is in the bell (1 stops it); omitted, the instrument's normal hand.
+    pub hand: Option<f32>,
+    /// 0 (the bell pointing away) .. 1 (at the listener); omitted, the instrument's usual way.
+    pub bell_facing: Option<f32>,
     /// Offline events only: seconds from the start of the render.
     pub start_time: Option<f64>,
 }
@@ -109,6 +115,9 @@ impl BrassNoteConfig {
             // The laboratory: 0 is linear air, 1 real air, beyond it more than air can do.
             brassiness: self.brassiness.unwrap_or(d.brassiness).clamp(0.0, 4.0),
             instrument: self.instrument.as_deref().and_then(BrassInstrument::from_name).unwrap_or(d.instrument),
+            mute: self.mute.as_deref().and_then(brass::Mute::from_name).unwrap_or(d.mute),
+            hand: self.hand.filter(|h| h.is_finite()).map(|h| h.clamp(0.0, 1.0)),
+            bell_facing: self.bell_facing.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0)),
         }
     }
 

@@ -223,8 +223,11 @@ pub struct AirBore {
     rad_y1: f32,
     mouth_z: f32,
     last_flow: f32,
-    /// The radiated far-field pressure at 1 m, Pa.
+    /// The radiated far-field pressure at 1 m, Pa: the radiated power's pressure (what a listener
+    /// in a room hears), and the pressure straight down the bell's axis, where the bell beams its
+    /// highs (a small source's `dU/dt`, never levelling off).
     pub radiated: f32,
+    pub radiated_on_axis: f32,
     /// Mouthpiece pressure, Pa (set by the caller each sample, for the view and analysis).
     pub mouthpiece_pressure: f32,
     /// The radiated pressure's levelling-off above the bell cutoff (one-pole state and coefficient).
@@ -300,6 +303,7 @@ impl AirBore {
             mouth_z: (RHO * C) as f32 / ba[nb - 1].max(1.0e-9),
             last_flow: 0.0,
             radiated: 0.0,
+            radiated_on_axis: 0.0,
             mouthpiece_pressure: 0.0,
             peak_slope: 0.0,
             last_fwd_out: 0.0,
@@ -366,6 +370,7 @@ impl AirBore {
         self.rad_y1 = 0.0;
         self.last_flow = 0.0;
         self.radiated = 0.0;
+        self.radiated_on_axis = 0.0;
         self.peak_slope = 0.0;
         self.last_fwd_out = 0.0;
         self.rad_lp = OnePole::default();
@@ -433,6 +438,7 @@ impl AirBore {
         let flow = (x - y) / self.mouth_z;
         let small_source = RHO as f32 / (4.0 * std::f32::consts::PI) * (flow - self.last_flow) * self.sr;
         self.radiated = self.rad_lp.process(small_source, self.rad_lp_a);
+        self.radiated_on_axis = small_source;
         self.last_flow = flow;
 
         self.front.step(inject, back_to_front);

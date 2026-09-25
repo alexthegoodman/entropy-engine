@@ -55,6 +55,18 @@ impl Section {
     }
 }
 
+/// Something in the bell that narrows it: the horn player's hand, or a mute's cork seal. Over
+/// `length` metres ending `from_mouth` metres inside the mouth, the bore is narrowed to `open` of its
+/// radius (1 leaves it alone; near 0 all but seals it). Being part of the bore, it changes the
+/// resonances the reference finds and the waveguide plays - so stopping a horn, or muting a
+/// trumpet, moves the notes the way it does on the real instrument, rather than being a filter.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Obstruction {
+    pub from_mouth: f32,
+    pub length: f32,
+    pub open: f32,
+}
+
 /// A whole instrument's bore.
 #[derive(Clone, Debug, PartialEq)]
 pub struct BoreProfile {
@@ -71,6 +83,8 @@ pub struct BoreProfile {
     /// The nominal fundamental (Hz) of the series the instrument is pitched in with the slide
     /// closed: B♭1 for a tenor trombone.
     pub nominal_fundamental: f32,
+    /// A hand or mute in the bell, if any.
+    pub obstruction: Option<Obstruction>,
 }
 
 impl BoreProfile {
@@ -105,7 +119,80 @@ impl BoreProfile {
             // Seventh position: six semitones down, 2^(6/12) - 1 of the whole length.
             slide_max: 1.16,
             nominal_fundamental: 58.27,
+            obstruction: None,
         }
+    }
+
+    /// A B♭ trumpet with a .459" (11.7 mm) bore and a 4.8" bell: about 1.37 m of tube. The cup is
+    /// shallow and the throat narrow (3.7 mm), the leadpipe a long gentle cone. The bell was fitted
+    /// as the trombone's was: peaks 2-10 within about 20 cents of the B♭ series (the 2nd within 6).
+    pub fn trumpet() -> Self {
+        Self {
+            front: vec![
+                Section::cone(0.004, 0.0083, 0.0072),
+                Section::cone(0.004, 0.0072, 0.0040),
+                Section::cone(0.002, 0.0040, 0.00183),
+                Section::cylinder(0.006, 0.00183),
+                Section::cone(0.060, 0.00183, 0.0043),
+                Section::cone(0.240, 0.0043, 0.00583),
+            ],
+            cylinder_radius: 0.00583,
+            cylinder_length: 0.488,
+            bell: vec![Section::cone(0.247, 0.00583, 0.00816), Section::flare(0.3225, 0.00816, 0.0615, 0.594)],
+            // All three valves down: 2 + 1 + 3 semitones' worth of tubing.
+            slide_max: 0.53,
+            nominal_fundamental: 116.54,
+            obstruction: None,
+        }
+    }
+
+    /// A double horn's B♭ side: a deep funnel mouthpiece (2.2 mm throat), a long narrow leadpipe,
+    /// a .468" (11.9 mm) bore and a 12" bell, about 2.8 m. The thumb valve adds the F side's extra
+    /// tube (see `engine`), making the 3.7 m F horn. Fitted: peaks 2-12 within 8 cents.
+    pub fn horn() -> Self {
+        Self {
+            front: vec![
+                Section::cone(0.010, 0.0085, 0.0060),
+                Section::cone(0.015, 0.0060, 0.0022),
+                Section::cylinder(0.004, 0.0022),
+                Section::cone(0.050, 0.0022, 0.0040),
+                Section::cone(0.60, 0.0040, 0.00595),
+            ],
+            cylinder_radius: 0.00595,
+            cylinder_length: 0.646,
+            bell: vec![Section::cone(0.816, 0.00595, 0.01528), Section::flare(0.6675, 0.01528, 0.152, 0.806)],
+            // The F side's tube plus all three (F side) valves.
+            slide_max: 2.4,
+            nominal_fundamental: 58.27,
+            obstruction: None,
+        }
+    }
+
+    /// A B♭B♭ tuba: a large cup, a short cylinder through the valves (.75" bore) and then one long,
+    /// slowly widening horn - 4.7 m of it - to an 18" bell: about 5.6 m, and conical, which is why
+    /// its fundamental is playable. Fitted: peaks 1-8 within 25 cents (2-8 within 9).
+    pub fn tuba() -> Self {
+        Self {
+            front: vec![
+                Section::cone(0.010, 0.0160, 0.0120),
+                Section::cone(0.012, 0.0120, 0.0045),
+                Section::cylinder(0.006, 0.0045),
+                Section::cone(0.080, 0.0045, 0.0070),
+                Section::cone(0.55, 0.0070, 0.0095),
+            ],
+            cylinder_radius: 0.0095,
+            cylinder_length: 0.30,
+            bell: vec![Section::cone(0.518, 0.0095, 0.01165), Section::flare(4.1625, 0.01165, 0.23, 0.884)],
+            // Four valves: 2 + 1 + 3 + 5 semitones' worth of tubing.
+            slide_max: 4.1,
+            nominal_fundamental: 29.14,
+            obstruction: None,
+        }
+    }
+
+    /// The same bore with a hand or mute in the bell.
+    pub fn obstructed(&self, obstruction: Option<Obstruction>) -> Self {
+        Self { obstruction, ..self.clone() }
     }
 
     pub fn front_length(&self) -> f32 {
@@ -127,6 +214,18 @@ impl BoreProfile {
 
     /// Radius at `x` metres from the lips, with `extra` metres of slide added.
     pub fn radius_at(&self, x: f32, extra: f32) -> f32 {
+        let r = self.open_radius_at(x, extra);
+        match self.obstruction {
+            Some(o) => {
+                let from_mouth = self.total_length(extra) - x;
+                if from_mouth >= o.from_mouth && from_mouth <= o.from_mouth + o.length { r * o.open.clamp(0.02, 1.0) } else { r }
+            }
+            None => r,
+        }
+    }
+
+    /// The bore's radius without any hand or mute.
+    pub fn open_radius_at(&self, x: f32, extra: f32) -> f32 {
         let mut x = x.max(0.0);
         for s in &self.front {
             if x <= s.length {
@@ -181,11 +280,33 @@ mod tests {
         let b = BoreProfile::tenor_trombone();
         let l = b.total_length(0.0);
         assert!((2.6..3.0).contains(&l), "{l}");
+        for (b, lo, hi) in [(BoreProfile::trumpet(), 1.3, 1.45), (BoreProfile::horn(), 2.7, 2.9), (BoreProfile::tuba(), 5.4, 5.8)] {
+            let l = b.total_length(0.0);
+            assert!((lo..hi).contains(&l), "{l}");
+            assert!(b.radius_at(l, 0.0) > 5.0 * b.cylinder_radius);
+        }
         // No jumps where the runs meet.
         let at = |x: f32| b.radius_at(x, 0.0);
         let f = b.front_length();
         assert!((at(f - 1.0e-4) - at(f + 1.0e-4)).abs() < 1.0e-4);
         let c = f + b.cylinder_length;
         assert!((at(c - 1.0e-4) - at(c + 1.0e-4)).abs() < 1.0e-4);
+    }
+}
+
+#[cfg(test)]
+mod obstruction_tests {
+    use super::*;
+
+    #[test]
+    fn a_hand_narrows_only_its_part_of_the_bell() {
+        let open = BoreProfile::horn();
+        let l = open.total_length(0.0);
+        let hand = open.obstructed(Some(Obstruction { from_mouth: 0.03, length: 0.06, open: 0.2 }));
+        // Inside the hand's zone the bore is a fifth as wide; outside it is untouched.
+        let x = l - 0.05;
+        assert!((hand.radius_at(x, 0.0) - 0.2 * open.radius_at(x, 0.0)).abs() < 1.0e-6);
+        assert_eq!(hand.radius_at(l - 0.2, 0.0), open.radius_at(l - 0.2, 0.0));
+        assert_eq!(hand.radius_at(l - 0.01, 0.0), open.radius_at(l - 0.01, 0.0));
     }
 }

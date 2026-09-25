@@ -38,7 +38,7 @@ pub mod lips;
 #[cfg(test)]
 mod tests;
 
-pub use engine::{breath_pressure, lip_center, lip_mass, Articulation, BrassInstrument, BrassLive, BrassParams, BrassReport, Engine, Fingering, ResonanceTable};
+pub use engine::{breath_pressure, lip_center, lip_mass, Articulation, BrassInstrument, BrassLive, BrassParams, BrassReport, Engine, Fingering, Mechanism, Mute, ResonanceTable, F_SIDE};
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -440,7 +440,7 @@ pub enum BrassCommand {
 /// only ever `try_lock`s, so it never blocks on the caller (the same scheme as the strings).
 pub struct BrassHandle {
     queue: Mutex<BrassQueue>,
-    instrument: BrassInstrument,
+    construction: (BrassInstrument, Mute, u32),
 }
 
 struct BrassQueue {
@@ -464,9 +464,10 @@ impl BrassHandle {
         self.queue.lock().unwrap_or_else(|p| p.into_inner()).alive
     }
 
-    /// Whether the running player plays the instrument `p` asks for.
+    /// Whether the running player plays the instrument `p` asks for, with the same mute and hand
+    /// (those change the air column, so a different one needs a new player).
     pub fn same_instrument(&self, p: &BrassParams) -> bool {
-        self.instrument == p.instrument
+        self.construction == p.construction()
     }
 
     /// Asks the running voice to let the note go and stop.
@@ -496,7 +497,7 @@ pub struct BrassInstrumentVoice {
 impl BrassInstrumentVoice {
     pub fn new(shared: Arc<BrassShared>, p: &BrassParams) -> (Self, Arc<BrassHandle>) {
         shared.active.fetch_add(1, Ordering::Relaxed);
-        let handle = Arc::new(BrassHandle { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), instrument: p.instrument });
+        let handle = Arc::new(BrassHandle { queue: Mutex::new(BrassQueue { commands: Vec::with_capacity(64), alive: true }), construction: p.construction() });
         let voice = Self {
             engine: Engine::new(ENGINE_SAMPLE_RATE as f32, p),
             shared,
