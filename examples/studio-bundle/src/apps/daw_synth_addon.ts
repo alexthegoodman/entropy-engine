@@ -53,8 +53,10 @@ import type { PhysModSettings } from "./daw_physmod";
 import {
     PHYSMOD_WAVEFORM,
     PHYSMOD_INSTRUMENT_PRESETS,
-    instrumentPresetById as physModInstrumentPresetById,
+    PHYSMOD_ARTICULATIONS,
     stringForFreq,
+    openStrings as physModOpenStrings,
+    applyPreset as applyPhysModPreset,
     defaultPhysMod,
     describeSettings as describePhysMod,
     noteConfig as physModNoteConfig,
@@ -567,12 +569,13 @@ function runWavetableOp(track: Track, op: string, arg?: number) {
     if (r.ok) saveTrackWavetable(track);
 }
 
-// --- Bowed-string (physmod) tracks (see daw_physmod.ts and src/audio/physmod.rs) -------------------
+// --- Bowed-string (physmod) tracks (see daw_physmod.ts and src/audio/physmod/) -------------------
 //
-// A synth track whose waveform is "physmod" plays a physically modeled bowed string. Unlike the
-// wavetable there is no sculpted data to load/save - the engine's `PhysModShared` for this track is
-// created on first use and carries only live bow state, so `trackPhysMod` just lazily defaults the
-// settings, nothing to "load" from the engine the way a table is.
+// A synth track whose waveform is "physmod" plays a physically modeled bowed-string instrument: every
+// note of the track goes to one live instrument on the track's bus (strings, bridge and body shared),
+// so overlapping notes slur, simultaneous ones double-stop, and open strings ring in sympathy. There
+// is no sculpted data to load/save - the instrument is rebuilt from what each note carries - so
+// `trackPhysMod` just lazily defaults the settings.
 
 const pmHeld: Record<string, Record<number, number>> = {};
 const pmLatch: Record<string, number> = {};
@@ -643,11 +646,7 @@ function setBowLive(track: Track, which: "force" | "velocity" | "position" | "vi
 }
 
 function loadPhysModInstrument(track: Track, instrumentId: string) {
-    const preset = physModInstrumentPresetById(instrumentId);
-    if (!preset) { pmStatus = `Unknown instrument "${instrumentId}".`; return; }
-    const pm = trackPhysMod(track);
-    pm.instrument = instrumentId;
-    pm.bodySize = preset.bodySize;
+    if (!applyPhysModPreset(trackPhysMod(track), instrumentId)) { pmStatus = `Unknown instrument "${instrumentId}".`; return; }
     pmStatus = "";
     savePhysMod(track);
 }
@@ -1690,26 +1689,38 @@ function renderPhysModWindow(win: string) {
     }
     const pm = trackPhysMod(track);
     const latched = pmLatch[track.id] !== undefined;
-    const preset = physModInstrumentPresetById(pm.instrument) ?? PHYSMOD_INSTRUMENT_PRESETS[0];
-    // Whichever note is currently sounding highlights its string - a key just pressed, one latched
-    // by the Hold button, or (most recently) whichever of several held keys was pressed last.
+    const strings = physModOpenStrings(pm);
+    // Before anything has sounded, highlight the string a held key would go to; once a note plays,
+    // the view follows the engine's own choice (it also knows about double stops and slurs).
     const heldMidis = Object.keys(pmHeld[track.id] ?? {}).map(Number);
     const activeMidi = heldMidis.length ? heldMidis[heldMidis.length - 1] : (latched ? pm.auditionNote : undefined);
-    const activeString = activeMidi !== undefined ? stringForFreq(preset.strings, midiToFreq(activeMidi)) : undefined;
+    const activeString = activeMidi !== undefined ? stringForFreq(strings, midiToFreq(activeMidi)) : undefined;
+    const knob = (row: string, label: string, key: keyof PhysModSettings, min: number, max: number, live?: "force" | "velocity" | "position" | "vibratoDepth") =>
+        W.knob(row, {
+            label, value: pm[key] as number, min, max,
+            onChange: (v: string) => { (pm as any)[key] = parseFloat(v); if (live) setBowLive(track, live, pm[key] as number); scheduleSave(); },
+        });
 
     W.horizontal(win, (columns: string) => {
     W.vertical(columns, (left: string) => {
     W.horizontal(left, (row: string) => {
         W.label(row, { text: `${track.name} -`, bold: true });
-        for (const p of PHYSMOD_INSTRUMENT_PRESETS) {
-            W.button(row, {
-                text: radio(pm.instrument === p.id) + p.label, id: "pm_instrument_" + p.id,
-                onClick: () => { loadPhysModInstrument(track, p.id); }
-            });
+        for (const p of PHYSMOD_INSTRUMENT_PRESETS.filter(p => !p.invented)) {
+            W.button(row, { text: radio(pm.instrument === p.id) + p.label, id: "pm_instrument_" + p.id, onClick: () => { loadPhysModInstrument(track, p.id); } });
         }
         W.button(row, {
             text: latched ? withIcon("stop", "Release note") : withIcon("play", "Hold a note"), id: "pm_latch",
             onClick: () => { togglePhysModLatch(track); }
+        });
+    });
+    W.horizontal(left, (row: string) => {
+        W.label(row, { text: "Laboratory:" });
+        for (const p of PHYSMOD_INSTRUMENT_PRESETS.filter(p => p.invented || p.sympathetic)) {
+            W.button(row, { text: radio(pm.instrument === p.id) + p.label, id: "pm_instrument_" + p.id, onClick: () => { loadPhysModInstrument(track, p.id); } });
+        }
+        W.button(row, {
+            text: radio(pm.physicsView) + "Physics View", id: "pm_physics",
+            onClick: () => { pm.physicsView = !pm.physicsView; scheduleSave(); }
         });
     });
 
@@ -1720,8 +1731,9 @@ function renderPhysModWindow(win: string) {
         bowPosition: pm.bowPosition,
         bowForce: pm.bowForce,
         bodySize: pm.bodySize,
+        physicsView: pm.physicsView,
         width: Math.max(380, physModWindowWidth - PHYSMOD_SIDE_COLUMN),
-        height: Math.max(360, physModWindowHeight - 140),
+        height: Math.max(360, physModWindowHeight - 170),
         held: [...heldMidis, ...(latched ? [pm.auditionNote] : [])],
         onBowDrag: (position: number, force: number) => {
             pm.bowPosition = position; pm.bowForce = force;
@@ -1730,6 +1742,7 @@ function renderPhysModWindow(win: string) {
         },
         onKeyDown: (midi: number, velocity: number) => { pressPhysModKey(track, midi, velocity); },
         onKeyUp: (midi: number) => { releasePhysModKey(track, midi); },
+        onPhysicsView: (on: boolean) => { pm.physicsView = on; scheduleSave(); },
     });
     if (pmStatus) W.label(left, { text: pmStatus });
     });
@@ -1737,31 +1750,59 @@ function renderPhysModWindow(win: string) {
         W.group(right, (g: string) => {
             W.label(g, { text: "Bow", bold: true });
             W.horizontal(g, (row: string) => {
-                W.knob(row, { label: "Force", value: pm.bowForce, min: 0, max: 1, onChange: (v: string) => { pm.bowForce = parseFloat(v); setBowLive(track, "force", pm.bowForce); scheduleSave(); } });
-                W.knob(row, { label: "Speed", value: pm.bowVelocity, min: 0, max: 1, onChange: (v: string) => { pm.bowVelocity = parseFloat(v); setBowLive(track, "velocity", pm.bowVelocity); scheduleSave(); } });
-                W.knob(row, { label: "Position", value: pm.bowPosition, min: 0.02, max: 0.5, onChange: (v: string) => { pm.bowPosition = parseFloat(v); setBowLive(track, "position", pm.bowPosition); scheduleSave(); } });
+                for (const a of PHYSMOD_ARTICULATIONS) {
+                    W.button(row, { text: radio(pm.articulation === a.id) + a.label, id: "pm_art_" + a.id, onClick: () => { pm.articulation = a.id; scheduleSave(); } });
+                }
+            });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Force", "bowForce", 0, 1, "force");
+                knob(row, "Speed", "bowVelocity", 0, 1, "velocity");
+                knob(row, "Position", "bowPosition", 0.02, 0.5, "position");
+                knob(row, "Skill", "attackSkill", 0, 1);
             });
         });
         W.group(right, (g: string) => {
-            W.label(g, { text: "Vibrato", bold: true });
+            W.label(g, { text: "Left hand", bold: true });
             W.horizontal(g, (row: string) => {
-                W.knob(row, { label: "Rate", value: pm.vibratoRate, min: 0, max: 12, onChange: (v: string) => { pm.vibratoRate = parseFloat(v); scheduleSave(); } });
-                W.knob(row, { label: "Depth", value: pm.vibratoDepth, min: 0, max: 100, onChange: (v: string) => { pm.vibratoDepth = parseFloat(v); setBowLive(track, "vibratoDepth", pm.vibratoDepth); scheduleSave(); } });
+                knob(row, "Vib rate", "vibratoRate", 0, 12);
+                knob(row, "Vib depth", "vibratoDepth", 0, 100, "vibratoDepth");
+                knob(row, "Vib delay", "vibratoDelay", 0, 1);
+                knob(row, "Slide", "slide", 0, 0.4);
             });
         });
         W.group(right, (g: string) => {
-            W.label(g, { text: "Character", bold: true });
+            W.label(g, { text: "Strings", bold: true });
             W.horizontal(g, (row: string) => {
-                W.knob(row, { label: "Damping", value: pm.damping, min: 0, max: 1, onChange: (v: string) => { pm.damping = parseFloat(v); scheduleSave(); } });
-                W.knob(row, { label: "Brightness", value: pm.brightness, min: 0, max: 1, onChange: (v: string) => { pm.brightness = parseFloat(v); scheduleSave(); } });
+                knob(row, "Brightness", "brightness", 0, 1);
+                knob(row, "Damping", "damping", 0, 1);
+                knob(row, "Ring", "ring", 0, 1);
+                knob(row, "Mass", "stringMass", 0, 1);
+            });
+            W.horizontal(g, (row: string) => {
+                knob(row, "Stiffness", "stiffness", 0, 1);
+                knob(row, "Rosin", "rosin", 0, 1);
+                knob(row, "Grit", "bowNoise", 0, 1);
             });
         });
         W.group(right, (g: string) => {
             W.label(g, { text: "Body", bold: true });
             W.horizontal(g, (row: string) => {
-                W.knob(row, { label: "Size", value: pm.bodySize, min: 0, max: 1, onChange: (v: string) => { pm.bodySize = parseFloat(v); scheduleSave(); } });
-                W.knob(row, { label: "Mix", value: pm.bodyMix, min: 0, max: 1, onChange: (v: string) => { pm.bodyMix = parseFloat(v); scheduleSave(); } });
+                knob(row, "Size", "bodySize", -1, 2.5);
+                knob(row, "Mix", "bodyMix", 0, 1);
+                knob(row, "Resonance", "bodyResonance", 0, 1);
+                knob(row, "Coupling", "coupling", 0, 1);
             });
+            W.horizontal(g, (row: string) => {
+                W.button(row, {
+                    text: radio(pm.tuningFollowsSize) + "Tuning follows size", id: "pm_morph",
+                    onClick: () => { pm.tuningFollowsSize = !pm.tuningFollowsSize; scheduleSave(); }
+                });
+                W.button(row, {
+                    text: "New maker", id: "pm_maker",
+                    onClick: () => { pm.bodySeed = (pm.bodySeed * 1103515245 + 12345) % 2147483647; scheduleSave(); }
+                });
+            });
+            W.label(g, { text: `Strings: ${strings.map(f => midiToName(Math.round(69 + 12 * Math.log2(f / 440)))).join(" ")}${pm.sympathetic.length ? `  +${pm.sympathetic.length} sympathetic` : ""}` });
         });
     });
     });
@@ -3427,7 +3468,7 @@ addon.onInit(async () => {
 
     addon.registerTool({
         name: "daw_physmod",
-        description: "Play and shape a physically modeled bowed string: a track whose waveform is \"physmod\" (daw_set_track_params with waveform \"physmod\" makes one). Its sound comes from a self-sustaining string model bowed continuously, not a sample or a wavetable, so the same controls a violinist has - how hard the bow presses, how fast it moves, where along the string it contacts, vibrato - genuinely change the tone, not just the volume. A note picks whichever of the instrument's four strings a player would choose to reach that pitch. Actions: \"info\" (current settings), \"instrument\" (violin, viola, cello or bass: sets the open-string tuning and the body's resonance register), \"params\" (bowForce 0-1, bowVelocity 0-1, bowPosition 0.02-0.5 fraction of the string from the bridge - small is near the bridge and brighter/nasal, larger moves toward mid-string and rounder -, vibratoRate Hz, vibratoDepth cents, damping 0-1, brightness 0-1, bodySize 0-1, bodyMix 0-1), and \"hear\" (plays one note offline and reports its loudness, strongest frequency and brightness, so a change can be checked without listening).",
+        description: "Play and shape a physically modeled bowed-string instrument: a track whose waveform is \"physmod\" (daw_set_track_params with waveform \"physmod\" makes one). The sound comes from a physical model - strings as travelling waves, a bow gripping them through rosin friction, a bridge and resonant body they share - so a violinist's controls behave physically: more bow force brightens until the tone turns raucous, too little force for the bow position gives an airy 'surface sound', bowing nearer the bridge needs more force and sounds brighter, a faster bow is louder. Notes go to the string a player would use; overlapping notes slur, simultaneous ones double-stop, and open strings ring in sympathy. Actions: \"info\" (current settings), \"instrument\" (a preset: violin, viola, cello, bass, or invented ones - hardanger with sympathetic strings, glass violin, octobass, wolf cello), \"params\" (bowForce 0-1, bowVelocity 0-1, bowPosition 0.02-0.5 fraction of the string from the bridge, articulation arco|pizzicato|colLegno, attackSkill 0-1, vibratoRate Hz, vibratoDepth cents, vibratoDelay s, slide s, damping 0-1, brightness 0-1, ring 0-1, stringMass 0-1, stiffness 0-1, rosin 0-1, bowNoise 0-1, bodySize -1..2.5 (0 violin, 0.13 viola, 0.72 cello, 1 bass, beyond is the laboratory), bodyMix 0-1, bodyResonance 0-1, coupling 0-1, tuningFollowsSize true|false to morph the tuning continuously with bodySize), and \"hear\" (plays one note offline and reports its pitch accuracy in cents, loudness, brightness, harmonic balance, and what the bow did: helmholtz / surfaceSound / raucous, slips per period, how long the attack took to settle - so a change can be checked without listening).",
         parameters: {
             type: "object",
             properties: {
@@ -3439,8 +3480,12 @@ addon.onInit(async () => {
                     description: "For action params. Only fields given change.",
                     properties: {
                         bowForce: { type: "number" }, bowVelocity: { type: "number" }, bowPosition: { type: "number" },
-                        vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, damping: { type: "number" },
-                        brightness: { type: "number" }, bodySize: { type: "number" }, bodyMix: { type: "number" }
+                        articulation: { type: "string", enum: PHYSMOD_ARTICULATIONS.map(a => a.id) }, attackSkill: { type: "number" },
+                        vibratoRate: { type: "number" }, vibratoDepth: { type: "number" }, vibratoDelay: { type: "number" }, slide: { type: "number" },
+                        damping: { type: "number" }, brightness: { type: "number" }, ring: { type: "number" },
+                        stringMass: { type: "number" }, stiffness: { type: "number" }, rosin: { type: "number" }, bowNoise: { type: "number" },
+                        bodySize: { type: "number" }, bodyMix: { type: "number" }, bodyResonance: { type: "number" }, coupling: { type: "number" },
+                        tuningFollowsSize: { type: "boolean" }
                     }
                 },
                 note: { type: "number", description: "For hear: MIDI note (default 60)." }
@@ -3467,9 +3512,11 @@ addon.onInit(async () => {
             case "params": {
                 const p = args.params ?? {};
                 const merged = repairPhysMod({ ...pm, ...p });
-                for (const k of ["bowForce", "bowVelocity", "bowPosition", "vibratoRate", "vibratoDepth", "damping", "brightness", "bodySize", "bodyMix"] as const) {
+                for (const k of ["bowForce", "bowVelocity", "bowPosition", "attackSkill", "vibratoRate", "vibratoDepth", "vibratoDelay", "slide", "damping", "brightness", "ring", "stringMass", "stiffness", "rosin", "bowNoise", "bodySize", "bodyMix", "bodyResonance", "coupling"] as const) {
                     if (typeof p[k] === "number") (pm as any)[k] = merged[k];
                 }
+                if (typeof p.articulation === "string") pm.articulation = merged.articulation;
+                if (typeof p.tuningFollowsSize === "boolean") pm.tuningFollowsSize = p.tuningFollowsSize;
                 for (const k of ["bowForce", "bowVelocity", "bowPosition", "vibratoDepth"] as const) {
                     if (typeof p[k] === "number") setBowLive(track, k === "bowForce" ? "force" : k === "bowVelocity" ? "velocity" : k === "bowPosition" ? "position" : "vibratoDepth", (pm as any)[k]);
                 }
@@ -3481,8 +3528,13 @@ addon.onInit(async () => {
                 const config = physModNoteConfig(track.id, pm, { freq: midiToFreq(midi), velocity: 0.8, duration: 0.6 });
                 const a = addon.PhysMod.analyzeNote(config, 0);
                 if (!a.ok) return { success: false, error: a.error };
-                const r = (v: number | undefined, d = 1) => v === undefined ? null : Math.round(v * 10 ** d) / 10 ** d;
-                return done({ note: midiToName(midi), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb), strongestHz: r(a.peakHz), brightnessHz: r(a.centroidHz, 0) });
+                const r = (v: number | undefined | null, d = 1) => v === undefined || v === null ? null : Math.round(v * 10 ** d) / 10 ** d;
+                return done({
+                    note: midiToName(midi), pitchHz: r(a.pitchHz, 2), centsOff: r(a.centsOff), peakDb: r(a.peakDb), rmsDb: r(a.rmsDb),
+                    brightnessHz: r(a.centroidHz, 0), harmonicsDb: (a.harmonicsDb ?? []).slice(0, 8).map(v => r(v)),
+                    bow: a.regime, slipsPerPeriod: r(a.slipsPerPeriod, 2), stickFraction: r(a.stickFraction, 2), attackSeconds: r(a.attackSeconds, 3),
+                    string: a.string,
+                });
             }
             default:
                 return { success: false, error: "Unknown action: " + args.action };

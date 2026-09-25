@@ -45,7 +45,7 @@ use super::analysis::ENGINE_SAMPLE_RATE;
 /// Lowest note the strings can hold at the engine rate (see `string::LINE_CAPACITY`).
 pub const MIN_FREQ: f32 = 12.0;
 /// How many points of each string's shape are published for the visualization.
-pub const SHAPE_POINTS: usize = 48;
+pub const SHAPE_POINTS: usize = 64;
 /// How often (in output samples) a voice publishes to `PhysModShared` (~86 times a second).
 const PUBLISH_EVERY: u32 = 512;
 /// A live instrument with nothing sounding shuts itself down after this long.
@@ -76,6 +76,9 @@ pub struct SharedString {
     bow_velocity: AtomicU32,
     force_min: AtomicU32,
     force_max: AtomicU32,
+    force_min_knob: AtomicU32,
+    force_max_knob: AtomicU32,
+    bow_force_knob: AtomicU32,
     /// bit 0 bowed (playable), bit 1 sympathetic, bit 2 a note is on it.
     flags: AtomicU32,
     shape: [AtomicU32; SHAPE_POINTS],
@@ -94,6 +97,9 @@ impl Default for SharedString {
             bow_velocity: AtomicU32::new(0),
             force_min: AtomicU32::new(0),
             force_max: AtomicU32::new(0),
+            force_min_knob: AtomicU32::new(0),
+            force_max_knob: AtomicU32::new(0),
+            bow_force_knob: AtomicU32::new(0),
             flags: AtomicU32::new(0),
             shape: std::array::from_fn(|_| AtomicU32::new(0)),
         }
@@ -119,6 +125,10 @@ pub struct StringInfo {
     /// The Schelleng window for the current bow speed and position, N.
     pub force_min: f32,
     pub force_max: f32,
+    /// The window and the bow force in the 0..1 units of the force control.
+    pub force_min_knob: f32,
+    pub force_max_knob: f32,
+    pub bow_force_knob: f32,
     pub bowed: bool,
     pub sympathetic: bool,
     pub playing: bool,
@@ -244,6 +254,9 @@ impl PhysModShared {
             bow_velocity: load(&s.bow_velocity),
             force_min: load(&s.force_min),
             force_max: load(&s.force_max),
+            force_min_knob: load(&s.force_min_knob),
+            force_max_knob: load(&s.force_max_knob),
+            bow_force_knob: load(&s.bow_force_knob),
             bowed: flags & 1 != 0,
             sympathetic: flags & 2 != 0,
             playing: flags & 4 != 0,
@@ -285,6 +298,9 @@ impl PhysModShared {
             store(&s.bow_velocity, r.bow_velocity);
             store(&s.force_min, r.force_min);
             store(&s.force_max, r.force_max);
+            store(&s.force_min_knob, r.force_min_knob);
+            store(&s.force_max_knob, r.force_max_knob);
+            store(&s.bow_force_knob, r.bow_force_knob);
             let flags = (r.bowed as u32) | ((r.sympathetic as u32) << 1) | ((r.phase_active as u32) << 2);
             s.flags.store(flags, Ordering::Relaxed);
             engine.string_shape(i, &mut scratch.shape);

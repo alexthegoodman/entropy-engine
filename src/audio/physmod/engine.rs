@@ -235,7 +235,7 @@ impl PhysModParams {
         BodySpec {
             size: body_scale(self.body_size),
             resonance: 4f32.powf((self.body_resonance.clamp(0.0, 1.0) - 0.5) * 2.0),
-            coupling: self.coupling.clamp(0.0, 1.0) / 0.35,
+            coupling: (self.coupling.clamp(0.0, 1.0) / 0.35).powi(2),
             brightness: self.brightness.clamp(0.0, 1.0),
             seed: self.body_seed,
             spread: 0.6,
@@ -409,6 +409,11 @@ pub struct StringReport {
     /// Where the Schelleng window sits for the current bow speed/position on this string, N.
     pub force_min: f32,
     pub force_max: f32,
+    /// The same window, and the bow force, in the 0..1 units of the force control (so a view can
+    /// let the window be dragged against the same scale the knob uses).
+    pub force_min_knob: f32,
+    pub force_max_knob: f32,
+    pub bow_force_knob: f32,
 }
 
 // ------------------------------------------------------------------------------------------
@@ -889,6 +894,17 @@ impl Engine {
             } else {
                 (false, 0.0, 0.0)
             };
+            // Knob units: invert `bow_newtons` for this string and the note's dynamics.
+            let (dyn_, knob_of) = if bowed {
+                let pl = &self.players[i];
+                let dyn_ = 0.3 + 0.7 * pl.p.velocity.clamp(0.0, 1.0);
+                let unit = bow_newtons(0.5, string_impedance(s.spec.open_freq, self.instrument.body_size, 0.5)) * dyn_;
+                (dyn_, unit)
+            } else {
+                (1.0, 1.0)
+            };
+            let _ = dyn_;
+            let to_knob = |f: f32| if f > 0.0 { 0.5 + 0.5 * (f / knob_of).log10() } else { 0.0 };
             let st = s.stats;
             let secs = st.samples as f32 / self.sr_os;
             let periods = (secs * s.freq()).max(1.0e-6);
@@ -907,6 +923,9 @@ impl Engine {
                 level: s.level,
                 force_min: fmin,
                 force_max: fmax,
+                force_min_knob: to_knob(fmin),
+                force_max_knob: to_knob(fmax),
+                bow_force_knob: if bowed { to_knob(f) } else { 0.0 },
             };
             s.stats = Default::default();
         }
