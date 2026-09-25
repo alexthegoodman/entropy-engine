@@ -409,3 +409,98 @@ for the DAW track. A listening-examples test (ignored by default) renders hits a
 A drum is a few hundred modes, so a whole kit ringing at once must stay under about 5% of one core
 in release builds. The contact solve runs only while something is in contact. Cymbals' cubic
 couplings (Phase 2) are the expensive part and are budgeted separately.
+
+---
+
+# Implementation Status
+
+What exists today, where it lives, and how each claim is checked. As with the strings and brass,
+nothing was tuned by listening: every behaviour below is measured from rendered audio (or from the
+head's own motion), and the tests keep those measurements in place.
+
+## The model (`src/audio/matter/`)
+
+| Piece | File | What it is |
+|---|---|---|
+| Bessel functions | `bessel.rs` | `J_m(x)` by Miller's backward recurrence, and its zeros |
+| Modal body | `modal.rs` | Modes run as rotated complex states (the exact response to a force held for a sample): in tune in `f32` even for a 30 Hz mode, never unstable, silent above Nyquist. `predict` gives the free position and one-step compliance at any point; `set_scale` retunes a ringing body with displacement and velocity continuous (small changes by rotating the phasors, no transcendental calls); quiet modes are flushed before they turn subnormal. |
+| Contact | `contact.rs` | Materials (hickory, nylon, polyester film, plastic, rubber, steel, brass, glass), tips (Hertz spheres, felt power laws), the Hunt-Crossley law with Flores' restitution relation, and the per-sample bracketed-Newton solve between two sides. `Striker`: a mass with a tip. |
+| Membrane | `membrane.rs` | Circular head: Bessel mode shapes normalized to the head's mass; the **radiation impedance of every mode computed** from its Hankel transform (air mass from the evanescent part, radiation resistance from the propagating part, iterated with the frequency it changes); radiation damping and radiated weights from the same numbers; the tension-modulation coefficient `E h / (4 (1 - nu))`; tension solved from a tuning. |
+| Drums | `drum.rs` | Batter head + optional resonant head + the enclosed air (a spring on the volume-changing modes that couples the heads, and stiffens a timpani's kettle); up to four strikers in flight; tension modulation from the cycle-averaged stretch, capped at the film's yield strain. Presets: 22" kick (two-ply batter with a pillow, felt or plastic beater), 16" floor tom, 12" rack tom (sticks), 26" timpani (felt mallets, soft and hard). |
+| Runtime | `mod.rs` | `render_hit`, `render_hits` (a sequence on one drum, so hits land on a ringing head) |
+
+## Phase 1 progress
+
+- **1a Modal body and contact - done.**
+- **1b Membrane - done.**
+- **1c Kick, toms, timpani - done** as offline models.
+- **1d Snare - not started.**
+- **1e Runtime, view and DAW - not started.**
+
+## Decisions the measurements made
+
+- **Air loading is enough for the timpani.** With the Rayleigh integral per mode and no fitting, the
+  26" timpani's `(m,1)` family lands at **1 : 1.469 : 1.921 : 2.361 : 2.795** from the vacuum
+  1 : 1.340 : 1.665 : 1.980 : 2.289 (Rossing measures real timpani at about 1 : 1.50 : 1.97 : 2.44).
+  The `(0,1)` mode carries about as much air as the head weighs (0.099 kg against 0.090 kg), and
+  radiates as a monopole: its T60 is 0.49 s against 1.74 s for the `(1,1)` note, so the thud dies and
+  the note sings on, as on the real drum.
+- **Tension follows the averaged stretch.** Driving the tension from the instantaneous `q^2` - or
+  from a lagged copy of it - pumps energy into the head (parametric amplification) and a hard hit
+  runs away. Taking each mode's cycle-averaged amplitude from its rotating state gives the envelope
+  (the glide) with no ripple and no lag. The film's yield strain (~3%) caps it.
+- **Contacts on heads are long.** The head's compliance, not the tip, dominates: a 25 g mallet on the
+  timpani is in contact for ~8 ms, a stick on the rack tom ~6 ms, the kick beater ~19 ms (a mass on
+  the head's point stiffness, `pi sqrt(m / K)`). What the tip changes is the sharp start of the force,
+  which is the top of the spectrum.
+- **Glides.** A floor tom tuned to 82 Hz, struck at mid-radius, starts 63 cents sharp at 6 m/s, 16 at
+  3 m/s and not measurably at 0.5 m/s; tuned slack (65 Hz) it glides 163 cents, tight (110 Hz) 14.
+- **The resonant head only needs its axisymmetric modes** while nothing but the shell's air drives
+  it (the air's pressure is uniform over the head). That halves a drum's cost. Snare wires, which
+  touch the resonant head at points, will need the rest back.
+
+## How it is verified (no audio device needed)
+
+Run with `cargo test --release --lib matter`.
+
+| Claim | Where |
+|---|---|
+| `J_m` values and zeros match tables | `matter::bessel::tests` |
+| A contact is resolved at 44.1 kHz (contact time and peak force match a 4x finer step) | `matter::contact::tests` |
+| Hertz: contact time falls as `v^(-1/5)`, and matches Hertz's closed form | same |
+| The rebound speed follows the coefficient of restitution (0.3, 0.6, 0.9) | same |
+| A harder or lighter striker has a shorter contact; a felt mallet's is a few ms | same |
+| A struck mode rings at its frequency and decays at its rate; a 30 Hz mode stays in tune in `f32`; a retuned body is continuous and rings at its new pitch | `matter::tests` |
+| A membrane in vacuum rings at the ratios of the Bessel zeros | same |
+| A centre strike leaves the asymmetric modes 30 dB+ quieter | same |
+| Air mass tends to `rho / k` for high modes and is far larger for the lowest; radiation of `(0,1)` matches the monopole law at low `ka` | same |
+| The timpani sounds its note on `(1,1)` (within 5 cents); its `(m,1)` ratios are within 6% of 1.5, 2, 2.5 and three times closer than in vacuum; the `(0,1)` thud dies 10 dB+ faster than the note | same |
+| A hard mallet: centroid 1.15x+, 3 dB+ more above 1 kHz; felt brightens when played harder | same |
+| A hard hit glides down to its pitch, a soft one does not; a slacker head glides further | same |
+| A tom follows its tuning (within 10 cents of the ratio) | same |
+| A stick leaves a tom after 1-8 ms | same |
+| The kick's pillow shortens the boom by 6 dB+; a plastic beater puts 3 dB+ more above 1 kHz than felt | same |
+| The shell's air drives the resonant head; with no air there is no coupling | same |
+| Later hits land on a ringing head | same |
+| Every drum stays bounded for a 25 m/s hit at the rim and falls silent | same |
+
+`matter::tests::listening_examples` (ignored) renders a kick pattern, a tom fill with a hard floor-tom
+glide, a timpani phrase on two drums, a timpani roll with a crescendo and a centre-versus-edge
+stroke to `test-artifacts/matter/`. `matter::tests::cost` (ignored) times each drum.
+
+## Known limits
+
+- **The top of the spectrum.** A membrane's modes crowd together quadratically: 400 modes reach
+  ~2.7 kHz on the timpani and ~1.8 kHz on the kick. The kick beater's "click" (2-5 kHz) and a stick's
+  crack on a tom need a statistical high band (many modes represented by a few), which the snare's
+  wires will need anyway.
+- **Cost.** About 4% of one core per ringing drum (420 modes: the batter's 400 and the resonant head's
+  axisymmetric ones), 3.9% for the timpani, in release builds. A whole kit ringing at once is over
+  the 5% budget; skipping silent heads and silent modes is the next step.
+- The inside of each head is loaded with the same air mass as the outside (the enclosed air's
+  inertia is not computed separately); the cavity's own acoustic modes and a kick's port are not
+  modelled.
+- Heads are ideal membranes: no bending stiffness (which sharpens high modes slightly), no
+  non-uniform tension around the rim, so degenerate mode pairs don't split and beat.
+- Strikes are along the head's normal only; a glancing blow and a buried beater (held against the
+  head) are not modelled yet.
