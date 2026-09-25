@@ -8,6 +8,7 @@ use super::engine::*;
 use super::impedance::Reference;
 use super::lips::{LipSpec, Lips};
 use super::*;
+use std::sync::Arc;
 use crate::audio::physmod::analysis::{pitch, spectrum};
 
 const SR: f32 = 44_100.0;
@@ -252,12 +253,12 @@ fn an_unskilled_attack_cracks_high_notes_and_a_skilled_one_does_not() {
                 let mut e = Engine::new(SR, &p);
                 // Earlier takes move the player's (deterministic) randomness on.
                 for _ in 0..take {
-                    e.note_on(9, p, false);
+                    e.note_on(9, p, false, None);
                     for _ in 0..30000 {
                         e.next_frame();
                     }
                 }
-                e.note_on(1, p, true);
+                e.note_on(1, p, true, None);
                 let x: Vec<f32> = (0..(0.1 * SR) as usize).map(|_| e.next_frame()[0]).collect();
                 let early = pitch(&x[(0.03 * SR) as usize..], SR, f);
                 let c = cents(early, f).abs();
@@ -379,3 +380,72 @@ fn listening_examples() {
     // A long note with slide vibrato.
     write("vibrato.wav", &render_note(&BrassParams { vibrato_depth: 18.0, vibrato_delay: 0.4, breath: 0.6, duration: 2.5, ..note(349.23) }, SR, 3.0).0);
 }
+
+// ---------------------------------------------------------------- the live runtime
+
+/// Pulls `secs` of interleaved stereo from a source, returning the left channel.
+fn pull(src: &mut impl Iterator<Item = f32>, secs: f32) -> Vec<f32> {
+    let n = (secs * SR) as usize;
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let l = src.next().unwrap_or(0.0);
+        let _ = src.next();
+        out.push(l);
+    }
+    out
+}
+
+#[test]
+fn a_live_player_slurs_between_notes_and_publishes_what_the_view_draws() {
+    let shared = Arc::new(BrassShared::default());
+    let base = note(233.08);
+    let (mut voice, handle) = BrassInstrumentVoice::new(shared.clone(), &base);
+    handle.send(BrassCommand::NoteOn { id: 1, params: base, gated: true, live: None }).ok().unwrap();
+    let a = pull(&mut voice, 0.5);
+    let s = shared.state();
+    assert!(s.playing && s.partial == 4, "{s:?}");
+    assert!((cents(pitch(settled(&a), SR, 233.08), 233.08)).abs() < 6.0);
+    // The pressure along the bore, one period of the mouthpiece and the lips, and the ladder.
+    let bore_peak = (0..BORE_POINTS).map(|i| shared.bore_pressure(i).abs()).fold(0.0f32, f32::max);
+    assert!(bore_peak > 100.0, "the bore's pressure profile should be published ({bore_peak} Pa)");
+    let (lo, hi) = (0..TRACE_POINTS).map(|i| shared.trace(i).0).fold((f32::MAX, f32::MIN), |(a, b), v| (a.min(v), b.max(v)));
+    assert!(hi - lo > 500.0, "a period of mouthpiece pressure should be published ({lo}..{hi})");
+    assert!((0..TRACE_POINTS).any(|i| shared.trace(i).1 > 1.0e-4), "the lips' opening should be published");
+    let (r2, r4) = (shared.resonance(2).0, shared.resonance(4).0);
+    assert!((r4 / r2 - 2.0).abs() < 0.05, "the ladder: resonance 4 at {r4} Hz, 2 at {r2} Hz");
+    // A second note while the first is held: slurred on the same player, no gap.
+    handle.send(BrassCommand::NoteOn { id: 2, params: BrassParams { articulation: Articulation::Legato, ..note(174.61) }, gated: true, live: None }).ok().unwrap();
+    handle.send(BrassCommand::NoteOff { id: 1 }).ok().unwrap();
+    let b = pull(&mut voice, 0.6);
+    assert!((cents(pitch(settled(&b), SR, 174.61), 174.61)).abs() < 8.0);
+    let gap = b.chunks((0.01 * SR) as usize).take(20).map(rms).fold(f32::MAX, f32::min);
+    assert!(gap > 0.1 * rms(settled(&a)), "a slur shouldn't stop the sound (quietest 10 ms: {gap})");
+    assert_eq!(shared.state().partial, 3);
+    handle.send(BrassCommand::NoteOff { id: 2 }).ok().unwrap();
+    let _ = pull(&mut voice, 0.5);
+    assert!(!shared.state().playing);
+}
+
+#[test]
+fn live_breath_and_bend_steer_a_held_note() {
+    let shared = Arc::new(BrassShared::default());
+    let p = BrassParams { breath: 0.3, ..note(233.08) };
+    let live = Arc::new(BrassLive::from_params(&p));
+    let mut voice = BrassVoice::new(shared.clone(), p, Some(Arc::new(std::sync::atomic::AtomicBool::new(true)))).with_live(live.clone());
+    let soft = pull(&mut voice, 0.6);
+    let pm_soft = shared.state().mouth_pressure;
+    live.set("breath", 0.85);
+    let loud = pull(&mut voice, 0.6);
+    let pm_loud = shared.state().mouth_pressure;
+    assert!(pm_loud > 3.0 * pm_soft, "mouth pressure {pm_soft:.0} -> {pm_loud:.0} Pa");
+    assert!(rms(settled(&loud)) > 3.0 * rms(settled(&soft)));
+    assert!(centroid(settled(&loud)) > 1.5 * centroid(settled(&soft)));
+    // A bend of +150 cents moves the slide in, and the ear follows the bent pitch.
+    let before = shared.state().extension;
+    live.set("bend", -150.0);
+    let bent = pull(&mut voice, 0.6);
+    let f = pitch(settled(&bent), SR, 233.08);
+    assert!((cents(f, 233.08) + 150.0).abs() < 10.0, "bent down 150 cents: {:+.1}", cents(f, 233.08));
+    assert!(shared.state().extension > before + 0.1, "the slide should have moved out");
+}
+

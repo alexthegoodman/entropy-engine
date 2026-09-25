@@ -450,6 +450,36 @@ impl AirBore {
         (self.front.len(), self.bell.len())
     }
 
+    /// Acoustic pressure (Pa) at `out.len()` evenly spaced points from the lips to the mouth: the
+    /// two travelling waves summed wherever they are - in the cells, or read back out of the
+    /// cylinder's delay lines at the right age.
+    pub fn pressure_along(&self, out: &mut [f32]) {
+        let n = out.len();
+        if n == 0 {
+            return;
+        }
+        let (nf, nb) = (self.front.len() as f32, self.bell.len() as f32);
+        let cyl = self.delay.max(1.0);
+        let total = nf + cyl + nb;
+        let seg = self.delay / SEGMENTS as f32;
+        for (j, o) in out.iter_mut().enumerate() {
+            let x = total * j as f32 / (n - 1).max(1) as f32;
+            *o = if x < nf {
+                self.front.pressure((x as usize).min(self.front.len() - 1))
+            } else if x < nf + cyl {
+                // `d` samples in from the front end: the forward wave pushed `d` samples ago, the
+                // backward one pushed at the bell end `cyl - d` samples ago.
+                let d = x - nf;
+                let k = ((d / seg.max(1.0)) as usize).min(SEGMENTS - 1);
+                let fwd = self.fwd[k].tap((d - k as f32 * seg).max(0.0) as usize);
+                let bwd = self.bwd.tap((cyl - d).max(0.0) as usize);
+                fwd + bwd
+            } else {
+                self.bell.pressure(((x - nf - cyl) as usize).min(self.bell.len() - 1))
+            };
+        }
+    }
+
     /// Pressure at front cell `i` (0 = the cup), Pa.
     pub fn front_pressure(&self, i: usize) -> f32 {
         self.front.pressure(i.min(self.front.len() - 1))

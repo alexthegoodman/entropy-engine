@@ -10,6 +10,7 @@
 //! partial, as real players crack notes. Once the note speaks, the player listens to its pitch and
 //! eases the slide to put it in tune, as trombonists do.
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::airbore::AirBore;
@@ -105,6 +106,25 @@ impl BrassInstrument {
         match s {
             "trombone" | "tenorTrombone" => Some(Self::TenorTrombone),
             _ => None,
+        }
+    }
+
+    /// A stable number for publishing (see `from_index`).
+    pub fn index(self) -> u32 {
+        match self {
+            Self::TenorTrombone => 0,
+        }
+    }
+
+    pub fn from_index(i: u32) -> Self {
+        match i {
+            _ => Self::TenorTrombone,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::TenorTrombone => "trombone",
         }
     }
 }
@@ -209,6 +229,53 @@ impl BrassParams {
 }
 
 // ------------------------------------------------------------------------------------------
+// Live controls for a held note
+// ------------------------------------------------------------------------------------------
+
+/// Controls a held note reads every control tick, so a breath controller, a drag in the view, a
+/// knob, automation or an AI tool call all play the same sounding note. Same units as the matching
+/// `BrassParams` fields; `bend` is in cents (on the trombone it moves the slide).
+pub struct BrassLive {
+    pub breath: AtomicU32,
+    pub lip_tension: AtomicU32,
+    pub vibrato_depth: AtomicU32,
+    pub bend: AtomicU32,
+}
+
+impl BrassLive {
+    pub fn from_params(p: &BrassParams) -> Self {
+        Self {
+            breath: AtomicU32::new(p.breath.to_bits()),
+            lip_tension: AtomicU32::new(p.lip_tension.to_bits()),
+            vibrato_depth: AtomicU32::new(p.vibrato_depth.to_bits()),
+            bend: AtomicU32::new(0f32.to_bits()),
+        }
+    }
+
+    /// Sets a control by name: "breath", "lipTension", "vibratoDepth" or "bend". Unknown names are
+    /// ignored.
+    pub fn set(&self, which: &str, value: f32) {
+        let (slot, v) = match which {
+            "breath" => (&self.breath, value.clamp(0.0, 1.0)),
+            "lipTension" => (&self.lip_tension, value.clamp(-1.0, 1.0)),
+            "vibratoDepth" => (&self.vibrato_depth, value.clamp(0.0, 100.0)),
+            "bend" => (&self.bend, value.clamp(-1200.0, 1200.0)),
+            _ => return,
+        };
+        slot.store(v.to_bits(), Ordering::Relaxed);
+    }
+
+    fn get(a: &AtomicU32) -> f32 {
+        f32::from_bits(a.load(Ordering::Relaxed))
+    }
+
+    /// `p` with the live controls applied, and the bend in cents.
+    fn apply(&self, p: BrassParams) -> (BrassParams, f32) {
+        (BrassParams { breath: Self::get(&self.breath), lip_tension: Self::get(&self.lip_tension), vibrato_depth: Self::get(&self.vibrato_depth), ..p }, Self::get(&self.bend))
+    }
+}
+
+// ------------------------------------------------------------------------------------------
 // The instrument's resonances, per slide position
 // ------------------------------------------------------------------------------------------
 
@@ -217,6 +284,8 @@ pub struct ResonanceTable {
     pub extras: [f32; TABLE_STEPS],
     /// `peaks[j][n - 1]`: partial `n` at `extras[j]`, Hz.
     pub peaks: [[f32; HIGHEST_PARTIAL + 1]; TABLE_STEPS],
+    /// The same peaks' impedance magnitudes, Pa·s/m³.
+    pub magnitudes: [[f32; HIGHEST_PARTIAL + 1]; TABLE_STEPS],
 }
 
 impl ResonanceTable {
@@ -224,14 +293,16 @@ impl ResonanceTable {
         let reference = Reference::new(profile, 20.0, 1100.0, 0.5);
         let mut extras = [0.0; TABLE_STEPS];
         let mut peaks = [[0.0; HIGHEST_PARTIAL + 1]; TABLE_STEPS];
+        let mut magnitudes = [[0.0; HIGHEST_PARTIAL + 1]; TABLE_STEPS];
         for j in 0..TABLE_STEPS {
             let e = profile.slide_max * j as f32 / (TABLE_STEPS - 1) as f32;
             extras[j] = e;
             for (n, pk) in reference.peaks(tuning + e).iter().take(HIGHEST_PARTIAL + 1).enumerate() {
                 peaks[j][n] = pk.freq;
+                magnitudes[j][n] = pk.magnitude;
             }
         }
-        Self { extras, peaks }
+        Self { extras, peaks, magnitudes }
     }
 
     /// Resonance `n` (1-based) at slide extension `e`, interpolated.
@@ -247,6 +318,19 @@ impl ResonanceTable {
         }
         a * (b / a).powf(t)
     }
+
+    /// Impedance magnitude of resonance `n` (1-based) at slide extension `e`, interpolated.
+    pub fn magnitude(&self, n: usize, e: f32) -> f32 {
+        let n = n.clamp(1, HIGHEST_PARTIAL + 1) - 1;
+        let step = self.extras[1] - self.extras[0];
+        let x = (e / step).clamp(0.0, (TABLE_STEPS - 1) as f32);
+        let i = (x.floor() as usize).min(TABLE_STEPS - 2);
+        let t = x - i as f32;
+        self.magnitudes[i][n] + (self.magnitudes[i + 1][n] - self.magnitudes[i][n]) * t
+    }
+
+    /// Resonances in the table (partials 1 up to this).
+    pub const PARTIALS: usize = HIGHEST_PARTIAL + 1;
 
     /// The slide extension at which resonance `n` sits at `hz`, if the slide can reach it.
     pub fn extension_for(&self, n: usize, hz: f32) -> Option<f32> {
@@ -328,6 +412,12 @@ pub struct BrassReport {
     pub wave_steepness: f32,
     /// AC level of the mouthpiece pressure, Pa (rms, smoothed).
     pub mouthpiece_level: f32,
+    /// The note meant (with any live bend), Hz, and the resonance it is played on, Hz.
+    pub target: f32,
+    pub resonance: f32,
+    /// The controls in effect (live values when the note has them): breath and lip tension knobs.
+    pub breath: f32,
+    pub lip_tension: f32,
 }
 
 struct Player {
@@ -360,6 +450,7 @@ struct Player {
     guide: f32,
     guide_phase: f32,
     guide_left: u32,
+    live: Option<Arc<BrassLive>>,
 }
 
 impl Player {
@@ -384,6 +475,15 @@ impl Player {
             guide: 0.0,
             guide_phase: 0.0,
             guide_left: 0,
+            live: None,
+        }
+    }
+
+    /// The note's parameters with any live controls applied, and the live bend (cents).
+    fn effective(&self) -> (BrassParams, f32) {
+        match &self.live {
+            Some(l) => l.apply(self.p),
+            None => (self.p, 0.0),
         }
     }
 }
@@ -456,8 +556,16 @@ pub struct Engine {
     /// Mean-square AC mouthpiece pressure (for "has the note spoken"), and its DC tracker.
     mp_ac: f32,
     mp_dc: DcBlock,
+    /// The last `TRACE_RING` output samples of mouthpiece pressure and lip opening, for the view.
+    mp_ring: Box<[f32; TRACE_RING]>,
+    lip_ring: Box<[f32; TRACE_RING]>,
+    ring_pos: usize,
     clock: u64,
 }
+
+/// Samples of mouthpiece pressure and lip opening kept for the view (a period of the lowest note
+/// fits several times over).
+pub const TRACE_RING: usize = 2048;
 
 impl Engine {
     /// Builds the instrument (off the audio thread: the first build of an instrument computes its
@@ -497,6 +605,9 @@ impl Engine {
             mp_level: 0.0,
             mp_ac: 0.0,
             mp_dc: DcBlock::default(),
+            mp_ring: Box::new([0.0; TRACE_RING]),
+            lip_ring: Box::new([0.0; TRACE_RING]),
+            ring_pos: 0,
             clock: 0,
         }
     }
@@ -546,13 +657,14 @@ impl Engine {
 
     /// Starts a note. A note arriving while another is held is a slur (or a re-tongued note, for
     /// `Tongued`).
-    pub fn note_on(&mut self, id: u64, p: BrassParams, gated: bool) {
+    pub fn note_on(&mut self, id: u64, p: BrassParams, gated: bool, live: Option<Arc<BrassLive>>) {
         let pressure = p.mouth_pressure();
         let fingering = self.choose_fingering(p.freq, pressure);
         let miss = (1.0 - p.attack_skill.clamp(0.0, 1.0)) * 0.12 * if self.noise.bipolar() >= 0.0 { 1.0 } else { -1.0 };
         let pl = &mut self.player;
         let was_playing = pl.phase == Phase::Playing;
         pl.p = p;
+        pl.live = live;
         pl.note_id = id;
         pl.hold_left = if gated { None } else { Some((p.duration.max(0.0) * self.sr) as u64) };
         pl.t_note = 0.0;
@@ -641,7 +753,7 @@ impl Engine {
                 pl.t_release = 0.0;
             }
         }
-        let p = pl.p;
+        let (p, bend) = pl.effective();
         let target = pl.fingering;
 
         // Breath.
@@ -680,7 +792,8 @@ impl Engine {
         let glide = if pl.phase == Phase::Playing { p.slide_time.max(0.005) / 3.0 } else { 0.05 };
         pl.slide += (target.extension - pl.slide) * (1.0 - (-dt / glide).exp());
         let arrived = (target.extension - pl.slide).abs() < 0.015;
-        let fix_len = (total + pl.slide) * (2f32.powf(pl.fix / 1200.0) - 1.0);
+        // A bend (pitch bend, or a drag on the slide) is the arm moving the slide: up is shorter.
+        let fix_len = (total + pl.slide) * (2f32.powf((pl.fix - bend) / 1200.0) - 1.0);
         let vib_len = (total + pl.slide) * (2f32.powf(vib / 1200.0) - 1.0);
         let slide_max = self.bore.profile().slide_max;
         let at_stop = pl.slide + fix_len < 0.0;
@@ -689,8 +802,8 @@ impl Engine {
         // Lips: set for the resonance and the breath, the attack's miss fading as the player
         // corrects it, bent by the tension control.
         pl.lip_miss = 1.0 + (pl.lip_miss - 1.0) * (-dt / 0.08).exp();
-        let bend = 2f32.powf(pl.lip_bend * LIP_BEND_RATIO / 1200.0);
-        let lip = lip_center(target.resonance, pl.p_mouth.max(pressure * 0.3)) * pl.lip_miss * bend * 2f32.powf(p.lip_tension.clamp(-1.0, 1.0) * 0.35);
+        let lip_up = 2f32.powf(pl.lip_bend * LIP_BEND_RATIO / 1200.0);
+        let lip = lip_center(target.resonance, pl.p_mouth.max(pressure * 0.3)) * pl.lip_miss * lip_up * 2f32.powf(p.lip_tension.clamp(-1.0, 1.0) * 0.35);
         self.lips.freq += (lip - self.lips.freq) * (1.0 - (-dt / 0.02).exp());
         self.lips.spec.mu += (lip_mass(target.resonance) - self.lips.spec.mu) * (1.0 - (-dt / 0.03).exp());
 
@@ -706,13 +819,14 @@ impl Engine {
         }
 
         // Ear: once the note has spoken and the slide has arrived, ease the slide to put it in
-        // tune - and where the slide can go no shorter, bend the lips up a little instead. Only while the note is on the
-        // partial meant (a cracked note is not tuned onto the right pitch by the slide).
+        // tune - and where the slide can go no shorter, bend the lips up a little instead. Only
+        // while the note is on the partial meant (a cracked note is not tuned onto the right pitch
+        // by the slide).
         if pl.phase == Phase::Playing && pl.t_note > 0.06 && arrived && self.ear.confidence > 4 {
             let heard = self.sr_os / self.ear.period;
             // Measured against the note as meant, vibrato included (the player doesn't correct
             // their own vibrato away).
-            let err = 1200.0 * (heard / p.freq).log2() + vib;
+            let err = 1200.0 * (heard / p.freq).log2() - bend + vib;
             if err.abs() < 150.0 {
                 let k = (dt / 0.05).min(1.0);
                 if at_stop && err < 0.0 {
@@ -742,7 +856,7 @@ impl Engine {
         self.control_countdown -= 1;
 
         let dt = 1.0 / self.sr_os;
-        let p = self.player.p;
+        let (p, _) = self.player.effective();
         let aperture = 2f32.powf((p.aperture.clamp(0.0, 1.0) - 0.5) * 2.0);
         let ear_a = OnePole::coef_for(self.player.fingering.resonance * 1.6, self.sr_os);
         let noise_a = OnePole::coef_for(3000.0, self.sr_os);
@@ -781,12 +895,73 @@ impl Engine {
         self.mp_level += (mp * mp - self.mp_level) * 0.001;
         self.mp_ac += (mp * mp - self.mp_ac) * 0.004;
         self.out_level += (y.abs() - self.out_level) * 0.001;
+        self.mp_ring[self.ring_pos] = mp;
+        self.lip_ring[self.ring_pos] = self.lips.h;
+        self.ring_pos = (self.ring_pos + 1) % TRACE_RING;
         [y, y]
+    }
+
+    /// One period of the mouthpiece pressure (Pa, AC) and of the lips' opening (m), each resampled
+    /// to `out.len()` points, starting at an upward zero crossing of the pressure so a view drawing
+    /// it frame after frame shows a standing picture. False (and nothing written) when no period
+    /// can be found.
+    pub fn traces(&self, pressure: &mut [f32], opening: &mut [f32]) -> bool {
+        let pl = &self.player;
+        let hz = if self.ear.confidence > 2 { self.sr_os / self.ear.period } else { pl.p.freq };
+        let period = self.sr / hz.max(20.0);
+        if period < 4.0 || period * 2.0 > TRACE_RING as f32 - 4.0 {
+            return false;
+        }
+        let at = |ring: &[f32; TRACE_RING], back: f32| {
+            // `back` samples before the newest, linearly interpolated.
+            let b = back.max(0.0);
+            let i = b.floor() as usize;
+            let f = b - i as f32;
+            let idx = |k: usize| (self.ring_pos + TRACE_RING - 1 - k.min(TRACE_RING - 1)) % TRACE_RING;
+            ring[idx(i)] * (1.0 - f) + ring[idx(i + 1)] * f
+        };
+        // The latest upward crossing at least one period back.
+        let mut start = None;
+        let mut k = period.ceil() as usize;
+        while (k as f32) < period * 2.0 + 2.0 && k + 1 < TRACE_RING {
+            let (newer, older) = (at(&self.mp_ring, k as f32), at(&self.mp_ring, k as f32 + 1.0));
+            if older < 0.0 && newer >= 0.0 {
+                start = Some(k as f32 + older / (older - newer));
+                break;
+            }
+            k += 1;
+        }
+        let Some(start) = start else { return false };
+        let n = pressure.len().min(opening.len());
+        for j in 0..n {
+            let back = start - period * j as f32 / n as f32;
+            pressure[j] = at(&self.mp_ring, back);
+            opening[j] = at(&self.lip_ring, back);
+        }
+        true
+    }
+
+    /// Acoustic pressure along the air column, lips to bell, at `out.len()` evenly spaced points.
+    pub fn bore_pressure(&self, out: &mut [f32]) {
+        self.bore.pressure_along(out);
+    }
+
+    /// The air column's resonances where the slide is now: frequencies (Hz) and impedance
+    /// magnitudes, partial 1 upward. Returns how many were written.
+    pub fn ladder(&self, freqs: &mut [f32], mags: &mut [f32]) -> usize {
+        let e = self.bore.extra();
+        let n = freqs.len().min(mags.len()).min(ResonanceTable::PARTIALS);
+        for i in 0..n {
+            freqs[i] = self.table.peak(i + 1, e);
+            mags[i] = self.table.magnitude(i + 1, e);
+        }
+        n
     }
 
     /// A snapshot of the note in progress.
     pub fn report(&mut self) -> BrassReport {
         let pl = &self.player;
+        let (p, bend) = pl.effective();
         let total0 = self.bore.profile().total_length(0.0);
         let ext = self.bore.extra();
         let semis = 12.0 * ((total0 + ext) / total0).log2();
@@ -801,6 +976,10 @@ impl Engine {
             sounding: if self.ear.confidence > 2 { self.sr_os / self.ear.period } else { 0.0 },
             wave_steepness: self.bore.take_peak_slope(),
             mouthpiece_level: self.mp_level.sqrt(),
+            target: p.freq * 2f32.powf(bend / 1200.0),
+            resonance: pl.fingering.resonance,
+            breath: p.breath,
+            lip_tension: p.lip_tension,
         }
     }
 
