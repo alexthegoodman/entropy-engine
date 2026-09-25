@@ -10,6 +10,9 @@
 //! PNGs of the real window, not blank, each different from the last). Needs a real desktop session
 //! and audio device, like the other live suites. Audibility to a person is not asserted.
 
+#[path = "common/daw_saved.rs"]
+mod daw_saved;
+
 use std::{collections::HashSet, fs, path::Path, process::Command};
 
 fn run_daw(root: &Path, data: &Path) -> serde_json::Value {
@@ -128,7 +131,7 @@ fn daw_wavetable_live_feature() {
     }
 
     // ---- The project the addon persisted ----
-    let project: serde_json::Value = serde_json::from_slice(&fs::read(data.join("DAW.json")).expect("DAW.json saved")).unwrap();
+    let project: serde_json::Value = daw_saved::open_song(&data);
     let lead = project["tracks"].as_array().unwrap().iter().find(|t| t["id"] == "trk-lead").expect("the lead track");
     assert_eq!(lead["voice"]["waveform"], "wavetable");
     let wt = &lead["wavetable"];

@@ -10,9 +10,9 @@ There are two complete connection approaches: (1) direct LAN/Wi-Fi, where the ho
 
 ## Existing integration points
 
-- `examples/studio-bundle/src/apps/daw_synth_addon.ts` owns `project: DAWProject`, changes it in UI callbacks and MCP tool handlers, and persists the entire object through `addon.IO.save(project)` or a 250 ms debounce. A second writer cannot safely edit the same JSON file.
+- `examples/studio-bundle/src/apps/daw_synth_addon.ts` owns `project: DAWProject`, changes it in UI callbacks and MCP tool handlers, and persists the entire object through `writeProject()` (immediately or after a 250 ms debounce) into the open song's file in the song library (`daw_library.ts`, see [DAW_SONG_LIBRARY.md](./DAW_SONG_LIBRARY.md)). A second writer cannot safely edit the same song file.
 - `examples/studio-bundle/src/apps/daw_arrangement.ts` contains pure clip/pattern/time functions that can become command validators and reducers. Notes are identified only by row, step, length, velocity; add stable note IDs or define note-cell identity explicitly.
-- `src/deno/addon_ops.rs` writes an addon JSON file synchronously. Session snapshots need a new persistence path with atomic replace and schema/version metadata; do not use concurrent writes to the existing DAW.json.
+- `Entropy.IO.store` (`src/helpers/addon_store.rs`) writes an addon's files synchronously with atomic replace, and song, library and version files carry `format`/`version` metadata. Session snapshots can reuse it; do not add concurrent writers to a song file.
 - `daw_rack.ts` saves absolute sample paths. Wavetable table data and VST3 state are base64 in the project; VST3 also saves a local plugin path. These need portable asset references or compatibility rules before another computer can reproduce a project.
 - The transport uses `Date.now()` and fires elapsed steps in `onFrame`, skipping backlogs above 32 steps. It is not an audio-clock scheduler and cannot promise sample-aligned multi-machine playback.
 - The existing MCP HTTP server binds `127.0.0.1` and exposes AI tools. It is not a LAN collaboration server and should remain separate.

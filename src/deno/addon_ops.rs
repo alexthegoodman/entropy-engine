@@ -1563,7 +1563,8 @@ pub fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[s
 
             let file_path = dir.join(format!("{}.json", addon_name));
 
-            if let Err(e) = std::fs::write(&file_path, data) {
+            // Atomic replace: a crash mid-save leaves the previous file intact, never a truncated one.
+            if let Err(e) = crate::helpers::addon_store::write_atomic(&file_path, data.as_bytes()) {
                 return Err(deno_error::JsErrorBox::generic(format!("Failed to write file: {}", e)));
             }
 
@@ -1591,6 +1592,46 @@ pub fn op_addon_save_data(state: &mut OpState, #[string] addon_name: String, #[s
     } else {
         Err(deno_error::JsErrorBox::generic("Context not available"))
     }
+}
+
+/// The addon's own document store folder (`<data_dir>/<addon>/`, see helpers/addon_store.rs). Only
+/// an app that set a data folder has one; the legacy project-id folders are deliberately not used.
+fn addon_store_root(state: &OpState, addon_name: &str) -> Result<PathBuf, deno_error::JsErrorBox> {
+    let ctx = state.try_borrow::<AddonContext>().ok_or_else(|| deno_error::JsErrorBox::generic("Context not available"))?;
+    let dir = ctx.data_dir.as_ref().ok_or_else(|| {
+        deno_error::JsErrorBox::generic("This app has no data folder, so nothing can be stored (see EntropyApp::with_data_dir)")
+    })?;
+    crate::helpers::addon_store::addon_root(dir, addon_name).map_err(deno_error::JsErrorBox::generic)
+}
+
+/// `Entropy.IO.store.read`: the file's text, or null if there is none.
+#[op2]
+#[string]
+pub fn op_addon_store_read(state: &mut OpState, #[string] addon_name: String, #[string] path: String) -> Result<Option<String>, deno_error::JsErrorBox> {
+    let root = addon_store_root(state, &addon_name)?;
+    crate::helpers::addon_store::read(&root, &path).map_err(deno_error::JsErrorBox::generic)
+}
+
+/// `Entropy.IO.store.write`: an atomic replace (temporary file, flush, rename).
+#[op2(fast)]
+pub fn op_addon_store_write(state: &mut OpState, #[string] addon_name: String, #[string] path: String, #[string] data: String) -> Result<(), deno_error::JsErrorBox> {
+    let root = addon_store_root(state, &addon_name)?;
+    crate::helpers::addon_store::write(&root, &path, &data).map_err(deno_error::JsErrorBox::generic)
+}
+
+/// `Entropy.IO.store.list`: folders then files directly inside `path` ("" is the store's top).
+#[op2]
+#[serde]
+pub fn op_addon_store_list(state: &mut OpState, #[string] addon_name: String, #[string] path: String) -> Result<Vec<crate::helpers::addon_store::StoreEntry>, deno_error::JsErrorBox> {
+    let root = addon_store_root(state, &addon_name)?;
+    crate::helpers::addon_store::list(&root, &path).map_err(deno_error::JsErrorBox::generic)
+}
+
+/// `Entropy.IO.store.remove`: a file, or a folder and everything in it. True if anything was there.
+#[op2(fast)]
+pub fn op_addon_store_remove(state: &mut OpState, #[string] addon_name: String, #[string] path: String) -> Result<bool, deno_error::JsErrorBox> {
+    let root = addon_store_root(state, &addon_name)?;
+    crate::helpers::addon_store::remove(&root, &path).map_err(deno_error::JsErrorBox::generic)
 }
 
 /// Starts one of this build's own example apps as a separate OS process and answers its pid.

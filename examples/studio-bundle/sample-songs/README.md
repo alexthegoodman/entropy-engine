@@ -1,6 +1,6 @@
 # DAW sample songs
 
-These files are standalone DAW project JSON files. The DAW bundles them into its **Sample song** picker; select one and click **Load sample song**. Loading replaces the current project and saves the chosen song as the new `DAW.json`.
+These files are standalone DAW project JSON files. The DAW bundles them as templates: open **Songs**, choose one under **New song from** and click **Create**. That makes a new song in your library (see [the song library docs](../../../docs/DAW_SONG_LIBRARY.md)); the song you were working on is left as it was.
 
 | File | Style | Arrangement |
 | --- | --- | --- |

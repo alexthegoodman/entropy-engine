@@ -9,6 +9,9 @@
 //! persisted, and the screenshots (real PNGs, not blank, each different from the last). Needs a real
 //! desktop session and audio device, like the other live suites. Audibility to a person is not asserted.
 
+#[path = "common/daw_saved.rs"]
+mod daw_saved;
+
 use std::{collections::HashSet, fs, path::Path, process::Command};
 
 const KICK_HZ: f64 = 300.0;
@@ -123,7 +126,7 @@ fn daw_rack_live_feature() {
     }
 
     // ---- The project the addon persisted ----
-    let project: serde_json::Value = serde_json::from_slice(&fs::read(data.join("DAW.json")).expect("DAW.json saved")).unwrap();
+    let project: serde_json::Value = daw_saved::open_song(&data);
     let drums = project["tracks"].as_array().unwrap().iter().find(|t| t["id"] == "trk-drums").expect("the drums track");
     let rack = drums["rack"].as_array().expect("the drums track has a rack");
     assert_eq!(rack.len(), 6, "five built-in pads plus the one added: {rack:#?}");

@@ -100,6 +100,7 @@ The object `Entropy.Addon.register()` returns:
 There's no "project" concept for an embedded app — addons own their persistence directly, under whatever directory you passed to `.with_data_dir(...)` (or `./data` by default):
 
 - `addon.IO.save(data)` / `addon.IO.load()` — one JSON file per addon, named after it.
+- `addon.IO.store.read/write/list/remove(path)` — as many files as you need in the addon's own folder (`<data_dir>/<addon name>/`), with atomic writes. The DAW's song library is built on it.
 - `addon.GameState.save(key, data)` / `addon.GameState.load(key)` — shared state under any key you choose, readable by any addon.
 - `addon.Scripts.read(filename)` / `addon.Scripts.write(filename, content)` — plain text files.
 
@@ -355,7 +356,8 @@ There's no built-in "project" concept. Addons own their save data under the dire
 
 | Call | What it does |
 |---|---|
-| `IO.save(data)` / `IO.load()` | Saves/loads one JSON file per addon, named after your addon automatically. |
+| `IO.save(data)` / `IO.load()` | Saves/loads one JSON file per addon, named after your addon automatically. The write is atomic. |
+| `IO.store.read(path)` / `write(path, text)` / `list(path?)` / `remove(path)` | A document store in the addon's own folder, `<data_dir>/<addon name>/`, for apps that keep many files. Paths are relative, `/`-separated `[A-Za-z0-9_.-]` names with no leading dots; writes are atomic (temporary file, flush, rename); `read` answers `null` for a missing file; `remove` takes a file or a whole folder. Every call throws when the app has no data folder. |
 | `IO.saveImage(filename, width, height, data)` | Writes raw pixel data out as an image file. |
 | `IO.listModels()` / `pickAndImportModel()` | Lists available model files, or opens a native file picker to import a new one. |
 | `IO.musicDir()` / `pickSampleFolder()` / `listDir(path)` | Read-only sample browsing: the user's Music folder (or `null`), a native folder picker, and the folders and audio files directly inside a folder. `listDir` is refused outside the Music folder and folders picked with `pickSampleFolder`. |

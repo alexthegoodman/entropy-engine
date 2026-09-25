@@ -609,6 +609,12 @@ export interface ScopedAPI {
      * Music folder and folders chosen with `pickSampleFolder`. */
     listDir: (path: string) => ListDirResult;
     load: () => any;
+    /** This addon's own document store, `<dataDir>/<addon name>/...` - for an app that keeps many
+     * files (the DAW's song library and version history), where `save`/`load` give it only one.
+     * Paths are relative and made of `[A-Za-z0-9_.-]` segments separated by `/` (no leading dots,
+     * no `..`); anything else throws. Writes are atomic: a crash mid-write leaves the previous file.
+     * Every call throws when the app has no data folder (`EntropyApp::with_data_dir`). */
+    store: AddonStore;
   };
   Scripts: {
     list: () => Promise<string[]>;
@@ -689,6 +695,26 @@ export interface GlobalSettings {
 }
 
 // UI Types
+export interface AddonStoreEntry {
+  name: string;
+  isDir: boolean;
+  /** Bytes; 0 for a folder. */
+  size: number;
+  /** Last modification, ms since the Unix epoch. */
+  modifiedMs: number;
+}
+
+export interface AddonStore {
+  /** The file's text, or null if there is no such file. */
+  read: (path: string) => string | null;
+  /** Creates or atomically replaces the file, creating missing folders. */
+  write: (path: string, text: string) => void;
+  /** Folders first, then files, directly inside `path` ("" for the top). A missing folder is empty. */
+  list: (path?: string) => AddonStoreEntry[];
+  /** Removes a file, or a folder and everything in it. True if anything was there. */
+  remove: (path: string) => boolean;
+}
+
 export interface WindowConfig {
   title?: string;
   width?: number;

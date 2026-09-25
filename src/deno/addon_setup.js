@@ -959,6 +959,16 @@ globalThis.Entropy = {
                     pickAndImportModel: () => {
                         return ops.op_io_pick_and_import_model();
                     },
+                    // This addon's own document store, `<dataDir>/<addon name>/...`, for apps that
+                    // keep many files (a song library, version history). Paths are relative, made of
+                    // [A-Za-z0-9_.-] segments; writes are atomic. Every call throws if the app has no
+                    // data folder, so a caller can tell "not stored" apart from "stored nothing".
+                    store: {
+                        read: (path) => ops.op_addon_store_read(metadata.name, path) ?? null,
+                        write: (path, text) => ops.op_addon_store_write(metadata.name, path, text),
+                        list: (path = "") => ops.op_addon_store_list(metadata.name, path),
+                        remove: (path) => ops.op_addon_store_remove(metadata.name, path),
+                    },
                     load: () => {
                         const json = ops.op_addon_load_data(metadata.name);
                         if (!json || json === "") return null;
