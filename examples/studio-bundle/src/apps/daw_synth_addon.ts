@@ -93,6 +93,22 @@ import {
     repairPhysMod,
 } from "./daw_physmod";
 import type { GuitarDiag, GuitarPrefs } from "./daw_guitar";
+import type { SongEntry, SongStore, SortMode, VersionEntry } from "./daw_library";
+import {
+    SongLibrary,
+    TRASH_RETENTION_MS,
+    cleanName,
+    dayHeading,
+    describeChanges,
+    describeStats,
+    filterSongs,
+    formatClock,
+    formatDate,
+    memoryStore,
+    sortSongs,
+    timeAgo,
+    versionTitle,
+} from "./daw_library";
 import neonTide from "../../sample-songs/neon-tide-edm.json" with { type: "json" };
 import afterhours from "../../sample-songs/afterhours-house.json" with { type: "json" };
 import lowlight from "../../sample-songs/lowlight-hip-hop.json" with { type: "json" };
@@ -385,38 +401,29 @@ function makeStarterProject(): DAWProject {
     return { bpm: 96, stepsPerBeat: 4, songBars: 16, snap: "bar", arrangement, tracks: [drums, bass, lead, pad], activeTrackId: "trk-drums" };
 }
 
+// A fresh song: one drum track and one synth track, each with an empty pattern, and nothing
+// arranged yet - the starting point "New song" gives you.
+function makeBlankProject(): DAWProject {
+    const blank: DAWProject = { bpm: 120, stepsPerBeat: 4, songBars: 16, snap: "bar", arrangement: [], tracks: [], activeTrackId: null };
+    blank.tracks.push(newTrack("drum", 0, "Drums", blank), newTrack("synth", 1, "Synth", blank));
+    blank.activeTrackId = blank.tracks[0].id;
+    return blank;
+}
+
 let project: DAWProject = makeStarterProject();
 
-const SAMPLE_SONGS = [
-    { name: "Neon Tide - EDM (rising violins)", data: neonTide },
-    { name: "Afterhours - House (cello chops)", data: afterhours },
-    { name: "Lowlight - Hip Hop (drum breakdown)", data: lowlight },
-] as const;
-let sampleSongIndex = 0;
-let sampleSongStatus = "";
-
-function loadSampleSong(index: number) {
-    const sample = SAMPLE_SONGS[index];
-    if (!sample) return;
-    // The addon runtime has no structuredClone. A JSON round trip copies this JSON template
-    // before the current project is touched, and lets the loaded song be edited independently.
-    const replacement = JSON.parse(JSON.stringify(sample.data)) as DAWProject;
-    stop();
-    rewind();
-    if (guitarStatus.running) stopGuitar();
-    for (const track of project.tracks) removeTrackBus(track);
-    project = replacement;
-    selectedClipId = null;
-    arrangementStatus = "";
-    kickPreview = null;
-    undoStack.length = 0;
-    moveStatus = "";
-    saveDueAt = 0;
-    transport.mode = "song";
-    project.tracks.forEach(syncTrackBus);
-    addon.IO.save(project);
-    sampleSongStatus = `Loaded ${sample.name}. Press Play to hear the arrangement.`;
-}
+// What "New song" can start from. Every choice makes a new song in the library - nothing here ever
+// replaces the song you are working on. The JSON templates are copied with a JSON round trip (the
+// addon runtime has no structuredClone), so the new song can be edited independently.
+interface SongTemplate { id: string; label: string; songName: string; make: () => DAWProject }
+const copyJson = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const SONG_TEMPLATES: SongTemplate[] = [
+    { id: "blank", label: "Blank song", songName: "Untitled song", make: makeBlankProject },
+    { id: "demo", label: "Demo song", songName: "Demo song", make: makeStarterProject },
+    { id: "neon", label: "Neon Tide - EDM (rising violins)", songName: "Neon Tide", make: () => copyJson(neonTide) as DAWProject },
+    { id: "afterhours", label: "Afterhours - House (cello chops)", songName: "Afterhours", make: () => copyJson(afterhours) as DAWProject },
+    { id: "lowlight", label: "Lowlight - Hip Hop (drum breakdown)", songName: "Lowlight", make: () => copyJson(lowlight) as DAWProject },
+];
 
 function getActiveTrack(): Track | undefined {
     return project.tracks.find(t => t.id === project.activeTrackId) || project.tracks[0];
@@ -426,22 +433,22 @@ function findTrack(id: string): Track | undefined {
     return project.tracks.find(t => t.id === id);
 }
 
-function newTrack(kind: "synth" | "drum", channel: number, name?: string): Track {
-    const pattern = newPattern("Pattern 1", barSteps(project.stepsPerBeat));
-    const colorIndex = project.tracks.reduce((m, t) => Math.max(m, t.colorIndex), -1) + 1;
+function newTrack(kind: "synth" | "drum", channel: number, name?: string, into: DAWProject = project): Track {
+    const pattern = newPattern("Pattern 1", barSteps(into.stepsPerBeat));
+    const colorIndex = into.tracks.reduce((m, t) => Math.max(m, t.colorIndex), -1) + 1;
     const base = {
         id: Entropy.generateUUID(), channel, colorIndex, muted: false, solo: false,
         patterns: [pattern], activePatternId: pattern.id
     };
     if (kind === "drum") {
         return {
-            ...base, name: name ?? `Drums ${project.tracks.length + 1}`, kind: "drum",
+            ...base, name: name ?? `Drums ${into.tracks.length + 1}`, kind: "drum",
             rootNote: 60, scale: "chromatic", rows: 5, rack: defaultRack(),
             voice: defaultDrumVoice(), gain: 0.5
         };
     }
     return {
-        ...base, name: name ?? `Synth ${project.tracks.length + 1}`, kind: "synth",
+        ...base, name: name ?? `Synth ${into.tracks.length + 1}`, kind: "synth",
         rootNote: 60, scale: "pentatonic_minor", rows: 10,
         voice: defaultSynthVoice("saw"), gain: 0.25
     };
@@ -945,7 +952,7 @@ function playVst3Note(track: Track, row: number, velocity: number, duration: num
 }
 
 function persist() {
-    addon.IO.save(project);
+    writeProject();
     project.tracks.forEach(syncTrackBus);
 }
 
@@ -960,10 +967,12 @@ function scheduleSave() {
 }
 
 function flushSaveIfDue() {
-    if (saveDueAt && Date.now() >= saveDueAt) {
-        saveDueAt = 0;
-        addon.IO.save(project);
-    }
+    if (saveDueAt && Date.now() >= saveDueAt) writeProject();
+}
+
+/** Writes a save the debounce is still holding, before anything reads the song from disk. */
+function flushPendingSave() {
+    if (saveDueAt) writeProject();
 }
 
 // --- Transport / sequencer --------------------------------------------------
@@ -2445,7 +2454,7 @@ function onArrangementBackground() {
 
 function setSnap(mode: SnapMode) {
     project.snap = mode;
-    addon.IO.save(project);
+    writeProject();
 }
 
 function setSongBars(bars: number) {
@@ -2906,22 +2915,16 @@ function toDisplayRow(track: Track, row: number): number {
     return track.rows - 1 - row;
 }
 
-// Reopens the last saved project. Effect ids are per-session handles into the engine's effect
-// registry, so the saved ones are meaningless now and are cleared for syncTrackBus to recreate.
-// A project saved before the arrangement existed is migrated in place (see migrateProject).
-function restoreSavedProject() {
-    let saved: any = null;
-    try {
-        saved = addon.IO.load();
-    } catch (e) {
-        Entropy.println("DAW: could not read the saved project: " + e);
-    }
-    if (!saved || !Array.isArray(saved.tracks) || saved.tracks.length === 0) return;
+// Brings any saved project - an open song, a version, a template, an old DAW.json - up to date.
+// Effect ids are per-session handles into the engine's effect registry, so saved ones are meaningless
+// now and are cleared for syncTrackBus to recreate. A project saved before the arrangement existed
+// is migrated in place (see migrateProject). Throws on something that is not a project at all.
+function repairProject(saved: any): DAWProject {
+    if (!saved || !Array.isArray(saved.tracks)) throw new Error("that file is not a DAW song");
     for (const t of saved.tracks) {
         t.delayEffectId = null;
         t.reverbEffectId = null;
     }
-    const legacy = !Array.isArray(saved.arrangement);
     migrateProject(saved, newId);
     // A project from before drum racks has no `rack`: it gets the five built-in pads it always had.
     for (const t of saved.tracks) if (t.kind === "drum") ensureRack(t);
@@ -2930,15 +2933,623 @@ function restoreSavedProject() {
     for (const t of saved.tracks) if (t.physmod || t.voice?.waveform === PHYSMOD_WAVEFORM) t.physmod = repairPhysMod(t.physmod);
     for (const t of saved.tracks) if (t.character) t.character = repairCharacter(t.character);
     saved.cuts = repairCuts(saved.cuts);
-    project = saved as DAWProject;
-    if (saved.guitar) project.guitar = readGuitarPrefs(saved.guitar);
-    if (!project.tracks.some(t => t.id === project.activeTrackId)) {
-        project.activeTrackId = project.tracks[0].id;
-    }
-    // Write the upgraded project back so the file on disk is in the new format from the first open,
-    // not only after the next edit.
-    if (legacy) addon.IO.save(project);
+    const repaired = saved as DAWProject;
+    if (saved.guitar) repaired.guitar = readGuitarPrefs(saved.guitar);
+    if (!repaired.tracks.some(t => t.id === repaired.activeTrackId)) repaired.activeTrackId = repaired.tracks[0]?.id ?? null;
+    return repaired;
 }
+
+// --- Song library (see daw_library.ts) ---------------------------------------------------------
+//
+// Every song lives in its own file under the DAW's store folder, saved as you work; the library
+// lists them, and each song keeps a version history. Opening another song never asks "save
+// changes?": the song you leave is already saved, and a version of it is kept on the way out.
+//
+// Without a data folder (an app that never called with_data_dir) the store is unavailable: the
+// library then lives in memory for the session and the open song still goes to IO.save, as before.
+
+const addonStore: SongStore | null = (addon.IO as any).store ?? null;
+let libraryPersistent = !!addonStore;
+let library = new SongLibrary<DAWProject>(addonStore ?? memoryStore(), { now: () => Date.now(), uuid: newId });
+
+// The last save's outcome, for the status beside the song name.
+const saveState = { at: 0, error: "" };
+// A short message about the last library action, with an optional Undo.
+let libraryToast: { text: string; at: number; undo?: { label: string; run: () => void } } | null = null;
+const TOAST_MS = 12_000;
+
+function toast(text: string, undo?: { label: string; run: () => void }) {
+    libraryToast = { text, at: Date.now(), undo };
+}
+
+function errorText(e: unknown): string {
+    return e instanceof Error ? e.message : String(e);
+}
+
+/** The one place the open song is written. Never throws: a failure shows beside the song name. */
+function writeProject() {
+    saveDueAt = 0;
+    try {
+        const id = library.currentSongId;
+        if (id) library.saveSong(id, project);
+        if (!libraryPersistent) addon.IO.save(project);
+        saveState.at = Date.now();
+        saveState.error = "";
+    } catch (e) {
+        saveState.error = errorText(e);
+        Entropy.println("DAW: could not save the song: " + saveState.error);
+    }
+}
+
+/** Runs a library action, turning a failure into a message rather than an exception in a click. */
+function libraryAction(what: string, run: () => void) {
+    try {
+        run();
+    } catch (e) {
+        toast(`Could not ${what}: ${errorText(e)}`);
+        Entropy.println(`DAW: could not ${what}: ${errorText(e)}`);
+    }
+}
+
+function currentSongName(): string {
+    return library.current()?.name ?? "Untitled song";
+}
+
+/** Swaps the song the DAW is playing and editing. Everything that belonged to the old one - its
+ * buses, plugins, wavetables, undo steps, selection - goes; the new one's are built up. */
+function installProject(next: DAWProject, teardown = true) {
+    if (teardown) {
+        stop();
+        rewind();
+        if (guitarStatus.running) stopGuitar();
+        for (const track of project.tracks) removeTrackBus(track);
+    }
+    project = next;
+    selectedClipId = null;
+    arrangementStatus = "";
+    kickPreview = null;
+    undoStack.length = 0;
+    moveStatus = "";
+    saveDueAt = 0;
+    transport.mode = "song";
+    transport.cursorStep = 0;
+    bpmDraft = String(project.bpm);
+    bpmDraftFor = project.bpm;
+    if (teardown) {
+        project.tracks.forEach(syncTrackBus);
+        verifyRacks();
+        project.tracks.forEach(t => { if (t.instrument) loadTrackInstrument(t, t.instrument); });
+    }
+}
+
+/** Keeps a version of the song being left, if it changed since its last one. */
+function versionSongBeingLeft() {
+    const id = library.currentSongId;
+    if (!id) return;
+    flushPendingSave();
+    if (library.nextAutoVersionIn(id) !== null) library.addVersion(id, project, "auto");
+    library.flushIndex();
+}
+
+function openSong(id: string) {
+    if (id === library.currentSongId) return;
+    versionSongBeingLeft();
+    const { project: loaded, note } = library.loadSong(id);
+    const repaired = repairProject(loaded);
+    installProject(repaired);
+    library.setCurrent(id);
+    // The song as it was when opened, so this session's changes can always be undone as a whole.
+    library.addVersion(id, project, "opened");
+    selectedSongId = id;
+    historySelection = null;
+    toast(note ?? `Opened "${currentSongName()}".`);
+}
+
+function createSongFromTemplate(template: SongTemplate, name?: string): SongEntry {
+    versionSongBeingLeft();
+    const fresh = repairProject(template.make());
+    const entry = library.createSong(name ?? template.songName, fresh);
+    installProject(fresh);
+    library.setCurrent(entry.id);
+    library.markOpened(entry.id);
+    selectedSongId = entry.id;
+    historySelection = null;
+    return entry;
+}
+
+/** The project of any song: the live one for the open song, its file for the others. */
+function projectOfSong(id: string): DAWProject {
+    if (id === library.currentSongId) {
+        flushPendingSave();
+        return project;
+    }
+    return library.loadSong(id).project;
+}
+
+function duplicateSong(id: string) {
+    const copy = library.duplicate(id, projectOfSong(id));
+    selectedSongId = copy.id;
+    toast(`Made a copy called "${copy.name}".`, { label: "Open it", run: () => libraryAction("open the copy", () => openSong(copy.id)) });
+}
+
+function renameSong(id: string, name: string) {
+    const before = library.find(id)?.name;
+    const used = library.rename(id, name);
+    if (before !== used) toast(used === cleanName(name) ? `Renamed to "${used}".` : `Renamed to "${used}" (that name was taken).`);
+}
+
+/** Moves a song to Recently deleted. Deleting the open song opens the most recent other one, or a
+ * new blank song if it was the last. */
+function deleteSong(id: string) {
+    const entry = library.find(id);
+    if (!entry) return;
+    const wasOpen = id === library.currentSongId;
+    if (wasOpen) versionSongBeingLeft();
+    library.trash(id);
+    if (wasOpen) {
+        const next = sortSongs(library.activeSongs(), "recent")[0];
+        if (next) openSong(next.id);
+        else createSongFromTemplate(SONG_TEMPLATES[0]);
+    }
+    if (selectedSongId === id) selectedSongId = library.currentSongId;
+    toast(`Moved "${entry.name}" to Recently deleted.`, {
+        label: "Undo",
+        run: () => libraryAction("undo the delete", () => {
+            library.restoreFromTrash(id);
+            if (wasOpen) openSong(id);
+            selectedSongId = id;
+            toast(`Brought back "${entry.name}".`);
+        })
+    });
+}
+
+function restoreSongFromTrash(id: string) {
+    const entry = library.restoreFromTrash(id);
+    selectedSongId = id;
+    trashSelection = null;
+    toast(`Brought back "${entry.name}".`, { label: "Open it", run: () => libraryAction("open the song", () => openSong(id)) });
+}
+
+/** Ctrl+S, and the "Save version" button with no name: a version now, unless nothing changed. */
+function saveVersionNow(label?: string) {
+    const id = library.currentSongId;
+    if (!id) return;
+    flushPendingSave();
+    const name = label ? cleanName(label) : "";
+    const kept = library.addVersion(id, project, name ? "named" : "auto", name || undefined);
+    library.flushIndex();
+    if (kept) {
+        historySelection = kept.id;
+        toast(name ? `Saved version "${name}".` : `Saved. A version from ${formatClock(kept.at)} is in History.`);
+    } else {
+        toast("Saved. Nothing changed since the last version.");
+    }
+}
+
+function restoreVersion(versionId: string, keepBefore = true) {
+    const id = library.currentSongId;
+    if (!id) return;
+    const target = library.versions(id).find(v => v.id === versionId);
+    if (!target) throw new Error("that version no longer exists");
+    flushPendingSave();
+    const restored = repairProject(library.loadVersion(id, versionId));
+    // The song as it is now becomes a version first, so the restore can be undone.
+    const before = keepBefore
+        ? library.addVersion(id, project, "before-restore", `Before restoring ${formatClock(target.at)}`) ?? library.versions(id)[0]
+        : null;
+    installProject(restored);
+    writeProject();
+    library.markOpened(id);
+    library.flushIndex();
+    historySelection = versionId;
+    const when = dayHeading(target.at, Date.now()) === "Today" ? formatClock(target.at) : `${formatDate(target.at)} ${formatClock(target.at)}`;
+    toast(`Restored the version from ${when}.`,
+        before ? { label: "Undo", run: () => libraryAction("undo the restore", () => { restoreVersion(before.id, false); toast("Undid the restore."); }) } : undefined);
+}
+
+function openVersionAsSong(versionId: string) {
+    const id = library.currentSongId;
+    if (!id) return;
+    const v = library.versions(id).find(x => x.id === versionId);
+    if (!v) throw new Error("that version no longer exists");
+    const source = library.loadVersion(id, versionId);
+    const name = `${currentSongName()} (${v.kind === "named" && v.label ? v.label : formatClock(v.at)})`;
+    const entry = createSongFromTemplate({ id: "version", label: "", songName: name, make: () => copyJson(source) });
+    toast(`Opened that version as a new song, "${entry.name}". The original is unchanged.`);
+}
+
+/**
+ * Startup: open the library and the song that was open last. The first run after this feature
+ * arrived moves the old single DAW.json (if there is one) into the library as the first song - it is
+ * left where it was, untouched, as a fallback. A first run with nothing saved starts the demo song.
+ */
+function openLibraryAtStartup() {
+    try {
+        library.init();
+    } catch (e) {
+        // The store is there but unusable (no data folder, a permissions problem): keep working in memory.
+        libraryPersistent = false;
+        Entropy.println(`DAW: the song library cannot be stored (${errorText(e)}); only the open song is saved, as DAW.json.`);
+        library = new SongLibrary<DAWProject>(memoryStore(), { now: () => Date.now(), uuid: newId });
+        library.init();
+    }
+
+    const tryOpen = (id: string): boolean => {
+        try {
+            const { project: loaded, note } = library.loadSong(id);
+            installProject(repairProject(loaded), false);
+            library.setCurrent(id);
+            library.addVersion(id, project, "opened");
+            if (note) toast(note);
+            return true;
+        } catch (e) {
+            toast(`Could not open "${library.find(id)?.name ?? "the last song"}": ${errorText(e)}`);
+            return false;
+        }
+    };
+
+    const last = library.currentSongId;
+    if (last && tryOpen(last)) return;
+    const recent = sortSongs(library.activeSongs(), "recent").find(s => s.id !== last);
+    if (recent && tryOpen(recent.id)) return;
+
+    // Nothing in the library yet: bring in the old single-file save, or start with the demo.
+    let legacy: any = null;
+    try { legacy = addon.IO.load(); } catch (e) { Entropy.println("DAW: could not read the old DAW.json: " + e); }
+    try {
+        if (legacy && Array.isArray(legacy.tracks) && legacy.tracks.length > 0) {
+            const imported = repairProject(legacy);
+            const entry = library.createSong("My song", imported);
+            installProject(imported, false);
+            library.setCurrent(entry.id);
+            library.addVersion(entry.id, project, "imported", "Imported from the previous DAW save");
+            if (libraryPersistent) toast(`Your song is now "My song" in the song library. Rename it any time from Songs.`);
+            return;
+        }
+    } catch (e) {
+        Entropy.println("DAW: the old DAW.json could not be imported: " + errorText(e));
+    }
+    const demo = makeStarterProject();
+    const entry = library.createSong("Demo song", demo);
+    installProject(demo, false);
+    library.setCurrent(entry.id);
+    library.addVersion(entry.id, project, "opened");
+}
+
+/** Once a frame: the debounced save, the index, and the automatic version every 10 minutes. */
+let indexFlushAt = 0;
+function tickLibrary() {
+    flushSaveIfDue();
+    const id = library.currentSongId;
+    const now = Date.now();
+    try {
+        if (id && library.autoVersionDue(id)) library.addVersion(id, project, "auto");
+        if (now >= indexFlushAt) {
+            indexFlushAt = now + 2000;
+            library.flushIndex();
+        }
+    } catch (e) {
+        saveState.error = errorText(e);
+    }
+    if (libraryToast && now - libraryToast.at > TOAST_MS) libraryToast = null;
+}
+
+// --- Song library UI state ---
+let songsVisible = false;
+let historyVisible = false;
+let songsWindowId: string | null = null;
+let historyWindowId: string | null = null;
+let selectedSongId: string | null = null;
+let trashSelection: string | null = null;
+let songQuery = "";
+let songSort: SortMode = "recent";
+const SORT_MODES: SortMode[] = ["recent", "name", "created"];
+const SORT_LABELS = ["Last edited", "Name", "Date created"];
+let newSongTemplate = 0;
+let renaming: { id: string; draft: string } | null = null;
+// Two-step confirmation for what cannot be undone: the id of the thing armed, and when.
+let confirmArmed: { key: string; at: number } | null = null;
+let historySelection: string | null = null;
+let versionNameDraft = "";
+const collapsedDays = new Set<string>();
+// The compared-with-now lines for the selected version, cached so a frame does not re-read the file.
+let comparison: { songId: string; versionId: string; savedAt: number; lines: string[]; error?: string } | null = null;
+
+function armed(key: string): boolean {
+    return !!confirmArmed && confirmArmed.key === key && Date.now() - confirmArmed.at < 5000;
+}
+/** First click arms, second click (within 5 s) runs. */
+function confirmThen(key: string, run: () => void) {
+    if (armed(key)) { confirmArmed = null; run(); }
+    else confirmArmed = { key, at: Date.now() };
+}
+
+function setSongsVisible(v: boolean) {
+    songsVisible = v;
+    if (v) selectedSongId = selectedSongId ?? library.currentSongId;
+    if (songsWindowId) Entropy.UI.setWindowVisible(songsWindowId, v);
+}
+function setHistoryVisible(v: boolean) {
+    historyVisible = v;
+    if (v) comparison = null;
+    if (historyWindowId) Entropy.UI.setWindowVisible(historyWindowId, v);
+}
+
+function saveStatusText(): string {
+    if (saveState.error) return withIcon("warning-circle", `Not saved: ${saveState.error}`);
+    if (saveDueAt) return "Saving...";
+    if (!libraryPersistent) return "Song library unavailable: only this song is kept";
+    return withIcon("check-circle", saveState.at ? `Saved ${timeAgo(saveState.at, Date.now())}` : "All changes saved");
+}
+
+// The song bar: which song is open, whether it is saved, and the way into Songs and History.
+function renderSongBar(win: string) {
+    const W = Entropy.UI.Widget;
+    W.horizontal(win, (row: string) => {
+        W.label(row, { text: withIcon("music-notes", currentSongName()), bold: true });
+        W.label(row, { text: saveStatusText() });
+        W.button(row, { text: withIcon("folder-open", songsVisible ? "Hide Songs" : "Songs"), id: "songs_toggle", onClick: () => { setSongsVisible(!songsVisible); } });
+        W.button(row, { text: withIcon("clock-counter-clockwise", historyVisible ? "Hide History" : "History"), id: "history_toggle", onClick: () => { setHistoryVisible(!historyVisible); } });
+        W.button(row, { text: withIcon("floppy-disk", "Save version"), id: "song_save_version", onClick: () => { libraryAction("save a version", () => saveVersionNow()); } });
+    });
+    renderToast(win);
+}
+
+function renderToast(win: string) {
+    const t = libraryToast;
+    if (!t) return;
+    const W = Entropy.UI.Widget;
+    W.horizontal(win, (row: string) => {
+        W.label(row, { text: t.text });
+        if (t.undo) {
+            const undo = t.undo;
+            W.button(row, { text: withIcon("arrow-u-up-left", undo.label), id: "library_toast_action", onClick: () => { libraryToast = null; undo.run(); } });
+        }
+        W.button(row, { text: "Dismiss", id: "library_toast_dismiss", onClick: () => { libraryToast = null; } });
+    });
+}
+
+function songDetail(s: SongEntry, now: number): string {
+    return `${Math.round(s.bpm)} BPM · ${s.tracks} tracks · ${timeAgo(s.updatedAt, now)}`;
+}
+
+function renderSongsWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const now = Date.now();
+
+    W.horizontal(win, (row: string) => {
+        W.dropdown(row, {
+            label: "New song from", id: "new_song_template", options: SONG_TEMPLATES.map(t => t.label),
+            selectedIndex: newSongTemplate,
+            onChange: (idx: string) => { newSongTemplate = parseInt(idx, 10) || 0; }
+        });
+        W.button(row, {
+            text: withIcon("file-plus", "Create"), id: "new_song_create",
+            onClick: () => libraryAction("create a song", () => {
+                const entry = createSongFromTemplate(SONG_TEMPLATES[newSongTemplate] ?? SONG_TEMPLATES[0]);
+                renaming = { id: entry.id, draft: entry.name };
+                toast(`Created "${entry.name}". Give it a name, or just start making music.`);
+            })
+        });
+    });
+    renderToast(win);
+    W.separator(win);
+
+    W.horizontal(win, (row: string) => {
+        W.textInput(row, { label: "Search", id: "song_search", value: songQuery, width: 180, onChange: (v: string) => { songQuery = v; } });
+        W.dropdown(row, {
+            label: "Sort", id: "song_sort", options: SORT_LABELS, selectedIndex: SORT_MODES.indexOf(songSort),
+            onChange: (idx: string) => { songSort = SORT_MODES[parseInt(idx, 10)] ?? "recent"; }
+        });
+    });
+
+    const all = library.activeSongs();
+    const shown = sortSongs(filterSongs(all, songQuery), songSort);
+    if (!shown.length) {
+        W.label(win, { text: all.length ? `No song name contains "${songQuery.trim()}".` : "No songs yet. Create one above." });
+    } else {
+        W.treeView(win, {
+            id: "song_list",
+            maxHeight: 300,
+            nodes: shown.map(s => ({
+                id: s.id, depth: 0,
+                label: s.id === library.currentSongId ? `${s.name}  (open)` : s.name,
+                icon: s.id === library.currentSongId ? icon("music-notes") : icon("music-note"),
+                detail: songDetail(s, now),
+                selected: s.id === selectedSongId,
+            })),
+            onSelect: (id: string) => { selectedSongId = id; if (renaming && renaming.id !== id) renaming = null; }
+        });
+        W.label(win, { text: songQuery.trim() ? `${shown.length} of ${all.length} songs` : `${all.length} song${all.length === 1 ? "" : "s"}` });
+    }
+
+    const sel = library.find(selectedSongId);
+    if (sel && sel.deletedAt === undefined) {
+        W.separator(win);
+        const isOpen = sel.id === library.currentSongId;
+        W.group(win, (g: string) => {
+            if (renaming && renaming.id === sel.id) {
+                const r = renaming;
+                W.horizontal(g, (row: string) => {
+                    W.textInput(row, { label: "Name", id: "song_rename_input", value: r.draft, width: 240, onChange: (v: string) => { r.draft = v; } });
+                    W.button(row, {
+                        text: "Save name", id: "song_rename_save",
+                        onClick: () => libraryAction("rename the song", () => { renameSong(sel.id, r.draft); renaming = null; })
+                    });
+                    W.button(row, { text: "Cancel", id: "song_rename_cancel", onClick: () => { renaming = null; } });
+                });
+            } else {
+                W.label(g, { text: isOpen ? `${sel.name} - open now` : sel.name, bold: true });
+            }
+            W.label(g, { text: describeStats(sel) });
+            const versions = library.versions(sel.id).length;
+            W.label(g, { text: `Created ${formatDate(sel.createdAt)} · edited ${timeAgo(sel.updatedAt, now)} · ${versions} version${versions === 1 ? "" : "s"}` });
+            W.horizontal(g, (row: string) => {
+                if (!isOpen) W.button(row, { text: withIcon("folder-open", "Open"), id: "song_open", onClick: () => libraryAction("open the song", () => openSong(sel.id)) });
+                W.button(row, { text: withIcon("pencil-simple", "Rename"), id: "song_rename", onClick: () => { renaming = { id: sel.id, draft: sel.name }; } });
+                W.button(row, { text: withIcon("copy", "Duplicate"), id: "song_duplicate", onClick: () => libraryAction("duplicate the song", () => duplicateSong(sel.id)) });
+                W.button(row, { text: withIcon("trash", "Delete"), id: "song_delete", onClick: () => libraryAction("delete the song", () => deleteSong(sel.id)) });
+            });
+        });
+    }
+
+    const trashed = library.trashedSongs();
+    if (trashed.length) {
+        W.separator(win);
+        W.collapsingHeader(win, withIcon("trash", `Recently deleted (${trashed.length})`), (tid: string) => {
+            W.label(tid, { text: `Deleted songs are kept for ${Math.round(TRASH_RETENTION_MS / 86_400_000)} days, then removed for good.` });
+            W.treeView(tid, {
+                id: "trash_list",
+                maxHeight: 160,
+                nodes: trashed.map(s => ({
+                    id: s.id, depth: 0, label: s.name, icon: icon("music-note"),
+                    detail: `deleted ${timeAgo(s.deletedAt!, now)}`, selected: s.id === trashSelection,
+                })),
+                onSelect: (id: string) => { trashSelection = id; }
+            });
+            const t = library.find(trashSelection);
+            W.horizontal(tid, (row: string) => {
+                if (t && t.deletedAt !== undefined) {
+                    W.button(row, { text: withIcon("arrow-counter-clockwise", "Restore"), id: "trash_restore", onClick: () => libraryAction("restore the song", () => restoreSongFromTrash(t.id)) });
+                    W.button(row, {
+                        text: armed("forever:" + t.id) ? "Click again to delete forever" : "Delete forever", id: "trash_delete_forever",
+                        onClick: () => confirmThen("forever:" + t.id, () => libraryAction("delete the song", () => {
+                            library.deleteForever(t.id);
+                            trashSelection = null;
+                            toast(`Deleted "${t.name}" for good.`);
+                        }))
+                    });
+                }
+                W.button(row, {
+                    text: armed("empty-trash") ? "Click again to empty" : "Empty Recently deleted", id: "trash_empty",
+                    onClick: () => confirmThen("empty-trash", () => libraryAction("empty Recently deleted", () => {
+                        const n = library.trashedSongs().length;
+                        for (const s of library.trashedSongs()) library.deleteForever(s.id);
+                        trashSelection = null;
+                        toast(`Deleted ${n} song${n === 1 ? "" : "s"} for good.`);
+                    }))
+                });
+            });
+        }, "songs_trash", false);
+    }
+
+    W.separator(win);
+    W.label(win, {
+        text: libraryPersistent
+            ? "Songs save automatically as you work. Ctrl+S keeps a version; Ctrl+O shows this list."
+            : "This app has no data folder for a song library: other songs last only until it closes, and only the open song is kept."
+    });
+}
+
+function versionIcon(v: VersionEntry): string {
+    switch (v.kind) {
+        case "named": return icon("bookmark-simple");
+        case "before-restore": return icon("arrow-counter-clockwise");
+        case "opened": return icon("folder-open");
+        default: return icon("clock-counter-clockwise");
+    }
+}
+
+function renderHistoryWindow(win: string) {
+    const W = Entropy.UI.Widget;
+    const songId = library.currentSongId;
+    if (!songId) { W.label(win, { text: "No song is open." }); return; }
+    const now = Date.now();
+
+    W.label(win, { text: withIcon("clock-counter-clockwise", `Versions of ${currentSongName()}`), bold: true });
+    W.horizontal(win, (row: string) => {
+        W.textInput(row, { label: "Name", id: "version_name", value: versionNameDraft, width: 200, onChange: (v: string) => { versionNameDraft = v; } });
+        W.button(row, {
+            text: withIcon("bookmark-simple", cleanName(versionNameDraft) ? "Save named version" : "Save version"), id: "version_save",
+            onClick: () => libraryAction("save a version", () => { saveVersionNow(versionNameDraft); versionNameDraft = ""; })
+        });
+    });
+    renderToast(win);
+
+    const versions = library.versions(songId);
+    if (!versions.length) {
+        W.label(win, { text: "No versions yet. One is kept every 10 minutes while you work, or save one now." });
+    } else {
+        // Grouped by day, newest first; a day's group can be folded away.
+        const nodes: any[] = [];
+        let day = "";
+        for (const v of versions) {
+            const heading = dayHeading(v.at, now);
+            if (heading !== day) {
+                day = heading;
+                const count = versions.filter(x => dayHeading(x.at, now) === heading).length;
+                nodes.push({ id: "day:" + heading, depth: 0, label: heading, hasChildren: true, expanded: !collapsedDays.has(heading), detail: `${count}` });
+            }
+            if (collapsedDays.has(heading)) continue;
+            nodes.push({
+                id: v.id, depth: 1, icon: versionIcon(v),
+                label: `${formatClock(v.at)}  ${versionTitle(v)}`,
+                detail: `${v.tracks} tracks · ${Math.round(v.bpm)} BPM`,
+                selected: v.id === historySelection,
+            });
+        }
+        const toggleDay = (id: string) => {
+            const heading = id.slice(4);
+            if (collapsedDays.has(heading)) collapsedDays.delete(heading); else collapsedDays.add(heading);
+        };
+        W.treeView(win, {
+            id: "version_list", maxHeight: 280, nodes,
+            onSelect: (id: string) => { if (id.startsWith("day:")) toggleDay(id); else historySelection = id; },
+            onToggleExpand: toggleDay,
+        });
+    }
+
+    const sel = versions.find(v => v.id === historySelection);
+    if (sel) {
+        W.separator(win);
+        W.group(win, (g: string) => {
+            W.label(g, { text: `${versionTitle(sel)} - ${dayHeading(sel.at, now)} at ${formatClock(sel.at)}`, bold: true });
+            W.label(g, { text: `${describeStats(sel)} · ${Math.max(1, Math.round(sel.size / 1024))} KB` });
+            // Recomputed when the selection changes or the song is saved again (it was edited).
+            if (!comparison || comparison.songId !== songId || comparison.versionId !== sel.id || comparison.savedAt !== saveState.at) {
+                const key = { songId, versionId: sel.id, savedAt: saveState.at };
+                try { comparison = { ...key, lines: describeChanges(project, library.loadVersion(songId, sel.id)) }; }
+                catch (e) { comparison = { ...key, lines: [], error: errorText(e) }; }
+            }
+            if (comparison.error) W.label(g, { text: withIcon("warning-circle", comparison.error) });
+            else {
+                W.label(g, { text: "Restoring it would change:" });
+                comparison.lines.forEach(line => W.label(g, { text: "  " + line }));
+            }
+            W.horizontal(g, (row: string) => {
+                if (!comparison?.error) {
+                    W.button(row, { text: withIcon("arrow-counter-clockwise", "Restore this version"), id: "version_restore", onClick: () => libraryAction("restore the version", () => { restoreVersion(sel.id); comparison = null; }) });
+                    W.button(row, { text: withIcon("copy", "Open as new song"), id: "version_open_copy", onClick: () => libraryAction("open the version", () => openVersionAsSong(sel.id)) });
+                }
+                W.button(row, {
+                    text: withIcon("bookmark-simple", sel.kind === "named" ? "Rename" : "Keep and name"), id: "version_name_toggle",
+                    onClick: () => { versionRename = { id: sel.id, draft: sel.kind === "named" ? sel.label ?? "" : "" }; }
+                });
+                W.button(row, {
+                    text: armed("version:" + sel.id) ? "Click again to delete" : withIcon("trash", "Delete"), id: "version_delete",
+                    onClick: () => confirmThen("version:" + sel.id, () => libraryAction("delete the version", () => { library.deleteVersion(songId, sel.id); historySelection = null; toast("Deleted that version."); }))
+                });
+            });
+            if (versionRename && versionRename.id === sel.id) {
+                const r = versionRename;
+                W.horizontal(g, (row: string) => {
+                    W.textInput(row, { label: "Version name", id: "version_rename_input", value: r.draft, width: 200, onChange: (v: string) => { r.draft = v; } });
+                    W.button(row, {
+                        text: "Save", id: "version_rename_save",
+                        onClick: () => libraryAction("name the version", () => { library.nameVersion(songId, sel.id, r.draft); versionRename = null; })
+                    });
+                    W.button(row, { text: "Cancel", id: "version_rename_cancel", onClick: () => { versionRename = null; } });
+                });
+            }
+        });
+    }
+
+    W.separator(win);
+    const next = library.nextAutoVersionIn(songId);
+    W.label(win, { text: next === null ? "No changes since the last version." : `Next automatic version in ${Math.max(1, Math.ceil(next / 60_000))} min.` });
+    W.label(win, { text: "Automatic versions thin out as they age: all from the last hour, one an hour for a day, one a day for a month, then one a week. Named versions are kept until you delete them." });
+}
+let versionRename: { id: string; draft: string } | null = null;
 
 const WAVEFORMS = ["sine", "square", "saw", "triangle", "noise", WT_WAVEFORM];
 const SCALE_NAMES = Object.keys(SCALES);
@@ -2998,7 +3609,8 @@ addon.onInit(async () => {
     //     }
     // });
 
-    restoreSavedProject();
+    // Opens the song that was open last (see openLibraryAtStartup).
+    openLibraryAtStartup();
     bpmDraft = String(project.bpm);
     bpmDraftFor = project.bpm;
 
@@ -3078,18 +3690,7 @@ addon.onInit(async () => {
     const renderTransportBar = (tabId: string) => {
         syncBpmDraft();
         Entropy.UI.Widget.group(tabId, (tid: string) => {
-            Entropy.UI.Widget.horizontal(tid, (row: string) => {
-                Entropy.UI.Widget.dropdown(row, {
-                    label: "Sample song", id: "sample_song", options: SAMPLE_SONGS.map(s => s.name),
-                    selectedIndex: sampleSongIndex,
-                    onChange: (idx: string) => { sampleSongIndex = parseInt(idx, 10) || 0; }
-                });
-                Entropy.UI.Widget.button(row, {
-                    text: "Load sample song", id: "sample_song_load",
-                    onClick: () => { loadSampleSong(sampleSongIndex); }
-                });
-                if (sampleSongStatus) Entropy.UI.Widget.label(row, { text: sampleSongStatus });
-            });
+            renderSongBar(tid);
             Entropy.UI.Widget.horizontal(tid, (tid2: string) => {
                 Entropy.UI.Widget.button(tid2, {
                     text: transport.playing ? withIcon("stop", "Stop") : withIcon("play", "Play"),
@@ -3829,6 +4430,34 @@ addon.onInit(async () => {
     });
     Entropy.UI.setWindowVisible(physModWindowId, physModVisible);
 
+    // The song library and the open song's version history, hidden until asked for.
+    songsWindowId = Entropy.UI.createWindow({
+        title: "Songs",
+        width: 620,
+        height: Math.max(520, Math.min(760, screenH - 72)),
+        x: 16,
+        y: 56,
+        onRender: () => renderSongsWindow(songsWindowId!)
+    });
+    Entropy.UI.setWindowVisible(songsWindowId, songsVisible);
+    historyWindowId = Entropy.UI.createWindow({
+        title: "History",
+        width: 600,
+        height: Math.max(520, Math.min(760, screenH - 72)),
+        x: Math.max(16, screenW - 616),
+        y: 56,
+        onRender: () => renderHistoryWindow(historyWindowId!)
+    });
+    Entropy.UI.setWindowVisible(historyWindowId, historyVisible);
+
+    // Ctrl+S keeps a version (the song itself is always saved), Ctrl+O shows the song list.
+    Entropy.Input?.onKeyDown?.((key: string, ctrl: boolean) => {
+        if (!ctrl) return;
+        const k = key.toLowerCase();
+        if (k === "s") libraryAction("save a version", () => saveVersionNow());
+        else if (k === "o") setSongsVisible(!songsVisible);
+    });
+
     // The guitar input, top right, hidden until asked for. Drag it anywhere.
     guitarWindowId = Entropy.UI.createWindow({
         title: "Guitar Input",
@@ -3857,7 +4486,7 @@ addon.onInit(async () => {
             if (typeof peak === "number") runtime.peak = Math.max(peak, runtime.peak * 0.92);
         }
 
-        flushSaveIfDue();
+        tickLibrary();
 
         if (!transport.playing) return;
 
@@ -3923,6 +4552,7 @@ addon.onInit(async () => {
     }, () => {
         const bar = barSteps(project.stepsPerBeat);
         return {
+            song: { id: library.currentSongId, name: currentSongName() },
             bpm: project.bpm,
             songBars: project.songBars,
             stepsPerBeat: project.stepsPerBeat,
@@ -4664,6 +5294,71 @@ Default mode replaces the pattern's notes; pass mode:"add" to layer new notes on
             success: true, bpm: project.bpm, songBars: project.songBars, stepsPerBeat: project.stepsPerBeat,
             activePatternSteps: t ? activePattern(t).steps : null, mode: transport.mode, playing: transport.playing
         };
+    });
+
+    addon.registerTool({
+        name: "daw_songs",
+        description: "Manage the song library and the open song's version history. Every song saves automatically; switching songs never loses work. Actions: \"list\" (all songs, newest edit first), \"open\" (songId), \"new\" (optional name, optional template: blank|demo|neon|afterhours|lowlight), \"rename\" (songId, name), \"duplicate\" (songId), \"delete\" (songId; moves it to Recently deleted, recoverable for 30 days), \"versions\" (the open song's versions, newest first), \"save_version\" (optional name; a named version is never thinned out), \"restore_version\" (versionId; the song as it is now is kept as a version first, so this can be undone). Use \"new\" before composing something unrelated to the open song rather than overwriting it.",
+        parameters: {
+            type: "object",
+            properties: {
+                action: { type: "string", enum: ["list", "open", "new", "rename", "duplicate", "delete", "versions", "save_version", "restore_version"] },
+                songId: { type: "string" },
+                versionId: { type: "string" },
+                name: { type: "string" },
+                template: { type: "string", enum: SONG_TEMPLATES.map(t => t.id) }
+            },
+            required: ["action"]
+        }
+    }, (args: any) => {
+        const songOut = (s: SongEntry) => ({ id: s.id, name: s.name, open: s.id === library.currentSongId, bpm: s.bpm, bars: s.bars, tracks: s.tracks, clips: s.clips, createdAt: new Date(s.createdAt).toISOString(), updatedAt: new Date(s.updatedAt).toISOString() });
+        const need = (id: unknown, what: string): string => {
+            if (typeof id !== "string" || !id) throw new Error(`${what} is required`);
+            return id;
+        };
+        try {
+            switch (args.action) {
+                case "list":
+                    return { success: true, songs: sortSongs(library.activeSongs(), "recent").map(songOut), recentlyDeleted: library.trashedSongs().map(s => ({ id: s.id, name: s.name })) };
+                case "open": {
+                    const id = need(args.songId, "songId");
+                    if (!library.find(id) || library.find(id)!.deletedAt !== undefined) throw new Error(`no song with id ${id}`);
+                    openSong(id);
+                    return { success: true, song: songOut(library.current()!) };
+                }
+                case "new": {
+                    const template = SONG_TEMPLATES.find(t => t.id === args.template) ?? SONG_TEMPLATES[0];
+                    const entry = createSongFromTemplate(template, typeof args.name === "string" && cleanName(args.name) ? args.name : undefined);
+                    return { success: true, song: songOut(entry) };
+                }
+                case "rename": {
+                    const id = need(args.songId, "songId");
+                    renameSong(id, need(args.name, "name"));
+                    return { success: true, song: songOut(library.find(id)!) };
+                }
+                case "duplicate": {
+                    const copy = library.duplicate(need(args.songId, "songId"), projectOfSong(args.songId));
+                    return { success: true, song: songOut(copy) };
+                }
+                case "delete":
+                    deleteSong(need(args.songId, "songId"));
+                    return { success: true, openSong: library.current() ? songOut(library.current()!) : null };
+                case "versions": {
+                    const id = library.currentSongId;
+                    return { success: true, song: currentSongName(), versions: id ? library.versions(id).map(v => ({ id: v.id, at: new Date(v.at).toISOString(), kind: v.kind, title: versionTitle(v), bpm: v.bpm, bars: v.bars, tracks: v.tracks, clips: v.clips })) : [] };
+                }
+                case "save_version":
+                    saveVersionNow(typeof args.name === "string" ? args.name : undefined);
+                    return { success: true, message: libraryToast?.text ?? "" };
+                case "restore_version":
+                    restoreVersion(need(args.versionId, "versionId"));
+                    return { success: true, message: libraryToast?.text ?? "" };
+                default:
+                    throw new Error(`unknown action ${args.action}`);
+            }
+        } catch (e) {
+            return { success: false, error: errorText(e) };
+        }
     });
 
     addon.registerTool({

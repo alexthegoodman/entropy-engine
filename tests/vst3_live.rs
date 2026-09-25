@@ -8,6 +8,9 @@
 //! addon persisted to disk, and the screenshots (composited frames plus native editor windows).
 //! Needs a real audio device and an interactive desktop, like the other live suites.
 
+#[path = "common/daw_saved.rs"]
+mod daw_saved;
+
 use std::{fs, path::Path, process::Command};
 
 fn run_daw(root: &Path, data: &Path, feature: Option<&str>) -> serde_json::Value {
@@ -92,7 +95,7 @@ fn vst3_live_feature() {
     }
 
     // The addon persisted the project with each track's plugin choice and patch state.
-    let project: serde_json::Value = serde_json::from_slice(&fs::read(data.join("DAW.json")).expect("DAW.json saved")).unwrap();
+    let project: serde_json::Value = daw_saved::open_song(&data);
     for name in ["Vital", "Massive", "Maschine 3"] {
         let saved = instrument(&project, name);
         let state_len = saved["instrument"]["state"].as_str().map(str::len).unwrap_or(0);

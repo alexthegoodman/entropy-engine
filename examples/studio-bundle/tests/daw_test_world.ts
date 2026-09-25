@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { memoryStore } from "../src/apps/daw_library";
 
 // Executable Gherkin subset (same approach as canvas_animation_bdd.test.ts): an unknown line or
 // step fails loudly instead of being skipped, so the feature file cannot drift from what runs.
@@ -22,15 +23,28 @@ export function parseFeature(file: string): Scenario[] {
 
 // The production addon runs against a stand-in `Entropy`: widgets are captured each render so a
 // step can call the exact callbacks the real widgets would, and every audio/IO call is recorded.
-export function createWorld(initialSaved?: unknown) {
+// `initialSaved` is an old single-file DAW.json (what IO.load answers); `files` is the DAW's song
+// store as it is on disk (path -> text), so a test can start from, or look at, a saved library.
+export function createWorld(initialSaved?: unknown, files = new Map<string, string>()) {
     let uuid = 0;
     let init: (() => Promise<void> | void) | undefined;
     let tabRender: (() => void) | undefined;
     const windowRenders: (() => void)[] = [];
     const updates: (() => void)[] = [];
+    const store = memoryStore(files);
+    // What IO.save was last handed: only used when the app has no store.
+    let legacySaved: any = null;
     const w = {
         clock: 1_000_000,
-        saved: null as any,
+        // The open song exactly as persisted: the song file the library index says is open.
+        get saved(): any {
+            const index = JSON.parse(files.get("library.json") ?? "null");
+            const id = index?.currentSongId;
+            const doc = id ? JSON.parse(files.get(`songs/${id}.json`) ?? "null") : null;
+            return doc?.project ?? legacySaved;
+        },
+        files,
+        keyDown: null as null | ((key: string, ctrl: boolean, shift: boolean, alt: boolean) => void),
         tools: new Map<string, (args: any) => any>(),
         buttons: new Map<string, () => void>(),
         buttonTexts: new Map<string, string>(),
@@ -134,7 +148,8 @@ export function createWorld(initialSaved?: unknown) {
         registerTool: (spec: any, run: (args: any) => any) => { w.tools.set(spec.name, run); },
         UI: { createTab: (cfg: any) => { tabRender = cfg.onRender; return "tab"; } },
         IO: {
-            save: (p: unknown) => { w.saved = JSON.parse(JSON.stringify(p)); },
+            save: (p: unknown) => { legacySaved = JSON.parse(JSON.stringify(p)); },
+            store,
             load: () => (initialSaved ? JSON.parse(JSON.stringify(initialSaved)) : null),
             musicDir: () => w.musicDir,
             pickSampleFolder: () => w.pickedFolder,
@@ -311,6 +326,7 @@ export function createWorld(initialSaved?: unknown) {
             setWindowVisible: (id: string, visible: boolean) => { w.windowVisible[id] = visible; },
         },
         Window: { getSize: () => [1400, 900] },
+        Input: { onKeyDown: (cb: any) => { w.keyDown = cb; return () => {}; } },
         Composer: undefined,
     };
 
